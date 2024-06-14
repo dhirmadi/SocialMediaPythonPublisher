@@ -1,0 +1,28 @@
+# config file for nsfw publishing mainly fetlife and telegram
+[Email]
+sender = (your gmail adress)  #the script uses google mail to send emails
+recipient = x@x.com  #recipient email adress
+
+[Instagram]
+name = myinstaaccount   #youe instagram account name
+
+[Dropbox]
+image_folder = /folder/subfolder  #folder where your images are stored
+
+[Content]
+hashtag_string = #addhashtagsto be added at the end of each post
+content URL where more content can be found
+nsfw = False  #not used
+telegram = False #publish to telegram
+fetlife = False #publish to email
+instagram = True #publish to instagram
+
+[Replicate]
+model = andreasjansson/blip-2:f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9  #replicate model to be used for image analysis
+
+[openAI]
+engine = gpt-3.5-turbo #chatGPT model to be used to create conten description
+#primer for openAI model to et behavior
+systemcontent = You are an expert in social media focused on helping photographers getting more followers. 
+#start of instruction to openAI
+rolecontent = Write me a caption for a photograph that shows
