@@ -1,0 +1,10 @@
+EMAIL_PASSWORD="..."  3gmail account password to send mail though gmail
+INSTA_PASSWORD="..."  password for the selected instagram account
+DROPBOX_TOKEN="..." initial temporary dropbox token
+DROPBOX_REFRESH_TOKEN="..." drop box refresh token
+DROPBOX_APP_KEY="..." 
+DROPBOX_APP_PASSWORD="..."
+TELEGRAM_BOT_TOKEN="..."
+TELEGRAM_CHANNEL_ID="..."
+REPLICATE_API_TOKEN="..."
+OPENAI_API_KEY=...
