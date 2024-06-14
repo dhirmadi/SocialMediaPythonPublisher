@@ -13,8 +13,6 @@ import openai
 import telegram
 import configparser
 from instagrapi import Client
-# from instagrapi.exceptions import LoginRequired
-# from PIL import Image, ImageOps
 from PIL import Image
 from PIL.Image import Resampling
 from email.mime.text import MIMEText
@@ -22,7 +20,33 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
 
+"""
+Script for managing social media content automation.
+
+This script integrates with various APIs (Dropbox, OpenAI, Telegram, Email, Instagram, etc.) 
+to automate the processing and distribution of social media content. It reads configuration 
+from a specified INI file, interacts with Dropbox for image storage, utilizes AI for content 
+generation, and posts content to Telegram, Email, and Instagram based on configuration settings.
+
+Functions:
+- read_config: Reads configuration variables from environment variables and INI file.
+- query_openai: Queries OpenAI API to generate captions based on given prompts.
+- list_images_in_dropbox: Asynchronously lists images from Dropbox folder.
+- download_image_from_dropbox: Asynchronously downloads images from Dropbox.
+- get_temp_link: Retrieves temporary links for images stored in Dropbox.
+- resize_image: Resizes images using PIL library.
+- archive_image: Archives images on Dropbox after successful distribution.
+- send_email: Sends emails with attached images.
+- post_image_to_instagram: Posts images and captions to Instagram.
+- send_telegram_message: Sends images and captions to Telegram.
+
+Usage:
+Ensure the script is run with the path to the configuration file as an argument:
+    python script_name.py <config_file>
+"""
+
 def read_config(configfile):
+    """Reads configuration variables from environment variables and INI file."""
     configuration = configparser.ConfigParser()
     configuration.read(configfile)
     return {
@@ -40,29 +64,26 @@ def read_config(configfile):
         'email_sender': configuration['Email']['sender'],
         'email_password': os.getenv('EMAIL_PASSWORD'),
         'hashtag_string': configuration['Content']['hashtag_string'],
+        'run_archive': configuration['Content'].getboolean('archive'),
         'run_telegram': configuration['Content'].getboolean('telegram'),
         'run_instagram': configuration['Content'].getboolean('instagram'),
         'run_fetlife': configuration['Content'].getboolean('fetlife'),
-        'run_nsfw': configuration['Content'].getboolean('nsfw'),
+        'run_debug': configuration['Content'].getboolean('debug'),
         'openai_api_key': os.getenv('OPENAI_API_KEY'),
         'openai_engine': configuration['openAI']['engine'],
+        'openai_systemcontent': configuration['openAI']['systemcontent'],
+        'openai_rolecontent': configuration['openAI']['rolecontent'],
         'replicate_model': configuration['Replicate']['model']
     }
 
 
-def query_openai(prompt, engine, api_key):
+def query_openai(prompt, engine, api_key,systemcontent,rolecontent):
     client = openai.OpenAI(api_key=api_key)
     try:
         response = client.chat.completions.create(
             messages=[
-                {"role": "system",
-                 "content": "You are an expert in social media focused on helping photographers getting more " +
-                            "followers. You are an expert at crafting captions with hashtags included and upon " +
-                            "request answer with a single line. Your response shall always be a caption beautifully " +
-                            "describing the image where the model poses for the camera in lingerie or other alluring " +
-                            "outfits. The captions must be between 100 and 150 characters long and is always followed " +
-                            "by 7 to 10 hashtags to ensure the growth fo followers."},
-                {"role": "user", "content": "Write me a caption for a photograph that shows " + prompt}
+                {"role": "system", "content": systemcontent},
+                {"role": "user", "content": rolecontent + " " + prompt}
             ],
             model=engine
         )
@@ -189,11 +210,11 @@ async def main(configfile):
     configuration: dict[str | Any, str | int | Any] = read_config(configfile)
 
     # Setting up run variables
-    # run_nsfw: bool = configuration.get('run_nsfw')
+    run_archive = configuration.get('run_archive')
     run_telegram = configuration.get('run_telegram')
     run_instagram: bool = configuration.get('run_instagram')
     run_fetlife: bool = configuration.get('run_fetlife')
-    run_debug: bool = False
+    run_debug: bool = configuration.get('run_debug')
 
     # ====================================content preparations==========================================================
 
@@ -249,7 +270,7 @@ async def main(configfile):
         print("Image Summary:" + image_summary)
 
     # get caption from openAI API and append the basic hashtags
-    caption = query_openai(image_summary, configuration['openai_engine'], configuration['openai_api_key'])
+    caption = query_openai(image_summary, configuration['openai_engine'], configuration['openai_api_key'],configuration['openai_systemcontent'],configuration['openai_rolecontent'],)
     message = caption.strip('"') + ' ' + configuration['hashtag_string']
 
     if run_debug:
@@ -295,15 +316,19 @@ async def main(configfile):
 
     # Only archive the image if both Telegram and Email were sent successfully
     if (telegram_sent or email_sent or instagram_sent) and not run_debug:
-        archive_image(dbx, configuration['image_folder'], selected_image_name, configuration['archive_folder'])
-        logging.info("Image archived successfully.")
+        if run_archive:
+            try:
+                archive_image(dbx, configuration['image_folder'], selected_image_name, configuration['archive_folder'])
+                logging.info("Image archived successfully.")
+            except Exception as e:
+                logging.error(f"Failed to archive image: {e}")
     else:
-        logging.info("Image not archived due to no publication.")
+        logging.info("No active output channel selected. No need to archive image")
 
 
 if __name__ == '__main__':
     if len(sys.argv) < 2:
-        print("Usage: python script_name.py <config_file>")
+        print("Usage: python py_rotato_daily.py /path/to/<config_file>")
         sys.exit(1)
 
     config_file = sys.argv[1]

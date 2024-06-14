@@ -1,9 +1,29 @@
-import configparser
 import sys
 import logging
+import configparser
 import dropbox
 from dropbox.oauth import DropboxOAuth2FlowNoRedirect
 from pprint import pprint
+
+"""
+Script to manage Dropbox OAuth2 authentication and update configuration.
+
+This script facilitates OAuth2 authentication with Dropbox using the Dropbox SDK.
+It reads configuration details from a specified INI file, including app key and secret,
+and manages the OAuth2 flow to obtain a refresh token. The refresh token is then used
+to create a Dropbox client instance, which can be used to interact with the Dropbox API.
+
+Functions:
+- start_initial_auth: Initiates the OAuth2 flow for Dropbox authentication.
+- get_dropbox_client: Creates and returns a Dropbox client instance using the refresh token.
+- update_config: Updates the configuration file with the latest refresh token.
+
+Usage:
+Ensure the script is run with the path to the configuration file as an argument:
+    python script.py <path_to_config_file>
+    
+NOTE: Requires initial temporary DropBox API Key to create full key and refresh key
+"""
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO)

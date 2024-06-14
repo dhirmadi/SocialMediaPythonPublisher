@@ -151,3 +151,7 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 SociaMediaConfig.ini
+configfiles/SociaMediaConfig.ini.example
+configfiles/1am.ini
+configfiles/3am.ini
+configfiles/7pm.ini
