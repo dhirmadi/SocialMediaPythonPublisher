@@ -1,36 +1,24 @@
 import sys
 import logging
-import configparser
 import dropbox
 from dropbox.oauth import DropboxOAuth2FlowNoRedirect
+from dotenv import load_dotenv, set_key, dotenv_values
+import os
 from pprint import pprint
-
-"""
-Script to manage Dropbox OAuth2 authentication and update configuration.
-
-This script facilitates OAuth2 authentication with Dropbox using the Dropbox SDK.
-It reads configuration details from a specified INI file, including app key and secret,
-and manages the OAuth2 flow to obtain a refresh token. The refresh token is then used
-to create a Dropbox client instance, which can be used to interact with the Dropbox API.
-
-Functions:
-- start_initial_auth: Initiates the OAuth2 flow for Dropbox authentication.
-- get_dropbox_client: Creates and returns a Dropbox client instance using the refresh token.
-- update_config: Updates the configuration file with the latest refresh token.
-
-Usage:
-Ensure the script is run with the path to the configuration file as an argument:
-    python script.py <path_to_config_file>
-    
-NOTE: Requires initial temporary DropBox API Key to create full key and refresh key
-"""
 
 # Setup basic logging
 logging.basicConfig(level=logging.INFO)
 
+# Load environment variables from the .env file
+def load_env(env_file):
+    load_dotenv(env_file)
+    return dotenv_values(env_file)
+
+def update_env(env_file, key, value):
+    set_key(env_file, key, value)
+
 def start_initial_auth(app_key, app_secret):
     try:
-        #auth_flow = DropboxOAuth2FlowNoRedirect(app_key, app_secret)
         auth_flow = DropboxOAuth2FlowNoRedirect(app_key, use_pkce=True, token_access_type='offline')
         authorize_url = auth_flow.start()
         print("1. Go to: " + authorize_url)
@@ -51,35 +39,36 @@ def get_dropbox_client(app_key, app_secret, refresh_token):
         logging.error(f"Error creating Dropbox client: {e}")
         sys.exit(1)
 
-def update_config(config_file, section, refresh_token):
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    config.set(section, 'db_refresh', refresh_token)
-    with open(config_file, 'w') as configfile:
-        config.write(configfile)
+def main(env_file):
+    # Load environment variables from the .env file
+    env_vars = load_env(env_file)
 
-def main(config_file):
-    config = configparser.ConfigParser()
-    config.read(config_file)
-    app_key = config.get('Dropbox', 'db_app')
-    app_secret = config.get('Dropbox', 'db_key')
-    refresh_token = config.get('Dropbox', 'db_refresh', fallback='')
+    app_key = env_vars.get('DROPBOX_APP_KEY')
+    app_secret = env_vars.get('DROPBOX_APP_PASSWORD')
+    refresh_token = env_vars.get('DROPBOX_REFRESH_TOKEN', '')
+
+    if not app_key or not app_secret:
+        logging.error("Dropbox app key and secret are required in the .env file.")
+        sys.exit(1)
 
     if not refresh_token:
         oauth_result = start_initial_auth(app_key, app_secret)
-        refresh_token=oauth_result.refresh_token
+        refresh_token = oauth_result.refresh_token
         pprint(vars(oauth_result))
 
-    dbx = get_dropbox_client(app_key, app_secret, refresh_token)
-    # You can now use `dbx` to interact with the Dropbox API.
+        # Update the .env file with the new refresh token
+        update_env(env_file, 'DROPBOX_REFRESH_TOKEN', refresh_token)
 
-    update_config(config_file, 'Dropbox', refresh_token)
+    dbx = get_dropbox_client(app_key, app_secret, refresh_token)
+    
+    # Use the dbx client for Dropbox operations here
+
     logging.info("Configuration updated with the new refresh token.")
     pprint(vars(dbx))
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        logging.error("Usage: python script.py <path_to_config_file>")
+        logging.error("Usage: python script.py <path_to_env_file>")
         sys.exit(1)
-    config_file_path = sys.argv[1]
-    main(config_file_path)
+    env_file_path = sys.argv[1]
+    main(env_file_path)
