@@ -13,6 +13,7 @@ import openai
 import telegram
 import configparser
 from instagrapi import Client
+from instagrapi.exceptions import LoginRequired
 from PIL import Image
 from PIL.Image import Resampling
 from email.mime.text import MIMEText
@@ -176,16 +177,62 @@ async def send_email(image_file, message, email_config):
         logging.error(f"Failed to send email: {e}")
 
 
-async def post_image_to_instagram(username, password, image_path, caption):
+async def post_image_to_instagram(USERNAME, PASSWORD, image_path, caption):
     client = Client()
-    client.login(username, password)
+    client.delay_range = [1, 3]
+    #client.login(USERNAME, PASSWORD)
+    #client.dump_settings("instasession.json")
+    session = client.load_settings("instasession.json")
+    login_via_session = False
+    login_via_pw = False
+    if session:
+        try:
+            client.set_settings(session)
+            client.login(USERNAME, PASSWORD)
+
+            # check if session is valid
+            try:
+                client.get_timeline_feed()
+            except LoginRequired:
+                logging.info("Session is invalid, need to login via username and password")
+
+                old_session = client.get_settings()
+
+                # use the same device uuids across logins
+                client.set_settings({})
+                client.set_uuids(old_session["uuids"])
+
+                client.login(USERNAME, PASSWORD)
+            login_via_session = True
+        except Exception as e:
+            logging.info("Couldn't login user using session information: %s" % e)
+
+    if not login_via_session:
+        try:
+            logging.info("Attempting to login via username and password. username: %s" % USERNAME)
+            if client.login(USERNAME, PASSWORD):
+                login_via_pw = True
+                client.dump_settings("instasession.json")
+        except Exception as e:
+            logging.info("Couldn't login user using username and password: %s" % e)
+
+    if login_via_pw or login_via_session:
+        logging.info("Logged in successfully")
+        try:
+            media = client.photo_upload(image_path, caption)
+            print(f"Successfully posted: {media.model_dump()}")
+        except Exception as e:
+            print(f"An error occurred: {e}")
+
+    if not login_via_pw and not login_via_session:
+        raise Exception("Couldn't login user with either password or session")
+    
+    # Login to Instagram
+    #client.login(username, password)   
+    #client.dump_settings("session.json")
 
     # Post the image
-    try:
-        media = client.photo_upload(image_path, caption)
-        print(f"Successfully posted: {media.model_dump()}")
-    except Exception as e:
-        print(f"An error occurred: {e}")
+    
 
 
 async def send_telegram_message(bot_token, chat_id, image_file, message):
