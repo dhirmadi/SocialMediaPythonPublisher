@@ -179,59 +179,39 @@ async def send_email(image_file, message, email_config):
 
 async def post_image_to_instagram(USERNAME, PASSWORD, image_path, caption):
     client = Client()
+    #client.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.6 Safari/605.1.15"
     client.delay_range = [1, 3]
-    #client.login(USERNAME, PASSWORD)
-    #client.dump_settings("instasession.json")
-    session = client.load_settings("instasession.json")
-    login_via_session = False
-    login_via_pw = False
-    if session:
+
+    session_file = "instasession.json"
+
+    # Try to load an existing session
+    try:
+        client.load_settings(session_file)
+        client.login(USERNAME, PASSWORD)
+
+        # Check if the session is valid by accessing the timeline feed
+        client.get_timeline_feed()
+        logging.info("Logged in via saved session")
+    except Exception as e:
+        logging.warning(f"Failed to login using saved session: {e}")
+
+        # If session login fails, do a fresh login and save the new session
         try:
-            client.set_settings(session)
             client.login(USERNAME, PASSWORD)
-
-            # check if session is valid
-            try:
-                client.get_timeline_feed()
-            except LoginRequired:
-                logging.info("Session is invalid, need to login via username and password")
-
-                old_session = client.get_settings()
-
-                # use the same device uuids across logins
-                client.set_settings({})
-                client.set_uuids(old_session["uuids"])
-
-                client.login(USERNAME, PASSWORD)
-            login_via_session = True
+            client.dump_settings(session_file)
+            logging.info("Logged in successfully via username/password and saved new session.")
         except Exception as e:
-            logging.info("Couldn't login user using session information: %s" % e)
+            logging.error(f"Failed to login with username and password: {e}")
+            raise Exception("Instagram login failed.")
 
-    if not login_via_session:
-        try:
-            logging.info("Attempting to login via username and password. username: %s" % USERNAME)
-            if client.login(USERNAME, PASSWORD):
-                login_via_pw = True
-                client.dump_settings("instasession.json")
-        except Exception as e:
-            logging.info("Couldn't login user using username and password: %s" % e)
+    # Post the image with a caption
+    try:
+        media = client.photo_upload(image_path, caption)
+        print(f"Successfully posted: {media.dict()}")
+    except Exception as e:
+        logging.error(f"An error occurred while posting: {e}")
+        raise e
 
-    if login_via_pw or login_via_session:
-        logging.info("Logged in successfully")
-        try:
-            media = client.photo_upload(image_path, caption)
-            print(f"Successfully posted: {media.model_dump()}")
-        except Exception as e:
-            print(f"An error occurred: {e}")
-
-    if not login_via_pw and not login_via_session:
-        raise Exception("Couldn't login user with either password or session")
-    
-    # Login to Instagram
-    #client.login(username, password)   
-    #client.dump_settings("session.json")
-
-    # Post the image
     
 
 
