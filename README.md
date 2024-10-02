@@ -1,28 +1,29 @@
-# SocialMediaPythonPublisher
- A Python script running as a cron job takes an image from a folder and publishes it to various channels. Using AI(replicate and chatGPT) to create image descriptions and taglines to automate the process of publishing to social media.
+# Social Media Automation Script
 
- Command line/Cron entry: python /path/to/script/py_rotator_daily.py /path/to/config/configfilename.ini
+This repository contains a Python script designed for automating social media content distribution across various platforms. The script integrates with several APIs, including **Dropbox**, **OpenAI**, **Replicate**, **Telegram**, **Email**, and **Instagram** to streamline the management and posting of images with AI-generated captions. 
 
-Current channels supported
-- Instagram
-- Telegram
-- email
+### Key Features:
+- **AI-Driven Caption Generation**: Leverages OpenAI and Replicate to generate mood-based captions for images, enhancing content relevance and engagement.
+- **Image Management**: Downloads, resizes, and archives images from Dropbox, allowing for automated content handling.
+- **Multi-Platform Posting**: Distributes images with generated captions to Instagram, Telegram, and via email.
+- **Customizable Configurations**: Reads configurations from environment variables and an INI file, allowing flexible integration with different accounts and settings.
+- **Error Handling and Debugging**: Includes logging and debugging options for enhanced error tracking and troubleshooting.
 
-  To install
-  - create new Python virtual environment
-  - run 'pip install -r requirements.txt' to get the required libraries for your python environment
-  - configure your .env file with the required keys for Dropbox, chatGPT etc using dotenv.example as a blueprint (make sure you got your temporary dropbox token
-  - configure the socialmedia.ini.example to create your config file
-  - run py_db_auth with config file to setup dropbox authentication
+### Requirements:
+- Python 3.7+
+- API tokens for OpenAI, Replicate, Dropbox, Instagram, and Telegram
+- Environment variables setup for secure API interactions
 
-    To test
-     run python /path/to/script/py_rotator_daily.py /path/to/config/configfilename.ini manually to see if it ges desired result (i recomend setting an email you can receive emails to as and set all other channels to false, until you are know you get the emails sent)
+### Usage:
+Run the script by providing the path to your configuration file:
+```bash
+python script_name.py <config_file>
+```
 
-  - Configure your cron job
- 
- how it works
- The script takes an image from a folder in your Dropbox and sends it to the Replicate service, evaluating what is on the picture. The resulting text is sent to chatGPT to create a caption.
- Now, the image, caption, and hashtags from the config file are used to publish the selected image to the channels according to your configuration file.
+### Features in Detail:
+- **Image Handling**: Automatically selects images from a Dropbox folder, resizes them, and generates temporary links.
+- **AI Integration**: Queries OpenAI and Replicate to generate captions and mood descriptions for each image.
+- **Cross-Platform Content Distribution**: Posts to Instagram, Telegram, and sends via email.
+- **Archiving**: Moves images to an archive folder after successful distribution.
 
- When all is done, the image is moved into the folder/archive folder so it's not used again any time soon
-  
+This script is designed to simplify social media management by automating repetitive tasks, allowing content creators to focus on engagement and creativity.
