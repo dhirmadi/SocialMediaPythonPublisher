@@ -1,0 +1,12 @@
+blank_issues_enabled: true
+contact_links:
+  - name: 📖 Documentation
+    url: https://github.com/yourusername/SocialMediaPythonPublisher/blob/main/docs/DOCUMENTATION.md
+    about: Check the complete documentation for answers
+  - name: 💬 Discussions
+    url: https://github.com/yourusername/SocialMediaPythonPublisher/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 🔒 Security Issue
+    url: https://github.com/yourusername/SocialMediaPythonPublisher/security/advisories/new
+    about: Report a security vulnerability (privately)
+

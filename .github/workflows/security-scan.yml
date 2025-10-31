@@ -1,0 +1,103 @@
+name: Security Scan
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  schedule:
+    # Run weekly on Mondays at 9 AM UTC
+    - cron: '0 9 * * 1'
+
+jobs:
+  security-scan:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install safety bandit
+        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+    
+    - name: Run Safety check (dependency vulnerabilities)
+      run: |
+        safety check --json || true
+    
+    - name: Run Bandit (code security issues)
+      run: |
+        bandit -r . -f json -o bandit-report.json || true
+    
+    - name: Upload Bandit results
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: bandit-report
+        path: bandit-report.json
+    
+    - name: Check for secrets in code
+      uses: trufflesecurity/trufflehog@main
+      with:
+        path: ./
+        base: ${{ github.event.repository.default_branch }}
+        head: HEAD
+    
+    - name: Verify .env not committed
+      run: |
+        if git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$'; then
+          echo "❌ ERROR: Sensitive files found in repository!"
+          echo "The following files should not be committed:"
+          git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$'
+          exit 1
+        else
+          echo "✅ No sensitive files found in repository"
+        fi
+    
+    - name: Check file permissions
+      run: |
+        echo "Checking for world-readable sensitive files..."
+        # This would be more relevant for deployed instances
+        # For repo, we just verify .gitignore is configured
+        if [ -f .gitignore ]; then
+          echo "✅ .gitignore exists"
+          grep -q "\.env" .gitignore && echo "✅ .env in .gitignore" || echo "⚠️  .env not in .gitignore"
+          grep -q "\.ini" .gitignore && echo "✅ .ini in .gitignore" || echo "⚠️  .ini not in .gitignore"
+        fi
+
+  dependency-review:
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Dependency Review
+      uses: actions/dependency-review-action@v3
+      with:
+        fail-on-severity: moderate
+
+  secret-scanning:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: GitGuardian scan
+      uses: GitGuardian/ggshield-action@master
+      env:
+        GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+        GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+        GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+      continue-on-error: true
+

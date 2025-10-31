@@ -150,10 +150,112 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
+
+# ============================================================================
+# PROJECT-SPECIFIC: Social Media Publisher
+# ============================================================================
+
+# Configuration files with sensitive data
+*.ini
+!*.ini.example
+configfiles/*.ini
+!configfiles/*.ini.example
 SociaMediaConfig.ini
-configfiles/1am.ini
-configfiles/3am.ini
-configfiles/7pm.ini
-configfiles/fetlife.ini
-configfiles/instagram.ini
+SocialMediaConfig.ini
+
+# Session files (contain authentication tokens)
 instasession.json
+*session.json
+*.session
+
+# API Keys and Secrets
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secret.key
+*.enc
+
+# Temporary files and caches
+/tmp/
+temp/
+*.tmp
+resized_*
+*_resized.*
+*_watermarked.*
+
+# Database files (if implemented)
+*.db
+*.sqlite
+*.sqlite3
+post_history.db
+post_stats.json
+post_queue.json
+
+# Logs
+*.log
+logs/
+socialmedia.log
+app.log
+
+# Mac OS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Windows
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Linux
+*~
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.classpath
+.settings/
+
+# Cursor AI
+.cursor/
+# Note: .cursorignore should be committed to share ignore rules with team
+
+# Backup files
+*.bak
+*.backup
+*.old
+*_backup.*
+
+# Archives (potentially containing sensitive data)
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.rar
+*.7z
+
+# Local development
+local/
+local_dev/
+sandbox/
+
+# Test outputs
+test_output/
+test_images/
+
+# Coverage reports
+htmlcov/
+.coverage
+coverage.xml
+*.cover
+
+# Security scan results
+.bandit
+bandit-report.*
+safety-report.*
