@@ -33,11 +33,11 @@ help:
 
 # Installation
 install:
-	pip install -r requirements.txt
+	pip3 install -r requirements.txt
 
 install-dev:
-	pip install -r requirements.txt
-	pip install -r requirements-dev.txt
+	pip3 install -r requirements.txt
+	pip3 install -r requirements-dev.txt
 
 setup-dev: install-dev
 	@echo "Setting up pre-commit hooks..."
@@ -138,13 +138,14 @@ run:
 	fi
 	python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 
+
 auth:
 	@if [ ! -f .env ]; then \
 		echo "❌ .env file not found"; \
 		echo "Run 'make setup-dev' first"; \
 		exit 1; \
 	fi
-	python py_db_auth.py .env
+	python3 py_db_auth.py .env
 
 # Development helpers
 watch-test:
@@ -169,5 +170,5 @@ status:
 	@if [ -f configfiles/SocialMediaConfig.ini ]; then echo "✅ Config exists"; else echo "❌ Config missing"; fi
 	@echo ""
 	@echo "Dependencies:"
-	@pip list | grep -E "dropbox|openai|replicate|telegram|instagrapi" || echo "Dependencies not installed"
+	@pip3 list | grep -E "dropbox|openai|replicate|telegram|instagrapi" || echo "Dependencies not installed"
 
