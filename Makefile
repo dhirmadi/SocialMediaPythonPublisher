@@ -33,15 +33,14 @@ help:
 
 # Installation
 install:
-	pip3 install -r requirements.txt
+	poetry install --no-root
 
 install-dev:
-	pip3 install -r requirements.txt
-	pip3 install -r requirements-dev.txt
+	poetry install --no-root
 
 setup-dev: install-dev
 	@echo "Setting up pre-commit hooks..."
-	pre-commit install
+	poetry run pre-commit install
 	@echo "Creating configuration files from examples..."
 	@if [ ! -f .env ]; then cp dotenv.example .env; echo "Created .env - EDIT THIS FILE"; fi
 	@if [ ! -f configfiles/SocialMediaConfig.ini ]; then \
@@ -60,39 +59,39 @@ setup-dev: install-dev
 # Code Quality
 format:
 	@echo "Formatting code with black..."
-	black . --line-length 120
+	poetry run black . --line-length 120
 	@echo "Sorting imports with isort..."
-	isort . --profile black --line-length 120
+	poetry run isort . --profile black --line-length 120
 	@echo "✅ Code formatted"
 
 lint:
 	@echo "Running flake8..."
-	flake8 . --max-line-length=120 --extend-ignore=E203,E501 --exclude=venv,env,.venv,.git,__pycache__
+	poetry run flake8 . --max-line-length=120 --extend-ignore=E203,E501 --exclude=venv,env,.venv,.git,__pycache__
 	@echo "Running pylint..."
-	pylint py_rotator_daily.py py_db_auth.py --max-line-length=120 || true
+	poetry run pylint py_rotator_daily.py py_db_auth.py --max-line-length=120 || true
 	@echo "✅ Linting complete"
 
 type-check:
 	@echo "Running mypy type checker..."
-	mypy . --ignore-missing-imports --exclude=venv --exclude=env || true
+	poetry run mypy . --ignore-missing-imports --exclude=venv --exclude=env || true
 	@echo "✅ Type checking complete"
 
 test:
 	@echo "Running tests with coverage..."
-	pytest -v --cov=. --cov-report=term --cov-report=html
+	poetry run pytest -v --cov=. --cov-report=term --cov-report=html
 	@echo "✅ Tests complete - see htmlcov/index.html for coverage report"
 
 check: format lint type-check test
 	@echo "Running pre-commit hooks..."
-	pre-commit run --all-files || true
+	poetry run pre-commit run --all-files || true
 	@echo "✅ All checks complete"
 
 # Security
 security:
 	@echo "Running safety check..."
-	safety check || true
+	poetry run safety check || true
 	@echo "Running bandit security scan..."
-	bandit -r . -f json -o bandit-report.json || true
+	poetry run bandit -r . -f json -o bandit-report.json || true
 	@echo "✅ Security scans complete - see bandit-report.json"
 
 check-secrets:
@@ -136,7 +135,7 @@ run:
 		echo "Run 'make setup-dev' first"; \
 		exit 1; \
 	fi
-	python py_rotator_daily.py configfiles/SocialMediaConfig.ini
+	poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 
 
 auth:
@@ -145,12 +144,12 @@ auth:
 		echo "Run 'make setup-dev' first"; \
 		exit 1; \
 	fi
-	python3 py_db_auth.py .env
+	poetry run python py_db_auth.py .env
 
 # Development helpers
 watch-test:
 	@echo "Watching for changes and running tests..."
-	pytest-watch -v
+	poetry run pytest-watch -v
 
 docs:
 	@echo "Opening documentation..."
@@ -163,12 +162,12 @@ status:
 	@git status --short || echo "Not a git repository"
 	@echo ""
 	@echo "Virtual Environment:"
-	@if [ -n "$$VIRTUAL_ENV" ]; then echo "✅ Active: $$VIRTUAL_ENV"; else echo "❌ Not activated"; fi
+	@poetry env info --path >/dev/null 2>&1 && echo "✅ Poetry venv: $$(poetry env info --path)" || echo "❌ Poetry venv not created"
 	@echo ""
 	@echo "Configuration Files:"
 	@if [ -f .env ]; then echo "✅ .env exists"; else echo "❌ .env missing"; fi
 	@if [ -f configfiles/SocialMediaConfig.ini ]; then echo "✅ Config exists"; else echo "❌ Config missing"; fi
 	@echo ""
 	@echo "Dependencies:"
-	@pip3 list | grep -E "dropbox|openai|replicate|telegram|instagrapi" || echo "Dependencies not installed"
+	@poetry show -q | grep -E "dropbox|openai|replicate|telegram|instagrapi" || echo "Dependencies not installed"
 
