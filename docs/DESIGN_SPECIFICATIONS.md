@@ -1,7 +1,7 @@
 # Design Specifications - Social Media Python Publisher
 
-**Document Version:** 1.0  
-**Last Updated:** October 31, 2025  
+**Document Version:** 2.0  
+**Last Updated:** November 7, 2025  
 **Status:** Active Development
 
 ---
@@ -44,7 +44,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 
 ### 1.4 System Constraints
 
-- **Technical**: Python 3.7+ environment required
+- **Technical**: Python 3.12 environment required (3.11+ supported)
 - **Financial**: Dependent on external API pricing (OpenAI, Replicate)
 - **Legal**: Instagram integration uses unofficial API (TOS compliance risk)
 - **Performance**: Sequential workflow for single-image processing
@@ -114,7 +114,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 
 ### 2.2 Architectural Patterns
 
-#### 2.2.1 Current: Procedural with Async Operations
+#### 2.2.1 Current (V1): Procedural with Async Operations
 
 **Pattern Type**: Procedural Programming with Async/Await
 
@@ -136,7 +136,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 - Tight coupling between components
 - No clear separation of concerns
 
-#### 2.2.2 Recommended: Layered Architecture with Dependency Injection
+#### 2.2.2 Recommended (V2): Layered Architecture with Dependency Injection
 
 **Pattern Type**: Layered Architecture + Service Pattern + Dependency Injection
 
@@ -171,7 +171,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 
 ---
 
-### 2.3 Component Diagram
+### 2.3 Component Diagram (V2)
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -238,7 +238,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### 2.4 Data Flow Architecture
+### 2.4 Data Flow Architecture (V2)
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -286,7 +286,7 @@ The Social Media Python Publisher is an intelligent automation system designed t
 
 ---
 
-## 3. Component Specifications
+## 3. Component Specifications (V2)
 
 ### 3.1 Configuration Manager
 
@@ -1347,7 +1347,7 @@ caption: Caption text here
 
 ---
 
-## 6. Database Design
+## 6. Database Design (Future Option)
 
 ### 6.1 Current State
 
