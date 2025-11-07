@@ -41,7 +41,7 @@ Non‑Goals (V2):
 ## 5. Technology Choices (2025)
 - Python 3.12, Poetry
 - Dropbox SDK (refresh token + app key/secret)
-- AI (primary): OpenAI GPT‑4o or GPT‑4.1 with vision; fallback to Replicate models
+- AI: OpenAI GPT‑4o / GPT‑4.1 family with vision (OpenAI‑only, MaaS)
 - Image processing: Pillow
 - Telegram: python‑telegram‑bot 20+
 - Instagram: Prefer Graph API adapter; optional instagrapi adapter behind a feature flag

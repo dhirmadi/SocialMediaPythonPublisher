@@ -15,7 +15,7 @@ Domain Layer (Models: Image, Caption, Post, Results)
         ↓
 Infrastructure Layer (Adapters)
   - Storage: DropboxStorage
-  - AI: VisionAnalyzer, CaptionGenerator (OpenAI primary, Replicate fallback)
+  - AI: VisionAnalyzerOpenAI, CaptionGeneratorOpenAI (OpenAI‑only)
   - Publishers: Instagram, Telegram, Email (pluggable)
         ↓
 External Services (Dropbox, OpenAI/Replicate, IG API, Telegram, SMTP)

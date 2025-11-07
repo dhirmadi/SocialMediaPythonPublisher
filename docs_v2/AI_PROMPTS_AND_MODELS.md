@@ -4,9 +4,9 @@ Version: 2.0
 Last Updated: November 7, 2025
 
 ## 1. Model Strategy (2025)
-- Primary: OpenAI GPT‑4o / GPT‑4.1 family (multimodal; fast and cost‑effective variants: gpt‑4o‑mini)
-- Fallback: Replicate BLIP‑2 or newer VLM for description and tags
-- Optional: Local CLIP embedding for duplicate/similarity detection (future)
+- OpenAI only (MaaS): GPT‑4o / GPT‑4.1 family for all multimodal tasks
+- Use cost‑effective variants (e.g., gpt‑4o‑mini) for routine runs; allow override per config
+- Optional future: local embeddings for deduplication (out of scope for V2)
 
 ## 2. Vision Analysis Prompt (OpenAI)
 System:

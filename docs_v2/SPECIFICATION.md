@@ -14,7 +14,6 @@ This document is the ground truth for implementation. An AI coder can build V2 u
 See CONFIGURATION.md for full schema. Validation is mandatory with pydantic v2. Required secrets via `.env`:
 - DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN
 - OPENAI_API_KEY (primary)
-- REPLICATE_API_TOKEN (fallback)
 - Optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, EMAIL_PASSWORD, INSTA_PASSWORD or Graph API creds
 - Optional SMTP: SMTP_SERVER, SMTP_PORT (defaults: smtp.gmail.com:587)
 
@@ -22,7 +21,6 @@ INI example keys:
 - [Dropbox] image_folder="/Folder/Sub"; archive="archive"
 - [Content] hashtag_string="..."; archive=true; debug=false
 - [openAI] model="gpt-4o-mini"; system_prompt="..."; role_prompt="..."
-- [Replicate] model="andreasjansson/blip-2:..."
 - [Instagram]/[Telegram]/[Email] sections as needed
 
 ## 3. Domain Models (pydantic)
@@ -39,9 +37,9 @@ Storage (Protocol):
 - async get_temporary_link(folder: str, filename: str) -> str
 - async archive_image(folder: str, filename: str, archive_folder: str) -> None
 
-AI:
-- class VisionAnalyzer: async analyze(url_or_bytes: str|bytes) -> ImageAnalysis
-- class CaptionGenerator: async generate(analysis: ImageAnalysis, spec: CaptionSpec) -> str
+AI (OpenAI only):
+- class VisionAnalyzerOpenAI: async analyze(url_or_bytes: str|bytes) -> ImageAnalysis
+- class CaptionGeneratorOpenAI: async generate(analysis: ImageAnalysis, spec: CaptionSpec) -> str
 - class AIService: async create_caption(url_or_bytes: str|bytes, spec: CaptionSpec) -> str
 
 Publishers:
@@ -56,18 +54,18 @@ DropboxStorage:
 - Ensure archive folder exists (`files_create_folder_v2` ignore “already exists”)
 - Compute sha256 of bytes on first download; use to prevent duplicates (optional cache JSON)
 
-OpenAIAnalyzer (primary):
+OpenAI Vision Analyzer:
 - Use Chat Completions or Responses API with vision input
 - Prompt for: concise scene description, entities, tags, mood, safety/nsfw
 - Output mapped to ImageAnalysis
 
-OpenAICaptionGenerator (primary):
+OpenAI Caption Generator:
 - Input: ImageAnalysis, style, hashtags, platform limits
 - Produce caption with style rules (see AI_PROMPTS_AND_MODELS.md)
 - Respect platform length; trim and append hashtags; never exceed constraints
 
-ReplicateAnalyzer/Generator (fallback):
-- Compatible interface; used when OPENAI not available or per config flag
+Replicate / other providers:
+- Not used in V2. All AI tasks are fulfilled by OpenAI as MaaS.
 
 InstagramPublisher:
 - Preferred: Graph API; else instagrapi behind a feature flag

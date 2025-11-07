@@ -113,13 +113,10 @@ Dropbox:
 - Official SDK with refresh token; pass app_key + app_secret for refresh.
 - Ensure archive folder exists before move.
 
-OpenAI:
+OpenAI (only):
 - openai>=2.x client; async usage preferred.
-- Chat Completions; consistent string returns; raise on fatal errors.
-
-Replicate:
-- Use replicate>=1.x; BLIP-2 (or configurable).  
-- Prefer single pass if model supports combined caption+mood; else run in parallel.
+- Use vision‑capable models (e.g., GPT‑4o family) for image analysis and captioning.
+- Consistent string returns; raise on fatal errors.
 
 Telegram:
 - python-telegram-bot 20+; async APIs.
@@ -231,7 +228,6 @@ Orchestrator:
 
 - dropbox >= 12
 - openai >= 2.7
-- replicate >= 1.0
 - python-telegram-bot >= 20
 - pillow >= 10
 - python-dotenv >= 1.0
