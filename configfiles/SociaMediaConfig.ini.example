@@ -1,28 +1,31 @@
-# config file for nsfw publishing mainly fetlife and telegram
+# Configuration file for Social Media Python Publisher
 [Email]
-sender = (your gmail adress)  #the script uses google mail to send emails
-recipient = x@x.com  #recipient email adress
+sender = your-email@gmail.com  # Your email address (Gmail or other)
+recipient = recipient@example.com  # Recipient email address
+smtp_server = smtp.gmail.com  # SMTP server address (Gmail: smtp.gmail.com, Outlook: smtp.office365.com)
+smtp_port = 587  # SMTP port (587 for TLS, 465 for SSL, 25 for unencrypted)
 
 [Instagram]
-name = myinstaaccount   #youe instagram account name
+name = your_instagram_username  # Your Instagram account username (without @)
 
 [Dropbox]
-image_folder = /folder/subfolder  #folder where your images are stored
+image_folder = /YourFolder/Images  # Dropbox folder path where your images are stored
 
 [Content]
-hashtag_string = #addhashtagsto be added at the end of each post
-content URL where more content can be found
-nsfw = False  #not used
-telegram = False #publish to telegram
-fetlife = False #publish to email
-instagram = True #publish to instagram
+hashtag_string = #photography #art #creative  # Hashtags to append to each post
+archive = True  # Archive images after successful posting (True/False)
+telegram = False  # Enable Telegram posting (True/False)
+fetlife = False  # Enable email posting (True/False)
+instagram = True  # Enable Instagram posting (True/False)
+debug = False  # Debug mode - posts but doesn't archive (True/False)
 
 [Replicate]
-model = andreasjansson/blip-2:f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9  #replicate model to be used for image analysis
+# Replicate model for image analysis (BLIP-2 recommended)
+model = andreasjansson/blip-2:f677695e5e89f8b236e52ecd1d3f01beb44c34606419bcc19345e046d8f786f9
 
 [openAI]
-engine = gpt-3.5-turbo #chatGPT model to be used to create conten description
-#primer for openAI model to et behavior
-systemcontent = You are an expert in social media focused on helping photographers getting more followers. 
-#start of instruction to openAI
+engine = gpt-3.5-turbo  # OpenAI model (gpt-3.5-turbo or gpt-4)
+# System prompt - defines AI behavior and expertise
+systemcontent = You are an expert in social media focused on helping photographers getting more followers.
+# Role prompt - instruction prefix for caption generation
 rolecontent = Write me a caption for a photograph that shows

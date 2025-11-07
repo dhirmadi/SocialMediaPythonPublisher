@@ -64,6 +64,8 @@ def read_config(configfile):
         'email_recipient': configuration['Email']['recipient'],
         'email_sender': configuration['Email']['sender'],
         'email_password': os.getenv('EMAIL_PASSWORD'),
+        'smtp_server': configuration.get('Email', 'smtp_server', fallback='smtp.gmail.com'),
+        'smtp_port': configuration.getint('Email', 'smtp_port', fallback=587),
         'hashtag_string': configuration['Content']['hashtag_string'],
         'run_archive': configuration['Content'].getboolean('archive'),
         'run_telegram': configuration['Content'].getboolean('telegram'),
@@ -167,7 +169,8 @@ async def send_email(image_file, message, email_config):
     msg.attach(text)
 
     try:
-        smtp_server = smtplib.SMTP('smtp.gmail.com', 587)
+        # Use configurable SMTP server and port
+        smtp_server = smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port'])
         smtp_server.starttls()
         smtp_server.login(email_config['email_sender'], email_config['email_password'])
         smtp_server.sendmail(email_config['email_sender'], email_config['email_recipient'], msg.as_string())
