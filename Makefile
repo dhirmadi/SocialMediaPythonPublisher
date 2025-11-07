@@ -30,6 +30,7 @@ help:
 	@echo "Run Application:"
 	@echo "  make run             Run application with default config"
 	@echo "  make auth            Run Dropbox authentication"
+	@echo "  make run-v2          Run V2 application (publisher_v2)"
 
 # Installation
 install:
@@ -40,7 +41,7 @@ install-dev:
 
 setup-dev: install-dev
 	@echo "Setting up pre-commit hooks..."
-	poetry run pre-commit install
+	@poetry run pre-commit --version >/dev/null 2>&1 && poetry run pre-commit install || echo "Skipping pre-commit (not available for this Python)"
 	@echo "Creating configuration files from examples..."
 	@if [ ! -f .env ]; then cp dotenv.example .env; echo "Created .env - EDIT THIS FILE"; fi
 	@if [ ! -f configfiles/SocialMediaConfig.ini ]; then \
@@ -83,7 +84,7 @@ test:
 
 check: format lint type-check test
 	@echo "Running pre-commit hooks..."
-	poetry run pre-commit run --all-files || true
+	@poetry run pre-commit --version >/dev/null 2>&1 && poetry run pre-commit run --all-files || echo "Skipping pre-commit run (not available)"
 	@echo "✅ All checks complete"
 
 # Security
@@ -137,6 +138,13 @@ run:
 	fi
 	poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 
+run-v2:
+	@if [ ! -f code_v1/configfiles/SocialMediaConfig.ini ] && [ ! -f configfiles/SocialMediaConfig.ini ]; then \
+		echo "❌ Configuration file not found (code_v1/configfiles/SocialMediaConfig.ini or configfiles/SocialMediaConfig.ini)"; \
+		exit 1; \
+	fi; \
+	CONFIG_PATH=$$( [ -f configfiles/SocialMediaConfig.ini ] && echo "configfiles/SocialMediaConfig.ini" || echo "code_v1/configfiles/SocialMediaConfig.ini" ); \
+	poetry run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
 
 auth:
 	@if [ ! -f .env ]; then \
