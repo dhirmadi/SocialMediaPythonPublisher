@@ -1,12 +1,20 @@
 # AI Models and Prompting — Social Media Publisher V2
 
-Version: 2.0  
-Last Updated: November 7, 2025
+Version: 2.1  
+Last Updated: November 8, 2025
 
 ## 1. Model Strategy (2025)
 - OpenAI only (MaaS): GPT‑4o / GPT‑4.1 family for all multimodal tasks
-- Use cost‑effective variants (e.g., gpt‑4o‑mini) for routine runs; allow override per config
+- **Separate models for vision and caption** (v2.1+):
+  - **Vision analysis:** gpt-4o (superior quality for image understanding)
+  - **Caption generation:** gpt-4o-mini (cost-effective, excellent output)
+- Backward compatible: single `model` field still supported
 - Optional future: local embeddings for deduplication (out of scope for V2)
+
+### Cost-Quality Trade-offs:
+- **Recommended:** `vision_model=gpt-4o` + `caption_model=gpt-4o-mini` (~$4.55 per 1K images) ⭐
+- **Budget:** `model=gpt-4o-mini` for both (~$0.32 per 1K images)
+- **Premium:** Both gpt-4o (~$6.50 per 1K images, not recommended)
 
 ## 2. Vision Analysis Prompt (OpenAI)
 System:

@@ -6,7 +6,7 @@ import re
 _MAX_LEN = {
     "instagram": 2200,
     "telegram": 4096,
-    "email": 10000,  # subject handled separately
+    "email": 240,  # FetLife email path: keep within ~240 to avoid truncation
     "generic": 2200,
 }
 
@@ -35,12 +35,38 @@ def _limit_instagram_hashtags(text: str) -> str:
     return re.sub(r"\s{2,}", " ", text).strip()
 
 
+def _sanitize_for_fetlife(text: str) -> str:
+    """
+    Normalize punctuation and unicode that FetLife may strip, to preserve spacing and readability.
+    Examples:
+      - em/en dashes → ' - ' so 'trust—what' becomes 'trust - what'
+      - smart quotes → ASCII quotes
+      - ellipsis char → '...'
+      - collapse any excessive whitespace after replacements
+    """
+    # Dashes: em (—), en (–), minus (−)
+    text = re.sub(r"[—–−]", " - ", text)
+    # Smart quotes
+    text = text.replace("“", '"').replace("”", '"').replace("‘", "'").replace("’", "'")
+    # Ellipsis
+    text = text.replace("…", "...")
+    # Zero-width and non-breaking spaces to regular space
+    text = text.replace("\u200b", " ").replace("\u00a0", " ")
+    # Collapse multiple spaces created by replacements
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    return text
+
+
 def format_caption(platform: str, caption: str) -> str:
     p = platform.lower()
     max_len = _MAX_LEN.get(p, _MAX_LEN["generic"])
     formatted = caption.strip()
     if p == "instagram":
         formatted = _limit_instagram_hashtags(formatted)
+    elif p == "email":
+        # FetLife email path: strip all hashtags entirely
+        formatted = re.sub(r"#\w+", "", formatted)
+        formatted = _sanitize_for_fetlife(formatted)
     # Telegram can keep as-is (supports 4096 chars)
     formatted = _trim_to_length(formatted, max_len)
     return formatted

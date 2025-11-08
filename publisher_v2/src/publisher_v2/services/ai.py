@@ -16,7 +16,7 @@ from publisher_v2.utils.rate_limit import AsyncRateLimiter
 class VisionAnalyzerOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
-        self.model = config.model
+        self.model = config.vision_model  # Use vision-optimized model
 
     @retry(
         reraise=True,
@@ -88,7 +88,7 @@ class VisionAnalyzerOpenAI:
 class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
-        self.model = config.model
+        self.model = config.caption_model  # Use cost-effective caption model
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
 
@@ -99,11 +99,14 @@ class CaptionGeneratorOpenAI:
     )
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
         try:
+            hashtags_clause = ""
+            if getattr(spec, "hashtags", None):
+                hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             prompt = (
                 f"{self.role_prompt} "
                 f"description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}. "
-                f"Platform={spec.platform}, style={spec.style}. "
-                f"One caption, 1–2 short sentences, authentic, no quotes, end with these hashtags verbatim: {spec.hashtags}."
+                f"Platform={spec.platform}, style={spec.style}."
+                f"{hashtags_clause}"
                 f" Respect max_length={spec.max_length}."
             )
             resp = await self.client.chat.completions.create(

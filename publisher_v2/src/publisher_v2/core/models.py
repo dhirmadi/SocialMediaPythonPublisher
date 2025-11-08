@@ -56,5 +56,11 @@ class WorkflowResult:
     error: Optional[str] = None
     correlation_id: Optional[str] = None
     finished_at: datetime = field(default_factory=datetime.utcnow)
+    # Preview mode fields
+    image_analysis: Optional[ImageAnalysis] = None
+    caption_spec: Optional[CaptionSpec] = None
+    dropbox_url: Optional[str] = None
+    sha256: Optional[str] = None
+    image_folder: Optional[str] = None
 
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import tempfile
 import uuid
@@ -15,6 +16,7 @@ from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.state import load_posted_hashes, save_posted_hash
 from publisher_v2.utils.captions import format_caption
+from publisher_v2.utils.logging import log_json
 
 
 class WorkflowOrchestrator:
@@ -29,13 +31,23 @@ class WorkflowOrchestrator:
         self.storage = storage
         self.ai_service = ai_service
         self.publishers = publishers
+        self.logger = logging.getLogger("publisher_v2.workflow")
 
-    async def execute(self, select_filename: str | None = None, dry_publish: bool = False) -> WorkflowResult:
+    async def execute(
+        self, 
+        select_filename: str | None = None, 
+        dry_publish: bool = False,
+        preview_mode: bool = False
+    ) -> WorkflowResult:
         correlation_id = str(uuid.uuid4())
         selected_image = ""
         caption = ""
         tmp_path = ""
         selected_hash = ""
+        temp_link = ""
+        analysis = None
+        spec = None
+        
         try:
             # 1. Select image (prefer unseen by sha256)
             images = await self.storage.list_images(self.config.dropbox.image_folder)
@@ -105,22 +117,63 @@ class WorkflowOrchestrator:
 
             temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
 
-            # 3. Generate caption
-            spec = CaptionSpec(
-                platform="generic",
-                style="minimal_poetic",
-                hashtags=self.config.content.hashtag_string,
-                max_length=2200,
-            )
-            caption = await self.ai_service.create_caption(temp_link, spec)
+            # 3. Analyze image with vision AI
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "vision_analysis_start", image=selected_image, correlation_id=correlation_id)
+            analysis = await self.ai_service.analyzer.analyze(temp_link)
+            if not preview_mode:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "vision_analysis_complete",
+                    image=selected_image,
+                    description=analysis.description[:100],
+                    mood=analysis.mood,
+                    tags=analysis.tags[:5],
+                    nsfw=analysis.nsfw,
+                    safety_labels=analysis.safety_labels,
+                    correlation_id=correlation_id,
+                )
 
-            # 4. Publish in parallel
+            # Optional: Filter NSFW content (future enhancement)
+            # if analysis.nsfw and not self.config.content.allow_nsfw:
+            #     return WorkflowResult(
+            #         success=False, error="NSFW content blocked", ...
+            #     )
+
+            # 4. Generate caption from analysis
+            # Build spec; for Email/FetLife we avoid hashtags and use shorter max length
+            if self.config.platforms.email_enabled and self.config.email:
+                spec = CaptionSpec(
+                    platform="fetlife_email",
+                    style="engagement_question",
+                    hashtags="",
+                    max_length=240,
+                )
+            else:
+                spec = CaptionSpec(
+                    platform="generic",
+                    style="minimal_poetic",
+                    hashtags=self.config.content.hashtag_string,
+                    max_length=2200,
+                )
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
+            caption = await self.ai_service.generator.generate(analysis, spec)
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+
+            # 5. Publish in parallel
             enabled_publishers = [p for p in self.publishers if p.is_enabled()]
             publish_results: Dict[str, PublishResult] = {}
-            if enabled_publishers and not self.config.content.debug and not dry_publish:
+            if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                 results = await asyncio.gather(
                     *[
-                        p.publish(tmp_path, format_caption(p.platform_name, caption))
+                        p.publish(
+                            tmp_path,
+                            format_caption(p.platform_name, caption),
+                            context={"analysis_tags": analysis.tags} if analysis else None,
+                        )
                         for p in enabled_publishers
                     ],
                     return_exceptions=True,
@@ -139,9 +192,9 @@ class WorkflowOrchestrator:
 
             any_success = any(r.success for r in publish_results.values()) if publish_results else self.config.content.debug
 
-            # 5. Archive if any success and not debug
+            # 6. Archive if any success and not debug
             archived = False
-            if any_success and self.config.content.archive and not self.config.content.debug and not dry_publish:
+            if any_success and self.config.content.archive and not self.config.content.debug and not dry_publish and not preview_mode:
                 await self.storage.archive_image(
                     self.config.dropbox.image_folder, selected_image, self.config.dropbox.archive_folder
                 )
@@ -156,6 +209,12 @@ class WorkflowOrchestrator:
                 publish_results=publish_results,
                 archived=archived,
                 correlation_id=correlation_id,
+                # Preview mode fields
+                image_analysis=analysis if preview_mode else None,
+                caption_spec=spec if preview_mode else None,
+                dropbox_url=temp_link if preview_mode else None,
+                sha256=selected_hash if preview_mode else None,
+                image_folder=self.config.dropbox.image_folder if preview_mode else None,
             )
         finally:
             if tmp_path and os.path.exists(tmp_path):

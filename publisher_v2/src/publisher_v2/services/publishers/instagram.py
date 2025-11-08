@@ -23,7 +23,7 @@ class InstagramPublisher(Publisher):
     def is_enabled(self) -> bool:
         return self._enabled
 
-    async def publish(self, image_path: str, caption: str) -> PublishResult:
+    async def publish(self, image_path: str, caption: str, context: Optional[dict] = None) -> PublishResult:
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 

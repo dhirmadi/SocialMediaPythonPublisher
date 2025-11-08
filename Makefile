@@ -31,6 +31,7 @@ help:
 	@echo "  make run             Run application with default config"
 	@echo "  make auth            Run Dropbox authentication"
 	@echo "  make run-v2          Run V2 application (publisher_v2)"
+	@echo "  make preview-v2      Preview V2 without publishing (CONFIG=file.ini)"
 
 # Installation
 install:
@@ -144,7 +145,19 @@ run-v2:
 		exit 1; \
 	fi; \
 	CONFIG_PATH=$$( [ -f configfiles/SocialMediaConfig.ini ] && echo "configfiles/SocialMediaConfig.ini" || echo "code_v1/configfiles/SocialMediaConfig.ini" ); \
-	poetry run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
+	PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
+
+preview-v2:
+	@if [ -z "$(CONFIG)" ]; then \
+		echo "❌ CONFIG variable required. Usage: make preview-v2 CONFIG=configfiles/fetlife.ini"; \
+		exit 1; \
+	fi; \
+	if [ ! -f "$(CONFIG)" ]; then \
+		echo "❌ Configuration file not found: $(CONFIG)"; \
+		exit 1; \
+	fi; \
+	echo "🔍 Running preview mode with $(CONFIG)..."; \
+	PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py --config $(CONFIG) --preview
 
 auth:
 	@if [ ! -f .env ]; then \

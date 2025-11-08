@@ -37,4 +37,20 @@ pytest-asyncio = "^0.23.0"
 requires = ["poetry-core>=1.0.0"]
 build-backend = "poetry.core.masonry.api"
 
+[tool.pytest.ini_options]
+pythonpath = ["publisher_v2/src"]
+asyncio_mode = "auto"
+testpaths = ["publisher_v2/tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+markers = [
+    "asyncio: mark test as an asyncio test",
+]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--disable-warnings",
+]
+
 

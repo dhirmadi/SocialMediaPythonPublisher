@@ -17,7 +17,7 @@ class Publisher(ABC):
         ...
 
     @abstractmethod
-    async def publish(self, image_path: str, caption: str) -> PublishResult:
+    async def publish(self, image_path: str, caption: str, context: Optional[dict] = None) -> PublishResult:
         ...
 
 

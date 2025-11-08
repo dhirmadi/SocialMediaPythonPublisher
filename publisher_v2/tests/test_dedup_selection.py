@@ -41,9 +41,28 @@ class DummyStorageDup(DropboxStorage):
         return None
 
 
+class DummyAnalyzer2:
+    async def analyze(self, url_or_bytes: str | bytes):
+        from publisher_v2.core.models import ImageAnalysis
+        return ImageAnalysis(
+            description="Test image",
+            mood="neutral",
+            tags=["test"],
+            nsfw=False,
+            safety_labels=[],
+        )
+
+
+class DummyGenerator2:
+    async def generate(self, analysis, spec) -> str:
+        return "ok #h"
+
+
 class DummyAI2(AIService):
     def __init__(self):
         self._caption = "ok #h"
+        self.analyzer = DummyAnalyzer2()
+        self.generator = DummyGenerator2()
 
     async def create_caption(self, url_or_bytes: str | bytes, spec):
         return self._caption
