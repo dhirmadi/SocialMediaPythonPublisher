@@ -1,0 +1,52 @@
+; Example INI for running only the Email publisher in V2
+; Copy to configfiles/email_service.ini (kept out of git) and adjust values.
+; Secrets go in .env (see below).
+
+[Dropbox]
+image_folder = /Photos/to_post
+archive = archive
+
+[Content]
+; Hashtags are ignored for Email/FetLife in V2
+hashtag_string =
+archive = true
+debug = false
+telegram = false
+instagram = false
+fetlife = true        ; enables Email publisher per V2 loader mapping
+
+[openAI]
+; Recommended: Separate models for optimal quality/cost balance
+vision_model = gpt-4o           ; High-quality vision analysis (~$4.50 per 1,000 images)
+caption_model = gpt-4o-mini     ; Cost-effective caption generation
+
+; OR for budget mode (legacy format still supported):
+; model = gpt-4o-mini           ; Use same model for both tasks (~$0.32 per 1,000 images)
+
+system_prompt = You are a senior copywriter for FetLife email posts. Write one engaging, tasteful, human caption that invites comments. Do NOT use hashtags or emojis. Keep 180–230 characters; never exceed 240. End with a short, open question. Adult audience; respectful and platform-safe.
+role_prompt = Using the image analysis (description, mood, tags), write 1–2 short sentences in a kinky, playful, respectful tone that feels personal. No hashtags, no emojis, ≤240 characters. End with an open question.
+
+[Email]
+sender = me@gmail.com
+recipient = someone@example.com
+smtp_server = smtp.gmail.com
+smtp_port = 587
+; Where to place the caption for FetLife email:
+caption_target = subject         ; subject | body | both
+; Optional subject prefix per FetLife rules:
+subject_mode = normal            ; normal | private | avatar
+; Send confirmation email to sender with tags:
+confirmation_to_sender = true
+confirmation_tags_count = 5
+confirmation_tags_nature = kinky, FetLife-native topical nouns (e.g., bondage, rope, D/s, impact play, leather, latex, ritual, aftercare); short, lowercase; no hashtags or emojis
+
+; Required .env entries (not in this file; .env is git-ignored):
+; DROPBOX_APP_KEY=...
+; DROPBOX_APP_SECRET=...
+; DROPBOX_REFRESH_TOKEN=...
+; OPENAI_API_KEY=sk-...
+; EMAIL_PASSWORD=...
+; (optional) SMTP_SERVER=smtp.gmail.com
+; (optional) SMTP_PORT=587
+
+

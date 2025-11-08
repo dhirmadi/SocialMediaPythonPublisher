@@ -1,7 +1,7 @@
 # Code Review Report - Social Media Python Publisher
 
-**Review Date:** October 31, 2025  
-**Last Updated:** October 31, 2025  
+**Review Date:** November 7, 2025  
+**Last Updated:** November 7, 2025  
 **Reviewed By:** Code Review System  
 **Application Version:** 1.1 (Post-Improvements)  
 **Lines of Code:** ~430
@@ -190,7 +190,7 @@ These items remain from the original review:
 6. ⚠️ **Error Handling** - Still inconsistent (Medium)
 7. ⚠️ **Code Refactoring** - main() still too long (Medium)
 
-See sections below for detailed recommendations on remaining issues.
+See sections below for detailed recommendations on remaining issues. For the planned rewrite, see `docs/V2_SYSTEM_SPEC.md`.
 
 ---
 

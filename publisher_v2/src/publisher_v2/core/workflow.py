@@ -1,0 +1,226 @@
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import tempfile
+import uuid
+import hashlib
+from typing import Dict, List, Tuple
+
+from publisher_v2.config.schema import ApplicationConfig
+from publisher_v2.core.exceptions import AIServiceError, PublishingError, StorageError
+from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
+from publisher_v2.services.ai import AIService
+from publisher_v2.services.storage import DropboxStorage
+from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.state import load_posted_hashes, save_posted_hash
+from publisher_v2.utils.captions import format_caption
+from publisher_v2.utils.logging import log_json
+
+
+class WorkflowOrchestrator:
+    def __init__(
+        self,
+        config: ApplicationConfig,
+        storage: DropboxStorage,
+        ai_service: AIService,
+        publishers: List[Publisher],
+    ):
+        self.config = config
+        self.storage = storage
+        self.ai_service = ai_service
+        self.publishers = publishers
+        self.logger = logging.getLogger("publisher_v2.workflow")
+
+    async def execute(
+        self, 
+        select_filename: str | None = None, 
+        dry_publish: bool = False,
+        preview_mode: bool = False
+    ) -> WorkflowResult:
+        correlation_id = str(uuid.uuid4())
+        selected_image = ""
+        caption = ""
+        tmp_path = ""
+        selected_hash = ""
+        temp_link = ""
+        analysis = None
+        spec = None
+        
+        try:
+            # 1. Select image (prefer unseen by sha256)
+            images = await self.storage.list_images(self.config.dropbox.image_folder)
+            if not images:
+                return WorkflowResult(
+                    success=False,
+                    image_name="",
+                    caption="",
+                    publish_results={},
+                    archived=False,
+                    error="No images found",
+                    correlation_id=correlation_id,
+                )
+            import random
+
+            posted_hashes = load_posted_hashes()
+            random.shuffle(images)
+            content = b""
+            if select_filename:
+                if select_filename not in images:
+                    return WorkflowResult(
+                        success=False,
+                        image_name="",
+                        caption="",
+                        publish_results={},
+                        archived=False,
+                        error=f"Selected file not found: {select_filename}",
+                        correlation_id=correlation_id,
+                    )
+                selected_image = select_filename
+                content = await self.storage.download_image(self.config.dropbox.image_folder, selected_image)
+                selected_hash = hashlib.sha256(content).hexdigest()
+            else:
+                for name in images:
+                    blob = await self.storage.download_image(self.config.dropbox.image_folder, name)
+                    digest = hashlib.sha256(blob).hexdigest()
+                    if digest in posted_hashes:
+                        continue
+                    selected_image = name
+                    content = blob
+                    selected_hash = digest
+                    break
+
+            if not selected_image:
+                return WorkflowResult(
+                    success=False,
+                    image_name="",
+                    caption="",
+                    publish_results={},
+                    archived=False,
+                    error="No new images to post (all duplicates)",
+                    correlation_id=correlation_id,
+                )
+
+            # 2. Save to temp and get temporary link
+            suffix = os.path.splitext(selected_image)[1]
+            with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
+                tmp.write(content)
+                tmp.flush()
+                tmp_path = tmp.name
+            # Secure temp file permissions (0600)
+            try:
+                os.chmod(tmp_path, 0o600)
+            except Exception:
+                # Best-effort; continue if chmod not supported
+                pass
+
+            temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
+
+            # 3. Analyze image with vision AI
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "vision_analysis_start", image=selected_image, correlation_id=correlation_id)
+            analysis = await self.ai_service.analyzer.analyze(temp_link)
+            if not preview_mode:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "vision_analysis_complete",
+                    image=selected_image,
+                    description=analysis.description[:100],
+                    mood=analysis.mood,
+                    tags=analysis.tags[:5],
+                    nsfw=analysis.nsfw,
+                    safety_labels=analysis.safety_labels,
+                    correlation_id=correlation_id,
+                )
+
+            # Optional: Filter NSFW content (future enhancement)
+            # if analysis.nsfw and not self.config.content.allow_nsfw:
+            #     return WorkflowResult(
+            #         success=False, error="NSFW content blocked", ...
+            #     )
+
+            # 4. Generate caption from analysis
+            # Build spec; for Email/FetLife we avoid hashtags and use shorter max length
+            if self.config.platforms.email_enabled and self.config.email:
+                spec = CaptionSpec(
+                    platform="fetlife_email",
+                    style="engagement_question",
+                    hashtags="",
+                    max_length=240,
+                )
+            else:
+                spec = CaptionSpec(
+                    platform="generic",
+                    style="minimal_poetic",
+                    hashtags=self.config.content.hashtag_string,
+                    max_length=2200,
+                )
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
+            caption = await self.ai_service.generator.generate(analysis, spec)
+            if not preview_mode:
+                log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+
+            # 5. Publish in parallel
+            enabled_publishers = [p for p in self.publishers if p.is_enabled()]
+            publish_results: Dict[str, PublishResult] = {}
+            if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
+                results = await asyncio.gather(
+                    *[
+                        p.publish(
+                            tmp_path,
+                            format_caption(p.platform_name, caption),
+                            context={"analysis_tags": analysis.tags} if analysis else None,
+                        )
+                        for p in enabled_publishers
+                    ],
+                    return_exceptions=True,
+                )
+                for pub, res in zip(enabled_publishers, results):
+                    if isinstance(res, Exception):
+                        publish_results[pub.platform_name] = PublishResult(
+                            success=False, platform=pub.platform_name, error=str(res)
+                        )
+                    else:
+                        publish_results[pub.platform_name] = res
+            else:
+                # In debug mode, simulate success without publishing
+                for p in enabled_publishers:
+                    publish_results[p.platform_name] = PublishResult(success=True, platform=p.platform_name)
+
+            any_success = any(r.success for r in publish_results.values()) if publish_results else self.config.content.debug
+
+            # 6. Archive if any success and not debug
+            archived = False
+            if any_success and self.config.content.archive and not self.config.content.debug and not dry_publish and not preview_mode:
+                await self.storage.archive_image(
+                    self.config.dropbox.image_folder, selected_image, self.config.dropbox.archive_folder
+                )
+                archived = True
+                if selected_hash:
+                    save_posted_hash(selected_hash)
+
+            return WorkflowResult(
+                success=any_success,
+                image_name=selected_image,
+                caption=caption,
+                publish_results=publish_results,
+                archived=archived,
+                correlation_id=correlation_id,
+                # Preview mode fields
+                image_analysis=analysis if preview_mode else None,
+                caption_spec=spec if preview_mode else None,
+                dropbox_url=temp_link if preview_mode else None,
+                sha256=selected_hash if preview_mode else None,
+                image_folder=self.config.dropbox.image_folder if preview_mode else None,
+            )
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+

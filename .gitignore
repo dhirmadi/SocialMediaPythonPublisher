@@ -259,3 +259,19 @@ coverage.xml
 .bandit
 bandit-report.*
 safety-report.*
+
+# ----------------------------------------------------------------------------
+# IDE / Editor artifacts (Cursor, VSCode, JetBrains)
+# ----------------------------------------------------------------------------
+.cursor/
+.specstory/
+.cursorignore
+.cursorindexingignore
+.vscode/
+.idea/
+
+# ----------------------------------------------------------------------------
+# OS and local scripts
+# ----------------------------------------------------------------------------
+.DS_Store
+runfet.sh

@@ -75,8 +75,8 @@ Social Media Python Publisher is an intelligent automation system designed to st
 
 ### 2.1 Software Requirements
 
-- **Python**: Version 3.7 or higher (3.9+ recommended)
-- **Operating System**: Linux, macOS, or Windows with WSL
+- **Python**: Version 3.12 (3.11+ supported)
+- **Operating System**: Linux, macOS, or Windows (WSL recommended)
 - **Internet Connection**: Required for API communications
 
 ### 2.2 Required API Accounts
@@ -121,32 +121,24 @@ git clone https://github.com/yourusername/SocialMediaPythonPublisher.git
 cd SocialMediaPythonPublisher
 ```
 
-### 3.2 Step 2: Set Up Python Environment
-
-#### Option A: Using venv (Recommended)
+### 3.2 Step 2: Set Up Python Environment (Poetry)
 
 ```bash
-# Create virtual environment
-python3 -m venv venv
+# Ensure Python 3.12 is available
+python3 --version
 
-# Activate virtual environment
-# On Linux/macOS:
-source venv/bin/activate
-# On Windows:
-venv\Scripts\activate
-```
+# Install Poetry if needed
+curl -sSL https://install.python-poetry.org | python3 -
 
-#### Option B: Using conda
-
-```bash
-conda create -n socialmedia python=3.9
-conda activate socialmedia
+# Create/activate Poetry virtualenv and install deps
+poetry env use python3.12
+poetry install
 ```
 
 ### 3.3 Step 3: Install Dependencies
 
 ```bash
-pip install -r requirements.txt
+poetry install
 ```
 
 ### 3.4 Step 4: Configure Environment Variables
@@ -164,7 +156,7 @@ nano .env  # or vim, code, etc.
 ```bash
 # Dropbox Configuration
 DROPBOX_APP_KEY="your_app_key_here"
-DROPBOX_APP_PASSWORD="your_app_secret_here"
+DROPBOX_APP_SECRET="your_app_secret_here"
 DROPBOX_REFRESH_TOKEN=""  # Will be auto-generated
 
 # OpenAI Configuration
@@ -227,7 +219,7 @@ rolecontent = Write me a caption for a photograph that shows
 ### 3.6 Step 6: Authenticate with Dropbox
 
 ```bash
-python py_db_auth.py .env
+poetry run python py_db_auth.py .env
 ```
 
 **Follow the prompts:**
@@ -261,7 +253,7 @@ DROPBOX_APP_KEY="your_key"
 - **Required**: Yes
 
 ```bash
-DROPBOX_APP_PASSWORD="your_secret"
+DROPBOX_APP_SECRET="your_secret"
 ```
 - **Purpose**: Secret key for Dropbox authentication
 - **How to Get**: Generated when you create the app
@@ -464,7 +456,7 @@ debug = True
 #### Running the Application
 
 ```bash
-python py_rotator_daily.py configfiles/SocialMediaConfig.ini
+poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 ```
 
 **Expected Output:**
@@ -479,7 +471,7 @@ INFO:root:Image archived successfully.
 #### Main Script: py_rotator_daily.py
 
 ```bash
-python py_rotator_daily.py <config_file_path>
+poetry run python py_rotator_daily.py <config_file_path>
 ```
 
 **Parameters:**
@@ -493,7 +485,7 @@ python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 #### Authentication Script: py_db_auth.py
 
 ```bash
-python py_db_auth.py <env_file_path>
+poetry run python py_db_auth.py <env_file_path>
 ```
 
 **Parameters:**
@@ -513,10 +505,10 @@ python py_db_auth.py .env
 crontab -e
 
 # Add daily posting at 9 AM
-0 9 * * * cd /path/to/SocialMediaPythonPublisher && /path/to/venv/bin/python py_rotator_daily.py configfiles/SocialMediaConfig.ini >> /var/log/socialmedia.log 2>&1
+0 9 * * * cd /path/to/SocialMediaPythonPublisher && poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini >> /var/log/socialmedia.log 2>&1
 
 # Add posting three times daily (9 AM, 2 PM, 7 PM)
-0 9,14,19 * * * cd /path/to/SocialMediaPythonPublisher && /path/to/venv/bin/python py_rotator_daily.py configfiles/SocialMediaConfig.ini
+0 9,14,19 * * * cd /path/to/SocialMediaPythonPublisher && poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 ```
 
 #### Windows Task Scheduler
@@ -2061,7 +2053,7 @@ Describe:
 | Variable | Required | Description | Example |
 |----------|----------|-------------|---------|
 | `DROPBOX_APP_KEY` | Yes | Dropbox app key | `abc123...` |
-| `DROPBOX_APP_PASSWORD` | Yes | Dropbox app secret | `xyz789...` |
+| `DROPBOX_APP_SECRET` | Yes | Dropbox app secret | `xyz789...` |
 | `DROPBOX_REFRESH_TOKEN` | Yes | OAuth refresh token | `sl.ABC...` |
 | `OPENAI_API_KEY` | Yes | OpenAI API key | `sk-...` |
 | `REPLICATE_API_TOKEN` | Yes | Replicate API token | `r8_...` |
