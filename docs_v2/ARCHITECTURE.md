@@ -18,7 +18,7 @@ Infrastructure Layer (Adapters)
   - AI: VisionAnalyzerOpenAI, CaptionGeneratorOpenAI (OpenAI‑only)
   - Publishers: Instagram, Telegram, Email (pluggable)
         ↓
-External Services (Dropbox, OpenAI/Replicate, IG API, Telegram, SMTP)
+External Services (Dropbox, OpenAI, IG API, Telegram, SMTP)
 ```
 
 ## 2. Components
@@ -42,7 +42,7 @@ AI:
 - AIService.create_caption(url_or_bytes, style, hashtags, platform) -> str
 
 Publishers (async):
-- publish(image_path, caption) -> PublishResult(success: bool, post_id: Optional[str], error: Optional[str])
+- publish(image_path, caption, context: dict | None) -> PublishResult(success: bool, post_id: Optional[str], error: Optional[str])
 - is_enabled() -> bool
 
 ## 4. Execution Model

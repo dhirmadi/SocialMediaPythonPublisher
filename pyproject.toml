@@ -16,7 +16,6 @@ configparser = ">=5.0.0"
 instagrapi = ">=2.0.0"
 openai = ">=1.7.2"
 python-dotenv = ">=1.0.0"
-replicate = ">=0.22.0"
 tenacity = ">=8.2.0"
 
 [tool.poetry.group.dev.dependencies]

@@ -20,7 +20,8 @@ See CONFIGURATION.md for full schema. Validation is mandatory with pydantic v2. 
 INI example keys:
 - [Dropbox] image_folder="/Folder/Sub"; archive="archive"
 - [Content] hashtag_string="..."; archive=true; debug=false
-- [openAI] model="gpt-4o-mini"; system_prompt="..."; role_prompt="..."
+- [openAI] vision_model="gpt-4o"; caption_model="gpt-4o-mini"; system_prompt="..."; role_prompt="..."
+- [Email] caption_target="subject|body|both"; subject_mode="normal|private|avatar"; confirmation_to_sender=true; confirmation_tags_count=5
 - [Instagram]/[Telegram]/[Email] sections as needed
 
 ## 3. Domain Models (pydantic)
@@ -46,7 +47,7 @@ Publishers:
 - abstract Publisher:
   - property platform_name: str
   - def is_enabled() -> bool
-  - async def publish(image_path: str, caption: str) -> PublishResult
+  - async def publish(image_path: str, caption: str, context: dict | None = None) -> PublishResult
 
 ## 5. Adapters
 DropboxStorage:
@@ -75,7 +76,12 @@ TelegramPublisher:
 - python-telegram-bot 20+, async send_photo
 
 EmailPublisher:
-- SMTP with STARTTLS; subject is the first 50 chars of caption; attach image
+- SMTP with STARTTLS; attach image
+- FetLife behavior:
+  - Caption placement via `caption_target` (subject|body|both)
+  - Subject prefix via `subject_mode` (“Private: ” | “Avatar: ” | none)
+  - Hashtags stripped; punctuation normalized for FetLife; length capped ≤ 240
+  - Optional confirmation email to sender including N descriptive tags derived from vision analysis
 
 ## 6. Orchestrator
 WorkflowOrchestrator.execute():
@@ -83,13 +89,13 @@ WorkflowOrchestrator.execute():
 2) Select image: list images; skip archived; dedup via sha256 cache; choose by strategy (random/oldest)  
 3) Acquire image: download to secure temp file (0600) and get temporary link; cleanup on finally  
 4) Analyze: VisionAnalyzer.analyze(temp_link or bytes)  
-5) Caption: AIService.create_caption(...) with platform‑aware spec  
+5) Caption: Separate calls: VisionAnalyzer.analyze(...) then CaptionGenerator.generate(...) with platform‑aware spec  
 6) Publish: run enabled publishers in parallel; collect results  
 7) Archive: if any success and not debug → archive_image(...)  
 8) Return WorkflowResult; log structured summary
 
 ## 7. Reliability
-- Retries with tenacity on network/transient errors (OpenAI, Replicate, Dropbox, SMTP, Telegram)
+- Retries with tenacity on network/transient errors (OpenAI, Dropbox, SMTP, Telegram)
 - Async rate limiter per service (e.g., OpenAI 20 rpm conservative default)
 - Timeout for external calls; fail gracefully
 
@@ -99,7 +105,7 @@ WorkflowOrchestrator.execute():
 - Temp files deleted in finally blocks; optional secure overwrite for sensitive contexts
 
 ## 9. CLI
-Entrypoint: `poetry run publisher_v2 --config path/to.ini [--debug] [--select filename] [--dry-publish]`
+Entrypoint: `poetry run publisher_v2 --config path/to.ini [--debug] [--select filename] [--dry-publish] [--preview]`
 
 ## 10. Testing
 - Unit: config loader/validator, prompt builders, caption post‑processor

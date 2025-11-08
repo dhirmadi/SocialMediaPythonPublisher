@@ -11,6 +11,8 @@ help:
 	@echo "  make install         Install production dependencies"
 	@echo "  make install-dev     Install development dependencies"
 	@echo "  make setup-dev       Complete development environment setup"
+	@echo "  make export-reqs     Export requirements.txt from Poetry"
+	@echo "  make export-reqs-dev Export requirements-dev.txt (incl. dev) from Poetry"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make format          Format code with black and isort"
@@ -57,6 +59,25 @@ setup-dev: install-dev
 	@echo "  2. Edit configfiles/SocialMediaConfig.ini with your settings"
 	@echo "  3. Run 'make auth' to authenticate with Dropbox"
 	@echo "  4. Run 'make test' to verify installation"
+
+# Export pip requirement files for non-Poetry environments
+export-reqs:
+	@echo "Exporting requirements.txt from Poetry..."
+	@if ! poetry help | grep -q 'export'; then \
+		echo "Poetry export plugin not found. Installing poetry-plugin-export..."; \
+		poetry self add poetry-plugin-export || { echo "Failed to install poetry-plugin-export. Please install it manually."; exit 1; }; \
+	fi
+	poetry export -f requirements.txt --output requirements.txt --without-hashes
+	@echo "✅ requirements.txt updated"
+
+export-reqs-dev:
+	@echo "Exporting requirements-dev.txt (includes dev deps) from Poetry..."
+	@if ! poetry help | grep -q 'export'; then \
+		echo "Poetry export plugin not found. Installing poetry-plugin-export..."; \
+		poetry self add poetry-plugin-export || { echo "Failed to install poetry-plugin-export. Please install it manually."; exit 1; }; \
+	fi
+	poetry export -f requirements.txt --with dev --output requirements-dev.txt --without-hashes
+	@echo "✅ requirements-dev.txt updated"
 
 # Code Quality
 format:
@@ -174,7 +195,7 @@ watch-test:
 
 docs:
 	@echo "Opening documentation..."
-	@open docs/DOCUMENTATION.md || xdg-open docs/DOCUMENTATION.md || echo "Please open docs/DOCUMENTATION.md manually"
+	@open docs_v2/README.md || xdg-open docs_v2/README.md || echo "Please open docs_v2/README.md manually"
 
 status:
 	@echo "Project Status:"
@@ -190,5 +211,5 @@ status:
 	@if [ -f configfiles/SocialMediaConfig.ini ]; then echo "✅ Config exists"; else echo "❌ Config missing"; fi
 	@echo ""
 	@echo "Dependencies:"
-	@poetry show -q | grep -E "dropbox|openai|replicate|telegram|instagrapi" || echo "Dependencies not installed"
+	@poetry show -q | grep -E "dropbox|openai|telegram|instagrapi" || echo "Dependencies not installed"
 

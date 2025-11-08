@@ -22,6 +22,12 @@ Last Updated: November 7, 2025
 2) Skips archive and can skip publish (configurable)  
 3) Writes full preview; returns success if pipeline executed without fatal errors
 
+### 1.4 Preview Mode
+1) Same as Post Now through AI analysis and caption generation  
+2) Skips publish and archive entirely  
+3) Displays human‑readable output (image details, vision analysis, caption, per‑platform formatting, email subject/placement)  
+4) No state changes or Dropbox moves
+
 ## 2. Secondary Flows
 - Re‑queue on partial failure (some platforms failed): do not re‑archive; next run may retry
 - Manual selection: optional flag to post a specified file by name
@@ -37,5 +43,6 @@ CLI flags:
 - `--debug` (overrides config flag for quick testing)
 - `--select filename.jpg` (manual target)
 - `--dry-publish` (run all but skip platform publish)
+- `--preview` (show human‑readable output; no publish/archive/cache updates)
 
 

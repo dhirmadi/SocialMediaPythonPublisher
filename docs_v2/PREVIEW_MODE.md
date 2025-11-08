@@ -64,6 +64,7 @@ make preview-v2 CONFIG=configfiles/fetlife.ini SELECT=sunset.jpg
 - Caption for each platform (with platform-specific formatting)
 - Platform-specific constraints (e.g., Instagram hashtag limit)
 - Image resizing info (e.g., Telegram 1280px)
+- Email/FetLife specifics: caption placement (subject/body/both), subject mode (normal/private/avatar), subject preview
 
 ---
 

@@ -46,7 +46,7 @@ User:
   - hashtag_string: appended raw hashtags
   - max_length: platform constraint
 Instruction:
-“Write one caption. Prioritize authenticity, specificity, and imagery. 1–2 short sentences. End with provided hashtags verbatim. Respect max_length. Avoid emojis unless the style requires them. No quotes around the output. Do not include platform names.”
+“Write one caption. Prioritize authenticity, specificity, and imagery. 1–2 short sentences. Respect max_length. Avoid emojis unless the style requires them. No quotes around the output. Do not include platform names. If platform=email (FetLife), do not use hashtags.”
 
 Post‑Processing:
 - Trim whitespace
@@ -54,9 +54,9 @@ Post‑Processing:
 - Normalize spacing before hashtags
 
 ## 4. Hashtag Guidance
-- Use provided `hashtag_string` from config to ensure consistency
-- Optionally auto‑append 2–3 tags from analysis if space allows
-- Do not exceed Instagram 30 hashtag rule (enforced post‑processing)
+- Use provided `hashtag_string` from config to ensure consistency (except Email/FetLife)
+- Email/FetLife: never include hashtags (formatter strips them and enforces ≤240 chars)
+- Instagram: do not exceed 30 hashtags (enforced post‑processing)
 
 ## 5. Safety and NSFW
 - If `nsfw` true or safety_labels non‑empty:
@@ -67,5 +67,10 @@ Post‑Processing:
 ## 6. Evaluation and Tuning
 - Keep a small golden set of images and expected captions
 - Monthly prompt refinements based on engagement (future)
+
+## 7. Tone Control (FetLife)
+- Set tone via `system_prompt` and `role_prompt` in the INI:
+  - Example: “kinky, playful, respectful; consent‑forward; no hashtags or emojis; ≤240 chars; end with an open question”
+- Prompts can be iterated safely with `--preview` to audition variations
 
 
