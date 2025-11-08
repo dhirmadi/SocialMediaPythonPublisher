@@ -1,0 +1,37 @@
+; Example INI for running only the Email publisher in V2
+; Copy to configfiles/email_service.ini (kept out of git) and adjust values.
+; Secrets go in .env (see below).
+
+[Dropbox]
+image_folder = /Photos/to_post
+archive = archive
+
+[Content]
+hashtag_string = #photography #portrait
+archive = true
+debug = false
+telegram = false
+instagram = false
+fetlife = true        ; enables Email publisher per V2 loader mapping
+
+[openAI]
+model = gpt-4o-mini
+system_prompt = You are a senior social media copywriter. Write authentic, concise, platform-aware captions.
+role_prompt = Write a caption for:
+
+[Email]
+sender = me@gmail.com
+recipient = someone@example.com
+smtp_server = smtp.gmail.com
+smtp_port = 587
+
+; Required .env entries (not in this file; .env is git-ignored):
+; DROPBOX_APP_KEY=...
+; DROPBOX_APP_SECRET=...
+; DROPBOX_REFRESH_TOKEN=...
+; OPENAI_API_KEY=sk-...
+; EMAIL_PASSWORD=...
+; (optional) SMTP_SERVER=smtp.gmail.com
+; (optional) SMTP_PORT=587
+
+

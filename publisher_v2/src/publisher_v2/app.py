@@ -11,6 +11,7 @@ from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAn
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.publishers.email import EmailPublisher
 from publisher_v2.services.publishers.telegram import TelegramPublisher
+from publisher_v2.services.publishers.instagram import InstagramPublisher
 from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.utils.logging import setup_logging, log_json
 
@@ -20,6 +21,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--config", required=True, help="Path to INI configuration file")
     parser.add_argument("--env", required=False, help="Optional path to .env file")
     parser.add_argument("--debug", action="store_true", help="Override debug mode to True")
+    parser.add_argument("--select", required=False, help="Select a specific filename to post")
+    parser.add_argument(
+        "--dry-publish",
+        action="store_true",
+        help="Run full pipeline but skip actual platform publishing and archive",
+    )
     return parser.parse_args()
 
 
@@ -40,11 +47,11 @@ async def main_async() -> int:
     publishers: List[Publisher] = [
         TelegramPublisher(cfg.telegram, cfg.platforms.telegram_enabled),
         EmailPublisher(cfg.email, cfg.platforms.email_enabled),
-        # InstagramPublisher could be added here in future
+        InstagramPublisher(cfg.instagram, cfg.platforms.instagram_enabled),
     ]
 
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
-    result = await orchestrator.execute()
+    result = await orchestrator.execute(select_filename=args.select, dry_publish=args.dry_publish)
     log_json(
         logger,
         logging.INFO,

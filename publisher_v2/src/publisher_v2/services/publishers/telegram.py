@@ -8,6 +8,7 @@ import telegram
 from publisher_v2.config.schema import TelegramConfig
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.images import ensure_max_width
 
 
 class TelegramPublisher(Publisher):
@@ -26,8 +27,9 @@ class TelegramPublisher(Publisher):
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
         try:
+            processed_path = ensure_max_width(image_path, max_width=1280)
             bot = telegram.Bot(token=self._config.bot_token)
-            with open(image_path, "rb") as f:
+            with open(processed_path, "rb") as f:
                 message = await bot.send_photo(chat_id=self._config.channel_id, photo=f, caption=caption)
             return PublishResult(success=True, platform=self.platform_name, post_id=str(message.message_id))
         except Exception as exc:

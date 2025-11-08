@@ -7,6 +7,7 @@ from typing import List
 
 import dropbox
 from dropbox.exceptions import ApiError
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.core.exceptions import StorageError
@@ -21,6 +22,11 @@ class DropboxStorage:
             app_secret=config.app_secret,
         )
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def list_images(self, folder: str) -> List[str]:
         try:
             def _list() -> List[str]:
@@ -38,6 +44,11 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to list images: {exc}") from exc
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def download_image(self, folder: str, filename: str) -> bytes:
         try:
             def _download() -> bytes:
@@ -49,6 +60,11 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to download {filename}: {exc}") from exc
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         try:
             def _link() -> str:
@@ -60,6 +76,11 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to get temporary link for {filename}: {exc}") from exc
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         try:
             def _archive() -> None:
