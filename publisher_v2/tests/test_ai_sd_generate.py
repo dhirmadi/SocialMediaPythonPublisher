@@ -1,0 +1,47 @@
+from __future__ import annotations
+
+import asyncio
+import types
+import pytest
+
+from publisher_v2.config.schema import OpenAIConfig
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
+from publisher_v2.services.ai import CaptionGeneratorOpenAI, AIService, VisionAnalyzerOpenAI
+
+
+class DummyAnalyzer(VisionAnalyzerOpenAI):
+    def __init__(self) -> None:
+        pass
+
+    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
+        return ImageAnalysis(
+            description="A serene portrait of a dancer",
+            mood="calm",
+            tags=["portrait", "dancer"],
+            nsfw=False,
+            safety_labels=[],
+        )
+
+
+@pytest.mark.asyncio
+async def test_ai_generate_with_sd_pair_parsing(monkeypatch: pytest.MonkeyPatch) -> None:
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_model="gpt-4o", caption_model="gpt-4o-mini")
+
+    gen = CaptionGeneratorOpenAI(cfg)
+
+    async def fake_generate_with_sd(analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
+        return {"caption": "c", "sd_caption": "s"}
+
+    monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
+
+    ai = AIService(analyzer=DummyAnalyzer(), generator=gen)
+
+    spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
+    caption, sd_caption = await ai.create_caption_pair("http://tmp", spec)
+
+    assert caption == "c"
+    assert sd_caption == "s"
+    # Basic PG-13 shape: no explicit content; here we just ensure non-empty string
+    assert isinstance(sd_caption, str) and len(sd_caption) > 0
+
+
