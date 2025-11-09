@@ -17,6 +17,7 @@ instagrapi = ">=2.0.0"
 openai = ">=1.7.2"
 python-dotenv = ">=1.0.0"
 tenacity = ">=8.2.0"
+pydantic = ">=2.0.0"
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.0"

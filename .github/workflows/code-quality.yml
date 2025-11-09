@@ -6,16 +6,24 @@ on:
   pull_request:
     branches: [ main, develop ]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
@@ -23,7 +31,6 @@ jobs:
       run: |
         python -m pip install --upgrade pip
         pip install flake8 black isort mypy pylint
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
     
     - name: Run Black (code formatting check)
       run: |
@@ -47,21 +54,23 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 25
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
     
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v5
       with:
         python-version: '3.11'
     
-    - name: Install dependencies
+    - name: Install Poetry and project dependencies (incl. dev)
       run: |
         python -m pip install --upgrade pip
-        pip install pytest pytest-asyncio pytest-cov pytest-mock
-        if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+        pip install poetry
+        poetry config virtualenvs.create false
+        poetry install --no-interaction --no-root --with dev
     
     - name: Run tests with coverage
       run: |
@@ -69,9 +78,10 @@ jobs:
       continue-on-error: true
     
     - name: Upload coverage reports
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
-        file: ./coverage.xml
+        files: ./coverage.xml
+        token: ${{ secrets.CODECOV_TOKEN }}
         flags: unittests
         name: codecov-umbrella
       continue-on-error: true
