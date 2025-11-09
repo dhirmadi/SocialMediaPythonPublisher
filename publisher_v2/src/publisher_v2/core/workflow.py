@@ -157,11 +157,39 @@ class WorkflowOrchestrator:
                     hashtags=self.config.content.hashtag_string,
                     max_length=2200,
                 )
+            # Prefer SD single-call if enabled
+            sd_caption = None
             if not preview_mode:
                 log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
-            caption = await self.ai_service.generator.generate(analysis, spec)
-            if not preview_mode:
-                log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            try:
+                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled and not preview_mode:
+                    log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
+                    pair = await self.ai_service.generator.generate_with_sd(analysis, spec)
+                    caption = pair.get("caption", "")
+                    sd_caption = pair.get("sd_caption") or None
+                    log_json(self.logger, logging.INFO, "sd_caption_complete", has_sd=bool(sd_caption), correlation_id=correlation_id)
+                else:
+                    caption = await self.ai_service.generator.generate(analysis, spec)
+                if not preview_mode:
+                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            except Exception as exc:
+                if not preview_mode:
+                    log_json(self.logger, logging.ERROR, "sd_caption_error", error=str(exc), correlation_id=correlation_id)
+                # Fallback to legacy caption-only
+                caption = await self.ai_service.generator.generate(analysis, spec)
+                if not preview_mode:
+                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            # In preview, attach sd_caption to analysis for display
+            if analysis and sd_caption:
+                setattr(analysis, "sd_caption", sd_caption)
+            # Write sidecar if sd_caption present (no-op in preview/dry/debug)
+            if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
+                try:
+                    log_json(self.logger, logging.INFO, "sidecar_upload_start", image=selected_image, correlation_id=correlation_id)
+                    await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, sd_caption)
+                    log_json(self.logger, logging.INFO, "sidecar_upload_complete", image=selected_image, correlation_id=correlation_id)
+                except Exception as exc:
+                    log_json(self.logger, logging.ERROR, "sidecar_upload_error", image=selected_image, error=str(exc), correlation_id=correlation_id)
 
             # 5. Publish in parallel
             enabled_publishers = [p for p in self.publishers if p.is_enabled()]
