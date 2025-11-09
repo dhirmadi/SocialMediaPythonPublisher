@@ -6,7 +6,7 @@ import os
 import tempfile
 import uuid
 import hashlib
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 from publisher_v2.config.schema import ApplicationConfig
@@ -192,7 +192,9 @@ class WorkflowOrchestrator:
             if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
                 try:
                     # Build metadata Phase 1
-                    created_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                    created_iso = (
+                        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                    )
                     model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
                     db_meta = await self.storage.get_file_metadata(self.config.dropbox.image_folder, selected_image)
                     phase1 = build_metadata_phase1(

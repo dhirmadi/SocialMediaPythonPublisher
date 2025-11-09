@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import List
 
 from publisher_v2.config.loader import load_application_config
@@ -115,7 +115,9 @@ async def main_async() -> int:
             )
             # Show caption sidecar content (sd_caption + metadata)
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
-                created_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                created_iso = (
+                    datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                )
                 model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
                 db_meta = await storage.get_file_metadata(cfg.dropbox.image_folder, result.image_name)
                 phase1 = build_metadata_phase1(
