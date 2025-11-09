@@ -31,6 +31,27 @@ class OpenAIConfig(BaseModel):
         default="gpt-4o-mini",
         description="OpenAI model for caption generation (gpt-4o-mini is cost-effective)",
     )
+    # Stable-Diffusion style caption sidecar feature flags and options
+    sd_caption_enabled: bool = Field(
+        default=True,
+        description="Enable generation of Stable-Diffusion-ready sidecar caption",
+    )
+    sd_caption_single_call_enabled: bool = Field(
+        default=True,
+        description="Prefer single caption-model call returning {caption, sd_caption}",
+    )
+    sd_caption_model: Optional[str] = Field(
+        default=None,
+        description="Optional override model for SD caption single-call generation",
+    )
+    sd_caption_system_prompt: Optional[str] = Field(
+        default=None,
+        description="Optional system prompt override for SD caption generation",
+    )
+    sd_caption_role_prompt: Optional[str] = Field(
+        default=None,
+        description="Optional role/user prompt override for SD caption generation",
+    )
     
     # Deprecated: kept for backward compatibility
     model: Optional[str] = Field(

@@ -47,6 +47,12 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         vision_model = cp.get("openAI", "vision_model", fallback=None)
         caption_model = cp.get("openAI", "caption_model", fallback=None)
         legacy_model = cp.get("openAI", "model", fallback=None)
+        # SD caption feature flags and overrides
+        sd_caption_enabled = cp.getboolean("openAI", "sd_caption_enabled", fallback=True)
+        sd_caption_single_call_enabled = cp.getboolean("openAI", "sd_caption_single_call_enabled", fallback=True)
+        sd_caption_model = cp.get("openAI", "sd_caption_model", fallback=None)
+        sd_caption_system_prompt = cp.get("openAI", "sd_caption_system_prompt", fallback=None)
+        sd_caption_role_prompt = cp.get("openAI", "sd_caption_role_prompt", fallback=None)
         
         # Backward compatibility: if only 'model' is specified, use it for both
         if legacy_model and not vision_model:
@@ -64,6 +70,11 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             api_key=os.environ["OPENAI_API_KEY"],
             vision_model=vision_model,
             caption_model=caption_model,
+            sd_caption_enabled=sd_caption_enabled,
+            sd_caption_single_call_enabled=sd_caption_single_call_enabled,
+            sd_caption_model=sd_caption_model,
+            sd_caption_system_prompt=sd_caption_system_prompt,
+            sd_caption_role_prompt=sd_caption_role_prompt,
             model=legacy_model,  # Keep for reference, not used
             system_prompt=cp.get(
                 "openAI",
