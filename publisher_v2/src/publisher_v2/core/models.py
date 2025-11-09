@@ -28,6 +28,7 @@ class ImageAnalysis:
     tags: List[str] = field(default_factory=list)
     nsfw: bool = False
     safety_labels: List[str] = field(default_factory=list)
+    sd_caption: Optional[str] = None
 
 
 @dataclass
