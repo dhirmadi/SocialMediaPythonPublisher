@@ -162,7 +162,7 @@ class WorkflowOrchestrator:
             if not preview_mode:
                 log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
             try:
-                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled and not preview_mode:
+                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
                     log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
                     pair = await self.ai_service.generator.generate_with_sd(analysis, spec)
                     caption = pair.get("caption", "")
