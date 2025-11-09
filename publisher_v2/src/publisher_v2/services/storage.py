@@ -53,6 +53,32 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
+    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
+        """
+        Return minimal Dropbox file metadata for identity/version fields.
+        Keys: id, rev. Missing values omitted.
+        """
+        try:
+            def _meta() -> dict[str, str]:
+                path = os.path.join(folder, filename)
+                md = self.client.files_get_metadata(path)
+                out: dict[str, str] = {}
+                if isinstance(md, dropbox.files.FileMetadata):
+                    if getattr(md, "id", None):
+                        out["id"] = md.id
+                    if getattr(md, "rev", None):
+                        out["rev"] = md.rev
+                return out
+
+            return await asyncio.to_thread(_meta)
+        except ApiError as exc:
+            raise StorageError(f"Failed to get metadata for {filename}: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def list_images(self, folder: str) -> List[str]:
         try:
             def _list() -> List[str]:

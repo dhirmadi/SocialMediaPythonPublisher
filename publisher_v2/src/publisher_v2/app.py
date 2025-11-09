@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from datetime import datetime
 from typing import List
 
 from publisher_v2.config.loader import load_application_config
@@ -15,7 +16,7 @@ from publisher_v2.services.publishers.instagram import InstagramPublisher
 from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.utils.logging import setup_logging, log_json
 from publisher_v2.utils import preview as preview_utils
-from publisher_v2.utils.captions import format_caption
+from publisher_v2.utils.captions import format_caption, build_metadata_phase1, build_metadata_phase2
 
 
 def parse_args() -> argparse.Namespace:
@@ -112,6 +113,24 @@ async def main_async() -> int:
                 model=generator.model,
                 hashtag_count=hashtag_count,
             )
+            # Show caption sidecar content (sd_caption + metadata)
+            if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
+                created_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
+                db_meta = await storage.get_file_metadata(cfg.dropbox.image_folder, result.image_name)
+                phase1 = build_metadata_phase1(
+                    image_file=result.image_name,
+                    sha256=result.sha256 or "",
+                    created_iso=created_iso,
+                    sd_caption_version="v1.0",
+                    model_version=str(model_version),
+                    dropbox_file_id=db_meta.get("id"),
+                    dropbox_rev=db_meta.get("rev"),
+                )
+                meta = dict(phase1)
+                if cfg.captionfile.extended_metadata_enabled:
+                    meta.update(build_metadata_phase2(result.image_analysis))
+                preview_utils.print_caption_sidecar_preview(result.image_analysis.sd_caption, meta)
         
         # Show platform preview with formatted captions
         platform_captions = {}

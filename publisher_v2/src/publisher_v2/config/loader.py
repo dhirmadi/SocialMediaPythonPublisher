@@ -10,6 +10,7 @@ from dotenv import load_dotenv
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
+    CaptionFileConfig,
     DropboxConfig,
     EmailConfig,
     InstagramConfig,
@@ -120,6 +121,10 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             archive=cp.getboolean("Content", "archive", fallback=True),
             debug=cp.getboolean("Content", "debug", fallback=False),
         )
+        # CaptionFile config (Phase 2 extended metadata flag)
+        captionfile = CaptionFileConfig(
+            extended_metadata_enabled=cp.getboolean("CaptionFile", "extended_metadata_enabled", fallback=False)
+        )
     except KeyError as exc:
         raise ConfigurationError(f"Missing required environment variable: {exc}") from exc
     except configparser.Error as exc:
@@ -133,6 +138,7 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         instagram=instagram,
         email=email,
         content=content,
+        captionfile=captionfile,
     )
 
 

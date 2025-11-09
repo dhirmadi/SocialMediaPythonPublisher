@@ -6,6 +6,7 @@ import os
 import tempfile
 import uuid
 import hashlib
+from datetime import datetime
 from typing import Dict, List, Tuple
 
 from publisher_v2.config.schema import ApplicationConfig
@@ -15,7 +16,12 @@ from publisher_v2.services.ai import AIService
 from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.state import load_posted_hashes, save_posted_hash
-from publisher_v2.utils.captions import format_caption
+from publisher_v2.utils.captions import (
+    format_caption,
+    build_metadata_phase1,
+    build_metadata_phase2,
+    build_caption_sidecar,
+)
 from publisher_v2.utils.logging import log_json
 
 
@@ -185,8 +191,27 @@ class WorkflowOrchestrator:
             # Write sidecar if sd_caption present (no-op in preview/dry/debug)
             if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
                 try:
+                    # Build metadata Phase 1
+                    created_iso = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
+                    db_meta = await self.storage.get_file_metadata(self.config.dropbox.image_folder, selected_image)
+                    phase1 = build_metadata_phase1(
+                        image_file=selected_image,
+                        sha256=selected_hash,
+                        created_iso=created_iso,
+                        sd_caption_version="v1.0",
+                        model_version=str(model_version),
+                        dropbox_file_id=db_meta.get("id"),
+                        dropbox_rev=db_meta.get("rev"),
+                    )
+                    # Optionally add Phase 2
+                    meta = dict(phase1)
+                    if self.config.captionfile.extended_metadata_enabled and analysis:
+                        phase2 = build_metadata_phase2(analysis)
+                        meta.update(phase2)
+                    content = build_caption_sidecar(sd_caption, meta)
                     log_json(self.logger, logging.INFO, "sidecar_upload_start", image=selected_image, correlation_id=correlation_id)
-                    await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, sd_caption)
+                    await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, content)
                     log_json(self.logger, logging.INFO, "sidecar_upload_complete", image=selected_image, correlation_id=correlation_id)
                 except Exception as exc:
                     log_json(self.logger, logging.ERROR, "sidecar_upload_error", image=selected_image, error=str(exc), correlation_id=correlation_id)

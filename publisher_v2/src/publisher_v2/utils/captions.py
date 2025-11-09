@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import json
 import re
+from typing import Any, Dict
+
+from publisher_v2.core.models import ImageAnalysis
 
 
 _MAX_LEN = {
@@ -71,4 +75,81 @@ def format_caption(platform: str, caption: str) -> str:
     formatted = _trim_to_length(formatted, max_len)
     return formatted
 
+
+def build_metadata_phase1(
+    image_file: str,
+    sha256: str,
+    created_iso: str,
+    sd_caption_version: str,
+    model_version: str,
+    dropbox_file_id: str | None,
+    dropbox_rev: str | None,
+) -> Dict[str, Any]:
+    """
+    Build Phase 1 identity/version metadata. Omit missing fields.
+    """
+    meta: Dict[str, Any] = {}
+    if image_file:
+        meta["image_file"] = image_file
+    if dropbox_file_id:
+        meta["dropbox_file_id"] = dropbox_file_id
+    if dropbox_rev:
+        meta["dropbox_rev"] = dropbox_rev
+    if sha256:
+        meta["sha256"] = sha256
+    if created_iso:
+        meta["created"] = created_iso
+    if sd_caption_version:
+        meta["sd_caption_version"] = sd_caption_version
+    if model_version:
+        meta["model_version"] = model_version
+    return meta
+
+
+def build_metadata_phase2(analysis: ImageAnalysis) -> Dict[str, Any]:
+    """
+    Build Phase 2 contextual metadata from analysis. Omit missing/empty fields.
+    """
+    meta: Dict[str, Any] = {}
+    if getattr(analysis, "lighting", None):
+        meta["lighting"] = analysis.lighting
+    if getattr(analysis, "pose", None):
+        meta["pose"] = analysis.pose
+    # Map 'materials' to clothing_or_accessories if present
+    materials = getattr(analysis, "clothing_or_accessories", None)
+    if materials:
+        meta["materials"] = materials
+    if getattr(analysis, "style", None):
+        meta["art_style"] = analysis.style
+    tags = getattr(analysis, "tags", None) or []
+    if isinstance(tags, list) and tags:
+        meta["tags"] = [str(t) for t in tags if str(t).strip()]
+    moderation = getattr(analysis, "safety_labels", None) or []
+    if isinstance(moderation, list) and moderation:
+        meta["moderation"] = [str(m) for m in moderation if str(m).strip()]
+    return meta
+
+
+def build_caption_sidecar(sd_caption: str, metadata: Dict[str, Any]) -> str:
+    """
+    Compose the sidecar file content:
+    - First line: sd_caption
+    - Blank line
+    - '# ---'
+    - '# key: value' lines; arrays encoded as JSON arrays
+    """
+    lines: list[str] = []
+    lines.append(sd_caption.strip())
+    lines.append("")  # blank line
+    lines.append("# ---")
+    for key, value in metadata.items():
+        if value is None:
+            continue
+        if isinstance(value, list):
+            rendered = json.dumps(value, ensure_ascii=False)
+        else:
+            rendered = str(value)
+        lines.append(f"# {key}: {rendered}")
+    lines.append("")  # trailing newline
+    return "\n".join(lines)
 

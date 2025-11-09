@@ -108,12 +108,21 @@ sd_caption_single_call_enabled = true     ; Single JSON call with {caption, sd_c
 sd_caption_model = gpt-4o-mini            ; Optional override (defaults to caption_model)
 sd_caption_system_prompt = ...            ; Optional override
 sd_caption_role_prompt = ...              ; Optional override
+
+[CaptionFile]
+; Phase 2 extended contextual metadata in sidecar (PG-13, artistic/contextual)
+extended_metadata_enabled = false
 ```
 
 Behavior:
 - When enabled, the caption generator prefers a single call returning `{caption, sd_caption}`.
 - On error or if disabled, falls back to legacy caption‑only path.
 - Sidecar write is skipped in preview/dry/debug modes and does not block publishing.
+- Sidecar file format:
+  - Line 1: the `sd_caption` only
+  - Line 2: blank
+  - Line 3: `# ---`
+  - Subsequent lines: `# key: value` (`tags` and `moderation` as JSON arrays)
 
 ## 4. Validation Rules (pydantic)
 - Dropbox folder must start with "/"

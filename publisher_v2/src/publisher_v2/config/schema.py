@@ -154,6 +154,18 @@ class ContentConfig(BaseModel):
     debug: bool = Field(default=False, description="Debug mode")
 
 
+class CaptionFileConfig(BaseModel):
+    """
+    Configuration for caption sidecar files.
+    - extended_metadata_enabled controls Phase 2 contextual metadata output.
+    Phase 1 identity/version metadata is always included when sd_caption exists.
+    """
+    extended_metadata_enabled: bool = Field(
+        default=False,
+        description="Enable Phase 2 extended contextual metadata (pose, lighting, materials, art_style, tags, moderation)",
+    )
+
+
 class ApplicationConfig(BaseModel):
     dropbox: DropboxConfig
     openai: OpenAIConfig
@@ -162,5 +174,6 @@ class ApplicationConfig(BaseModel):
     instagram: Optional[InstagramConfig] = None
     email: Optional[EmailConfig] = None
     content: ContentConfig
+    captionfile: CaptionFileConfig = CaptionFileConfig()
 
 

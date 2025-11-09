@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import List, Dict
 from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.captions import build_caption_sidecar
 
 
 def print_preview_header() -> None:
@@ -234,6 +235,15 @@ def print_error(message: str) -> None:
     print(f"  {message}")
     print("═" * 70)
     print()
+
+
+def print_caption_sidecar_preview(sd_caption: str, metadata: Dict[str, object]) -> None:
+    """Print the full caption sidecar content (caption + metadata block)."""
+    print(f"\n📄 CAPTION SIDECAR")
+    print("─" * 70)
+    content = build_caption_sidecar(sd_caption, metadata)
+    for line in content.rstrip("\n").split("\n"):
+        print(f"  {line}")
 
 
 def _wrap_text(text: str, max_width: int) -> List[str]:
