@@ -39,3 +39,11 @@ low-key studio figure study,single person, female,brown hair, slender figure, ro
 * Caption includes pose + styling + lighting + fine-art descriptors
 * Re-processing an image safely overwrites the caption file
 * When the image is moved to the archive, so is the caption file
+
+**Notes**
+
+- Feature is enabled by default; can be controlled via `[openAI]` flags:
+  - `sd_caption_enabled=true`
+  - `sd_caption_single_call_enabled=true`
+  - Optional prompt/model overrides for fine control
+- Preview mode displays `sd_caption` but performs no uploads or moves.

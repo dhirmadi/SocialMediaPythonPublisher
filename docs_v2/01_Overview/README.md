@@ -19,4 +19,8 @@ Contents:
 
 Start with SYSTEM_DESIGN.md, then read SPECIFICATION.md and ARCHITECTURE.md. AI coders can safely implement using SPECIFICATION.md alone, with ARCHITECTURE.md and CONFIGURATION.md as reference.
 
+New in v2.4:
+- Stable‑Diffusion‑ready caption sidecar (`<image>.txt`) generated alongside normal captions
+- Moves with image on archive; preview shows `sd_caption` without side effects
+
 

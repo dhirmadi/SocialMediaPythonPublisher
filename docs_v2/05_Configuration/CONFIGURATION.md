@@ -43,6 +43,13 @@ caption_model = gpt-4o-mini     ; Cost-effective caption generation
 system_prompt = You are a senior social media copywriter...
 role_prompt = Write a caption for:
 
+[; Stable-Diffusion sidecar (optional, defaults shown)]
+sd_caption_enabled = true
+sd_caption_single_call_enabled = true
+; sd_caption_model = gpt-4o-mini
+; sd_caption_system_prompt = You are a fine-art photography curator...
+; sd_caption_role_prompt = Write two outputs (caption, sd_caption) as JSON:
+
 [Instagram]
 name = my_username
 
@@ -89,6 +96,24 @@ model = gpt-4o-mini             ; Good quality for both tasks
 - Legacy `model` field still supported
 - If only `model` is specified, it's used for both vision and caption
 - New configs should use `vision_model` and `caption_model`
+
+## 4. Stable‑Diffusion Caption Sidecar (v2.4+)
+
+Generate an additional fine‑art, PG‑13 training caption and write `<image>.txt` next to the image. On archive, the sidecar moves with the image.
+
+```ini
+[openAI]
+sd_caption_enabled = true                 ; Master switch (default: true)
+sd_caption_single_call_enabled = true     ; Single JSON call with {caption, sd_caption}
+sd_caption_model = gpt-4o-mini            ; Optional override (defaults to caption_model)
+sd_caption_system_prompt = ...            ; Optional override
+sd_caption_role_prompt = ...              ; Optional override
+```
+
+Behavior:
+- When enabled, the caption generator prefers a single call returning `{caption, sd_caption}`.
+- On error or if disabled, falls back to legacy caption‑only path.
+- Sidecar write is skipped in preview/dry/debug modes and does not block publishing.
 
 ## 4. Validation Rules (pydantic)
 - Dropbox folder must start with "/"
