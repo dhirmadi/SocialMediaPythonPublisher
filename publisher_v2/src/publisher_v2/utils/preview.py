@@ -66,6 +66,14 @@ def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None:
         print(f"  Safety:      {', '.join(analysis.safety_labels)}")
     else:
         print(f"  Safety:      None")
+    
+    # Optional SD caption preview
+    sd_text = getattr(analysis, "sd_caption", None)
+    if sd_text:
+        sd_lines = _wrap_text(sd_text, 60)
+        print(f"\n  SD Caption:  {sd_lines[0]}")
+        for line in sd_lines[1:]:
+            print(f"               {line}")
 
 
 def print_caption(caption: str, spec: CaptionSpec, model: str, hashtag_count: int) -> None:
