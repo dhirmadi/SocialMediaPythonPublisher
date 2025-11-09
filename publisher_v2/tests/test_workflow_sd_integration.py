@@ -81,7 +81,8 @@ async def test_workflow_sd_integration_preview_and_live() -> None:
     cfg = make_config()
     storage = DummyStorage(cfg.dropbox)
     ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
-    orchestrator = WorkflowOrchestrator(config=cgf := cfg, storage=storage, ai_service=ai, publishers=[])
+    cgf = cfg
+    orchestrator = WorkflowOrchestrator(config=cgf, storage=storage, ai_service=ai, publishers=[])
 
     # Preview mode should not write sidecar but should expose sd_caption in result.analysis
     result_prev = await orchestrator.execute(preview_mode=True)
