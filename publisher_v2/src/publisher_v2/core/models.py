@@ -28,6 +28,18 @@ class ImageAnalysis:
     tags: List[str] = field(default_factory=list)
     nsfw: bool = False
     safety_labels: List[str] = field(default_factory=list)
+    sd_caption: Optional[str] = None
+    # Optional detailed fields for richer analysis (backward-compatible)
+    subject: Optional[str] = None
+    style: Optional[str] = None
+    lighting: Optional[str] = None
+    camera: Optional[str] = None
+    clothing_or_accessories: Optional[str] = None
+    aesthetic_terms: List[str] = field(default_factory=list)
+    pose: Optional[str] = None
+    composition: Optional[str] = None
+    background: Optional[str] = None
+    color_palette: Optional[str] = None
 
 
 @dataclass

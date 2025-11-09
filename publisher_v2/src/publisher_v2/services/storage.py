@@ -27,6 +27,58 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
+    async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
+        """
+        Write or overwrite a .txt sidecar beside the image. For 'image.jpg' writes 'image.txt'.
+        """
+        try:
+            def _upload() -> None:
+                stem = os.path.splitext(filename)[0]
+                sidecar_name = f"{stem}.txt"
+                path = os.path.join(folder, sidecar_name)
+                data = text.encode("utf-8")
+                self.client.files_upload(
+                    data,
+                    path,
+                    mode=dropbox.files.WriteMode.overwrite,
+                    mute=True,
+                )
+
+            await asyncio.to_thread(_upload)
+        except ApiError as exc:
+            raise StorageError(f"Failed to upload sidecar for {filename}: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
+        """
+        Return minimal Dropbox file metadata for identity/version fields.
+        Keys: id, rev. Missing values omitted.
+        """
+        try:
+            def _meta() -> dict[str, str]:
+                path = os.path.join(folder, filename)
+                md = self.client.files_get_metadata(path)
+                out: dict[str, str] = {}
+                if isinstance(md, dropbox.files.FileMetadata):
+                    if getattr(md, "id", None):
+                        out["id"] = md.id
+                    if getattr(md, "rev", None):
+                        out["rev"] = md.rev
+                return out
+
+            return await asyncio.to_thread(_meta)
+        except ApiError as exc:
+            raise StorageError(f"Failed to get metadata for {filename}: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def list_images(self, folder: str) -> List[str]:
         try:
             def _list() -> List[str]:
@@ -94,6 +146,15 @@ class DropboxStorage:
                     pass
                 dst = os.path.join(dst_dir, filename)
                 self.client.files_move_v2(src, dst, autorename=True)
+                # Attempt to move sidecar if present
+                sidecar_name = f"{os.path.splitext(filename)[0]}.txt"
+                sidecar_src = os.path.join(folder, sidecar_name)
+                sidecar_dst = os.path.join(dst_dir, sidecar_name)
+                try:
+                    self.client.files_move_v2(sidecar_src, sidecar_dst, autorename=True)
+                except ApiError:
+                    # Sidecar may not exist; ignore
+                    pass
 
             await asyncio.to_thread(_archive)
         except ApiError as exc:

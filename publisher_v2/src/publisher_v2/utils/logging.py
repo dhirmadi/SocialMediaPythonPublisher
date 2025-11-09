@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict
 import re
 
@@ -33,7 +33,7 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) -> None:
     entry: Dict[str, Any] = {
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "message": sanitize(message),
         **kwargs,
     }

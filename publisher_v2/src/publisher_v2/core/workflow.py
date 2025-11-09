@@ -6,6 +6,7 @@ import os
 import tempfile
 import uuid
 import hashlib
+from datetime import datetime, timezone
 from typing import Dict, List, Tuple
 
 from publisher_v2.config.schema import ApplicationConfig
@@ -15,7 +16,12 @@ from publisher_v2.services.ai import AIService
 from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.state import load_posted_hashes, save_posted_hash
-from publisher_v2.utils.captions import format_caption
+from publisher_v2.utils.captions import (
+    format_caption,
+    build_metadata_phase1,
+    build_metadata_phase2,
+    build_caption_sidecar,
+)
 from publisher_v2.utils.logging import log_json
 
 
@@ -157,11 +163,60 @@ class WorkflowOrchestrator:
                     hashtags=self.config.content.hashtag_string,
                     max_length=2200,
                 )
+            # Prefer SD single-call if enabled
+            sd_caption = None
             if not preview_mode:
                 log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
-            caption = await self.ai_service.generator.generate(analysis, spec)
-            if not preview_mode:
-                log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            try:
+                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
+                    log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
+                    pair = await self.ai_service.generator.generate_with_sd(analysis, spec)
+                    caption = pair.get("caption", "")
+                    sd_caption = pair.get("sd_caption") or None
+                    log_json(self.logger, logging.INFO, "sd_caption_complete", has_sd=bool(sd_caption), correlation_id=correlation_id)
+                else:
+                    caption = await self.ai_service.generator.generate(analysis, spec)
+                if not preview_mode:
+                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            except Exception as exc:
+                if not preview_mode:
+                    log_json(self.logger, logging.ERROR, "sd_caption_error", error=str(exc), correlation_id=correlation_id)
+                # Fallback to legacy caption-only
+                caption = await self.ai_service.generator.generate(analysis, spec)
+                if not preview_mode:
+                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
+            # In preview, attach sd_caption to analysis for display
+            if analysis and sd_caption:
+                setattr(analysis, "sd_caption", sd_caption)
+            # Write sidecar if sd_caption present (no-op in preview/dry/debug)
+            if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
+                try:
+                    # Build metadata Phase 1
+                    created_iso = (
+                        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                    )
+                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
+                    db_meta = await self.storage.get_file_metadata(self.config.dropbox.image_folder, selected_image)
+                    phase1 = build_metadata_phase1(
+                        image_file=selected_image,
+                        sha256=selected_hash,
+                        created_iso=created_iso,
+                        sd_caption_version="v1.0",
+                        model_version=str(model_version),
+                        dropbox_file_id=db_meta.get("id"),
+                        dropbox_rev=db_meta.get("rev"),
+                    )
+                    # Optionally add Phase 2
+                    meta = dict(phase1)
+                    if self.config.captionfile.extended_metadata_enabled and analysis:
+                        phase2 = build_metadata_phase2(analysis)
+                        meta.update(phase2)
+                    content = build_caption_sidecar(sd_caption, meta)
+                    log_json(self.logger, logging.INFO, "sidecar_upload_start", image=selected_image, correlation_id=correlation_id)
+                    await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, content)
+                    log_json(self.logger, logging.INFO, "sidecar_upload_complete", image=selected_image, correlation_id=correlation_id)
+                except Exception as exc:
+                    log_json(self.logger, logging.ERROR, "sidecar_upload_error", image=selected_image, error=str(exc), correlation_id=correlation_id)
 
             # 5. Publish in parallel
             enabled_publishers = [p for p in self.publishers if p.is_enabled()]

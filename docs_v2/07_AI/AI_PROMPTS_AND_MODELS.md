@@ -18,10 +18,14 @@ Last Updated: November 8, 2025
 
 ## 2. Vision Analysis Prompt (OpenAI)
 System:
-“You are an expert vision curator for social media. Extract concise description, mood, tags, and safety flags suitable for downstream captioning.”
+“You are an expert vision curator for social media and AI art datasets. Produce a detailed but structured breakdown suitable for downstream captioning and SD prompts. Return strict JSON only; no prose.”
 
 User (with image input):
-“Analyze this image for: description (≤30 words), mood (single phrase), 8‑12 tags (single words), and safety flags (nsfw categories if any). Output strict JSON with fields: description, mood, tags, nsfw, safety_labels.”
+“Analyze this image and return strict JSON with keys:
+description, mood, tags (array), nsfw (boolean), safety_labels (array),
+subject, style, lighting, camera, clothing_or_accessories,
+aesthetic_terms (array), pose, composition, background, color_palette.
+Description ≤ 30 words. If unknown, use null or empty array. No extra text.”
 
 Expected JSON:
 ```json
@@ -30,7 +34,17 @@ Expected JSON:
   "mood": "serene, nostalgic",
   "tags": ["portrait", "film", "golden_hour", "..."],
   "nsfw": false,
-  "safety_labels": []
+  "safety_labels": [],
+  "subject": "single adult subject, torso framed, facing camera",
+  "style": "fine-art editorial, monochrome",
+  "lighting": "soft directional, high-contrast",
+  "camera": "50mm equivalent, shallow depth of field",
+  "clothing_or_accessories": "rope harness (body-form)",
+  "aesthetic_terms": ["minimalist", "graphic"],
+  "pose": "upright stance, shoulders squared, chin lifted",
+  "composition": "center-weighted portrait, negative space around subject",
+  "background": "plain studio backdrop",
+  "color_palette": "black, white, gray"
 }
 ```
 

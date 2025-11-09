@@ -7,6 +7,7 @@ from __future__ import annotations
 from typing import List, Dict
 from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.captions import build_caption_sidecar
 
 
 def print_preview_header() -> None:
@@ -66,6 +67,47 @@ def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None:
         print(f"  Safety:      {', '.join(analysis.safety_labels)}")
     else:
         print(f"  Safety:      None")
+    
+    # Optional detailed fields
+    subject = getattr(analysis, "subject", None)
+    if subject:
+        print(f"\n  Subject:     {subject}")
+    style = getattr(analysis, "style", None)
+    if style:
+        print(f"  Style:       {style}")
+    lighting = getattr(analysis, "lighting", None)
+    if lighting:
+        print(f"  Lighting:    {lighting}")
+    camera = getattr(analysis, "camera", None)
+    if camera:
+        print(f"  Camera:      {camera}")
+    clothing = getattr(analysis, "clothing_or_accessories", None)
+    if clothing:
+        print(f"  Clothing:    {clothing}")
+    aesthetics = getattr(analysis, "aesthetic_terms", None)
+    if aesthetics:
+        aesthetics_str = ", ".join(aesthetics)
+        print(f"  Aesthetics:  {aesthetics_str}")
+    pose = getattr(analysis, "pose", None)
+    if pose:
+        print(f"  Pose:        {pose}")
+    composition = getattr(analysis, "composition", None)
+    if composition:
+        print(f"  Composition: {composition}")
+    background = getattr(analysis, "background", None)
+    if background:
+        print(f"  Background:  {background}")
+    palette = getattr(analysis, "color_palette", None)
+    if palette:
+        print(f"  Palette:     {palette}")
+    
+    # Optional SD caption preview
+    sd_text = getattr(analysis, "sd_caption", None)
+    if sd_text:
+        sd_lines = _wrap_text(sd_text, 60)
+        print(f"\n  SD Caption:  {sd_lines[0]}")
+        for line in sd_lines[1:]:
+            print(f"               {line}")
 
 
 def print_caption(caption: str, spec: CaptionSpec, model: str, hashtag_count: int) -> None:
@@ -193,6 +235,15 @@ def print_error(message: str) -> None:
     print(f"  {message}")
     print("═" * 70)
     print()
+
+
+def print_caption_sidecar_preview(sd_caption: str, metadata: Dict[str, object]) -> None:
+    """Print the full caption sidecar content (caption + metadata block)."""
+    print(f"\n📄 CAPTION SIDECAR")
+    print("─" * 70)
+    content = build_caption_sidecar(sd_caption, metadata)
+    for line in content.rstrip("\n").split("\n"):
+        print(f"  {line}")
 
 
 def _wrap_text(text: str, max_width: int) -> List[str]:
