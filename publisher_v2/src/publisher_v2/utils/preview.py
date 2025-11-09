@@ -67,6 +67,39 @@ def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None:
     else:
         print(f"  Safety:      None")
     
+    # Optional detailed fields
+    subject = getattr(analysis, "subject", None)
+    if subject:
+        print(f"\n  Subject:     {subject}")
+    style = getattr(analysis, "style", None)
+    if style:
+        print(f"  Style:       {style}")
+    lighting = getattr(analysis, "lighting", None)
+    if lighting:
+        print(f"  Lighting:    {lighting}")
+    camera = getattr(analysis, "camera", None)
+    if camera:
+        print(f"  Camera:      {camera}")
+    clothing = getattr(analysis, "clothing_or_accessories", None)
+    if clothing:
+        print(f"  Clothing:    {clothing}")
+    aesthetics = getattr(analysis, "aesthetic_terms", None)
+    if aesthetics:
+        aesthetics_str = ", ".join(aesthetics)
+        print(f"  Aesthetics:  {aesthetics_str}")
+    pose = getattr(analysis, "pose", None)
+    if pose:
+        print(f"  Pose:        {pose}")
+    composition = getattr(analysis, "composition", None)
+    if composition:
+        print(f"  Composition: {composition}")
+    background = getattr(analysis, "background", None)
+    if background:
+        print(f"  Background:  {background}")
+    palette = getattr(analysis, "color_palette", None)
+    if palette:
+        print(f"  Palette:     {palette}")
+    
     # Optional SD caption preview
     sd_text = getattr(analysis, "sd_caption", None)
     if sd_text:

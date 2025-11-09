@@ -18,6 +18,13 @@ class VisionAnalyzerOpenAI:
         self.client = AsyncOpenAI(api_key=config.api_key)
         self.model = config.vision_model  # Use vision-optimized model
 
+    @staticmethod
+    def _opt_str(v: object) -> Optional[str]:
+        if v is None:
+            return None
+        s = str(v).strip()
+        return s or None
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
@@ -41,9 +48,11 @@ class VisionAnalyzerOpenAI:
                 {
                     "type": "text",
                     "text": (
-                        "Analyze this image and return strict JSON with keys: "
-                        "description, mood, tags (array), nsfw (boolean), safety_labels (array). "
-                        "Description ≤ 30 words."
+                        "Analyze this image and return strict JSON with keys:\n"
+                        "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
+                        "subject, style, lighting, camera, clothing_or_accessories,\n"
+                        "aesthetic_terms (array), pose, composition, background, color_palette.\n"
+                        "Description ≤ 30 words. If unknown, use null or empty array. No extra text."
                     ),
                 },
             ]
@@ -53,8 +62,9 @@ class VisionAnalyzerOpenAI:
                     {
                         "role": "system",
                         "content": (
-                            "You are an expert vision curator for social media. Extract concise description, mood, "
-                            "tags, and safety flags suitable for downstream captioning. Output strict JSON only."
+                            "You are an expert vision curator for social media and AI art datasets. "
+                            "Produce a detailed but structured breakdown suitable for downstream captioning and SD prompts. "
+                            "Return strict JSON only; no prose."
                         ),
                     },
                     {"role": "user", "content": user_content},
@@ -80,6 +90,16 @@ class VisionAnalyzerOpenAI:
                 tags=[str(t) for t in (data.get("tags") or [])],
                 nsfw=bool(data.get("nsfw", False)),
                 safety_labels=[str(s) for s in (data.get("safety_labels") or [])],
+                subject=self._opt_str(data.get("subject")),
+                style=self._opt_str(data.get("style")),
+                lighting=self._opt_str(data.get("lighting")),
+                camera=self._opt_str(data.get("camera")),
+                clothing_or_accessories=self._opt_str(data.get("clothing_or_accessories")),
+                aesthetic_terms=[str(t) for t in (data.get("aesthetic_terms") or [])],
+                pose=self._opt_str(data.get("pose")),
+                composition=self._opt_str(data.get("composition")),
+                background=self._opt_str(data.get("background")),
+                color_palette=self._opt_str(data.get("color_palette")),
             )
         except Exception as exc:
             raise AIServiceError(f"OpenAI analysis failed: {exc}") from exc
