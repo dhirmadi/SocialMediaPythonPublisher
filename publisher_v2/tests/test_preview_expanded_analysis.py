@@ -47,3 +47,4 @@ def test_preview_prints_optional_fields(monkeypatch: pytest.MonkeyPatch) -> None
     assert "Palette" in out
 
 
+
