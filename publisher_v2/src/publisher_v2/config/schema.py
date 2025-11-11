@@ -164,6 +164,10 @@ class CaptionFileConfig(BaseModel):
         default=False,
         description="Enable Phase 2 extended contextual metadata (pose, lighting, materials, art_style, tags, moderation)",
     )
+    artist_alias: Optional[str] = Field(
+        default=None,
+        description="Artist/photographer alias to include in caption file metadata",
+    )
 
 
 class ApplicationConfig(BaseModel):

@@ -205,6 +205,7 @@ class WorkflowOrchestrator:
                         model_version=str(model_version),
                         dropbox_file_id=db_meta.get("id"),
                         dropbox_rev=db_meta.get("rev"),
+                        artist_alias=self.config.captionfile.artist_alias,
                     )
                     # Optionally add Phase 2
                     meta = dict(phase1)

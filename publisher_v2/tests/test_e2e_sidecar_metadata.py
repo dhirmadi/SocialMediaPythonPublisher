@@ -87,7 +87,7 @@ class DummyPublisher(Publisher):
         return PublishResult(success=True, platform=self.platform_name)
 
 
-def make_config(extended: bool) -> ApplicationConfig:
+def make_config(extended: bool, artist_alias: str | None = None) -> ApplicationConfig:
     drop = DropboxConfig(
         app_key="a", app_secret="b", refresh_token="c", image_folder="/ImagesToday", archive_folder="archive"
     )
@@ -100,17 +100,20 @@ def make_config(extended: bool) -> ApplicationConfig:
     )
     platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
     content = ContentConfig(hashtag_string="", archive=False, debug=False)
-    captionfile = CaptionFileConfig(extended_metadata_enabled=extended)
+    captionfile = CaptionFileConfig(extended_metadata_enabled=extended, artist_alias=artist_alias)
     return ApplicationConfig(dropbox=drop, openai=openai, platforms=platforms, content=content, captionfile=captionfile)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("extended", [False, True])
-async def test_e2e_sidecar_metadata_content(extended: bool) -> None:
+async def test_e2e_sidecar_metadata_content(extended: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_config(extended=extended)
     storage = DummyStorage(cfg.dropbox)
     ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
     orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Bypass dedup state
+    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
+    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
 
     result = await orch.execute(preview_mode=False)
     assert storage.sidecar_text is not None
@@ -131,5 +134,47 @@ async def test_e2e_sidecar_metadata_content(extended: bool) -> None:
     assert ("# art_style:" in text) == extended
     assert ("# tags:" in text) == extended
     assert ("# moderation:" in text) == extended
+
+
+@pytest.mark.asyncio
+async def test_e2e_sidecar_with_artist_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that artist_alias from config appears in Phase 1 metadata."""
+    cfg = make_config(extended=False, artist_alias="Eoel")
+    storage = DummyStorage(cfg.dropbox)
+    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Bypass dedup state
+    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
+    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
+
+    result = await orch.execute(preview_mode=False)
+    assert storage.sidecar_text is not None
+    text = storage.sidecar_text or ""
+    # Verify artist_alias is present in metadata
+    assert "# artist_alias: Eoel" in text
+    # Verify other Phase 1 fields present
+    assert "# image_file:" in text
+    assert "# sha256:" in text
+
+
+@pytest.mark.asyncio
+async def test_e2e_sidecar_without_artist_alias(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Test that when artist_alias is not set, it does not appear in metadata."""
+    cfg = make_config(extended=False, artist_alias=None)
+    storage = DummyStorage(cfg.dropbox)
+    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Bypass dedup state
+    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
+    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
+
+    result = await orch.execute(preview_mode=False)
+    assert storage.sidecar_text is not None
+    text = storage.sidecar_text or ""
+    # Verify artist_alias is NOT present
+    assert "artist_alias" not in text
+    # Other Phase 1 fields should still be present
+    assert "# image_file:" in text
+    assert "# sha256:" in text
 
 

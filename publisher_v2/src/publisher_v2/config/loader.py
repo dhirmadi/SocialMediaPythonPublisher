@@ -121,9 +121,10 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             archive=cp.getboolean("Content", "archive", fallback=True),
             debug=cp.getboolean("Content", "debug", fallback=False),
         )
-        # CaptionFile config (Phase 2 extended metadata flag)
+        # CaptionFile config (Phase 2 extended metadata flag and artist alias)
         captionfile = CaptionFileConfig(
-            extended_metadata_enabled=cp.getboolean("CaptionFile", "extended_metadata_enabled", fallback=False)
+            extended_metadata_enabled=cp.getboolean("CaptionFile", "extended_metadata_enabled", fallback=False),
+            artist_alias=cp.get("CaptionFile", "artist_alias", fallback=None)
         )
     except KeyError as exc:
         raise ConfigurationError(f"Missing required environment variable: {exc}") from exc
