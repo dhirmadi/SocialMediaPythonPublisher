@@ -128,6 +128,7 @@ async def main_async() -> int:
                     model_version=str(model_version),
                     dropbox_file_id=db_meta.get("id"),
                     dropbox_rev=db_meta.get("rev"),
+                    artist_alias=cfg.captionfile.artist_alias,
                 )
                 meta = dict(phase1)
                 if cfg.captionfile.extended_metadata_enabled:

@@ -53,6 +53,9 @@ class DummyStorage(DropboxStorage):
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return "http://tmp"
 
+    async def get_file_metadata(self, folder: str, filename: str):
+        return {"id": "id:XYZ", "rev": "123"}
+
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.writes += 1
 

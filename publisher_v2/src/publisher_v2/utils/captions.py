@@ -84,6 +84,7 @@ def build_metadata_phase1(
     model_version: str,
     dropbox_file_id: str | None,
     dropbox_rev: str | None,
+    artist_alias: str | None = None,
 ) -> Dict[str, Any]:
     """
     Build Phase 1 identity/version metadata. Omit missing fields.
@@ -103,6 +104,8 @@ def build_metadata_phase1(
         meta["sd_caption_version"] = sd_caption_version
     if model_version:
         meta["model_version"] = model_version
+    if artist_alias:
+        meta["artist_alias"] = artist_alias
     return meta
 
 

@@ -50,6 +50,9 @@ class DummyStorage(DropboxStorage):
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return "http://tmp"
 
+    async def get_file_metadata(self, folder: str, filename: str):
+        return {"id": "id:XYZ", "rev": "123"}
+
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecars += 1
 
@@ -86,7 +89,11 @@ def make_config(archive: bool) -> ApplicationConfig:
 
 
 @pytest.mark.asyncio
-async def test_e2e_preview_then_live_sd_caption() -> None:
+async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Bypass dedup state
+    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
+    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
+    
     # Preview phase
     cfg_prev = make_config(archive=True)
     storage_prev = DummyStorage(cfg_prev.dropbox)
