@@ -111,19 +111,33 @@ def build_metadata_phase2(analysis: ImageAnalysis) -> Dict[str, Any]:
     Build Phase 2 contextual metadata from analysis. Omit missing/empty fields.
     """
     meta: Dict[str, Any] = {}
+    # Core contextual fields
+    if getattr(analysis, "subject", None):
+        meta["subject"] = analysis.subject
     if getattr(analysis, "lighting", None):
         meta["lighting"] = analysis.lighting
     if getattr(analysis, "pose", None):
         meta["pose"] = analysis.pose
+    if getattr(analysis, "camera", None):
+        meta["camera"] = analysis.camera
     # Map 'materials' to clothing_or_accessories if present
     materials = getattr(analysis, "clothing_or_accessories", None)
     if materials:
         meta["materials"] = materials
     if getattr(analysis, "style", None):
         meta["art_style"] = analysis.style
+    if getattr(analysis, "composition", None):
+        meta["composition"] = analysis.composition
+    if getattr(analysis, "background", None):
+        meta["background"] = analysis.background
+    if getattr(analysis, "color_palette", None):
+        meta["color_palette"] = analysis.color_palette
     tags = getattr(analysis, "tags", None) or []
     if isinstance(tags, list) and tags:
         meta["tags"] = [str(t) for t in tags if str(t).strip()]
+    aesthetics = getattr(analysis, "aesthetic_terms", None) or []
+    if isinstance(aesthetics, list) and aesthetics:
+        meta["aesthetic_terms"] = [str(a) for a in aesthetics if str(a).strip()]
     moderation = getattr(analysis, "safety_labels", None) or []
     if isinstance(moderation, list) and moderation:
         meta["moderation"] = [str(m) for m in moderation if str(m).strip()]

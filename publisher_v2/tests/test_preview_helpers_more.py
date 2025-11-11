@@ -124,3 +124,4 @@ def test_config_summary_prints() -> None:
     assert "Vision Model" in out and "Caption Model" in out and "config.ini" in out
 
 
+

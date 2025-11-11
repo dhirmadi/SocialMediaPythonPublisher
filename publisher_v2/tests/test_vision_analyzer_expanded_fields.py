@@ -75,3 +75,4 @@ async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) 
     assert "black" in (result.color_palette or "")
 
 
+

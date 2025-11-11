@@ -40,6 +40,7 @@ Today, caption files contain only a single training caption, losing valuable con
 - Given caption file generation, when metadata is appended, then all metadata lines are prefixed with `# ` and an initial `# ---` separator appears on the next line after the caption.
 - Given metadata output Phase 1, when files are written, then the block includes: `image_file`, `dropbox_file_id` (if available), `dropbox_rev` (if available), `sha1` (or repo-standard hash), `created` (UTC ISO8601), `sd_caption_version`, `model_version`.
 - Given metadata output Phase 2 (flagged), when enabled, then the block additionally includes contextual fields: `lighting`, `pose`, `materials`, `art_style`, `tags` (JSON array), `moderation` (JSON array).
+  - Additionally, when available, the following analysis details are included: `subject`, `camera`, `composition`, `background`, `color_palette`, `aesthetic_terms` (JSON array).
 - Given preview or dry-run mode, when generating outputs, then no files are created or mutated; preview prints show the full caption and metadata block.
 - Given reprocessing of the same image, when writing `<image>.txt`, then the file is overwritten atomically and archived side-by-side with the image on move.
 - Given training pipelines that read only the first line, when this change is deployed, then training outcomes remain unaffected.
@@ -90,7 +91,8 @@ Today, caption files contain only a single training caption, losing valuable con
 - Phase 1 keys (baseline):
   - `image_file` (str), `dropbox_file_id` (str, optional), `dropbox_rev` (str, optional), `sha1` (str), `created` (UTC ISO8601), `sd_caption_version` (str), `model_version` (str)
 - Phase 2 keys (extended, optional):
-  - `lighting` (str), `pose` (str), `materials` (str), `art_style` (str), `tags` (JSON array[str]), `moderation` (JSON array[str])
+  - Baseline: `lighting` (str), `pose` (str), `materials` (str), `art_style` (str), `tags` (JSON array[str]), `moderation` (JSON array[str])
+  - Also included when available: `subject` (str), `camera` (str), `composition` (str), `background` (str), `color_palette` (str), `aesthetic_terms` (JSON array[str])
 - Validation: omit unavailable fields; no nulls; stable key spelling; schema version implied via `sd_caption_version`.
 
 ## Security / Privacy / Compliance
