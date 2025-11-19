@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, List, Optional
 import os
 
@@ -67,7 +67,7 @@ class WorkflowResult:
     archived: bool
     error: Optional[str] = None
     correlation_id: Optional[str] = None
-    finished_at: datetime = field(default_factory=datetime.utcnow)
+    finished_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
     # Preview mode fields
     image_analysis: Optional[ImageAnalysis] = None
     caption_spec: Optional[CaptionSpec] = None

@@ -7,7 +7,7 @@ Last Updated: November 7, 2025
 Layered architecture with service abstractions and dependency injection.
 
 ```
-CLI (poetry run) / Scheduler
+CLI (poetry run) / Scheduler / Web (FastAPI)
         ↓
 Application Layer (Workflow Orchestrator, Use Cases)
         ↓
