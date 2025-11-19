@@ -1,1 +1,1 @@
-   web: PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT
+web: bash -lc 'mkdir -p configfiles && printf "%s\n" "$FETLIFE_INI" > configfiles/fetlife.ini && PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT'
