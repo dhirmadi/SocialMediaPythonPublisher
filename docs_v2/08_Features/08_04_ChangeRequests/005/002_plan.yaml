@@ -1,0 +1,70 @@
+version: 1
+feature_id: web-interface-mvp-change-002-mobile-image-size-optimization
+summary: "Constrain web UI image rendering to be mobile-friendly and bandwidth-efficient while preserving desktop usability and existing flows."
+design_refs:
+  - docs_v2/08_Features/08_04_ChangeRequests/005/002_mobile-image-size-optimization_design.md
+  - docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "On small mobile viewports, the image rendered in the web UI fits within the viewport/container width without horizontal scrolling and maintains correct aspect ratio."
+  - "On desktop and tablet viewports, the image is rendered within a sensible maximum width (not ultra-wide) while remaining visually usable, with no regressions to existing AI/publish flows."
+non_goals:
+  - "Introduce a new image CDN or persistent image cache beyond existing Dropbox-based storage."
+  - "Change Dropbox and sidecars as the source of truth or modify sidecar formats."
+  - "Alter orchestrator, AI, or publisher semantics defined in the Web Interface MVP."
+tasks:
+  - id: web_story005_002.update_responsive_image_layout
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/templates/index.html"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "index.html: responsive image container markup and CSS rules for main image"
+    depends_on: []
+    rollback: ""
+  - id: web_story005_002.add_web_index_layout_tests
+    type: test
+    touches: []
+    files_out:
+      - "publisher_v2/tests/web/test_web_index_responsive.py"
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "test_web_index_responsive_renders_image_container()"
+        - "test_web_index_responsive_img_styles_mobile()"
+    depends_on:
+      - "web_story005_002.update_responsive_image_layout"
+    rollback: ""
+quality_gates:
+  tests_required:
+    - "web_story005_002.add_web_index_layout_tests"
+  coverage_delta_min: +1
+  perf_budget:
+    web_api_random_image_p95_ms: 5000
+  security_checks:
+    - "dep-audit"
+    - "no-secrets"
+    - "lint"
+release:
+  strategy: "gradual"
+  flags:
+    - "features.web_interface_mvp_mobile_image_optimization"
+  metrics:
+    - "web_random_image_latency_p95"
+    - "web_random_image_requests_count"
+
+
