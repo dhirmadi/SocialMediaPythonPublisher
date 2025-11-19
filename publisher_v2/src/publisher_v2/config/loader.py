@@ -17,6 +17,7 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
     TelegramConfig,
+    WebConfig,
 )
 from publisher_v2.core.exceptions import ConfigurationError
 
@@ -131,6 +132,11 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
     except configparser.Error as exc:
         raise ConfigurationError(f"Invalid configuration file: {exc}") from exc
 
+    # Web config is primarily driven by environment variables for MVP.
+    # We still construct a typed WebConfig instance here so that future
+    # code can depend on it without having to read os.environ directly.
+    web_cfg = WebConfig()
+
     return ApplicationConfig(
         dropbox=dropbox,
         openai=openai_cfg,
@@ -140,6 +146,7 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         email=email,
         content=content,
         captionfile=captionfile,
+        web=web_cfg,
     )
 
 

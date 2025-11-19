@@ -140,6 +140,25 @@ confirmation_tags_nature = short, lowercase, human-friendly topical nouns; no ha
 
 ---
 
+### 🌐 V2 Web Interface (MVP)
+
+An optional minimal web interface is available, built on FastAPI:
+
+- Shows a random image from the configured Dropbox folder.
+- Lets you trigger AI analysis & caption generation.
+- Lets you publish using the existing publishers.
+
+To run locally:
+
+```bash
+export CONFIG_PATH=configfiles/fetlife.ini
+poetry run uvicorn publisher_v2.web.app:app --reload
+```
+
+Then open `http://localhost:8000` in your browser.
+
+---
+
 ### 📄 License
 
 MIT License — see [LICENSE](LICENSE).

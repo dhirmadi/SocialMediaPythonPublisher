@@ -170,6 +170,47 @@ class CaptionFileConfig(BaseModel):
     )
 
 
+class WebConfig(BaseModel):
+    """
+    Optional configuration for the web interface.
+    For MVP we primarily rely on environment variables, but this model
+    allows typed access and future INI-based overrides.
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description="Enable the web interface",
+    )
+    host: str = Field(
+        default="0.0.0.0",
+        description="Host interface for the web server",
+    )
+    port: int = Field(
+        default=8000,
+        description="Port for the web server when run directly (Heroku sets PORT env)",
+    )
+    auth_enabled: bool = Field(
+        default=True,
+        description="Require authentication for mutating web API actions",
+    )
+    auth_token: Optional[str] = Field(
+        default=None,
+        description="Optional bearer token for API auth",
+    )
+    auth_user: Optional[str] = Field(
+        default=None,
+        description="Optional basic auth username for API auth",
+    )
+    auth_pass: Optional[str] = Field(
+        default=None,
+        description="Optional basic auth password for API auth",
+    )
+    admin_cookie_ttl_seconds: int = Field(
+        default=3600,
+        description="TTL for admin-mode cookie in seconds (MVP default ~1h)",
+    )
+
+
 class ApplicationConfig(BaseModel):
     dropbox: DropboxConfig
     openai: OpenAIConfig
@@ -179,5 +220,6 @@ class ApplicationConfig(BaseModel):
     email: Optional[EmailConfig] = None
     content: ContentConfig
     captionfile: CaptionFileConfig = CaptionFileConfig()
+    web: WebConfig = WebConfig()
 
 
