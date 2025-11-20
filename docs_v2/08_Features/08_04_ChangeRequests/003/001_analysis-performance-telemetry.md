@@ -5,7 +5,7 @@
 **Feature ID:** 003  
 **Change ID:** 003-001  
 **Name:** analysis-performance-telemetry  
-**Status:** Proposed  
+**Status:** Shipped  
 **Date:** 2025-11-20  
 **Author:** Architecture Team  
 **Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/003_expanded-vision-analysis-json_design.md  
