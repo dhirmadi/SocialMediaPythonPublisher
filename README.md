@@ -9,10 +9,14 @@ Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses Op
 
 ### 📚 Documentation (Start Here)
 
-- V2 docs: see `docs_v2/`
-  - `docs_v2/README.md` (start here)
-  - `docs_v2/SYSTEM_DESIGN.md`, `ARCHITECTURE.md`, `SPECIFICATION.md`, `CONFIGURATION.md`
-  - `docs_v2/PREVIEW_MODE.md`, `AI_PROMPTS_AND_MODELS.md`, `REVIEW_SUMMARY.md`
+- V2 docs live in `docs_v2/`:
+  - Overview: `docs_v2/01_Overview/README.md` (start here)
+  - Architecture: `docs_v2/03_Architecture/ARCHITECTURE.md`, `docs_v2/03_Architecture/SYSTEM_DESIGN.md`
+  - Specification & configuration: `docs_v2/02_Specifications/SPECIFICATION.md`, `docs_v2/05_Configuration/CONFIGURATION.md`
+  - Features & change requests: `docs_v2/08_Features/`
+  - AI prompts & models: `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md`
+  - Preview mode: `docs_v2/08_Features/PREVIEW_MODE.md`
+  - Reviews & testing: `docs_v2/09_Reviews/REVIEW_SUMMARY.md`, `docs_v2/10_Testing/`
 - V1 docs have been archived to `docs_v1/`
 
 ---
@@ -20,11 +24,13 @@ Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses Op
 ### 🚀 What You Get (Highlights)
 
 - OpenAI‑only AI strategy with separate models for best cost/quality
-- Dropbox as source of truth for images; server‑side archive moves
+- Dropbox as source of truth for images; server‑side archive moves and sidecar handling
 - Platform‑aware caption formatting (length, hashtags, constraints)
+- Stable‑Diffusion‑ready caption sidecar `.txt` files and extended JSON analysis metadata
 - SHA256 de‑duplication to avoid reposting the same image
 - Tenacity‑based retries and async rate limiting on external calls
 - Secure temp files (0600), secrets via `.env`, structured JSON logs
+- Optional FastAPI web interface for previewing, analyzing, and publishing with admin‑only controls
 - CLI flags for `--select`, `--dry-publish`, and safe `--preview`
 - Email/FetLife publisher with caption placement control, subject prefixes, no hashtags, ≤240 chars, punctuation sanitization, and optional confirmation email with tags
 
@@ -33,7 +39,7 @@ Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses Op
 ### 🚀 Quick Start (Poetry)
 
 #### Prerequisites
-- Python 3.12
+- Python 3.12 (3.9–3.11 supported per `pyproject.toml`)
 - Poetry
 
 #### Install
@@ -51,7 +57,7 @@ make preview-v2 CONFIG=configfiles/fetlife.ini
 make run-v2
 ```
 
-See `docs_v2/CONFIGURATION.md` for full schema, OpenAI model selection, and FetLife email options.
+See `docs_v2/05_Configuration/CONFIGURATION.md` for full schema, OpenAI model selection, and FetLife email options.
 
 ---
 
@@ -145,8 +151,10 @@ confirmation_tags_nature = short, lowercase, human-friendly topical nouns; no ha
 An optional minimal web interface is available, built on FastAPI:
 
 - Shows a random image from the configured Dropbox folder.
-- Lets you trigger AI analysis & caption generation.
-- Lets you publish using the existing publishers.
+- Lets you trigger AI analysis & caption generation (admin‑only).
+- Lets you publish using the existing publishers (admin‑only).
+- Uses HTTP auth plus a short‑lived admin session cookie to protect mutating actions.
+- Mobile‑first, single‑page UI with admin‑only controls hidden for non‑admin users.
 
 To run locally:
 
@@ -155,7 +163,7 @@ export CONFIG_PATH=configfiles/fetlife.ini
 poetry run uvicorn publisher_v2.web.app:app --reload
 ```
 
-Then open `http://localhost:8000` in your browser.
+Then open `http://localhost:8000` in your browser. See `docs_v2/08_Features/08_01_Feature_Request/005_web-interface-mvp.md` and related change requests under `docs_v2/08_Features/08_04_ChangeRequests/005/` for details.
 
 ---
 
