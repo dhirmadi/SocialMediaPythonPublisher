@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+
 from PIL import Image
 
 
@@ -14,4 +16,12 @@ def ensure_max_width(image_path: str, max_width: int = 1280) -> str:
         resized.save(out_path)
         return out_path
 
+
+async def ensure_max_width_async(image_path: str, max_width: int = 1280) -> str:
+    """
+    Async helper that ensures the image does not exceed max_width by delegating
+    to the synchronous ensure_max_width implementation in a thread pool.
+    """
+
+    return await asyncio.to_thread(ensure_max_width, image_path, max_width)
 

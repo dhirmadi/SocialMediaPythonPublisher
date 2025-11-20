@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import asyncio
+import logging
 import smtplib
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from typing import Optional
-import asyncio
 
 from publisher_v2.config.schema import EmailConfig
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
+
+
+logger = logging.getLogger("publisher_v2.publishers.email")
 
 
 class EmailPublisher(Publisher):
@@ -27,7 +32,10 @@ class EmailPublisher(Publisher):
     async def publish(self, image_path: str, caption: str, context: Optional[dict] = None) -> PublishResult:
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
+
+        start = now_monotonic()
         try:
+
             def _build_message(to_addr: str, subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
                 msg["Subject"] = subject
@@ -87,7 +95,11 @@ class EmailPublisher(Publisher):
                     if context and isinstance(context.get("analysis_tags"), list):
                         analysis_tags = context.get("analysis_tags") or []
                     tags = _normalize_tags(analysis_tags, self._config.confirmation_tags_count)
-                    tags_line = f"Image Tags (FetLife context): {', '.join(tags)}" if tags else "Image Tags (FetLife context): (none)"
+                    tags_line = (
+                        f"Image Tags (FetLife context): {', '.join(tags)}"
+                        if tags
+                        else "Image Tags (FetLife context): (none)"
+                    )
                     confirm_body = f"{service_body}\n\n---\n{tags_line}"
                     confirm_subject = service_subject
                     confirm_msg = _build_message(self._config.sender, confirm_subject, confirm_body)
@@ -96,8 +108,9 @@ class EmailPublisher(Publisher):
                 server.quit()
 
             await asyncio.to_thread(_send_emails)
+            log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name)
         except Exception as exc:
+            log_publisher_publish(logger, self.platform_name, start, success=False, error=str(exc))
             return PublishResult(success=False, platform=self.platform_name, error=str(exc))
-
 
