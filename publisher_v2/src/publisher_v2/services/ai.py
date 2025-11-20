@@ -341,8 +341,21 @@ class AIService:
         """
         async with self._rate_limiter:
             analysis = await self.analyzer.analyze(url_or_bytes)
+        return await self.create_caption_pair_from_analysis(analysis, spec)
+
+    async def create_caption_pair_from_analysis(
+        self, analysis: ImageAnalysis, spec: CaptionSpec
+    ) -> tuple[str, Optional[str]]:
+        """
+        Create (caption, sd_caption) when an ImageAnalysis is already available.
+
+        If SD caption generation is disabled or the single-call path fails,
+        falls back to the legacy caption-only path and returns (caption, None).
+        """
         # Attempt single-call generation if enabled
-        if getattr(self.generator, "sd_caption_enabled", True) and getattr(self.generator, "sd_caption_single_call_enabled", True):
+        if getattr(self.generator, "sd_caption_enabled", True) and getattr(
+            self.generator, "sd_caption_single_call_enabled", True
+        ):
             try:
                 async with self._rate_limiter:
                     pair = await self.generator.generate_with_sd(analysis, spec)

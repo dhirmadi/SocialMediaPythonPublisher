@@ -5,6 +5,7 @@ import hashlib
 import logging
 import os
 import tempfile
+import time
 from typing import List, Dict, Any, Optional
 
 from publisher_v2.config.loader import load_application_config
@@ -22,7 +23,7 @@ from publisher_v2.utils.captions import (
     build_caption_sidecar,
 )
 from publisher_v2.web.models import ImageResponse, AnalysisResponse, PublishResponse
-from publisher_v2.web.sidecar_parser import parse_sidecar_text
+from publisher_v2.web.sidecar_parser import parse_sidecar_text, rehydrate_sidecar_view
 
 
 class WebImageService:
@@ -59,9 +60,28 @@ class WebImageService:
         self.ai_service = ai_service
         self.publishers = publishers
         self.orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
+        # Short-lived in-memory cache for Dropbox image listings to avoid
+        # repeated list_images calls on hot paths (see CR 005-004).
+        self._image_cache: Optional[List[str]] = None
+        self._image_cache_expiry: Optional[float] = None
+        self._image_cache_ttl_seconds: float = 30.0
+
+    async def _get_cached_images(self) -> List[str]:
+        """
+        Return a cached list of images when within TTL, otherwise refresh from Dropbox.
+        """
+        now = time.monotonic()
+        if self._image_cache is not None and self._image_cache_expiry is not None:
+            if now < self._image_cache_expiry:
+                return list(self._image_cache)
+        images = await self.storage.list_images(self.config.dropbox.image_folder)
+        # Cache even empty lists so we don't hammer Dropbox on empty folders.
+        self._image_cache = list(images)
+        self._image_cache_expiry = now + self._image_cache_ttl_seconds
+        return images
 
     async def get_random_image(self) -> ImageResponse:
-        images = await self.storage.list_images(self.config.dropbox.image_folder)
+        images = await self._get_cached_images()
         if not images:
             # FastAPI layer will translate into 404
             raise FileNotFoundError("No images found")
@@ -71,39 +91,42 @@ class WebImageService:
         random.shuffle(images)
         selected = images[0]
 
-        # Get temporary link
-        temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected)
+        folder = self.config.dropbox.image_folder
+        sidecar_name = os.path.splitext(selected)[0] + ".txt"
 
-        # Attempt to read sidecar
+        # Fetch temporary link, sidecar (if any), and image bytes for hash in parallel.
+        temp_link_result, sidecar_result, image_result = await asyncio.gather(
+            self.storage.get_temporary_link(folder, selected),
+            self.storage.download_image(folder, sidecar_name),
+            self.storage.download_image(folder, selected),
+            return_exceptions=True,
+        )
+
+        if isinstance(temp_link_result, Exception):
+            # Propagate link errors; FastAPI layer will map to 5xx.
+            raise temp_link_result
+        temp_link = temp_link_result
+
         caption = None
         sd_caption = None
         metadata: Optional[Dict[str, Any]] = None
         has_sidecar = False
 
-        sidecar_name = os.path.splitext(selected)[0] + ".txt"
-        try:
-            # Reuse Dropbox storage to download sidecar if present
-            # This uses the same download API as images
-            blob = await self.storage.download_image(self.config.dropbox.image_folder, sidecar_name)
-        except Exception:
-            blob = b""
-
-        if blob:
-            has_sidecar = True
-            text = blob.decode("utf-8", errors="ignore")
-            sd_caption, metadata = parse_sidecar_text(text)
-            # For UI convenience, treat sd_caption as caption fallback if no other caption is stored
-            caption = metadata.get("caption") if isinstance(metadata, dict) else None
-            if not caption:
-                caption = sd_caption
+        if not isinstance(sidecar_result, Exception) and sidecar_result:
+            text = sidecar_result.decode("utf-8", errors="ignore")
+            view = rehydrate_sidecar_view(text)
+            sd_caption = view.get("sd_caption")
+            caption = view.get("caption")
+            metadata = view.get("metadata")
+            has_sidecar = bool(view.get("has_sidecar"))
 
         # Optionally compute hash for display (not used for dedup here)
         sha256 = None
-        try:
-            image_bytes = await self.storage.download_image(self.config.dropbox.image_folder, selected)
-            sha256 = hashlib.sha256(image_bytes).hexdigest()
-        except Exception:
-            sha256 = None
+        if not isinstance(image_result, Exception) and image_result:
+            try:
+                sha256 = hashlib.sha256(image_result).hexdigest()
+            except Exception:
+                sha256 = None
 
         return ImageResponse(
             filename=selected,
@@ -115,11 +138,44 @@ class WebImageService:
             has_sidecar=has_sidecar,
         )
 
-    async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None) -> AnalysisResponse:
+    async def analyze_and_caption(
+        self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False
+    ) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link
         temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, filename)
 
-        # Run analysis
+        # Sidecar-first cache path when not forcing refresh.
+        if not force_refresh:
+            sidecar_name = os.path.splitext(filename)[0] + ".txt"
+            try:
+                blob = await self.storage.download_image(self.config.dropbox.image_folder, sidecar_name)
+            except Exception:
+                blob = b""
+            if blob:
+                text = blob.decode("utf-8", errors="ignore")
+                view = rehydrate_sidecar_view(text)
+                cached_caption = view.get("caption")
+                cached_sd_caption = view.get("sd_caption")
+                if cached_caption or cached_sd_caption:
+                    log_json(
+                        self.logger,
+                        logging.INFO,
+                        "web_analyze_sidecar_cache_hit",
+                        image=filename,
+                        correlation_id=correlation_id,
+                    )
+                    return AnalysisResponse(
+                        filename=filename,
+                        description="",
+                        mood="",
+                        tags=[],
+                        nsfw=False,
+                        caption=cached_caption or "",
+                        sd_caption=cached_sd_caption,
+                        sidecar_written=False,
+                    )
+
+        # Run analysis when cache is bypassed or missing.
         log_json(
             self.logger,
             logging.INFO,
@@ -147,15 +203,10 @@ class WebImageService:
                 max_length=2200,
             )
 
-        # Generate caption + sd_caption using single-call if enabled
+        # Generate caption + sd_caption via centralized AIService helper.
         sd_caption = None
         try:
-            if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                pair = await self.ai_service.generator.generate_with_sd(analysis, spec)
-                caption = pair.get("caption", "")
-                sd_caption = pair.get("sd_caption") or None
-            else:
-                caption = await self.ai_service.generator.generate(analysis, spec)
+            caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
         except Exception as exc:
             log_json(
                 self.logger,
@@ -165,7 +216,8 @@ class WebImageService:
                 error=str(exc),
                 correlation_id=correlation_id,
             )
-            caption = await self.ai_service.generator.generate(analysis, spec)
+            # Best-effort fallback to legacy caption-only behaviour
+            caption = await self.ai_service.create_caption(temp_link, spec)
 
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:

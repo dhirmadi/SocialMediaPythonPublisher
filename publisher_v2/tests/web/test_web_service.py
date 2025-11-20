@@ -19,17 +19,22 @@ class _DummyStorage:
     def __init__(self) -> None:
         self.images = ["test.jpg"]
         self.sidecar_content: bytes | None = None
+        self.list_images_calls = 0
 
     async def list_images(self, folder: str) -> List[str]:
+        self.list_images_calls += 1
         return list(self.images)
 
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return f"https://example.com/{filename}"
 
     async def download_image(self, folder: str, filename: str) -> bytes:
-        # crude branching: return sidecar for .txt; image bytes otherwise
-        if filename.endswith(".txt") and self.sidecar_content is not None:
-            return self.sidecar_content
+        # crude branching: return sidecar for .txt when present; image bytes otherwise
+        if filename.endswith(".txt"):
+            if self.sidecar_content is not None:
+                return self.sidecar_content
+            # Simulate missing sidecar
+            raise FileNotFoundError(filename)
         return b"image-bytes"
 
     async def get_file_metadata(self, folder: str, filename: str) -> Dict[str, str]:
@@ -64,6 +69,15 @@ class _DummyAIService:
     def __init__(self) -> None:
         self.analyzer = self._DummyAnalyzer()
         self.generator = self._DummyGenerator()
+
+    async def create_caption_pair_from_analysis(self, analysis: Any, spec: Any) -> tuple[str, str | None]:
+        # Mirror generate_with_sd behaviour used by the real AIService.
+        pair = await self.generator.generate_with_sd(analysis, spec)
+        return pair["caption"], pair.get("sd_caption")
+
+    async def create_caption(self, url_or_bytes: str | bytes, spec: Any) -> str:
+        analysis = await self.analyzer.analyze(url_or_bytes)
+        return await self.generator.generate(analysis, spec)
 
 
 class _DummyOrchestrator:
@@ -120,6 +134,38 @@ async def test_get_random_image_returns_basic_fields(web_service: WebImageServic
     assert img.temp_url.endswith("test.jpg")
     # sha256 may be computed from dummy bytes
     assert img.sha256 is not None
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_uses_sidecar_view_when_present(web_service: WebImageService) -> None:
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    # Pre-populate a sidecar with both sd_caption and metadata caption
+    sidecar_text = (
+        "sd caption\n"
+        "\n"
+        "# ---\n"
+        "# caption: human caption\n"
+    )
+    storage.sidecar_content = sidecar_text.encode("utf-8")
+
+    img = await web_service.get_random_image()
+    assert img.has_sidecar is True
+    assert img.sd_caption == "sd caption"
+    # metadata caption should be preferred for display
+    assert img.caption == "human caption"
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_uses_cached_image_list(web_service: WebImageService) -> None:
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.list_images_calls = 0
+
+    # First call populates the cache.
+    await web_service.get_random_image()
+    # Second call should reuse cache and not hit list_images again.
+    await web_service.get_random_image()
+
+    assert storage.list_images_calls == 1
 
 
 @pytest.mark.asyncio

@@ -5,7 +5,7 @@
 **Feature ID:** 005  
 **Change ID:** 005-004  
 **Name:** web-performance-sidecar-cache  
-**Status:** Proposed  
+**Status:** Shipped  
 **Date:** 2025-11-20  
 **Author:** Architecture Team  
 **Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md  

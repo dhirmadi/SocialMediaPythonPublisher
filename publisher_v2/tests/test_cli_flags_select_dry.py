@@ -56,6 +56,15 @@ class DummyAI3(AIService):
         self._caption = "caption #h"
         self.analyzer = DummyAnalyzer3()
         self.generator = DummyGenerator3()
+        # Provide a no-op rate limiter compatible with AIService usage.
+        class _NoopLimiter:
+            async def __aenter__(self) -> None:  # type: ignore[override]
+                return None
+
+            async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[override]
+                return False
+
+        self._rate_limiter = _NoopLimiter()
 
     async def create_caption(self, url_or_bytes: str | bytes, spec):
         return self._caption

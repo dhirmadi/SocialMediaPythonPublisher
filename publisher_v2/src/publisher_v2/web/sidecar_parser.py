@@ -66,4 +66,35 @@ def parse_sidecar_text(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any
     return sd_caption, meta
 
 
+def rehydrate_sidecar_view(text: str) -> Dict[str, Any]:
+    """
+    Construct a lightweight, cache-ready view from raw sidecar text.
+
+    Returns a dict with keys:
+      - sd_caption: Optional[str]
+      - caption: Optional[str] (metadata caption if present, otherwise sd_caption)
+      - metadata: Optional[dict[str, Any]]
+      - has_sidecar: bool
+
+    This helper encapsulates canonical "sidecars as cache" semantics for the web
+    layer and other callers that do not need a full ImageAnalysis instance.
+    """
+    sd_caption, metadata = parse_sidecar_text(text)
+    caption: Optional[str] = None
+    if isinstance(metadata, dict):
+        raw_caption = metadata.get("caption")
+        if isinstance(raw_caption, str):
+            raw_caption = raw_caption.strip()
+            if raw_caption:
+                caption = raw_caption
+    if caption is None:
+        caption = sd_caption
+    has_sidecar = bool(sd_caption or metadata)
+    return {
+        "sd_caption": sd_caption,
+        "caption": caption,
+        "metadata": metadata,
+        "has_sidecar": has_sidecar,
+    }
+
 

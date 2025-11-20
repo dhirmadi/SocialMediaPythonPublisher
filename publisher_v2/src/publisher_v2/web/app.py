@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
-from fastapi import FastAPI, Depends, HTTPException, Request, status
+from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
@@ -209,6 +209,7 @@ async def api_analyze_image(
     filename: str,
     request: Request,
     response: Response,
+    force_refresh: bool = Query(False),
     service: WebImageService = Depends(get_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> AnalysisResponse:
@@ -216,7 +217,11 @@ async def api_analyze_image(
     if is_admin_configured():
         require_admin(request)
     try:
-        resp = await service.analyze_and_caption(filename, correlation_id=telemetry.correlation_id)
+        resp = await service.analyze_and_caption(
+            filename,
+            correlation_id=telemetry.correlation_id,
+            force_refresh=force_refresh,
+        )
         web_analyze_ms = elapsed_ms(telemetry.start_time)
         response.headers["X-Correlation-ID"] = telemetry.correlation_id
         log_json(
