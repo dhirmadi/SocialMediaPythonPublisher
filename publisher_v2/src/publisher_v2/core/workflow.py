@@ -312,31 +312,32 @@ class WorkflowOrchestrator:
                     hashtags=self.config.content.hashtag_string,
                     max_length=2200,
                 )
-            # Prefer SD single-call if enabled
+            # Prefer SD single-call via AIService helper; fall back to caption-only inside AIService.
             sd_caption = None
             if not preview_mode:
                 log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
             caption_start = now_monotonic()
-            try:
-                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                    log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
-                    pair = await self.ai_service.generator.generate_with_sd(analysis, spec)
-                    caption = pair.get("caption", "")
-                    sd_caption = pair.get("sd_caption") or None
-                    log_json(self.logger, logging.INFO, "sd_caption_complete", has_sd=bool(sd_caption), correlation_id=correlation_id)
-                else:
-                    caption = await self.ai_service.generator.generate(analysis, spec)
-                if not preview_mode:
-                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
-                caption_generation_ms = elapsed_ms(caption_start)
-            except Exception as exc:
-                if not preview_mode:
-                    log_json(self.logger, logging.ERROR, "sd_caption_error", error=str(exc), correlation_id=correlation_id)
-                # Fallback to legacy caption-only
-                caption = await self.ai_service.generator.generate(analysis, spec)
-                if not preview_mode:
-                    log_json(self.logger, logging.INFO, "caption_generated", caption_length=len(caption), correlation_id=correlation_id)
-                caption_generation_ms = elapsed_ms(caption_start)
+            # Log SD caption intent when enabled; AIService handles fallbacks internally.
+            if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
+                log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
+            caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
+            caption_generation_ms = elapsed_ms(caption_start)
+            if not preview_mode:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "caption_generated",
+                    caption_length=len(caption),
+                    correlation_id=correlation_id,
+                )
+            if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "sd_caption_complete",
+                    has_sd=bool(sd_caption),
+                    correlation_id=correlation_id,
+                )
             # In preview, attach sd_caption to analysis for display
             if analysis and sd_caption:
                 setattr(analysis, "sd_caption", sd_caption)

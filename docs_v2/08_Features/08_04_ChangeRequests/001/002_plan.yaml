@@ -1,0 +1,109 @@
+<!-- docs_v2/08_Features/08_04_ChangeRequests/001/002_plan.yaml -->
+version: 1
+feature_id: captionfile-change-002-sd-caption-ai-service-integration
+summary: "Route all Stable Diffusion caption generation through AIService while preserving existing behavior."
+design_refs:
+  - docs_v2/08_Features/08_04_ChangeRequests/001/002_design.md
+  - docs_v2/08_Features/08_02_Feature_Design/001_captionfile_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "Workflow and web layers invoke SD caption generation only via AIService, not directly on CaptionGeneratorOpenAI."
+  - "All existing SD caption tests continue to pass with unchanged external outputs and sidecar behavior."
+non_goals:
+  - "Changing prompt content, model selection, or the JSON structure of {caption, sd_caption} responses."
+  - "Altering when or how sidecars are written or archived."
+tasks:
+  - id: captionfile_change002.code.ai_service_add_from_analysis
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/services/ai.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class AIService:"
+        - "    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, Optional[str]]"
+        - "    async def create_caption_pair_from_analysis(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, Optional[str]]"
+    depends_on: []
+  - id: captionfile_change002.code.workflow_uses_ai_service
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/core/workflow.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class WorkflowOrchestrator:"
+        - "    async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False) -> WorkflowResult"
+    depends_on:
+      - captionfile_change002.code.ai_service_add_from_analysis
+  - id: captionfile_change002.code.web_service_uses_ai_service
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class WebImageService:"
+        - "    async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False) -> AnalysisResponse"
+    depends_on:
+      - captionfile_change002.code.ai_service_add_from_analysis
+  - id: captionfile_change002.test.ai_service_from_analysis
+    type: test
+    touches:
+      - "publisher_v2/tests/test_ai_sd_generate.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - captionfile_change002.code.ai_service_add_from_analysis
+  - id: captionfile_change002.test.workflow_and_web_integration
+    type: test
+    touches:
+      - "publisher_v2/tests/test_workflow_sd_integration.py"
+      - "publisher_v2/tests/test_e2e_sd_caption.py"
+      - "publisher_v2/tests/web/test_web_service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - captionfile_change002.code.workflow_uses_ai_service
+      - captionfile_change002.code.web_service_uses_ai_service
+quality_gates:
+  tests_required:
+    - captionfile_change002.test.ai_service_from_analysis
+    - captionfile_change002.test.workflow_and_web_integration
+  coverage_delta_min: +1
+  perf_budget:
+    workflow_execute_p95_ms: 30000
+  security_checks:
+    - "dep-audit"
+    - "no-secrets"
+    - "lint"
+release:
+  strategy: "gradual"
+  flags:
+    - "features.captionfile_sd_caption_ai_service_integration"
+  metrics:
+    - "sd_caption_success_rate"
+    - "sd_caption_fallback_rate"
+
+

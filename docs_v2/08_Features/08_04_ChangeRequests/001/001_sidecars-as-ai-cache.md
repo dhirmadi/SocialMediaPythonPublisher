@@ -5,7 +5,7 @@
 **Feature ID:** 001  
 **Change ID:** 001-001  
 **Name:** sidecars-as-ai-cache  
-**Status:** Proposed  
+**Status:** Shipped  
 **Date:** 2025-11-20  
 **Author:** Architecture Team  
 **Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/001_captionfile_design.md  
