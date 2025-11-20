@@ -5,6 +5,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Dict
 import re
+import time
 
 SENSITIVE_PATTERNS = [
     (re.compile(r"sk-[A-Za-z0-9]{20,}"), "[OPENAI_KEY_REDACTED]"),
@@ -38,5 +39,19 @@ def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) ->
         **kwargs,
     }
     logger.log(level, json.dumps(entry))
+
+
+def now_monotonic() -> float:
+    """
+    Return a monotonically increasing timestamp suitable for measuring durations.
+    """
+    return time.perf_counter()
+
+
+def elapsed_ms(start: float) -> int:
+    """
+    Return the elapsed time in integer milliseconds since ``start``.
+    """
+    return int((time.perf_counter() - start) * 1000)
 
 

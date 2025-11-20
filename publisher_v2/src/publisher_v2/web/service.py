@@ -115,12 +115,18 @@ class WebImageService:
             has_sidecar=has_sidecar,
         )
 
-    async def analyze_and_caption(self, filename: str) -> AnalysisResponse:
+    async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link
         temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, filename)
 
         # Run analysis
-        log_json(self.logger, logging.INFO, "web_vision_analysis_start", image=filename)
+        log_json(
+            self.logger,
+            logging.INFO,
+            "web_vision_analysis_start",
+            image=filename,
+            correlation_id=correlation_id,
+        )
         analysis = await self.ai_service.analyzer.analyze(temp_link)
 
         # Build spec consistent with orchestrator behaviour
@@ -151,7 +157,14 @@ class WebImageService:
             else:
                 caption = await self.ai_service.generator.generate(analysis, spec)
         except Exception as exc:
-            log_json(self.logger, logging.ERROR, "web_sd_caption_error", image=filename, error=str(exc))
+            log_json(
+                self.logger,
+                logging.ERROR,
+                "web_sd_caption_error",
+                image=filename,
+                error=str(exc),
+                correlation_id=correlation_id,
+            )
             caption = await self.ai_service.generator.generate(analysis, spec)
 
         # Attach sd_caption for downstream sidecar metadata builder
@@ -186,12 +199,31 @@ class WebImageService:
                 if self.config.captionfile.extended_metadata_enabled:
                     meta.update(build_metadata_phase2(analysis))
                 content = build_caption_sidecar(sd_caption, meta)
-                log_json(self.logger, logging.INFO, "web_sidecar_upload_start", image=filename)
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "web_sidecar_upload_start",
+                    image=filename,
+                    correlation_id=correlation_id,
+                )
                 await self.storage.write_sidecar_text(self.config.dropbox.image_folder, filename, content)
                 sidecar_written = True
-                log_json(self.logger, logging.INFO, "web_sidecar_upload_complete", image=filename)
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "web_sidecar_upload_complete",
+                    image=filename,
+                    correlation_id=correlation_id,
+                )
             except Exception as exc:
-                log_json(self.logger, logging.ERROR, "web_sidecar_upload_error", image=filename, error=str(exc))
+                log_json(
+                    self.logger,
+                    logging.ERROR,
+                    "web_sidecar_upload_error",
+                    image=filename,
+                    error=str(exc),
+                    correlation_id=correlation_id,
+                )
 
         return AnalysisResponse(
             filename=filename,

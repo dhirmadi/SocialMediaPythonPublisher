@@ -1,0 +1,163 @@
+version: 1
+feature_id: core-workflow-dedup-performance
+summary: "Use Dropbox metadata (content_hash) to speed up core workflow image selection and reduce redundant downloads while preserving dedup semantics."
+design_refs:
+  - docs_v2/08_Features/08_02_Feature_Design/006_core-workflow-dedup-performance_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+acceptance_criteria:
+  - "When the Dropbox image folder contains a mix of new and already-posted images, the workflow selects a new image after downloading at most one candidate image in the common case."
+  - "When all images in the Dropbox folder have already been posted, the workflow reports 'No new images to post (all duplicates)' without downloading every image."
+  - "Existing posted state files (list or {\"hashes\":[...]}) remain valid; new runs can extend the state with Dropbox content hashes without breaking old data."
+  - "On successful archive of an image, the workflow records both its local SHA256 and Dropbox content_hash in posted state (when available)."
+  - "If Dropbox metadata/content_hash is unavailable or an error occurs, the workflow gracefully falls back to the legacy SHA256-based dedup loop."
+  - "Preview/dry/debug modes remain side‑effect free (no state writes, no archive) while benefiting from reduced unnecessary downloads where possible."
+non_goals:
+  - "Changing what the user considers a 'duplicate' image."
+  - "Introducing new external data stores or databases."
+  - "Altering publisher logic, caption/sidecar generation, or web API contracts."
+tasks:
+  - id: code.state.extend_posted_state_for_content_hash
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/utils/state.py
+    contracts:
+      signatures:
+        - "def load_posted_hashes() -> Set[str]"
+        - "def save_posted_hash(hash_value: str) -> None"
+        - "def load_posted_content_hashes() -> Set[str]"
+        - "def save_posted_content_hash(hash_value: str) -> None"
+      request:
+        state_formats:
+          - "legacy_list: [\"sha1\", \"sha2\", ...]"
+          - "dict_legacy: {\"hashes\": [\"sha1\", \"sha2\", ...]}"
+          - "dict_extended: {\"hashes\": [...], \"dropbox_content_hashes\": [\"dbhash1\", \"dbhash2\", ...]}"
+      response:
+        behavior:
+          - "All loaders treat unknown/invalid JSON as empty sets."
+          - "Savers preserve existing SHA256 hashes and add new content_hashes under 'dropbox_content_hashes'."
+  - id: code.storage.list_images_with_hashes
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/services/storage.py
+    contracts:
+      signatures:
+        - "class DropboxStorage: async def list_images(self, folder: str) -> List[str]"
+        - "class DropboxStorage: async def list_images_with_hashes(self, folder: str) -> List[Tuple[str, str]]"
+      request:
+        behavior:
+          - "Use Dropbox files_list_folder to retrieve FileMetadata including content_hash."
+      response:
+        behavior:
+          - "Return only image files (.jpg, .jpeg, .png) as (filename, content_hash) tuples."
+          - "Raise StorageError on API failure, mirroring list_images."
+  - id: code.workflow.metadata_based_selection
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/core/workflow.py
+    depends_on:
+      - code.state.extend_posted_state_for_content_hash
+      - code.storage.list_images_with_hashes
+    contracts:
+      signatures:
+        - "class WorkflowOrchestrator: async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False) -> WorkflowResult"
+      request:
+        flags:
+          - "select_filename may force a specific file regardless of posted state."
+      response:
+        behavior:
+          - "For normal selection, prefer metadata-only pass using content_hash; download only the selected candidate."
+          - "If all content_hashes are already posted, return 'No new images to post (all duplicates)' without downloading all images."
+          - "On archive success, call both save_posted_hash(sha256) and save_posted_content_hash(content_hash) when available."
+          - "In preview/dry/debug modes, do not persist posted hashes and do not archive."
+  - id: test.unit.state_posted_state_formats
+    type: test
+    files_out:
+      - publisher_v2/tests/test_state_posted_hashes_formats.py
+    depends_on:
+      - code.state.extend_posted_state_for_content_hash
+    contracts:
+      request:
+        cases:
+          - "legacy_list file"
+          - "dict_legacy file"
+          - "dict_extended file"
+      response:
+        assertions:
+          - "load_posted_hashes returns expected SHA256 set for all formats."
+          - "load_posted_content_hashes returns expected Dropbox content_hash set for extended format and empty for legacy formats."
+          - "save_posted_content_hash preserves existing SHA256 entries and appends new content_hash."
+  - id: test.unit.storage_list_images_with_hashes
+    type: test
+    files_out:
+      - publisher_v2/tests/test_storage_list_images_with_hashes.py
+    depends_on:
+      - code.storage.list_images_with_hashes
+    contracts:
+      request:
+        behavior:
+          - "Mock Dropbox FileMetadata entries with content_hash and non-image entries."
+      response:
+        assertions:
+          - "Only image files are returned."
+          - "Filenames and content_hash values are correctly propagated."
+  - id: test.unit.workflow_metadata_dedup
+    type: test
+    files_out:
+      - publisher_v2/tests/test_dedup_metadata_selection.py
+    depends_on:
+      - code.workflow.metadata_based_selection
+    contracts:
+      request:
+        scenarios:
+          - "mix of new and already-posted images"
+          - "all images already posted"
+          - "metadata missing / content_hash unavailable (forces fallback)"
+      response:
+        assertions:
+          - "In mixed case, at most one download occurs before selecting an unposted image."
+          - "In all-posted case, workflow returns 'No new images to post (all duplicates)' without downloading all images."
+          - "When metadata is missing, legacy SHA256 loop is used and behavior matches existing tests."
+  - id: doc.plan_file
+    type: doc
+    files_out:
+      - docs_v2/08_Features/08_03_Feature_plan/006_core-workflow-dedup-performance_plan.yaml
+  - id: doc.update_feature_docs
+    type: doc
+    touches:
+      - docs_v2/08_Features/08_01_Feature_Request/006_core-workflow-dedup-performance.md
+      - docs_v2/03_Architecture/ARCHITECTURE.md
+    contracts:
+      behavior:
+        - "Note that core image selection now uses Dropbox content_hash metadata for dedup where available."
+        - "Clarify that posted state may contain both SHA256 and Dropbox content hashes."
+quality_gates:
+  tests_required:
+    - test.unit.state_posted_state_formats
+    - test.unit.storage_list_images_with_hashes
+    - test.unit.workflow_metadata_dedup
+  coverage_delta_min: +2
+  perf_budget:
+    selection_mixed_unposted_p95_ms: 5000
+    selection_all_posted_p95_ms: 5000
+  security_checks:
+    - dep-audit
+    - no-secrets
+    - lint
+release:
+  strategy: gradual
+  flags: []
+  metrics:
+    - workflow_image_selection_ms_p95
+    - workflow_image_downloads_per_run
+
+
