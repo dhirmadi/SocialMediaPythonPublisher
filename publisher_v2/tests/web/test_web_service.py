@@ -5,6 +5,13 @@ from typing import Any, Dict, List
 
 import pytest
 
+from publisher_v2.config.schema import (
+    ApplicationConfig,
+    ContentConfig,
+    DropboxConfig,
+    OpenAIConfig,
+    PlatformsConfig,
+)
 from publisher_v2.web.service import WebImageService
 
 
@@ -80,6 +87,23 @@ def web_service(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
     import os
 
     os.environ.setdefault("CONFIG_PATH", "configfiles/fetlife.ini")
+
+    # Provide a minimal in-memory config to avoid depending on a real config file.
+    cfg = ApplicationConfig(
+        dropbox=DropboxConfig(
+            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
+        ),
+        openai=OpenAIConfig(api_key="sk-test"),
+        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
+        telegram=None,
+        instagram=None,
+        email=None,
+        content=ContentConfig(hashtag_string="#tags", archive=True, debug=False),
+    )
+    monkeypatch.setattr(
+        "publisher_v2.web.service.load_application_config",
+        lambda config_path, env_path: cfg,
+    )
 
     # Instantiate service, then override heavy collaborators with fakes
     svc = WebImageService()

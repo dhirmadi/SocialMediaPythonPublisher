@@ -1,75 +1,74 @@
-<!-- docs_v2/08_Features/08_04_ChangeRequests/005/005_web-performance-telemetry.md -->
-
-# Web Performance Telemetry — Change Request
+# Web Performance Telemetry
 
 **Feature ID:** 005  
 **Change ID:** 005-005  
-**Name:** web-performance-telemetry  
-**Status:** Proposed  
-**Date:** 2025-11-20  
-**Author:** Architecture Team  
-**Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Status:** Shipped  
+**Date Completed:** 2025-11-20  
+**Code Branch / PR:** TODO  
 
 ## Summary
-This change adds explicit performance telemetry requirements to the Web Interface MVP, focusing on per-endpoint timing and correlation-friendly logging.  
-It defines structured timing fields for key web API calls and clarifies how they should be emitted via the existing logging utilities.  
-The goal is to make it easy to measure and enforce latency targets for `/api/images/random`, `/api/images/{filename}/analyze`, and `/api/images/{filename}/publish`.
-
-## Problem Statement
-While the web feature defines high-level performance NFRs, it does not currently specify what timing data must be logged or how to correlate slow requests with specific endpoints and backend operations.  
-Without consistent performance telemetry, operators and developers cannot reliably diagnose latency issues or validate that NFRs are being met in production.  
-Ad-hoc logging risks inconsistency and gaps across endpoints.
+This change adds structured performance telemetry to the Web Interface MVP, focusing on per-endpoint timings and correlation-friendly logging for the main web API calls. It introduces standardized `*_ms` duration fields and correlation IDs in logs for `/api/images/random`, `/api/images/{filename}/analyze`, and `/api/images/{filename}/publish`, without altering any HTTP contracts or business logic.
 
 ## Goals
-- Introduce standardized timing fields for all major web endpoints, emitted through `log_json`.  
-- Ensure every web request can be correlated with underlying operations (Dropbox, OpenAI, publishing) via correlation IDs and structured logs.  
-- Keep the telemetry implementation simple and low-overhead while providing enough data to drive performance improvements.
+- Provide consistent timing data for key web endpoints via `utils.logging.log_json`.
+- Ensure every web request can be correlated with underlying operations using a `correlation_id`.
+- Keep the telemetry implementation lightweight and safe while supporting latency analysis and future performance improvements.
 
 ## Non-Goals
-- Adding a full metrics backend or external monitoring tool integration in this change.  
-- Changing existing API request/response schemas visible to clients.  
-- Modifying business logic or side-effect behavior of the endpoints.
+- Introducing a full metrics backend or external monitoring integration.
+- Changing JSON request/response schemas for any web endpoints.
+- Modifying the business logic, side effects, or auth behavior of existing flows.
 
-## Affected Feature & Context
-- **Parent Feature:** Web Interface MVP  
-- **Relevant Sections:**  
-  - §3. Requirements – NFR1 Performance and NFR3 Observability.  
-  - §4. Architecture & Design – logging expectations for `WebImageService` and FastAPI handlers.  
-  - §6. Rollout & Ops – monitoring and logging guidelines.  
-- This change refines the observability portion of the web feature by adding precise, testable requirements for what timing data must be logged for each key endpoint.  
-- It applies the cross-cutting telemetry pattern defined in `docs_v2/08_Features/08_01_Feature_Request/007_cross-cutting-performance-observability.md` to the web layer.
+## User Value
+Operators and maintainers can now inspect structured logs to understand how long web requests take end-to-end and correlate slow requests with specific images and workflows. This makes it easier to validate performance NFRs, detect regressions, and focus optimization efforts on the right parts of the pipeline, all while keeping the web UI behavior unchanged for end users.
 
-## User Stories
-- As an operator, I want to see how long each web endpoint takes in structured logs, so that I can determine where latency is being spent.  
-- As a maintainer, I want consistent performance telemetry across `/random`, `/analyze`, and `/publish`, so that I can benchmark and compare changes over time.  
-- As a developer, I want a simple pattern for logging timings around web requests, so that I can instrument new endpoints without reinventing the approach.
+## Technical Overview
+- **Scope of the change:** Web Interface MVP endpoints and shared logging utilities; the CLI workflow telemetry is aligned but not user-visible in API contracts.
+- **Core flow delta:** Each web request now derives a per-request `correlation_id` and start time, then logs an endpoint-specific event (`web_random_image`, `web_analyze_complete`, `web_publish_complete`, plus `*_error` variants) with integer millisecond timings at completion.
+- **Key components touched:**
+  - `utils.logging`: added `now_monotonic()` and `elapsed_ms(start)` helpers and reused `log_json` for telemetry events.
+  - `web.app`: introduced `RequestTelemetry` and `get_request_telemetry`, updated handlers for `/random`, `/analyze`, and `/publish` to emit timing logs and set `X-Correlation-ID`.
+  - `web.service`: allowed `analyze_and_caption` to accept an optional `correlation_id` and reused existing AI/sidecar logic.
+  - `core.workflow.WorkflowOrchestrator`: emits `workflow_timing` events with per-stage timings and `correlation_id`, complementing web endpoint telemetry.
+- **Flags / config:** No new INI or env flags; telemetry is always on for these endpoints and reuses existing `CONFIG_PATH`/`WEB_DEBUG` behavior.
+- **Data/state/sidecars:** No changes; sidecar behavior is unchanged and not included in telemetry payloads.
 
-## Acceptance Criteria (BDD-style)
-- Given a successful call to `/api/images/random`, when the request completes, then the logs must include a timing field (e.g., `web_random_image_ms`) and a correlation ID that can be tied back to the request.  
-- Given a call to `/api/images/{filename}/analyze` or `/api/images/{filename}/publish`, when the request completes (success or handled failure), then the logs must include endpoint-specific timing fields (e.g., `web_analyze_ms`, `web_publish_ms`) and any available sub-timing details where practical.  
-- Given normal operation under representative load, when logs are inspected, then timing fields must be present for at least a large majority of calls (no silent paths without timing).  
-- Given tests for web endpoints, when they run, then they must assert the presence of timing fields in logged output for at least the happy paths.
+## Implementation Details
+- Added `now_monotonic()` and `elapsed_ms(start)` in `utils.logging` to compute integer millisecond durations using `time.perf_counter()` for stability across threads and system clock adjustments.
+- Implemented `RequestTelemetry` and `get_request_telemetry` in `web.app` to:
+  - Prefer `X-Request-ID` as the `correlation_id` when present, otherwise generate a UUID4.
+  - Capture a per-request monotonic `start_time` and attach the correlation ID to `request.state`.
+- Updated FastAPI handlers:
+  - `GET /api/images/random` logs `web_random_image` or `web_random_image_error` with `web_random_image_ms` and `correlation_id`, and sets an `X-Correlation-ID` response header.
+  - `POST /api/images/{filename}/analyze` logs `web_analyze_complete` or `web_analyze_error` with `web_analyze_ms` and `correlation_id`, mapping “not found” conditions to `404`.
+  - `POST /api/images/{filename}/publish` logs `web_publish_complete` or `web_publish_error` with `web_publish_ms`, `any_success`, `archived`, and `correlation_id`.
+- Threaded an optional `correlation_id` parameter into `WebImageService.analyze_and_caption` so deeper logs can be correlated with the handler-level telemetry.
+- Ensured that telemetry logging does not alter response payloads or status codes; any failures in storage/AI/publishing still map to existing error handling paths.
+- Updated NFR documentation to explicitly call out `*_ms` timing fields and `correlation_id` as part of the performance and observability story.
 
-## UX / UI Requirements
-- No UI changes are required; performance telemetry is strictly back-end and log-facing.  
-- Any future surface of timing information in the UI must be minimal and should not be introduced by this change.  
-- The web UI must continue to behave identically from the user’s perspective regardless of telemetry.
+## Testing
+- **Unit tests:**
+  - Extended `test_orchestrator_debug.py` to assert that `WorkflowOrchestrator.execute` emits a `workflow_timing` log entry containing a `correlation_id` and integer timing fields (e.g., `dropbox_list_images_ms`, `image_selection_ms`, `caption_generation_ms`).
+- **Integration / E2E tests:**
+  - Added `test_e2e_performance_telemetry.py` to:
+    - Verify CLI workflow telemetry (`workflow_timing` with `*_ms` and `correlation_id`).
+    - Invoke `GET /api/images/random` via `TestClient(app)` when a real-ish config is available and assert that logs contain `web_random_image*` entries with `correlation_id` and integer `web_random_image_ms`.
+  - Existing web service tests (`test_web_service.py`) continue to validate behavior of `WebImageService` without depending on telemetry details.
+- **Manual checks (recommended):**
+  - On a staging deployment, inspect logs while hitting `/api/images/random`, `/analyze`, and `/publish` to confirm presence of timing fields and correlation IDs, including error scenarios.
 
-## Technical Notes & Constraints
-- Implement timings in FastAPI handlers and/or `WebImageService` using monotonic clocks, and emit them via `utils.logging.log_json` with consistent field names.  
-- Reuse or extend existing correlation ID mechanisms so that logs for a request can be grouped.  
-- Ensure that logging stays lightweight and does not introduce significant overhead or blocking behavior.  
-- Respect existing security and privacy constraints: do not log secrets or sensitive content as part of telemetry.  
-- This change is additive and must not alter existing HTTP request/response contracts; by default, clients should see identical behavior aside from improved logs.
+## Rollout Notes
+- **Feature/change flags:** Telemetry is always enabled for the covered endpoints; there is no dedicated feature flag beyond the existing web enablement.
+- **Monitoring / logs:** Operators should monitor `workflow_timing`, `web_random_image*`, `web_analyze_*`, and `web_publish_*` events and may build dashboards/alerts on `*_ms` fields if desired.
+- **Backout strategy:** If telemetry ever needs to be disabled, the safest path is to revert the logging changes in `web.app` and `utils.logging` (and, if necessary, the workflow timing block), without touching HTTP contracts or business logic.
 
-## Risks & Mitigations
-- Excessive logging could increase log volume and costs — Mitigation: keep messages compact and avoid duplicating data; consider sampling if volume becomes problematic.  
-- Incorrect or inconsistent field names could reduce the value of telemetry — Mitigation: document field names and add tests that assert their presence.  
-- Timing measurements could be skewed by clock misuse — Mitigation: use `time.monotonic()` or equivalent for measuring durations.
+## Artifacts
+- Change Request: docs_v2/08_Features/08_04_ChangeRequests/005/005_web-performance-telemetry.md  
+- Change Design: docs_v2/08_Features/08_04_ChangeRequests/005/005_web-performance-telemetry_design.md  
+- Change Plan: docs_v2/08_Features/08_04_ChangeRequests/005/005_web-performance-telemetry_plan.yaml  
+- Parent Feature Design: docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md  
+- PR: TODO  
 
-## Open Questions
-- Should per-endpoint telemetry include breakdowns for Dropbox vs. OpenAI time, or only total endpoint time? — Proposed answer: start with total endpoint times; add breakdowns later if needed.  
-- Do we need a formal schema or JSON structure for all log events, beyond what exists today? — Proposed answer: TODO; may be defined in a separate logging/observability guideline.  
-- Should any of this telemetry be surfaced to external dashboards automatically, or is log-based analysis sufficient initially? — Proposed answer: start with log-based analysis only.
-
-
+## Final Notes
+- The telemetry pattern introduced here (monotonic timers + `correlation_id` + `*_ms` fields) can be reused for future web endpoints and extended as part of the broader cross-cutting observability feature.  
+- Sub-timings (e.g., Dropbox vs. OpenAI durations) and richer metrics backends remain future work and should be layered on top of these foundational logs without breaking existing fields or semantics.
