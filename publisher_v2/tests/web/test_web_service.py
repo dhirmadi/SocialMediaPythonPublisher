@@ -29,13 +29,15 @@ class _DummyStorage:
         return f"https://example.com/{filename}"
 
     async def download_image(self, folder: str, filename: str) -> bytes:
-        # crude branching: return sidecar for .txt when present; image bytes otherwise
-        if filename.endswith(".txt"):
-            if self.sidecar_content is not None:
-                return self.sidecar_content
-            # Simulate missing sidecar
-            raise FileNotFoundError(filename)
+        # crude branching: return image bytes only; sidecars are handled via
+        # download_sidecar_if_exists for this change.
         return b"image-bytes"
+
+    async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
+        # Derive sidecar from image name and return content when present.
+        if self.sidecar_content is not None:
+            return self.sidecar_content
+        return None
 
     async def get_file_metadata(self, folder: str, filename: str) -> Dict[str, str]:
         return {"id": "file-id", "rev": "file-rev"}

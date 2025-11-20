@@ -92,12 +92,13 @@ class WebImageService:
         selected = images[0]
 
         folder = self.config.dropbox.image_folder
-        sidecar_name = os.path.splitext(selected)[0] + ".txt"
 
         # Fetch temporary link, sidecar (if any), and image bytes for hash in parallel.
+        # Sidecar reads use a dedicated helper that treats "not found" as a fast,
+        # non-error outcome to avoid multi-second retries for missing sidecars.
         temp_link_result, sidecar_result, image_result = await asyncio.gather(
             self.storage.get_temporary_link(folder, selected),
-            self.storage.download_image(folder, sidecar_name),
+            self.storage.download_sidecar_if_exists(folder, selected),
             self.storage.download_image(folder, selected),
             return_exceptions=True,
         )
@@ -146,11 +147,9 @@ class WebImageService:
 
         # Sidecar-first cache path when not forcing refresh.
         if not force_refresh:
-            sidecar_name = os.path.splitext(filename)[0] + ".txt"
-            try:
-                blob = await self.storage.download_image(self.config.dropbox.image_folder, sidecar_name)
-            except Exception:
-                blob = b""
+            blob = await self.storage.download_sidecar_if_exists(
+                self.config.dropbox.image_folder, filename
+            )
             if blob:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text)
