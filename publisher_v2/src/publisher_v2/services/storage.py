@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from typing import List
+from typing import List, Tuple
 
 import dropbox
 from dropbox.exceptions import ApiError
@@ -95,6 +95,35 @@ class DropboxStorage:
             return await asyncio.to_thread(_list)
         except ApiError as exc:
             raise StorageError(f"Failed to list images: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def list_images_with_hashes(self, folder: str) -> List[Tuple[str, str]]:
+        """
+        Return image filenames and their Dropbox content_hash where available.
+
+        Falls back to the same filtering as list_images but preserves content_hash
+        so that the workflow can perform metadata-based de-duplication.
+        """
+        try:
+            def _list() -> List[Tuple[str, str]]:
+                path = "" if folder == "/" else folder
+                result = self.client.files_list_folder(path)
+                out: List[Tuple[str, str]] = []
+                for entry in result.entries:
+                    if isinstance(entry, dropbox.files.FileMetadata):
+                        name_lower = entry.name.lower()
+                        if name_lower.endswith((".jpg", ".jpeg", ".png")):
+                            ch = getattr(entry, "content_hash", None) or ""
+                            out.append((entry.name, ch))
+                return out
+
+            return await asyncio.to_thread(_list)
+        except ApiError as exc:
+            raise StorageError(f"Failed to list images with hashes: {exc}") from exc
 
     @retry(
         reraise=True,
