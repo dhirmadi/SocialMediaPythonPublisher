@@ -4,14 +4,14 @@
 
 **ID:** 006  
 **Name:** core-workflow-dedup-performance  
-**Status:** Proposed  
+**Status:** Implemented  
 **Date:** 2025-11-20  
 **Author:** Architecture Team  
 
 ## Summary
-The current core workflow performs image de-duplication by downloading candidate images from Dropbox and computing local hashes, which does not scale efficiently as the image library grows.  
-This feature proposes a revised deduplication and selection strategy that leverages Dropbox-native `content_hash` metadata and minimizes network I/O while keeping existing behavior and sidecar semantics intact.  
-The outcome should be a faster, more predictable image selection phase that still respects the "do not repost the same image" guarantee.
+The core workflow previously performed image de-duplication by downloading candidate images from Dropbox and computing local hashes, which did not scale efficiently as the image library grew.  
+This feature introduces a revised deduplication and selection strategy that leverages Dropbox-native `content_hash` metadata and minimizes network I/O while keeping existing behavior and sidecar semantics intact.  
+The outcome is a faster, more predictable image selection phase that still respects the "do not repost the same image" guarantee, backed by tests and documented architecture updates.
 
 ## Problem Statement
 Today, `WorkflowOrchestrator` selects an image to post by listing images from the configured Dropbox folder and then downloading them one by one to compute SHA256 hashes, skipping those that already appear in the local `posted` state.  
@@ -61,9 +61,9 @@ There is no feature-level specification for a more efficient selection and dedup
 - Existing logging and error-handling mechanisms for reporting selection outcomes.
 
 ## Data Model / Schema
-- Potential evolution of the posted-hash state file to store Dropbox-level content hashes (and/or a mapping between old SHA256 and content_hash), with migration rules.  
-- No changes to core domain models beyond possibly adding fields to represent content hashes where useful.  
-- Any schema evolution must be backward-compatible and preserve existing state where possible.
+- The posted-hash state file has been extended to optionally store Dropbox-level content hashes alongside existing SHA256 hashes while preserving legacy formats.  
+- No changes to core domain models were required; content hashes are handled by storage and state utilities.  
+- The evolution is backward-compatible and preserves existing state files, treating them as authoritative for previously posted images.
 
 ## Security / Privacy / Compliance
 - No new categories of data are stored beyond hashes/identifiers already present in Dropbox and local state.  
@@ -99,7 +99,7 @@ There is no feature-level specification for a more efficient selection and dedup
 - New dedup/selection logic is implemented and covered by tests for both normal and edge cases.  
 - Performance of image selection is measurably improved in representative scenarios.  
 - All existing CLI behaviors, flags, and outputs remain backward-compatible.  
-- Documentation and any relevant diagrams are updated to reflect the new selection strategy.
+- Documentation and any relevant diagrams are updated to reflect the new selection strategy and the use of Dropbox `content_hash` in selection and state.
 
 ## Appendix: Source Synopsis
 - Core workflow performance review identified image selection and dedup as a major latency source due to repeated Dropbox downloads and hashing.  

@@ -32,6 +32,7 @@ External Services (Dropbox, OpenAI, IG API, Telegram, SMTP)
 ## 3. Interfaces (summaries)
 Storage:
 - list_images(folder) -> list[str]
+- list_images_with_hashes(folder) -> list[tuple[str, str]]  (filename, Dropbox content_hash)
 - download_image(folder, filename) -> bytes
 - get_temporary_link(folder, filename) -> str
 - archive_image(folder, filename, archive_folder) -> None
@@ -52,12 +53,12 @@ Publishers (async):
 - Rate limiting per external API.
 
 ## 5. Data Flow (Sequence)
-1) Orchestrator selects candidate image (no duplicate hash, meets filters).  
+1) Orchestrator selects candidate image (no duplicate hash, meets filters), preferring Dropbox `content_hash` metadata for de‑duplication and falling back to local SHA256 when needed.  
 2) Storage returns tmp link or bytes.  
 3) Vision analysis extracts description, tags, mood, safety.  
 4) Caption generator produces platform‑aware copy from templates.  
 5) Publishers run in parallel; collect results.  
-6) If any success and not debug → archive; cleanup temp; log metrics.
+6) If any success and not debug → archive; cleanup temp; update posted state with SHA256 and, when available, Dropbox `content_hash`; log metrics.
 
 ## 6. Deployment
 - Local or server with Poetry + Python 3.12
