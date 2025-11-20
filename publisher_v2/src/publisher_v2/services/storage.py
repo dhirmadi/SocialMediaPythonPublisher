@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import os
 from pathlib import Path
-from typing import List, Tuple
+from typing import List, Tuple, Optional
 
 import dropbox
 from dropbox.exceptions import ApiError
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.core.exceptions import StorageError
@@ -47,6 +47,54 @@ class DropboxStorage:
             await asyncio.to_thread(_upload)
         except ApiError as exc:
             raise StorageError(f"Failed to upload sidecar for {filename}: {exc}") from exc
+
+    @staticmethod
+    def _is_sidecar_not_found_error(exc: ApiError) -> bool:
+        """
+        Return True when the given ApiError represents a "file not found" condition
+        for a path-based operation (e.g., sidecar download).
+        """
+
+        error = getattr(exc, "error", None)
+        if error is None:
+            return False
+        # Dropbox SDK models path errors with is_path()/get_path(), and the
+        # nested object exposes is_not_found() when the file is missing.
+        if hasattr(error, "is_path") and error.is_path():
+            path_error = error.get_path()
+            if hasattr(path_error, "is_not_found") and path_error.is_not_found():
+                return True
+        return False
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+        retry=retry_if_exception(lambda exc: isinstance(exc, ApiError) and not DropboxStorage._is_sidecar_not_found_error(exc)),  # type: ignore[arg-type]
+    )
+    async def download_sidecar_if_exists(self, folder: str, filename: str) -> Optional[bytes]:
+        """
+        Download the .txt sidecar for the given image if it exists.
+
+        Returns the sidecar bytes on success, or None when Dropbox reports that
+        the sidecar file does not exist. Transient errors remain subject to
+        tenacity retries and ultimately surface as ApiError/StorageError.
+        """
+
+        try:
+            def _download() -> bytes:
+                stem = os.path.splitext(filename)[0]
+                sidecar_name = f"{stem}.txt"
+                path = os.path.join(folder, sidecar_name)
+                _, response = self.client.files_download(path)
+                return response.content
+
+            return await asyncio.to_thread(_download)
+        except ApiError as exc:
+            if self._is_sidecar_not_found_error(exc):
+                # Fast-path for "not found" – treat as normal cache miss instead of error.
+                return None
+            raise StorageError(f"Failed to download sidecar for {filename}: {exc}") from exc
 
     @retry(
         reraise=True,
