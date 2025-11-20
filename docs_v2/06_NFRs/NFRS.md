@@ -7,6 +7,7 @@ Last Updated: November 7, 2025
 - E2E latency: < 30s typical per post (single image)
 - Caption generation: < 3s typical with 4o‑mini
 - Parallel platform publish: all complete within 10s typical
+- Telemetry-backed timings: key workflow stages and major web endpoints emit `*_ms` duration fields and `correlation_id` via `log_json` to support latency analysis.
 
 ## 2. Reliability
 - Retries with exponential backoff on transient errors
