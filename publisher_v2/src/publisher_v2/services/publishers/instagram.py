@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import Optional
 
 from instagrapi import Client
@@ -8,7 +9,11 @@ from instagrapi import Client
 from publisher_v2.config.schema import InstagramConfig
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.images import ensure_max_width
+from publisher_v2.utils.images import ensure_max_width_async
+from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
+
+
+logger = logging.getLogger("publisher_v2.publishers.instagram")
 
 
 class InstagramPublisher(Publisher):
@@ -27,8 +32,9 @@ class InstagramPublisher(Publisher):
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 
+        start = now_monotonic()
         try:
-            processed_path = ensure_max_width(image_path, max_width=1080)
+            processed_path = await ensure_max_width_async(image_path, max_width=1080)
 
             def _upload() -> str:
                 client = Client()
@@ -46,9 +52,10 @@ class InstagramPublisher(Publisher):
                 return str(media.id) if hasattr(media, "id") else ""
 
             post_id = await asyncio.to_thread(_upload)
+            log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name, post_id=post_id or None)
         except Exception as exc:
+            log_publisher_publish(logger, self.platform_name, start, success=False, error=str(exc))
             return PublishResult(success=False, platform=self.platform_name, error=str(exc))
-
 
 

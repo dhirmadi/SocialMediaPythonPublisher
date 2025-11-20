@@ -55,3 +55,27 @@ def elapsed_ms(start: float) -> int:
     return int((time.perf_counter() - start) * 1000)
 
 
+def log_publisher_publish(
+    logger: logging.Logger,
+    platform: str,
+    start: float,
+    success: bool,
+    error: str | None = None,
+) -> None:
+    """
+    Convenience helper to emit a structured per-publisher timing log.
+    """
+
+    duration_ms = elapsed_ms(start)
+    level = logging.INFO if success else logging.ERROR
+    log_json(
+        logger,
+        level,
+        "publisher_publish",
+        platform=platform,
+        duration_ms=duration_ms,
+        success=success,
+        error=error,
+    )
+
+
