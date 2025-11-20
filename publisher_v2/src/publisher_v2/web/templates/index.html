@@ -14,6 +14,10 @@
       display: flex;
       flex-direction: column;
       min-height: 100vh;
+      transition: background-color 0.2s ease;
+    }
+    body.admin-mode {
+      background-color: #8b0000;
     }
     header {
       padding: 0.75rem 1rem;
@@ -22,10 +26,17 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
+      gap: 0.75rem;
     }
     header h1 {
       font-size: 1.1rem;
       margin: 0;
+    }
+    .header-left,
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
     }
     main {
       flex: 1;
@@ -33,6 +44,9 @@
       display: flex;
       flex-direction: column;
       gap: 1rem;
+      max-width: 960px;
+      width: 100%;
+      margin: 0 auto;
     }
     .image-container {
       display: flex;
@@ -97,16 +111,75 @@
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 0.8rem;
     }
+    .hidden {
+      display: none !important;
+    }
+    .admin-only {
+      /* marker class; actual visibility controlled via .hidden */
+    }
+    /* Simple modal styles */
+    .modal {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background-color: rgba(15, 23, 42, 0.8);
+      z-index: 50;
+    }
+    .modal-dialog {
+      background-color: #020617;
+      border-radius: 0.75rem;
+      padding: 1rem;
+      border: 1px solid #1f2937;
+      width: 100%;
+      max-width: 22rem;
+      box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
+    }
+    .modal-dialog h2 {
+      margin-top: 0;
+      font-size: 1rem;
+    }
+    .modal-footer {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.5rem;
+      margin-top: 0.75rem;
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>Publisher V2 Web</h1>
-    <div style="display: flex; gap: 0.5rem; align-items: center;">
+    <div class="header-left">
+      <h1>Publisher V2 Web</h1>
+      <button id="btn-admin" class="secondary" type="button">Admin</button>
+    </div>
+    <div class="header-right">
       <span id="env-indicator" class="status"></span>
-      <button id="btn-admin" class="secondary" type="button">Administration</button>
+      <button id="btn-admin-logout" class="secondary admin-only hidden" type="button">Logout</button>
     </div>
   </header>
+
+  <div id="admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
+    <div class="modal-dialog">
+      <h2 id="admin-modal-title">Admin login</h2>
+      <p class="status" id="admin-modal-description">Enter the admin password to enable analysis and publishing.</p>
+      <form id="admin-login-form">
+        <input
+          type="password"
+          id="admin-password"
+          placeholder="Admin password"
+          autocomplete="current-password"
+          style="width: 100%; padding: 0.5rem; border-radius: 9999px; border: 1px solid #374151; background-color: #020617; color: #e5e7eb;"
+        />
+        <div class="modal-footer">
+          <button type="button" id="admin-modal-close" class="secondary">Cancel</button>
+          <button type="submit">Login</button>
+        </div>
+      </form>
+      <div id="admin-message" class="status"></div>
+    </div>
+  </div>
   <main>
     <div class="image-container">
       <img id="image" alt="No image loaded yet" />
@@ -114,8 +187,10 @@
 
     <div class="controls">
       <button id="btn-next">Next image</button>
-      <button id="btn-analyze" class="secondary">Analyze &amp; caption</button>
-      <button id="btn-publish" class="secondary">Publish</button>
+      <div id="admin-controls" class="controls admin-only hidden">
+        <button id="btn-analyze" class="secondary">Analyze &amp; caption</button>
+        <button id="btn-publish" class="secondary">Publish</button>
+      </div>
     </div>
 
     <div class="panel" id="panel-caption">
@@ -123,31 +198,21 @@
       <div id="caption-text">No caption yet.</div>
     </div>
 
-    <div class="panel" id="panel-admin">
+    <div class="panel admin-only hidden" id="panel-admin">
       <h2>Administration</h2>
       <div id="admin-mode-indicator" class="status">Admin mode: off</div>
-      <form id="admin-login-form">
-        <input
-          type="password"
-          id="admin-password"
-          placeholder="Admin password"
-          autocomplete="current-password"
-          style="flex: 1 1 auto; padding: 0.4rem; border-radius: 9999px; border: 1px solid #374151; background-color: #020617; color: #e5e7eb;"
-        />
-        <button type="submit" class="secondary" style="margin-top: 0.5rem;">Unlock admin mode</button>
-      </form>
-      <button id="btn-admin-logout" class="secondary" type="button" style="margin-top: 0.5rem;">Exit admin mode</button>
-      <div id="admin-message" class="status"></div>
+      <div class="status">Admin-only controls are active while you are logged in.</div>
     </div>
 
-    <div class="panel" id="panel-status">
-      <h2>Status</h2>
+    <div class="panel admin-only hidden" id="panel-activity">
+      <h2>Activity</h2>
       <div id="status" class="status">Ready.</div>
       <div id="details"></div>
     </div>
   </main>
 
   <script>
+    const bodyEl = document.body;
     const imgEl = document.getElementById("image");
     const statusEl = document.getElementById("status");
     const detailsEl = document.getElementById("details");
@@ -156,17 +221,22 @@
     const btnAnalyze = document.getElementById("btn-analyze");
     const btnPublish = document.getElementById("btn-publish");
     const btnAdmin = document.getElementById("btn-admin");
+    const btnAdminLogout = document.getElementById("btn-admin-logout");
+    const adminControls = document.getElementById("admin-controls");
+    const panelAdmin = document.getElementById("panel-admin");
+    const panelActivity = document.getElementById("panel-activity");
     const adminModeIndicator = document.getElementById("admin-mode-indicator");
     const adminForm = document.getElementById("admin-login-form");
     const adminPasswordInput = document.getElementById("admin-password");
     const adminMessage = document.getElementById("admin-message");
-    const btnAdminLogout = document.getElementById("btn-admin-logout");
+    const adminModal = document.getElementById("admin-modal");
+    const adminModalClose = document.getElementById("admin-modal-close");
 
     let currentFilename = null;
     let isAdmin = false;
 
-    function setStatus(msg) {
-      statusEl.textContent = msg;
+    function setActivity(msg) {
+      statusEl.textContent = msg || "";
     }
 
     function setDetails(html) {
@@ -183,39 +253,60 @@
 
     function disableButtons(disabled) {
       btnNext.disabled = disabled;
-      btnAnalyze.disabled = disabled || !isAdmin;
-      btnPublish.disabled = disabled || !isAdmin;
+      if (btnAnalyze && btnPublish) {
+        btnAnalyze.disabled = disabled || !isAdmin;
+        btnPublish.disabled = disabled || !isAdmin;
+      }
     }
 
     function updateAdminUI() {
       adminModeIndicator.textContent = isAdmin ? "Admin mode: on" : "Admin mode: off";
-      // Analyze/Publish are always gated by admin mode
-      btnAnalyze.disabled = !isAdmin;
-      btnPublish.disabled = !isAdmin;
-      // Refresh details panel to respect admin visibility
-      if (!isAdmin) {
+      if (isAdmin) {
+        bodyEl.classList.add("admin-mode");
+        adminControls.classList.remove("hidden");
+        panelAdmin.classList.remove("hidden");
+        panelActivity.classList.remove("hidden");
+        btnAdminLogout.classList.remove("hidden");
+      } else {
+        bodyEl.classList.remove("admin-mode");
+        adminControls.classList.add("hidden");
+        panelAdmin.classList.add("hidden");
+        panelActivity.classList.add("hidden");
+        btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
+      }
+      if (btnAnalyze && btnPublish) {
+        btnAnalyze.disabled = !isAdmin;
+        btnPublish.disabled = !isAdmin;
       }
     }
 
-    async function refreshAdminStatus() {
+    async function fetchAdminStatus() {
       try {
         const res = await fetch("/api/admin/status");
         if (!res.ok) {
-          isAdmin = false;
-        } else {
-          const data = await res.json();
-          isAdmin = !!data.admin;
+          return false;
         }
+        const data = await res.json();
+        return !!data.admin;
       } catch (e) {
         console.error(e);
-        isAdmin = false;
+        return false;
       }
+    }
+
+    function updateAdminState(admin) {
+      isAdmin = !!admin;
       updateAdminUI();
     }
 
+    async function refreshAdminStatus() {
+      const admin = await fetchAdminStatus();
+      updateAdminState(admin);
+    }
+
     async function apiGetRandom() {
-      setStatus("Loading random image…");
+      setActivity("Loading random image…");
       disableButtons(true);
       try {
         const res = await fetch("/api/images/random");
@@ -230,14 +321,14 @@
         setCaption(data.caption || data.sd_caption || "No caption yet.");
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
-        setStatus("Image loaded.");
+        setActivity("Image loaded.");
       } catch (e) {
         console.error(e);
         currentFilename = null;
         imgEl.src = "";
         setCaption(null);
         setDetails("");
-        setStatus(e.message || "Error loading image.");
+        setActivity(e.message || "Error loading image.");
       } finally {
         disableButtons(false);
       }
@@ -245,14 +336,14 @@
 
     async function apiAnalyze() {
       if (!currentFilename) {
-        setStatus("No image selected.");
+        setActivity("No image selected.");
         return;
       }
       if (!isAdmin) {
-        setStatus("Admin mode required to analyze.");
+        setActivity("Admin mode required to analyze.");
         return;
       }
-      setStatus("Analyzing image…");
+      setActivity("Analyzing image…");
       disableButtons(true);
       try {
         const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/analyze`, {
@@ -261,6 +352,10 @@
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) {
+            updateAdminState(false);
+            throw new Error("Admin session expired, please log in again.");
+          }
           throw new Error(err.detail || err.error || "Failed to analyze image");
         }
         const data = await res.json();
@@ -272,10 +367,11 @@
           tags: data.tags
         };
         setDetails(`<div><strong>Analysis:</strong></div><pre><code>${JSON.stringify(meta, null, 2)}</code></pre>`);
-        setStatus("Analysis complete; caption generated.");
+        setActivity("Analysis complete; caption generated.");
       } catch (e) {
         console.error(e);
-        setStatus(e.message || "Error analyzing image.");
+        const msg = e.message || "Error analyzing image.";
+        setActivity(msg);
       } finally {
         disableButtons(false);
       }
@@ -283,14 +379,14 @@
 
     async function apiPublish() {
       if (!currentFilename) {
-        setStatus("No image selected.");
+        setActivity("No image selected.");
         return;
       }
       if (!isAdmin) {
-        setStatus("Admin mode required to publish.");
+        setActivity("Admin mode required to publish.");
         return;
       }
-      setStatus("Publishing image…");
+      setActivity("Publishing image…");
       disableButtons(true);
       try {
         const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/publish`, {
@@ -300,19 +396,24 @@
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) {
+            updateAdminState(false);
+            throw new Error("Admin session expired, please log in again.");
+          }
           throw new Error(err.detail || err.error || "Failed to publish image");
         }
         const data = await res.json();
         const results = JSON.stringify(data.results || {}, null, 2);
         setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
         if (data.any_success) {
-          setStatus(`Published successfully${data.archived ? " and archived." : "."}`);
+          setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
         } else {
-          setStatus("No platforms reported success; see details.");
+          setActivity("Publish completed but no platforms reported success; see details.");
         }
       } catch (e) {
         console.error(e);
-        setStatus(e.message || "Error publishing image.");
+        const msg = e.message || "Error publishing image.";
+        setActivity(msg);
       } finally {
         disableButtons(false);
       }
@@ -337,8 +438,10 @@
           isAdmin = false;
           adminMessage.textContent = data.detail || data.error || "Invalid admin password.";
         } else {
-          isAdmin = true;
+          updateAdminState(true);
           adminMessage.textContent = "Admin mode enabled.";
+          setActivity("Admin mode enabled.");
+          adminModal.classList.add("hidden");
         }
       } catch (e) {
         console.error(e);
@@ -346,7 +449,6 @@
         adminMessage.textContent = "Error logging in as admin.";
       } finally {
         adminPasswordInput.value = "";
-        updateAdminUI();
       }
     }
 
@@ -360,32 +462,51 @@
           const data = await res.json().catch(() => ({}));
           adminMessage.textContent = data.detail || data.error || "Error logging out of admin mode.";
         } else {
-          isAdmin = false;
+          updateAdminState(false);
           adminMessage.textContent = "Admin mode disabled.";
+          setActivity("Admin mode disabled.");
         }
       } catch (e) {
         console.error(e);
         adminMessage.textContent = "Error logging out of admin mode.";
       } finally {
-        updateAdminUI();
       }
     }
 
-    btnNext.addEventListener("click", apiGetRandom);
-    btnAnalyze.addEventListener("click", apiAnalyze);
-    btnPublish.addEventListener("click", apiPublish);
-    btnAdmin.addEventListener("click", () => {
-      adminForm.scrollIntoView({ behavior: "smooth", block: "center" });
-      adminPasswordInput.focus();
-    });
-    adminForm.addEventListener("submit", handleAdminLogin);
-    btnAdminLogout.addEventListener("click", handleAdminLogout);
+    function initAdminControls() {
+      btnAdmin.addEventListener("click", () => {
+        adminModal.classList.remove("hidden");
+        adminPasswordInput.focus();
+      });
+      adminModalClose.addEventListener("click", () => {
+        adminModal.classList.add("hidden");
+        adminMessage.textContent = "";
+      });
+      adminModal.addEventListener("click", (event) => {
+        if (event.target === adminModal) {
+          adminModal.classList.add("hidden");
+          adminMessage.textContent = "";
+        }
+      });
+      adminForm.addEventListener("submit", handleAdminLogin);
+      btnAdminLogout.addEventListener("click", handleAdminLogout);
+    }
 
-    // On load, check admin status then load first image
-    window.addEventListener("load", async () => {
-      await refreshAdminStatus();
-      await apiGetRandom();
-    });
+    function initLayout() {
+      btnNext.addEventListener("click", apiGetRandom);
+      if (btnAnalyze && btnPublish) {
+        btnAnalyze.addEventListener("click", apiAnalyze);
+        btnPublish.addEventListener("click", apiPublish);
+      }
+      initAdminControls();
+      window.addEventListener("load", async () => {
+        updateAdminState(false);
+        await refreshAdminStatus();
+        await apiGetRandom();
+      });
+    }
+
+    initLayout();
   </script>
 </body>
 </html>

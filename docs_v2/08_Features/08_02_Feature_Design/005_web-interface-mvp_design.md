@@ -425,7 +425,7 @@ class ErrorResponse(BaseModel):
       - If not exists: return has_sidecar=false
    f. Compute SHA256 (optional, if image downloaded for dedup)
    g. Return ImageResponse
-6. Frontend updates UI with image, caption (if any), buttons enabled
+6. Frontend updates UI with image, caption (if any), and enables public controls; admin-only controls remain hidden until admin login
 ```
 
 ### Flow 2: User Clicks "Analyze & Caption"
