@@ -23,4 +23,7 @@ New in v2.4:
 - Stable‑Diffusion‑ready caption sidecar (`<image>.txt`) generated alongside normal captions
 - Moves with image on archive; preview shows `sd_caption` without side effects
 
+Utility scripts:
+- A standalone Heroku/Hetzner provisioning script lives under `/scripts/heroku_hetzner_clone.py` to clone the `fetlife-prod` Heroku app, attach a `<name>.shibari.photo` domain, update the `FETLIFE_INI` `image_folder`, and create the matching Hetzner DNS CNAME record. See the script's `--help` output for usage.
+
 
