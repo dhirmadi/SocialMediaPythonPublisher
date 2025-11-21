@@ -45,30 +45,48 @@ Instead, they can run a single command that performs all of these steps with cle
 - **Script location:** `/scripts/heroku_hetzner_clone.py`  
 - **Key responsibilities:**
   - Input parsing via `argparse`:
-    - `--name` (required): used for the subdomain `<name>.shibari.photo` and derived Heroku app name.
-    - `--folder` (required): injected into `FETLIFE_INI` as `[Dropbox].image_folder`.
-    - `--heroku-source-app` (optional, default `fetlife-prod`).
+    - `--action` (optional, default `create`):  
+      - `create` → provision a new app and DNS entry.  
+      - `delete` → delete an existing app/DNS entry based on `servers.txt`.
+    - `--name` (required): logical instance identifier; used for:
+      - Heroku app name `fetlife-prod-<name>` (unless `--heroku-app-name` is provided).
+      - Subdomain `<name>.shibari.photo`.
+      - CNAME record name in Hetzner.
+    - `--folder` (required for `create` non-dry-run): injected into `FETLIFE_INI` as `[Dropbox].image_folder`.
+    - `--password` (required for `create` non-dry-run): sets `web_admin_pw` in the new app’s config, used by the web admin auth.
+    - `--heroku-source-app` (optional, default `fetlife-prod`): source app for config vars and `FETLIFE_INI`.
+    - `--heroku-staging-app` (optional, default `fetlife`): staging app whose slug is promoted via pipelines.
+    - `--pipeline` / `--pipeline-stage` (optional, default `fetlife` / `production`): target pipeline and stage for the new app.
     - `--heroku-app-name` (optional explicit app name override).
-    - `--dry-run` (optional: plan-only mode without API calls).
+    - `--dry-run` (optional: plan-only mode without API calls or file writes).
   - Heroku integration (`HerokuClient`):
-    - `POST /apps/{source}/actions/fork` to clone `fetlife-prod` to a new app.
-    - `GET /apps/{app}/config-vars` and `PATCH /apps/{app}/config-vars` to clone and update config vars.
-    - `POST /apps/{app}/domains` to create `<name>.shibari.photo` and capture the DNS target.
+    - `POST /apps` to create a new blank app (no direct fork endpoint is used).
+    - `GET /apps/{app}/config-vars` and `PATCH /apps/{app}/config-vars` to clone and update config vars (`FETLIFE_INI`, feature flags, `AUTO_VIEW`, `web_admin_pw`, etc.).
+    - `POST /apps/{app}/acm` to enable Automated Certificate Management (ACM).
+    - `POST /apps/{app}/domains` with `{"hostname": "<name>.shibari.photo", "sni_endpoint": null}` to create the custom domain and capture the DNS target.
+    - `GET /pipelines` and `POST /pipeline-couplings` to add the new app to the `fetlife` pipeline.
+    - `POST /pipeline-promotions` to promote the current slug from the staging app to the new app.
+    - `DELETE /apps/{app}` to delete apps in the `delete` flow.
   - Hetzner DNS integration (`HetznerDNSClient`):
     - `GET /zones?name=shibari.photo` to resolve the zone.
     - `GET /records?zone_id=...&name=...&type=CNAME` plus `POST /records` / `PUT /records/{id}` to create or update the CNAME for `<name>`.
+    - `DELETE /records/{id}` to remove the CNAME in the `delete` flow.
   - INI mutation helper:
     - `update_image_folder(ini_text: str, new_folder: str) -> str`:
       - Parses the `FETLIFE_INI` string with `configparser`.
       - Validates presence of `[Dropbox]` and `image_folder`.
       - Sets the new folder value and validates the result is parseable.
+  - Local server log:
+    - `scripts/servers.txt` (ignored by Git) is updated on successful `create` runs with:
+      - `name,folder,heroku_url,subdomain_url,created_at_utc`.
+    - `delete` runs read and prune entries from this file.
 
-Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`HerokuError`, `HetznerDNSError`) and surfaced with phase-specific messages; the script exits non-zero on failure.
+Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`HerokuError`, `HetznerDNSError`) and surfaced with phase-specific messages; the script exits non-zero on failure. File logging failures are surfaced as warnings only.
 
 ## Implementation Details
 
 - **Heroku app naming**
-  - Default new app name is derived from `"{source_app}-{name}"`, normalized for Heroku rules (lowercase, letters/numbers/dashes only, leading letter, length ≤ 30).
+  - Default new app name uses the fixed pattern `fetlife-prod-<name>`, normalized for Heroku rules (lowercase, letters/numbers/dashes only, leading letter, length ≤ 30).
   - Operators can override the exact app name via `--heroku-app-name` if desired.
 
 - **Subdomain validation**
@@ -91,10 +109,27 @@ Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`Hero
       - Find any existing CNAME for `<name>` in that zone.
       - Update it if present, otherwise create a new record.
 
+  - In addition, several config vars are normalized on new apps:
+    - `FEATURE_KEEP_CURATE=true`
+    - `FEATURE_REMOVE_CURATE=true`
+    - `FEATURE_ANALYZE_CAPTION=false`
+    - `FEATURE_PUBLISH=false`
+    - `AUTO_VIEW=false`
+    - `web_admin_pw=<--password value>`
+
 - **Dry-run mode**
   - With `--dry-run`, the script:
-    - Prints the derived new app name, subdomain, and folder.
-    - Skips all external API calls (no app, domain, or DNS changes).
+    - Prints the derived new app name, subdomain, folder, and action.
+    - Skips all external API calls and file writes (no apps, domains, DNS, or `servers.txt` changes).
+
+- **Delete mode**
+  - With `--action delete --name <name>`:
+    - The script reads `scripts/servers.txt` to find records whose `name` matches.
+    - In dry-run, it prints what would be deleted (apps, DNS) without making changes.
+    - In normal mode, it:
+      - Parses the Heroku app name from the stored Heroku URL and calls `DELETE /apps/{app}`.
+      - Removes the corresponding Hetzner CNAME for `<name>.shibari.photo`.
+      - Rewrites `scripts/servers.txt` to remove the matching line(s).
 
 ## Testing
 
@@ -118,8 +153,10 @@ Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`Hero
   - Existing deployments continue to run unchanged.
 - Operators can start using the script immediately after it is available in the repo:
   - Ensure `HEROKU_API_TOKEN` and `HETZNER_DNS_API_TOKEN` are set in the environment.
-  - Run:  
-    - `python scripts/heroku_hetzner_clone.py --name myinstance --folder /Photos/myinstance`
+  - Run (create):  
+    - `python scripts/heroku_hetzner_clone.py --name myinstance --folder /Photos/myinstance --password <admin-password>`
+  - Run (delete):  
+    - `python scripts/heroku_hetzner_clone.py --action delete --name myinstance`
 - If any issues arise, simply stop using the script; there is no impact on the core system beyond any apps/DNS records already created (which can be managed manually via Heroku/Hetzner UIs as before).
 
 ## Artifacts

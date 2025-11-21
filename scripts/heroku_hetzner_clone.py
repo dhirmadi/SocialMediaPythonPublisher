@@ -154,20 +154,17 @@ def _delete_server_by_name(
 
     for parts in to_delete:
         rec_name, folder, heroku_url, subdomain_url, *rest = parts + ["", "", "", ""]
-        app_name = _parse_app_name_from_heroku_url(heroku_url)
+        # Derive the Heroku app name from the logical instance name using the
+        # same pattern as creation (fetlife-prod-<name>), instead of relying
+        # on the stored URL which may include older naming schemes.
+        app_name = normalize_heroku_app_name(rec_name)
 
-        if app_name:
-            _print(f"  - Deleting Heroku app '{app_name}'...")
-            try:
-                heroku.delete_app(app_name)
-                _print("    -> Heroku app deleted.")
-            except HerokuError as exc:
-                sys.stderr.write(f"\nwarning: failed to delete Heroku app '{app_name}': {exc}\n")
-        else:
-            sys.stderr.write(
-                f"\nwarning: could not parse Heroku app name from URL '{heroku_url}'; "
-                "skipping Heroku app deletion for this record.\n"
-            )
+        _print(f"  - Deleting Heroku app '{app_name}'...")
+        try:
+            heroku.delete_app(app_name)
+            _print("    -> Heroku app deleted.")
+        except HerokuError as exc:
+            sys.stderr.write(f"\nwarning: failed to delete Heroku app '{app_name}': {exc}\n")
 
         _print(f"  - Deleting Hetzner DNS CNAME for '{rec_name}.shibari.photo'...")
         try:
@@ -699,12 +696,16 @@ def main(argv: Optional[list[str]] = None) -> int:
         # Build new config: copy source vars exactly, update FETLIFE_INI, ensure feature flags
         new_cfg: Dict[str, str] = dict(source_cfg)
         new_cfg["FETLIFE_INI"] = updated_ini
-        
-        # Always set/overwrite these feature flags to true
+
+        # Always set/overwrite feature flags and related env vars
         keep_existed = "FEATURE_KEEP_CURATE" in new_cfg
         remove_existed = "FEATURE_REMOVE_CURATE" in new_cfg
+        analyze_existed = "FEATURE_ANALYZE_CAPTION" in new_cfg
+        publish_existed = "FEATURE_PUBLISH" in new_cfg
         new_cfg["FEATURE_KEEP_CURATE"] = "true"
         new_cfg["FEATURE_REMOVE_CURATE"] = "true"
+        new_cfg["FEATURE_ANALYZE_CAPTION"] = "false"
+        new_cfg["FEATURE_PUBLISH"] = "false"
         # Always set/overwrite AUTO_VIEW to false on new servers
         auto_view_existed = "AUTO_VIEW" in new_cfg
         new_cfg["AUTO_VIEW"] = "false"
@@ -715,11 +716,15 @@ def main(argv: Optional[list[str]] = None) -> int:
         heroku.set_config_vars(new_app_name, new_cfg)
         _print(f"  -> Copied {len(source_cfg)} config vars from {args.heroku_source_app}")
         _print("  -> Updated FETLIFE_INI [Dropbox].image_folder")
-        
+
         keep_action = "Set" if not keep_existed else "Overwritten"
         remove_action = "Set" if not remove_existed else "Overwritten"
         _print(f"  -> {keep_action} FEATURE_KEEP_CURATE=true")
         _print(f"  -> {remove_action} FEATURE_REMOVE_CURATE=true")
+        analyze_action = "Set" if not analyze_existed else "Overwritten"
+        publish_action = "Set" if not publish_existed else "Overwritten"
+        _print(f"  -> {analyze_action} FEATURE_ANALYZE_CAPTION=false")
+        _print(f"  -> {publish_action} FEATURE_PUBLISH=false")
         auto_view_action = "Set" if not auto_view_existed else "Overwritten"
         _print(f"  -> {auto_view_action} AUTO_VIEW=false")
         admin_action = "Set" if not admin_pw_existed else "Overwritten"
