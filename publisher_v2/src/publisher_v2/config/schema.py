@@ -10,6 +10,14 @@ class DropboxConfig(BaseModel):
     refresh_token: str = Field(..., description="OAuth2 refresh token")
     image_folder: str = Field(..., description="Source image folder path in Dropbox")
     archive_folder: str = Field(default="archive", description="Archive folder name (relative)")
+    folder_keep: Optional[str] = Field(
+        default=None,
+        description="Subfolder name under image_folder for Keep curation moves",
+    )
+    folder_remove: Optional[str] = Field(
+        default=None,
+        description="Subfolder name under image_folder for Remove curation moves (alias for legacy folder_reject)",
+    )
 
     @field_validator("image_folder")
     @classmethod
@@ -178,6 +186,14 @@ class FeaturesConfig(BaseModel):
     publish_enabled: bool = Field(
         default=True,
         description="Enable publishing feature (all platforms)",
+    )
+    keep_enabled: bool = Field(
+        default=True,
+        description="Enable Keep curation action in web/CLI flows",
+    )
+    remove_enabled: bool = Field(
+        default=True,
+        description="Enable Remove curation action in web/CLI flows",
     )
 
 

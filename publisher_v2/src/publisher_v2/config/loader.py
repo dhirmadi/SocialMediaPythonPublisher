@@ -59,12 +59,50 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
     cp.read(config_file_path)
 
     try:
+        # Core Dropbox folders
+        image_folder = cp.get("Dropbox", "image_folder")
+        archive_folder = cp.get("Dropbox", "archive", fallback="archive")
+
+        # Optional keep/remove folders with legacy alias support and .env overrides.
+        folder_keep = cp.get("Dropbox", "folder_keep", fallback=None)
+        folder_remove = cp.get("Dropbox", "folder_remove", fallback=None)
+        if folder_remove is None and cp.has_option("Dropbox", "folder_reject"):
+            # Backward-compatible alias for existing configs.
+            folder_remove = cp.get("Dropbox", "folder_reject")
+
+        # Environment overrides (lowercase, as requested for V2).
+        env_keep = os.environ.get("folder_keep")
+        env_remove = os.environ.get("folder_remove")
+        if env_keep is not None and env_keep.strip():
+            folder_keep = env_keep.strip()
+        if env_remove is not None and env_remove.strip():
+            folder_remove = env_remove.strip()
+
+        # Basic safety validation: keep/remove folders must be simple relative names.
+        def _validate_subfolder(name: str | None, field_name: str) -> str | None:
+            if name is None:
+                return None
+            trimmed = name.strip()
+            if not trimmed:
+                return None
+            if any(sep in trimmed for sep in ("/", "\\", "..")):
+                raise ConfigurationError(
+                    f"Invalid value '{name}' for {field_name}; "
+                    "must be a simple subfolder name without path separators or '..'."
+                )
+            return trimmed
+
+        folder_keep = _validate_subfolder(folder_keep, "[Dropbox].folder_keep")
+        folder_remove = _validate_subfolder(folder_remove, "[Dropbox].folder_remove")
+
         dropbox = DropboxConfig(
             app_key=os.environ["DROPBOX_APP_KEY"],
             app_secret=os.environ["DROPBOX_APP_SECRET"],
             refresh_token=os.environ["DROPBOX_REFRESH_TOKEN"],
-            image_folder=cp.get("Dropbox", "image_folder"),
-            archive_folder=cp.get("Dropbox", "archive", fallback="archive"),
+            image_folder=image_folder,
+            archive_folder=archive_folder,
+            folder_keep=folder_keep,
+            folder_remove=folder_remove,
         )
         # Load OpenAI config with support for both legacy 'model' and new separate models
         vision_model = cp.get("openAI", "vision_model", fallback=None)
@@ -154,6 +192,12 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             ),
             publish_enabled=parse_bool_env(
                 os.environ.get("FEATURE_PUBLISH"), True, var_name="FEATURE_PUBLISH"
+            ),
+            keep_enabled=parse_bool_env(
+                os.environ.get("FEATURE_KEEP_CURATE"), True, var_name="FEATURE_KEEP_CURATE"
+            ),
+            remove_enabled=parse_bool_env(
+                os.environ.get("FEATURE_REMOVE_CURATE"), True, var_name="FEATURE_REMOVE_CURATE"
             ),
         )
     except KeyError as exc:

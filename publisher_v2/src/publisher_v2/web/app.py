@@ -29,6 +29,7 @@ from publisher_v2.web.models import (
     ErrorResponse,
     AdminLoginRequest,
     AdminStatusResponse,
+    CurationResponse,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -309,6 +310,116 @@ async def api_publish_image(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
 
 
+@app.post(
+    "/api/images/{filename}/keep",
+    response_model=CurationResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+async def api_keep_image(
+    filename: str,
+    request: Request,
+    response: Response,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> CurationResponse:
+    await require_auth(request)
+    if is_admin_configured():
+        require_admin(request)
+    try:
+        resp = await service.keep_image(filename)
+        web_keep_ms = elapsed_ms(telemetry.start_time)
+        response.headers["X-Correlation-ID"] = telemetry.correlation_id
+        log_json(
+            logger,
+            logging.INFO,
+            "web_keep_complete",
+            filename=filename,
+            destination_folder=resp.destination_folder,
+            correlation_id=telemetry.correlation_id,
+            web_keep_ms=web_keep_ms,
+        )
+        return resp
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        web_keep_ms = elapsed_ms(telemetry.start_time)
+        response.headers["X-Correlation-ID"] = telemetry.correlation_id
+        log_json(
+            logger,
+            logging.ERROR,
+            "web_keep_error",
+            filename=filename,
+            error=str(exc),
+            correlation_id=telemetry.correlation_id,
+            web_keep_ms=web_keep_ms,
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
+
+@app.post(
+    "/api/images/{filename}/remove",
+    response_model=CurationResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+async def api_remove_image(
+    filename: str,
+    request: Request,
+    response: Response,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> CurationResponse:
+    await require_auth(request)
+    if is_admin_configured():
+        require_admin(request)
+    try:
+        resp = await service.remove_image(filename)
+        web_remove_ms = elapsed_ms(telemetry.start_time)
+        response.headers["X-Correlation-ID"] = telemetry.correlation_id
+        log_json(
+            logger,
+            logging.INFO,
+            "web_remove_complete",
+            filename=filename,
+            destination_folder=resp.destination_folder,
+            correlation_id=telemetry.correlation_id,
+            web_remove_ms=web_remove_ms,
+        )
+        return resp
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    except PermissionError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(exc),
+        )
+    except Exception as exc:
+        web_remove_ms = elapsed_ms(telemetry.start_time)
+        response.headers["X-Correlation-ID"] = telemetry.correlation_id
+        log_json(
+            logger,
+            logging.ERROR,
+            "web_remove_error",
+            filename=filename,
+            error=str(exc),
+            correlation_id=telemetry.correlation_id,
+            web_remove_ms=web_remove_ms,
+        )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
+
 @app.get("/api/config/publishers")
 async def api_get_publishers_config(
     service: WebImageService = Depends(get_service)
@@ -334,13 +445,16 @@ async def api_get_features_config(
     """
     Return high-level product feature flags for the web UI.
 
-    Values come from environment variables (FEATURE_ANALYZE_CAPTION, FEATURE_PUBLISH)
-    via the typed FeaturesConfig loaded in config.loader.
+    Values come from environment variables (FEATURE_ANALYZE_CAPTION, FEATURE_PUBLISH,
+    FEATURE_KEEP_CURATE, FEATURE_REMOVE_CURATE) via the typed FeaturesConfig loaded
+    in config.loader.
     """
     features = service.config.features
     return {
         "analyze_caption_enabled": features.analyze_caption_enabled,
         "publish_enabled": features.publish_enabled,
+        "keep_enabled": features.keep_enabled,
+        "remove_enabled": features.remove_enabled,
     }
 
 

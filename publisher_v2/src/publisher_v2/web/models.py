@@ -50,3 +50,10 @@ class AdminStatusResponse(BaseModel):
     admin: bool
     error: Optional[str] = None
 
+
+class CurationResponse(BaseModel):
+    filename: str
+    action: str  # "keep" or "remove"
+    destination_folder: str
+    preview_only: bool = False
+

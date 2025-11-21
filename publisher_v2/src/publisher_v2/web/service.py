@@ -22,7 +22,7 @@ from publisher_v2.utils.captions import (
     build_metadata_phase2,
     build_caption_sidecar,
 )
-from publisher_v2.web.models import ImageResponse, AnalysisResponse, PublishResponse
+from publisher_v2.web.models import ImageResponse, AnalysisResponse, PublishResponse, CurationResponse
 from publisher_v2.web.sidecar_parser import parse_sidecar_text, rehydrate_sidecar_view
 
 
@@ -350,6 +350,60 @@ class WebImageService:
             results=results,
             archived=archived,
             any_success=any_success,
+        )
+
+    async def keep_image(self, filename: str) -> CurationResponse:
+        """
+        Keep the specified image by moving it (and its sidecars) into the configured keep folder.
+        """
+        if not self.config.features.keep_enabled:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_keep_disabled",
+                image=filename,
+            )
+            raise PermissionError("Keep feature is disabled via FEATURE_KEEP_CURATE toggle")
+
+        await self.orchestrator.keep_image(
+            filename,
+            preview_mode=False,
+            dry_run=False,
+        )
+
+        dest = self.config.dropbox.folder_keep or ""
+        return CurationResponse(
+            filename=filename,
+            action="keep",
+            destination_folder=dest,
+            preview_only=False,
+        )
+
+    async def remove_image(self, filename: str) -> CurationResponse:
+        """
+        Remove the specified image by moving it (and its sidecars) into the configured remove folder.
+        """
+        if not self.config.features.remove_enabled:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_remove_disabled",
+                image=filename,
+            )
+            raise PermissionError("Remove feature is disabled via FEATURE_REMOVE_CURATE toggle")
+
+        await self.orchestrator.remove_image(
+            filename,
+            preview_mode=False,
+            dry_run=False,
+        )
+
+        dest = self.config.dropbox.folder_remove or ""
+        return CurationResponse(
+            filename=filename,
+            action="remove",
+            destination_folder=dest,
+            preview_only=False,
         )
 
 

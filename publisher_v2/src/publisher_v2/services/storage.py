@@ -210,12 +210,18 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
+    async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
+        """
+        Move the image and its .txt sidecar (if present) into a subfolder under the given folder.
+
+        This is implemented via Dropbox server-side moves and is reused by archive and
+        curation-style operations (Keep/Remove).
+        """
         try:
-            def _archive() -> None:
+            def _move() -> None:
                 src = os.path.join(folder, filename)
-                dst_dir = os.path.join(folder, archive_folder)
-                # Ensure archive folder exists
+                dst_dir = os.path.join(folder, target_subfolder)
+                # Ensure destination folder exists
                 try:
                     self.client.files_create_folder_v2(dst_dir)
                 except ApiError:
@@ -233,8 +239,15 @@ class DropboxStorage:
                     # Sidecar may not exist; ignore
                     pass
 
-            await asyncio.to_thread(_archive)
+            await asyncio.to_thread(_move)
         except ApiError as exc:
-            raise StorageError(f"Failed to archive {filename}: {exc}") from exc
+            raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
 
+    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
+        """
+        Archive an image (and its sidecar) into the configured archive folder.
 
+        Internally delegates to move_image_with_sidecars to keep Dropbox move
+        semantics in one place.
+        """
+        await self.move_image_with_sidecars(folder, filename, archive_folder)

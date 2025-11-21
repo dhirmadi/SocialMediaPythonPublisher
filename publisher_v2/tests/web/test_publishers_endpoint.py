@@ -54,10 +54,11 @@ def test_api_config_features_returns_correct_state(test_client: TestClient) -> N
     assert response.status_code == 200
     data = response.json()
     
-    assert data == {
-        "analyze_caption_enabled": True,
-        "publish_enabled": True,
-    }
+    assert data["analyze_caption_enabled"] is True
+    assert data["publish_enabled"] is True
+    # New curation feature flags should also be present and default to True.
+    assert data.get("keep_enabled", True) is True
+    assert data.get("remove_enabled", True) is True
 
 
 def test_api_config_features_no_auth_required(test_client: TestClient) -> None:
