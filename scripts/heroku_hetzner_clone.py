@@ -17,7 +17,7 @@ import os
 import re
 import sys
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
 from urllib.parse import urlparse
@@ -61,7 +61,11 @@ def append_server_record(
     Format:
       <name>,<folder>,<heroku_url>,<subdomain_url>,<created_at_utc>
     """
-    ts = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    ts = (
+        datetime.now(timezone.utc)
+        .isoformat(timespec="seconds")
+        .replace("+00:00", "Z")
+    )
     line = f"{name},{folder},{heroku_url},{subdomain_url},{ts}\n"
     path = Path(__file__).resolve().parent / "servers.txt"
     with path.open("a", encoding="utf-8") as f:
