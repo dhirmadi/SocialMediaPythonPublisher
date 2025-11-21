@@ -438,6 +438,8 @@ this section header is malformed
 
 def test_feature_toggles_default_enabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
     """Feature toggles default to enabled when env vars not set."""
+    # Ensure .env contents do not interfere with this test; we want a clean env-only view.
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
     monkeypatch.delenv("FEATURE_ANALYZE_CAPTION", raising=False)
     monkeypatch.delenv("FEATURE_PUBLISH", raising=False)
     config_file = tmp_path / "test.ini"

@@ -1,0 +1,104 @@
+version: 1
+feature_id: heroku-hetzner-app-cloning
+summary: "Add a Python CLI script under /scripts to clone the fetlife-prod Heroku app, configure a new Hetzner DNS subdomain under shibari.photo, and update the FETLIFE_INI image_folder for the new instance."
+design_refs:
+  - docs_v2/08_Features/08_02_Feature_Design/011_heroku-hetzner-app-cloning_design.md
+repo_constraints:
+  allowed_paths:
+    - scripts/**
+    - docs_v2/**
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+
+acceptance_criteria:
+  - "Given HEROKU_API_TOKEN and HETZNER_DNS_API_TOKEN are set and fetlife-prod exists, when I run the script with --name foo and --folder /Photos/foo, then a new Heroku app is cloned from fetlife-prod and its name and base URL are reported."
+  - "Given the source app has a FETLIFE_INI config var with a [Dropbox].image_folder key, when cloning completes, then the new app's FETLIFE_INI has [Dropbox].image_folder set to the --folder value while all other keys remain unchanged."
+  - "Given the new app exists and --name foo, when the script runs, then a custom domain foo.shibari.photo is created on the new app and the Heroku DNS target is obtained via the domains API."
+  - "Given the Hetzner DNS zone shibari.photo exists and --name foo, when the script runs, then a CNAME record for foo in that zone points to the Heroku DNS target, creating or updating the record as needed."
+  - "Given I run the script with --help, then I see documented options for --name, --folder, optional overrides, and environment variable requirements."
+
+non_goals:
+  - "Modify the publisher_v2 runtime, config loader, or web UI."
+  - "Implement automatic teardown of Heroku apps or DNS records."
+  - "Support cloud providers other than Heroku and Hetzner DNS for this feature."
+  - "Introduce a new dependency management or deployment system beyond the standalone script."
+
+tasks:
+  - id: heroku_hetzner.create_scripts_dir
+    type: code
+    touches:
+      - scripts/
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on: []
+    rollback: "Remove the scripts directory if it was only used for this feature."
+
+  - id: heroku_hetzner.add_script
+    type: code
+    touches:
+      - scripts/heroku_hetzner_clone.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def main(argv: list[str] | None = None) -> int"
+        - "class HerokuClient"
+        - "class HetznerDNSClient"
+        - "def update_image_folder(ini_text: str, new_folder: str) -> str"
+    depends_on:
+      - heroku_hetzner.create_scripts_dir
+    rollback: "Delete scripts/heroku_hetzner_clone.py."
+
+  - id: heroku_hetzner.add_docs_snippet
+    type: doc
+    touches:
+      - docs_v2/01_Overview/README.md
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - heroku_hetzner.add_script
+    rollback: "Remove any mention of the Heroku/Hetzner cloning script from README."
+
+  - id: heroku_hetzner.add_unit_tests
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_scripts_heroku_hetzner_clone.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def test_update_image_folder_updates_dropbox_section() -> None"
+        - "def test_update_image_folder_raises_for_missing_section_or_key() -> None"
+    depends_on:
+      - heroku_hetzner.add_script
+    rollback: ""
+
+quality_gates:
+  tests_required:
+    - heroku_hetzner.add_unit_tests
+  coverage_delta_min: 0
+  perf_budget: {}
+  security_checks:
+    - no-secrets
+    - lint
+
+release:
+  strategy: direct
+  flags: []
+  migration_notes:
+    - "This feature introduces a standalone provisioning script under /scripts and does not modify the running V2 application."
+    - "Operators can adopt the script incrementally; no existing deployments are affected until the script is used."
+
+

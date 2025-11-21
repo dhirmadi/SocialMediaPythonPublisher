@@ -199,6 +199,9 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             remove_enabled=parse_bool_env(
                 os.environ.get("FEATURE_REMOVE_CURATE"), True, var_name="FEATURE_REMOVE_CURATE"
             ),
+            auto_view_enabled=parse_bool_env(
+                os.environ.get("AUTO_VIEW"), False, var_name="AUTO_VIEW"
+            ),
         )
     except KeyError as exc:
         raise ConfigurationError(f"Missing required environment variable: {exc}") from exc
