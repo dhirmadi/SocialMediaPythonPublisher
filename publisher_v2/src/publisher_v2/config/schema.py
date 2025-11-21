@@ -195,6 +195,10 @@ class FeaturesConfig(BaseModel):
         default=True,
         description="Enable Remove curation action in web/CLI flows",
     )
+    auto_view_enabled: bool = Field(
+        default=False,
+        description="Allow random images to be viewed without admin login in the web UI",
+    )
 
 
 class WebConfig(BaseModel):

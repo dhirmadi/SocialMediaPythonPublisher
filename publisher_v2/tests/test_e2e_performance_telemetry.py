@@ -127,8 +127,9 @@ def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monk
     # We only care that the endpoint runs enough to emit logs; underlying Dropbox/OpenAI
     # may be mocked/controlled by other tests or environment.
     res = client.get("/api/images/random")
-    # 404 is acceptable if no images are configured; telemetry should still log.
-    assert res.status_code in (200, 404)
+    # 404 is acceptable if no images are configured; 403/503 are acceptable when
+    # admin-gated or misconfigured. In all cases we still expect telemetry logs.
+    assert res.status_code in (200, 403, 404, 503)
 
     records = [r for r in caplog.records if "web_random_image" in r.getMessage() or "web_random_image_error" in r.getMessage()]
     assert records, "Expected web_random_image* log entry"

@@ -60,6 +60,12 @@
       width: 100%;
       margin: 0 auto;
     }
+    .image-placeholder {
+      text-align: center;
+      font-size: 0.95rem;
+      color: #9ca3af;
+      padding: 1.5rem 1rem;
+    }
     .image-container img {
       max-width: 100%;
       height: auto;
@@ -182,7 +188,10 @@
   </div>
   <main>
     <div class="image-container">
-      <img id="image" alt="No image loaded yet" />
+      <div id="image-placeholder" class="image-placeholder">
+        No image loaded yet.
+      </div>
+      <img id="image" class="hidden" alt="No image loaded yet" />
     </div>
 
     <div class="controls">
@@ -216,8 +225,10 @@
   <script>
     const bodyEl = document.body;
     const imgEl = document.getElementById("image");
+    const imagePlaceholder = document.getElementById("image-placeholder");
     const statusEl = document.getElementById("status");
     const detailsEl = document.getElementById("details");
+    const envIndicator = document.getElementById("env-indicator");
     const captionEl = document.getElementById("caption-text");
     const btnNext = document.getElementById("btn-next");
     const btnAnalyze = document.getElementById("btn-analyze");
@@ -239,12 +250,14 @@
 
     let currentFilename = null;
     let isAdmin = false;
-    // Defaults: if feature config cannot be loaded, behave as before and show all buttons.
+    // Defaults: if feature config cannot be loaded, behave as before and show all buttons,
+    // but keep AUTO_VIEW disabled (private) unless explicitly enabled via API.
     let featureConfig = {
       analyze_caption_enabled: true,
       publish_enabled: true,
       keep_enabled: true,
       remove_enabled: true,
+      auto_view_enabled: false,
     };
 
     function setActivity(msg) {
@@ -263,8 +276,31 @@
       captionEl.textContent = text || "No caption yet.";
     }
 
+    function showImagePlaceholder(message) {
+      if (imgEl) {
+        imgEl.src = "";
+        imgEl.classList.add("hidden");
+      }
+      if (imagePlaceholder) {
+        imagePlaceholder.textContent = message || "No image loaded yet.";
+        imagePlaceholder.classList.remove("hidden");
+      }
+    }
+
+    function showImage(url, altText) {
+      if (imagePlaceholder) {
+        imagePlaceholder.classList.add("hidden");
+      }
+      if (imgEl) {
+        imgEl.src = url;
+        imgEl.alt = altText || "Image";
+        imgEl.classList.remove("hidden");
+      }
+    }
+
     function disableButtons(disabled) {
-      btnNext.disabled = disabled;
+      const nextShouldBeDisabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
+      btnNext.disabled = nextShouldBeDisabled;
       if (btnAnalyze) {
         btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
       }
@@ -283,9 +319,17 @@
             publish_enabled: true,
             keep_enabled: true,
             remove_enabled: true,
+            auto_view_enabled: false,
           };
         }
-        return await res.json();
+        const data = await res.json();
+        return {
+          analyze_caption_enabled: data.analyze_caption_enabled ?? true,
+          publish_enabled: data.publish_enabled ?? true,
+          keep_enabled: data.keep_enabled ?? true,
+          remove_enabled: data.remove_enabled ?? true,
+          auto_view_enabled: data.auto_view_enabled ?? false,
+        };
       } catch (error) {
         console.error("Error fetching feature config:", error);
         return {
@@ -293,12 +337,18 @@
           publish_enabled: true,
           keep_enabled: true,
           remove_enabled: true,
+          auto_view_enabled: false,
         };
       }
     }
 
     function updateAdminUI() {
       adminModeIndicator.textContent = isAdmin ? "Admin mode: on" : "Admin mode: off";
+      if (envIndicator) {
+        envIndicator.textContent = featureConfig.auto_view_enabled
+          ? "Viewer mode"
+          : "Private mode";
+      }
       if (isAdmin) {
         bodyEl.classList.add("admin-mode");
         adminControls.classList.remove("hidden");
@@ -335,6 +385,13 @@
         btnRemove.classList.toggle("hidden", !shouldShowRemove);
         btnRemove.disabled = !isAdmin || !shouldShowRemove;
       }
+      // When AUTO_VIEW is disabled and user is not admin, replace the image
+      // area with a clear login-required message instead of a broken image.
+      if (!isAdmin && !featureConfig.auto_view_enabled) {
+        showImagePlaceholder("Admin mode required to view images.");
+      }
+      // Ensure Next button reflects current admin + AUTO_VIEW state when not globally disabled.
+      disableButtons(false);
     }
 
     async function fetchAdminStatus() {
@@ -365,6 +422,12 @@
       setActivity("Loading random image…");
       disableButtons(true);
       try {
+        if (!isAdmin && !featureConfig.auto_view_enabled) {
+          setActivity("Admin mode required to view images.");
+          setDetails("");
+          showImagePlaceholder("Admin mode required to view images.");
+          return;
+        }
         const res = await fetch("/api/images/random");
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -372,8 +435,10 @@
         }
         const data = await res.json();
         currentFilename = data.filename;
-        imgEl.src = data.temp_url;
-        imgEl.alt = data.caption || data.sd_caption || data.filename;
+        showImage(
+          data.temp_url,
+          data.caption || data.sd_caption || data.filename
+        );
         setCaption(data.caption || data.sd_caption || "No caption yet.");
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
@@ -381,7 +446,7 @@
       } catch (e) {
         console.error(e);
         currentFilename = null;
-        imgEl.src = "";
+        showImagePlaceholder("Error loading image.");
         setCaption(null);
         setDetails("");
         setActivity(e.message || "Error loading image.");
@@ -574,6 +639,9 @@
           adminMessage.textContent = "Admin mode enabled.";
           setActivity("Admin mode enabled.");
           adminModal.classList.add("hidden");
+          // After successful admin login, immediately load an image so the
+          // placeholder does not keep showing a login-required message.
+          await apiGetRandom();
         }
       } catch (e) {
         console.error(e);
@@ -642,11 +710,16 @@
       window.addEventListener("load", async () => {
         // Fetch feature config first so we can gate buttons from .env feature flags.
         featureConfig = await fetchFeatureConfig();
+        await refreshAdminStatus();
         updateAdminUI();
 
-        updateAdminState(false);
-        await refreshAdminStatus();
-        await apiGetRandom();
+        if (isAdmin || featureConfig.auto_view_enabled) {
+          await apiGetRandom();
+        } else {
+          setActivity("Ready. Admin mode required to view images.");
+          setDetails("");
+          showImagePlaceholder("Admin mode required to view images.");
+        }
       });
     }
 

@@ -1,0 +1,79 @@
+<!-- docs_v2/08_Features/08_04_ChangeRequests/011/001_servers-log_plan.yaml -->
+
+version: 1
+feature_id: heroku-hetzner-app-cloning
+story_id: servers-log
+summary: "Add an append-only scripts/servers.txt log that records each provisioned Heroku app instance and ensure it is ignored by Git."
+design_refs:
+  - docs_v2/08_Features/08_04_ChangeRequests/011/001_servers-log_design.md
+repo_constraints:
+  allowed_paths:
+    - scripts/**
+    - docs_v2/**
+    - .gitignore
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+
+acceptance_criteria:
+  - "On a successful non-dry-run execution of scripts/heroku_hetzner_clone.py, a new line is appended to scripts/servers.txt with name, folder, heroku_url, subdomain_url, and a UTC timestamp."
+  - "Running the script with --dry-run does not create or modify scripts/servers.txt."
+  - "scripts/servers.txt is ignored by Git and does not show up in git status output."
+
+tasks:
+  - id: servers_log.add_append_helper
+    type: code
+    touches:
+      - scripts/heroku_hetzner_clone.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def append_server_record("
+    depends_on: []
+    rollback: "Remove append_server_record helper and its usage from heroku_hetzner_clone.py."
+
+  - id: servers_log.integrate_logging
+    type: code
+    touches:
+      - scripts/heroku_hetzner_clone.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def main("
+    depends_on:
+      - servers_log.add_append_helper
+    rollback: "Remove the call to append_server_record from main()."
+
+  - id: servers_log.gitignore_entry
+    type: code
+    touches:
+      - .gitignore
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on: []
+    rollback: "Remove scripts/servers.txt from .gitignore."
+
+quality_gates:
+  tests_required: []
+  coverage_delta_min: 0
+  perf_budget: {}
+  security_checks:
+    - no-secrets
+
+release:
+  strategy: direct
+  flags: []
+  migration_notes:
+    - "scripts/servers.txt is a local, environment-specific log file and is not committed to version control."
+
+

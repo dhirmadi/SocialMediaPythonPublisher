@@ -172,6 +172,36 @@ async def api_get_random_image(
     service: WebImageService = Depends(get_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
+    # Enforce AUTO_VIEW semantics: when disabled, only admin may view images.
+    features = service.config.features
+    if not getattr(features, "auto_view_enabled", False):
+        if not is_admin_configured():
+            web_random_image_ms = elapsed_ms(telemetry.start_time)
+            response.headers["X-Correlation-ID"] = telemetry.correlation_id
+            log_json(
+                logger,
+                logging.WARNING,
+                "web_random_image_admin_required_unconfigured",
+                correlation_id=telemetry.correlation_id,
+                web_random_image_ms=web_random_image_ms,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Image viewing requires admin mode but admin is not configured",
+            )
+        try:
+            require_admin(request)
+        except HTTPException:
+            web_random_image_ms = elapsed_ms(telemetry.start_time)
+            response.headers["X-Correlation-ID"] = telemetry.correlation_id
+            log_json(
+                logger,
+                logging.WARNING,
+                "web_random_image_admin_required",
+                correlation_id=telemetry.correlation_id,
+                web_random_image_ms=web_random_image_ms,
+            )
+            raise
     try:
         img = await service.get_random_image()
         web_random_image_ms = elapsed_ms(telemetry.start_time)
@@ -455,6 +485,7 @@ async def api_get_features_config(
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
+        "auto_view_enabled": getattr(features, "auto_view_enabled", False),
     }
 
 
