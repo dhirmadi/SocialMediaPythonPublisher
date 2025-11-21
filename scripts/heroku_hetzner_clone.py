@@ -345,7 +345,12 @@ class HerokuClient:
             )
         return resp.json()
 
-    def promote_release(self, source_app: str, target_app: str) -> Dict[str, Any]:
+    def promote_release(
+        self,
+        source_app: str,
+        target_app: str,
+        pipeline_id: str,
+    ) -> Dict[str, Any]:
         """
         Promote the current release (slug) from source_app to target_app
         using the Heroku pipelines promotion API.
@@ -354,13 +359,18 @@ class HerokuClient:
         target_info = self.get_app(target_app)
 
         url = f"{HEROKU_API_BASE}/pipeline-promotions"
+        # Per Heroku docs, promotion payload must include:
+        # - pipeline: { id }
+        # - source: { app: { id } }
+        # - targets: [ { app: { id } } ]
         payload = {
-            "source": {"app": source_info.get("id")},
-            "targets": [{"app": target_info.get("id")}],
+            "pipeline": {"id": pipeline_id},
+            "source": {"app": {"id": source_info.get("id")}},
+            "targets": [{"app": {"id": target_info.get("id")}}],
         }
-        # Promotions use the pipelines media type.
+        # Promotions use the pipeline-promotion media type.
         headers = {
-            "Accept": "application/vnd.heroku+json; version=3.pipelines",
+            "Accept": "application/vnd.heroku+json; version=3.pipeline-promotion",
         }
         resp = self.session.post(url, json=payload, headers=headers, timeout=30)
         if resp.status_code >= 400:
@@ -754,7 +764,11 @@ def main(argv: Optional[list[str]] = None) -> int:
         )
 
         _print("\n[6/7] Promoting code from staging app via pipeline...")
-        promotion = heroku.promote_release(args.heroku_staging_app, new_app_name)
+        promotion = heroku.promote_release(
+            args.heroku_staging_app,
+            new_app_name,
+            pipeline_id,
+        )
         promotion_id = promotion.get("id")
         _print(
             f"  -> Promotion triggered from '{args.heroku_staging_app}' "
