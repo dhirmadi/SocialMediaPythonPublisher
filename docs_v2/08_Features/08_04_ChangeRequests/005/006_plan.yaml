@@ -1,0 +1,68 @@
+version: 1
+feature_id: web-interface-mvp-change-006-admin-button-position-visibility
+summary: "Move admin button to top right and update visibility logic so admin button is only visible when not logged in, logout button replaces it when logged in."
+design_refs:
+  - docs_v2/08_Features/08_04_ChangeRequests/005/006_design.md
+  - docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/web/templates/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "Given a user is not logged in, when they view the web interface, then the admin button is visible in the top right corner of the header."
+  - "Given a user is not logged in, when they view the web interface, then the logout button is hidden."
+  - "Given a user logs in successfully, when the admin session is active, then the admin button is hidden and the logout button is visible in the top right corner."
+  - "Given a user logs out, when the logout action completes, then the logout button is hidden and the admin button becomes visible again in the top right corner."
+  - "Given the header layout, when viewed on mobile devices, then both buttons remain accessible and properly positioned without causing horizontal scrolling."
+non_goals:
+  - "Changing the authentication mechanism or session management."
+  - "Modifying the admin modal or logout behavior."
+  - "Adding new authentication features or controls."
+  - "Changing the layout of other header elements."
+tasks:
+  - id: admin_button.move_html
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/templates/index.html"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "<button id=\"btn-admin\" class=\"secondary\" type=\"button\">Admin</button>"
+        - "<div class=\"header-right\">"
+    depends_on: []
+    rollback: "Move btn-admin button back to header-left div"
+  - id: admin_button.update_visibility
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/templates/index.html"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "function updateAdminUI()"
+        - "btnAdmin.classList.add(\"hidden\")"
+        - "btnAdmin.classList.remove(\"hidden\")"
+    depends_on:
+      - admin_button.move_html
+    rollback: "Remove admin button visibility logic from updateAdminUI() function"
+quality_gates:
+  coverage_delta_min: 0
+  performance_budget: {}
+  security_checks:
+    - "No secrets exposed in HTML or JavaScript"
+    - "No XSS vulnerabilities introduced"
+release:
+  version: "v2.x.x"
+  breaking_changes: false
+  migration_notes: "None - UI-only change with no API or behavior changes"
+
