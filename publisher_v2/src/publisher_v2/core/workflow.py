@@ -484,5 +484,104 @@ class WorkflowOrchestrator:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
+    async def _curate_image(
+        self,
+        filename: str,
+        target_subfolder: str | None,
+        *,
+        action: str,
+        preview_mode: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """
+        Internal helper for Keep/Remove-style curation actions.
 
+        When preview_mode or dry_run is True, this prints a human-readable
+        description of the intended move and performs no Dropbox operations.
+        """
+        if not target_subfolder:
+            raise StorageError(f"Cannot {action} image {filename!r}: target subfolder is not configured")
 
+        source_folder = self.config.dropbox.image_folder
+
+        if preview_mode or dry_run:
+            # Non-destructive path: print preview-only description.
+            from publisher_v2.utils.preview import print_curation_action
+
+            print_curation_action(
+                filename=filename,
+                source_folder=source_folder,
+                target_subfolder=target_subfolder,
+                action=action,
+            )
+            log_json(
+                self.logger,
+                logging.INFO,
+                "workflow_curation_preview",
+                image=filename,
+                action=action,
+                source_folder=source_folder,
+                target_subfolder=target_subfolder,
+            )
+            return
+
+        # Live move via Dropbox server-side move.
+        log_json(
+            self.logger,
+            logging.INFO,
+            "workflow_curation_start",
+            image=filename,
+            action=action,
+            source_folder=source_folder,
+            target_subfolder=target_subfolder,
+        )
+        await self.storage.move_image_with_sidecars(source_folder, filename, target_subfolder)
+        log_json(
+            self.logger,
+            logging.INFO,
+            "workflow_curation_complete",
+            image=filename,
+            action=action,
+            source_folder=source_folder,
+            target_subfolder=target_subfolder,
+        )
+
+    async def keep_image(
+        self,
+        filename: str,
+        *,
+        preview_mode: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """
+        Move an image (and its sidecars) into the configured keep folder.
+        """
+        if not self.config.features.keep_enabled:
+            raise StorageError("Keep feature is disabled via FEATURE_KEEP_CURATE toggle")
+        await self._curate_image(
+            filename=filename,
+            target_subfolder=self.config.dropbox.folder_keep,
+            action="keep",
+            preview_mode=preview_mode,
+            dry_run=dry_run,
+        )
+
+    async def remove_image(
+        self,
+        filename: str,
+        *,
+        preview_mode: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """
+        Move an image (and its sidecars) into the configured remove folder.
+        """
+        if not self.config.features.remove_enabled:
+            raise StorageError("Remove feature is disabled via FEATURE_REMOVE_CURATE toggle")
+        await self._curate_image(
+            filename=filename,
+            target_subfolder=self.config.dropbox.folder_remove,
+            action="remove",
+            preview_mode=preview_mode,
+            dry_run=dry_run,
+        )

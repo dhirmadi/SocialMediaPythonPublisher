@@ -270,6 +270,23 @@ def print_caption_sidecar_preview(sd_caption: str, metadata: Dict[str, object]) 
         print(f"  {line}")
 
 
+def print_curation_action(
+    filename: str,
+    source_folder: str,
+    target_subfolder: str,
+    action: str,
+) -> None:
+    """Print a preview-only description of a Keep/Remove-style curation move."""
+    print("\n📂 CURATION ACTION (PREVIEW)")
+    print("─" * 70)
+    print(f"  Action:   {action}")
+    print(f"  File:     {filename}")
+    # Keep path formatting simple and human-readable; do not resolve absolute paths here.
+    target_path = f"{source_folder.rstrip('/')}/{target_subfolder}"
+    print(f"  From:     {source_folder}")
+    print(f"  To:       {target_path}")
+
+
 def _wrap_text(text: str, max_width: int) -> List[str]:
     """Wrap text to specified width, breaking on spaces"""
     if len(text) <= max_width:

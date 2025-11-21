@@ -1,7 +1,7 @@
 # Configuration — Social Media Publisher V2
 
 Version: 2.3  
-Last Updated: November 8, 2025
+Last Updated: November 21, 2025
 
 ## 1. Environment (.env)
 Required:
@@ -19,6 +19,10 @@ Optional:
 - SMTP_PORT=587
 - FEATURE_ANALYZE_CAPTION=true|false (default: true)
 - FEATURE_PUBLISH=true|false (default: true)
+- FEATURE_KEEP_CURATE=true|false (default: true)
+- FEATURE_REMOVE_CURATE=true|false (default: true)
+- folder_keep=<keep-subfolder-name> (overrides [Dropbox].folder_keep)
+- folder_remove=<remove-subfolder-name> (overrides [Dropbox].folder_remove)
 
 ### Feature Toggles (v2.5+)
 
@@ -28,6 +32,8 @@ Environment variables provide coarse-grained feature switches without editing IN
 | --- | --- | --- |
 | `FEATURE_ANALYZE_CAPTION` | `true` | When `false`, the workflow skips OpenAI vision analysis, caption generation, and sidecar writes. Preview/output will show “Analysis skipped”. |
 | `FEATURE_PUBLISH` | `true` | When `false`, no publishers are invoked (CLI + web). The workflow still analyzes/captions (if enabled) but skips publish + archive. Web `/publish` returns HTTP 403. |
+| `FEATURE_KEEP_CURATE` | `true` | When `false`, the Keep curation action is disabled in both CLI and web flows; Keep buttons are hidden and `/keep` returns HTTP 403. |
+| `FEATURE_REMOVE_CURATE` | `true` | When `false`, the Remove curation action is disabled; Remove buttons are hidden and `/remove` returns HTTP 403. |
 
 Accepted values: `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive). Any other value raises `ConfigurationError`.
 
@@ -41,6 +47,9 @@ Storage/Dropbox integration is always enabled—there is no toggle for the base 
 [Dropbox]
 image_folder = /Photos/to_post
 archive = archive
+; Optional curation subfolders (relative to image_folder)
+folder_keep = approve
+folder_remove = remove          ; legacy configs may still use folder_reject
 
 [Content]
 hashtag_string = #photography #portrait   ; Note: ignored for Email/FetLife in V2

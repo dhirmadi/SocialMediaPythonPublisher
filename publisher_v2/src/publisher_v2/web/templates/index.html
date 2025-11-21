@@ -190,6 +190,8 @@
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">Analyze &amp; caption</button>
         <button id="btn-publish" class="secondary">Publish</button>
+        <button id="btn-keep" class="secondary">Keep</button>
+        <button id="btn-remove" class="secondary">Remove</button>
       </div>
     </div>
 
@@ -220,6 +222,9 @@
     const btnNext = document.getElementById("btn-next");
     const btnAnalyze = document.getElementById("btn-analyze");
     const btnPublish = document.getElementById("btn-publish");
+    // Keep/Remove buttons will be added alongside Analyze/Publish for admins.
+    const btnKeep = document.getElementById("btn-keep");
+    const btnRemove = document.getElementById("btn-remove");
     const btnAdmin = document.getElementById("btn-admin");
     const btnAdminLogout = document.getElementById("btn-admin-logout");
     const adminControls = document.getElementById("admin-controls");
@@ -234,8 +239,13 @@
 
     let currentFilename = null;
     let isAdmin = false;
-    // Defaults: if feature config cannot be loaded, behave as before and show both buttons.
-    let featureConfig = { analyze_caption_enabled: true, publish_enabled: true };
+    // Defaults: if feature config cannot be loaded, behave as before and show all buttons.
+    let featureConfig = {
+      analyze_caption_enabled: true,
+      publish_enabled: true,
+      keep_enabled: true,
+      remove_enabled: true,
+    };
 
     function setActivity(msg) {
       statusEl.textContent = msg || "";
@@ -268,12 +278,22 @@
         const res = await fetch("/api/config/features");
         if (!res.ok) {
           console.warn("Failed to fetch feature config, defaulting to all enabled");
-          return { analyze_caption_enabled: true, publish_enabled: true };
+          return {
+            analyze_caption_enabled: true,
+            publish_enabled: true,
+            keep_enabled: true,
+            remove_enabled: true,
+          };
         }
         return await res.json();
       } catch (error) {
         console.error("Error fetching feature config:", error);
-        return { analyze_caption_enabled: true, publish_enabled: true };
+        return {
+          analyze_caption_enabled: true,
+          publish_enabled: true,
+          keep_enabled: true,
+          remove_enabled: true,
+        };
       }
     }
 
@@ -304,6 +324,16 @@
         const shouldShowPublish = featureConfig.publish_enabled;
         btnPublish.classList.toggle("hidden", !shouldShowPublish);
         btnPublish.disabled = !isAdmin || !shouldShowPublish;
+      }
+      if (btnKeep) {
+        const shouldShowKeep = featureConfig.keep_enabled;
+        btnKeep.classList.toggle("hidden", !shouldShowKeep);
+        btnKeep.disabled = !isAdmin || !shouldShowKeep;
+      }
+      if (btnRemove) {
+        const shouldShowRemove = featureConfig.remove_enabled;
+        btnRemove.classList.toggle("hidden", !shouldShowRemove);
+        btnRemove.disabled = !isAdmin || !shouldShowRemove;
       }
     }
 
@@ -445,6 +475,82 @@
       }
     }
 
+    async function apiKeep() {
+      if (!currentFilename) {
+        setActivity("No image selected.");
+        return;
+      }
+      if (!isAdmin) {
+        setActivity("Admin mode required to keep.");
+        return;
+      }
+      setActivity("Keeping image…");
+      disableButtons(true);
+      try {
+        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/keep`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) {
+            updateAdminState(false);
+            throw new Error("Admin session expired or keep disabled, please log in again.");
+          }
+          throw new Error(err.detail || err.error || "Failed to keep image");
+        }
+        const data = await res.json();
+        setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
+        // After a successful keep, advance to the next image.
+        await apiGetRandom();
+      } catch (e) {
+        console.error(e);
+        const msg = e.message || "Error keeping image.";
+        setActivity(msg);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    async function apiRemove() {
+      if (!currentFilename) {
+        setActivity("No image selected.");
+        return;
+      }
+      if (!isAdmin) {
+        setActivity("Admin mode required to remove.");
+        return;
+      }
+      setActivity("Removing image…");
+      disableButtons(true);
+      try {
+        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/remove`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) {
+            updateAdminState(false);
+            throw new Error("Admin session expired or remove disabled, please log in again.");
+          }
+          throw new Error(err.detail || err.error || "Failed to remove image");
+        }
+        const data = await res.json();
+        setActivity(
+          `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
+        );
+        // After a successful remove, advance to the next image.
+        await apiGetRandom();
+      } catch (e) {
+        console.error(e);
+        const msg = e.message || "Error removing image.";
+        setActivity(msg);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
     async function handleAdminLogin(event) {
       event.preventDefault();
       adminMessage.textContent = "";
@@ -525,6 +631,12 @@
       }
       if (btnPublish) {
         btnPublish.addEventListener("click", apiPublish);
+      }
+      if (btnKeep) {
+        btnKeep.addEventListener("click", apiKeep);
+      }
+      if (btnRemove) {
+        btnRemove.addEventListener("click", apiRemove);
       }
       initAdminControls();
       window.addEventListener("load", async () => {
