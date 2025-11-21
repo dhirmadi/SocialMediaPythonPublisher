@@ -4,7 +4,7 @@ Displays what will be published without taking any actions.
 """
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import List, Dict, Optional
 from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.captions import build_caption_sidecar
@@ -41,10 +41,17 @@ def print_image_details(
         print(f"  Status:      Unknown")
 
 
-def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None:
+def print_vision_analysis(analysis: Optional[ImageAnalysis], model: str, feature_enabled: bool = True) -> None:
     """Print vision analysis results"""
     print(f"\n🔍 AI VISION ANALYSIS ({model})")
     print("─" * 70)
+
+    if not feature_enabled:
+        print("  ⚠ Analysis skipped (FEATURE_ANALYZE_CAPTION=false)")
+        return
+    if analysis is None:
+        print("  ⚠ Analysis data unavailable.")
+        return
     
     # Description with word wrapping
     desc_lines = _wrap_text(analysis.description, 60)
@@ -110,19 +117,32 @@ def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None:
             print(f"               {line}")
 
 
-def print_caption(caption: str, spec: CaptionSpec, model: str, hashtag_count: int) -> None:
+def print_caption(
+    caption: str,
+    spec: CaptionSpec,
+    model: str,
+    hashtag_count: int,
+    feature_enabled: bool = True,
+) -> None:
     """Print generated caption"""
     print(f"\n✍️  AI CAPTION GENERATION ({model})")
     print("─" * 70)
+
+    if not feature_enabled:
+        print("  ⚠ Caption generation skipped (FEATURE_ANALYZE_CAPTION=false)")
+        return
     print(f"  Platform:    {spec.platform}")
     print(f"  Style:       {spec.style}")
     print(f"  Max Length:  {spec.max_length} chars")
     
     print(f"\n  Caption:")
     # Indent and wrap caption text
-    caption_lines = _wrap_text(caption, 60)
-    for line in caption_lines:
-        print(f"  \"{line}\"")
+    if caption:
+        caption_lines = _wrap_text(caption, 60)
+        for line in caption_lines:
+            print(f"  \"{line}\"")
+    else:
+        print("  ⚠ No caption generated.")
     
     print(f"\n  Length:      {len(caption)} characters")
     print(f"  Hashtags:    {hashtag_count}")
@@ -135,10 +155,14 @@ def print_platform_preview(
     email_subject: str | None = None,
     email_caption_target: str | None = None,
     email_subject_mode: str | None = None,
+    publish_enabled: bool = True,
 ) -> None:
     """Print which platforms will receive what"""
     print(f"\n📤 PUBLISHING PREVIEW")
     print("─" * 70)
+
+    if not publish_enabled:
+        print("  ⚠ Publish feature disabled (FEATURE_PUBLISH=false). No platforms will be contacted.")
     
     enabled_count = 0
     disabled_count = 0

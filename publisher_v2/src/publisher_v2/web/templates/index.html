@@ -234,6 +234,8 @@
 
     let currentFilename = null;
     let isAdmin = false;
+    // Defaults: if feature config cannot be loaded, behave as before and show both buttons.
+    let featureConfig = { analyze_caption_enabled: true, publish_enabled: true };
 
     function setActivity(msg) {
       statusEl.textContent = msg || "";
@@ -253,9 +255,25 @@
 
     function disableButtons(disabled) {
       btnNext.disabled = disabled;
-      if (btnAnalyze && btnPublish) {
-        btnAnalyze.disabled = disabled || !isAdmin;
-        btnPublish.disabled = disabled || !isAdmin;
+      if (btnAnalyze) {
+        btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
+      }
+      if (btnPublish) {
+        btnPublish.disabled = disabled || !isAdmin || !featureConfig.publish_enabled;
+      }
+    }
+
+    async function fetchFeatureConfig() {
+      try {
+        const res = await fetch("/api/config/features");
+        if (!res.ok) {
+          console.warn("Failed to fetch feature config, defaulting to all enabled");
+          return { analyze_caption_enabled: true, publish_enabled: true };
+        }
+        return await res.json();
+      } catch (error) {
+        console.error("Error fetching feature config:", error);
+        return { analyze_caption_enabled: true, publish_enabled: true };
       }
     }
 
@@ -277,9 +295,15 @@
         btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
       }
-      if (btnAnalyze && btnPublish) {
-        btnAnalyze.disabled = !isAdmin;
-        btnPublish.disabled = !isAdmin;
+      if (btnAnalyze) {
+        const shouldShowAnalyze = featureConfig.analyze_caption_enabled;
+        btnAnalyze.classList.toggle("hidden", !shouldShowAnalyze);
+        btnAnalyze.disabled = !isAdmin || !shouldShowAnalyze;
+      }
+      if (btnPublish) {
+        const shouldShowPublish = featureConfig.publish_enabled;
+        btnPublish.classList.toggle("hidden", !shouldShowPublish);
+        btnPublish.disabled = !isAdmin || !shouldShowPublish;
       }
     }
 
@@ -496,12 +520,18 @@
 
     function initLayout() {
       btnNext.addEventListener("click", apiGetRandom);
-      if (btnAnalyze && btnPublish) {
+      if (btnAnalyze) {
         btnAnalyze.addEventListener("click", apiAnalyze);
+      }
+      if (btnPublish) {
         btnPublish.addEventListener("click", apiPublish);
       }
       initAdminControls();
       window.addEventListener("load", async () => {
+        // Fetch feature config first so we can gate buttons from .env feature flags.
+        featureConfig = await fetchFeatureConfig();
+        updateAdminUI();
+
         updateAdminState(false);
         await refreshAdminStatus();
         await apiGetRandom();

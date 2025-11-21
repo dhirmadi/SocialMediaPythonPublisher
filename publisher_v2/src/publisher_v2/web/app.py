@@ -290,6 +290,11 @@ async def api_publish_image(
         msg = str(exc)
         if "not found" in msg.lower():
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+        if isinstance(exc, PermissionError):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=str(exc),
+            )
         web_publish_ms = elapsed_ms(telemetry.start_time)
         response.headers["X-Correlation-ID"] = telemetry.correlation_id
         log_json(
@@ -302,6 +307,41 @@ async def api_publish_image(
             web_publish_ms=web_publish_ms,
         )
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
+
+@app.get("/api/config/publishers")
+async def api_get_publishers_config(
+    service: WebImageService = Depends(get_service)
+) -> dict[str, bool]:
+    """
+    Return enablement state for all configured publishers.
+    
+    Returns a dict mapping publisher names to enabled state.
+    No authentication required (non-sensitive configuration flags).
+    """
+    config = service.config
+    return {
+        "telegram": config.platforms.telegram_enabled and config.telegram is not None,
+        "email": config.platforms.email_enabled and config.email is not None,
+        "instagram": config.platforms.instagram_enabled and config.instagram is not None,
+    }
+
+
+@app.get("/api/config/features")
+async def api_get_features_config(
+    service: WebImageService = Depends(get_service),
+) -> dict[str, bool]:
+    """
+    Return high-level product feature flags for the web UI.
+
+    Values come from environment variables (FEATURE_ANALYZE_CAPTION, FEATURE_PUBLISH)
+    via the typed FeaturesConfig loaded in config.loader.
+    """
+    features = service.config.features
+    return {
+        "analyze_caption_enabled": features.analyze_caption_enabled,
+        "publish_enabled": features.publish_enabled,
+    }
 
 
 @app.get("/health")

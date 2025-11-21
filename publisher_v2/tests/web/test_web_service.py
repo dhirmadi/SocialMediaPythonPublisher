@@ -193,4 +193,26 @@ async def test_publish_image_uses_orchestrator(web_service: WebImageService) -> 
     assert "telegram" in res.results
 
 
+@pytest.mark.asyncio
+async def test_analyze_and_caption_returns_placeholder_when_feature_disabled(
+    web_service: WebImageService,
+) -> None:
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.sidecar_content = None
+    web_service.config.features.analyze_caption_enabled = False
+
+    res = await web_service.analyze_and_caption("test.jpg")
+
+    assert res.caption == ""
+    assert res.sd_caption is None
+    assert res.sidecar_written is False
+    assert storage.sidecar_content is None
+
+
+@pytest.mark.asyncio
+async def test_publish_image_raises_permission_when_feature_disabled(web_service: WebImageService) -> None:
+    web_service.config.features.publish_enabled = False
+
+    with pytest.raises(PermissionError):
+        await web_service.publish_image("test.jpg")
 

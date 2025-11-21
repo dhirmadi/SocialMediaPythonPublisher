@@ -174,6 +174,25 @@ class WebImageService:
                         sidecar_written=False,
                     )
 
+        if not self.config.features.analyze_caption_enabled:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_analyze_disabled",
+                image=filename,
+                correlation_id=correlation_id,
+            )
+            return AnalysisResponse(
+                filename=filename,
+                description="",
+                mood="",
+                tags=[],
+                nsfw=False,
+                caption="",
+                sd_caption=None,
+                sidecar_written=False,
+            )
+
         # Run analysis when cache is bypassed or missing.
         log_json(
             self.logger,
@@ -294,6 +313,15 @@ class WebImageService:
         Platforms list is currently advisory only; for MVP we respect the
         enabled flags from config and still reuse the orchestrator behaviour.
         """
+        if not self.config.features.publish_enabled:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_publish_disabled",
+                image=filename,
+            )
+            raise PermissionError("Publish feature is disabled via FEATURE_PUBLISH toggle")
+
         # The orchestrator will:
         #   - re-select the filename
         #   - re-run analysis/caption if needed

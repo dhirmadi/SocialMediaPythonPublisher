@@ -270,34 +270,42 @@ class WorkflowOrchestrator:
                 image_selection_ms = elapsed_ms(selection_start)
             temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
 
-            # 3. Analyze image with vision AI
-            if not preview_mode:
-                log_json(self.logger, logging.INFO, "vision_analysis_start", image=selected_image, correlation_id=correlation_id)
-            analysis_start = now_monotonic()
-            analysis = await self.ai_service.analyzer.analyze(temp_link)
-            vision_analysis_ms = elapsed_ms(analysis_start)
-            if not preview_mode:
+            # 3. Analyze image with vision AI (feature-gated)
+            if self.config.features.analyze_caption_enabled:
+                if not preview_mode:
+                    log_json(
+                        self.logger,
+                        logging.INFO,
+                        "vision_analysis_start",
+                        image=selected_image,
+                        correlation_id=correlation_id,
+                    )
+                analysis_start = now_monotonic()
+                analysis = await self.ai_service.analyzer.analyze(temp_link)
+                vision_analysis_ms = elapsed_ms(analysis_start)
+                if not preview_mode:
+                    log_json(
+                        self.logger,
+                        logging.INFO,
+                        "vision_analysis_complete",
+                        image=selected_image,
+                        description=analysis.description[:100],
+                        mood=analysis.mood,
+                        tags=analysis.tags[:5],
+                        nsfw=analysis.nsfw,
+                        safety_labels=analysis.safety_labels,
+                        correlation_id=correlation_id,
+                    )
+            else:
                 log_json(
                     self.logger,
                     logging.INFO,
-                    "vision_analysis_complete",
-                    image=selected_image,
-                    description=analysis.description[:100],
-                    mood=analysis.mood,
-                    tags=analysis.tags[:5],
-                    nsfw=analysis.nsfw,
-                    safety_labels=analysis.safety_labels,
+                    "feature_analyze_caption_skipped",
                     correlation_id=correlation_id,
+                    reason="FEATURE_ANALYZE_CAPTION=false",
                 )
 
-            # Optional: Filter NSFW content (future enhancement)
-            # if analysis.nsfw and not self.config.content.allow_nsfw:
-            #     return WorkflowResult(
-            #         success=False, error="NSFW content blocked", ...
-            #     )
-
-            # 4. Generate caption from analysis
-            # Build spec; for Email/FetLife we avoid hashtags and use shorter max length
+            # 4. Generate caption from analysis (feature-gated)
             if self.config.platforms.email_enabled and self.config.email:
                 spec = CaptionSpec(
                     platform="fetlife_email",
@@ -312,116 +320,131 @@ class WorkflowOrchestrator:
                     hashtags=self.config.content.hashtag_string,
                     max_length=2200,
                 )
-            # Prefer SD single-call via AIService helper; fall back to caption-only inside AIService.
+            caption = ""
             sd_caption = None
-            if not preview_mode:
-                log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
-            caption_start = now_monotonic()
-            # Log SD caption intent when enabled; AIService handles fallbacks internally.
-            if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
-            caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
-            caption_generation_ms = elapsed_ms(caption_start)
-            if not preview_mode:
-                log_json(
-                    self.logger,
-                    logging.INFO,
-                    "caption_generated",
-                    caption_length=len(caption),
-                    correlation_id=correlation_id,
-                )
-            if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                log_json(
-                    self.logger,
-                    logging.INFO,
-                    "sd_caption_complete",
-                    has_sd=bool(sd_caption),
-                    correlation_id=correlation_id,
-                )
-            # In preview, attach sd_caption to analysis for display
-            if analysis and sd_caption:
-                setattr(analysis, "sd_caption", sd_caption)
-            # Write sidecar if sd_caption present (no-op in preview/dry/debug)
-            if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
-                sidecar_start = now_monotonic()
-                try:
-                    # Build metadata Phase 1
-                    created_iso = (
-                        datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-                    )
-                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
-                    db_meta = await self.storage.get_file_metadata(self.config.dropbox.image_folder, selected_image)
-                    phase1 = build_metadata_phase1(
-                        image_file=selected_image,
-                        sha256=selected_hash,
-                        created_iso=created_iso,
-                        sd_caption_version="v1.0",
-                        model_version=str(model_version),
-                        dropbox_file_id=db_meta.get("id"),
-                        dropbox_rev=db_meta.get("rev"),
-                        artist_alias=self.config.captionfile.artist_alias,
-                    )
-                    # Optionally add Phase 2
-                    meta = dict(phase1)
-                    if self.config.captionfile.extended_metadata_enabled and analysis:
-                        phase2 = build_metadata_phase2(analysis)
-                        meta.update(phase2)
-                    content = build_caption_sidecar(sd_caption, meta)
-                    log_json(self.logger, logging.INFO, "sidecar_upload_start", image=selected_image, correlation_id=correlation_id)
-                    await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, content)
-                    sidecar_write_ms = elapsed_ms(sidecar_start)
+            if self.config.features.analyze_caption_enabled:
+                if not preview_mode:
+                    log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
+                caption_start = now_monotonic()
+                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
+                    log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
+                caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
+                caption_generation_ms = elapsed_ms(caption_start)
+                if not preview_mode:
                     log_json(
                         self.logger,
                         logging.INFO,
-                        "sidecar_upload_complete",
-                        image=selected_image,
+                        "caption_generated",
+                        caption_length=len(caption),
                         correlation_id=correlation_id,
-                        sidecar_write_ms=sidecar_write_ms,
                     )
-                except Exception as exc:
-                    sidecar_write_ms = elapsed_ms(sidecar_start)
+                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
                     log_json(
                         self.logger,
-                        logging.ERROR,
-                        "sidecar_upload_error",
-                        image=selected_image,
-                        error=str(exc),
+                        logging.INFO,
+                        "sd_caption_complete",
+                        has_sd=bool(sd_caption),
                         correlation_id=correlation_id,
-                        sidecar_write_ms=sidecar_write_ms,
                     )
+                if analysis and sd_caption:
+                    setattr(analysis, "sd_caption", sd_caption)
+                if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
+                    sidecar_start = now_monotonic()
+                    try:
+                        created_iso = (
+                            datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+                        )
+                        model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
+                        db_meta = await self.storage.get_file_metadata(self.config.dropbox.image_folder, selected_image)
+                        phase1 = build_metadata_phase1(
+                            image_file=selected_image,
+                            sha256=selected_hash,
+                            created_iso=created_iso,
+                            sd_caption_version="v1.0",
+                            model_version=str(model_version),
+                            dropbox_file_id=db_meta.get("id"),
+                            dropbox_rev=db_meta.get("rev"),
+                            artist_alias=self.config.captionfile.artist_alias,
+                        )
+                        meta = dict(phase1)
+                        if self.config.captionfile.extended_metadata_enabled and analysis:
+                            phase2 = build_metadata_phase2(analysis)
+                            meta.update(phase2)
+                        content = build_caption_sidecar(sd_caption, meta)
+                        log_json(self.logger, logging.INFO, "sidecar_upload_start", image=selected_image, correlation_id=correlation_id)
+                        await self.storage.write_sidecar_text(self.config.dropbox.image_folder, selected_image, content)
+                        sidecar_write_ms = elapsed_ms(sidecar_start)
+                        log_json(
+                            self.logger,
+                            logging.INFO,
+                            "sidecar_upload_complete",
+                            image=selected_image,
+                            correlation_id=correlation_id,
+                            sidecar_write_ms=sidecar_write_ms,
+                        )
+                    except Exception as exc:
+                        sidecar_write_ms = elapsed_ms(sidecar_start)
+                        log_json(
+                            self.logger,
+                            logging.ERROR,
+                            "sidecar_upload_error",
+                            image=selected_image,
+                            error=str(exc),
+                            correlation_id=correlation_id,
+                            sidecar_write_ms=sidecar_write_ms,
+                        )
+            else:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "feature_caption_generation_skipped",
+                    correlation_id=correlation_id,
+                    reason="FEATURE_ANALYZE_CAPTION=false",
+                )
 
             # 5. Publish in parallel
             enabled_publishers = [p for p in self.publishers if p.is_enabled()]
             publish_results: Dict[str, PublishResult] = {}
-            if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
-                publish_start = now_monotonic()
-                results = await asyncio.gather(
-                    *[
-                        p.publish(
-                            tmp_path,
-                            format_caption(p.platform_name, caption),
-                            context={"analysis_tags": analysis.tags} if analysis else None,
-                        )
-                        for p in enabled_publishers
-                    ],
-                    return_exceptions=True,
-                )
-                publish_parallel_ms = elapsed_ms(publish_start)
-                for pub, res in zip(enabled_publishers, results):
-                    if isinstance(res, Exception):
-                        publish_results[pub.platform_name] = PublishResult(
-                            success=False, platform=pub.platform_name, error=str(res)
-                        )
-                    else:
-                        publish_results[pub.platform_name] = res
+            if self.config.features.publish_enabled:
+                if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
+                    publish_start = now_monotonic()
+                    results = await asyncio.gather(
+                        *[
+                            p.publish(
+                                tmp_path,
+                                format_caption(p.platform_name, caption),
+                                context={"analysis_tags": analysis.tags} if analysis else None,
+                            )
+                            for p in enabled_publishers
+                        ],
+                        return_exceptions=True,
+                    )
+                    publish_parallel_ms = elapsed_ms(publish_start)
+                    for pub, res in zip(enabled_publishers, results):
+                        if isinstance(res, Exception):
+                            publish_results[pub.platform_name] = PublishResult(
+                                success=False, platform=pub.platform_name, error=str(res)
+                            )
+                        else:
+                            publish_results[pub.platform_name] = res
+                else:
+                    for p in enabled_publishers:
+                        publish_results[p.platform_name] = PublishResult(success=True, platform=p.platform_name)
+                    if enabled_publishers:
+                        publish_parallel_ms = 0
             else:
-                # In debug mode, simulate success without publishing
-                for p in enabled_publishers:
-                    publish_results[p.platform_name] = PublishResult(success=True, platform=p.platform_name)
-                if enabled_publishers:
-                    publish_parallel_ms = 0
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "feature_publish_skipped",
+                    correlation_id=correlation_id,
+                    reason="FEATURE_PUBLISH=false",
+                )
 
-            any_success = any(r.success for r in publish_results.values()) if publish_results else self.config.content.debug
+            if publish_results:
+                any_success = any(r.success for r in publish_results.values())
+            else:
+                any_success = self.config.content.debug if self.config.features.publish_enabled else False
 
             # 6. Archive if any success and not debug
             archived = False
