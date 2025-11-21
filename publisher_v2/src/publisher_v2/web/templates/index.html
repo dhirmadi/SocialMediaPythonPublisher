@@ -152,10 +152,10 @@
   <header>
     <div class="header-left">
       <h1>Publisher V2 Web</h1>
-      <button id="btn-admin" class="secondary" type="button">Admin</button>
     </div>
     <div class="header-right">
       <span id="env-indicator" class="status"></span>
+      <button id="btn-admin" class="secondary" type="button">Admin</button>
       <button id="btn-admin-logout" class="secondary admin-only hidden" type="button">Logout</button>
     </div>
   </header>
@@ -266,12 +266,14 @@
         adminControls.classList.remove("hidden");
         panelAdmin.classList.remove("hidden");
         panelActivity.classList.remove("hidden");
+        btnAdmin.classList.add("hidden");
         btnAdminLogout.classList.remove("hidden");
       } else {
         bodyEl.classList.remove("admin-mode");
         adminControls.classList.add("hidden");
         panelAdmin.classList.add("hidden");
         panelActivity.classList.add("hidden");
+        btnAdmin.classList.remove("hidden");
         btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
       }
