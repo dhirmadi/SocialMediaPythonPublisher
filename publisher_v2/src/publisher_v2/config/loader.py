@@ -12,6 +12,7 @@ from publisher_v2.config.schema import (
     ContentConfig,
     CaptionFileConfig,
     DropboxConfig,
+    FeaturesConfig,
     EmailConfig,
     InstagramConfig,
     OpenAIConfig,
@@ -20,6 +21,26 @@ from publisher_v2.config.schema import (
     WebConfig,
 )
 from publisher_v2.core.exceptions import ConfigurationError
+
+
+def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | None = None) -> bool:
+    """
+    Parse common truthy/falsey strings for environment variables.
+
+    Raises ConfigurationError for invalid values.
+    """
+    if value is None:
+        return default
+
+    normalized = value.strip().lower()
+    truthy = {"1", "true", "yes", "on"}
+    falsey = {"0", "false", "no", "off"}
+    if normalized in truthy:
+        return True
+    if normalized in falsey:
+        return False
+    name = var_name or "environment variable"
+    raise ConfigurationError(f"Invalid boolean value '{value}' for {name}; expected one of {truthy | falsey}")
 
 
 def load_application_config(config_file_path: str, env_path: str | None = None) -> ApplicationConfig:
@@ -127,6 +148,14 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
             extended_metadata_enabled=cp.getboolean("CaptionFile", "extended_metadata_enabled", fallback=False),
             artist_alias=cp.get("CaptionFile", "artist_alias", fallback=None)
         )
+        features_cfg = FeaturesConfig(
+            analyze_caption_enabled=parse_bool_env(
+                os.environ.get("FEATURE_ANALYZE_CAPTION"), True, var_name="FEATURE_ANALYZE_CAPTION"
+            ),
+            publish_enabled=parse_bool_env(
+                os.environ.get("FEATURE_PUBLISH"), True, var_name="FEATURE_PUBLISH"
+            ),
+        )
     except KeyError as exc:
         raise ConfigurationError(f"Missing required environment variable: {exc}") from exc
     except configparser.Error as exc:
@@ -141,6 +170,7 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         dropbox=dropbox,
         openai=openai_cfg,
         platforms=platforms,
+        features=features_cfg,
         telegram=telegram,
         instagram=instagram,
         email=email,

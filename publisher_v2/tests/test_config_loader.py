@@ -435,3 +435,37 @@ this section header is malformed
     with pytest.raises((ConfigurationError, Exception)):
         load_application_config(str(config_file))
 
+
+def test_feature_toggles_default_enabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """Feature toggles default to enabled when env vars not set."""
+    monkeypatch.delenv("FEATURE_ANALYZE_CAPTION", raising=False)
+    monkeypatch.delenv("FEATURE_PUBLISH", raising=False)
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.analyze_caption_enabled is True
+    assert cfg.features.publish_enabled is True
+
+
+def test_feature_toggles_can_be_disabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """Feature toggles honor false-ish values."""
+    monkeypatch.setenv("FEATURE_ANALYZE_CAPTION", "false")
+    monkeypatch.setenv("FEATURE_PUBLISH", "0")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.analyze_caption_enabled is False
+    assert cfg.features.publish_enabled is False
+
+
+def test_feature_toggles_invalid_value_raises(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """Invalid toggle values raise ConfigurationError."""
+    monkeypatch.setenv("FEATURE_ANALYZE_CAPTION", "maybe")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    with pytest.raises(ConfigurationError):
+        load_application_config(str(config_file))
+

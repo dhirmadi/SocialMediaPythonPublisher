@@ -17,6 +17,21 @@ Optional:
 - EMAIL_PASSWORD=... (Gmail app password)
 - SMTP_SERVER="smtp.gmail.com"
 - SMTP_PORT=587
+- FEATURE_ANALYZE_CAPTION=true|false (default: true)
+- FEATURE_PUBLISH=true|false (default: true)
+
+### Feature Toggles (v2.5+)
+
+Environment variables provide coarse-grained feature switches without editing INI files:
+
+| Variable | Default | Behavior |
+| --- | --- | --- |
+| `FEATURE_ANALYZE_CAPTION` | `true` | When `false`, the workflow skips OpenAI vision analysis, caption generation, and sidecar writes. Preview/output will show “Analysis skipped”. |
+| `FEATURE_PUBLISH` | `true` | When `false`, no publishers are invoked (CLI + web). The workflow still analyzes/captions (if enabled) but skips publish + archive. Web `/publish` returns HTTP 403. |
+
+Accepted values: `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive). Any other value raises `ConfigurationError`.
+
+Storage/Dropbox integration is always enabled—there is no toggle for the base storage feature.
 
 ## 2. INI Schema
 

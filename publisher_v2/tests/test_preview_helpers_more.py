@@ -12,9 +12,11 @@ from publisher_v2.utils.preview import (
     print_config_summary,
     print_preview_footer,
     print_error,
+    print_vision_analysis,
+    print_caption,
 )
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.core.models import PublishResult
+from publisher_v2.core.models import PublishResult, CaptionSpec
 
 
 class _PubBase(Publisher):
@@ -122,6 +124,29 @@ def test_config_summary_prints() -> None:
         config_file="config.ini",
     )
     assert "Vision Model" in out and "Caption Model" in out and "config.ini" in out
+
+
+def test_print_vision_analysis_shows_disabled_state() -> None:
+    out = _capture_output(
+        print_vision_analysis,
+        None,
+        "gpt-4o",
+        False,
+    )
+    assert "skipped" in out
+
+
+def test_print_caption_shows_disabled_state() -> None:
+    spec = CaptionSpec(platform="generic", style="minimal", hashtags="", max_length=100)
+    out = _capture_output(
+        print_caption,
+        "",
+        spec,
+        "gpt-4o-mini",
+        0,
+        False,
+    )
+    assert "Caption generation skipped" in out
 
 
 

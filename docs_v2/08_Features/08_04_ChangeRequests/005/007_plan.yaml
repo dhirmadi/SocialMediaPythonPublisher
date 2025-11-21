@@ -1,0 +1,200 @@
+<!-- docs_v2/08_Features/08_04_ChangeRequests/005/007_plan.yaml -->
+
+version: 1.0
+feature_id: "005-007"
+feature_name: "feature-toggle-button-visibility"
+description: "Hide publisher buttons in web UI when publishers are disabled in configuration"
+status: "ready"
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/web/"
+    - "publisher_v2/tests/web/"
+    - "docs_v2/"
+  excluded_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/src/publisher_v2/core/"
+    - "publisher_v2/src/publisher_v2/services/"
+  rationale: "Pure web layer change; no config schema or business logic modifications"
+
+tasks:
+  - id: "backend-endpoint"
+    type: "implementation"
+    description: "Add GET /api/config/publishers endpoint to web app"
+    files:
+      - path: "publisher_v2/src/publisher_v2/web/app.py"
+        action: "modify"
+        line_range: [310, 315]
+        rationale: "Add new endpoint after existing routes, before health check"
+    acceptance_criteria:
+      - "Endpoint returns JSON with telegram, email, instagram keys"
+      - "Values are boolean: true if enabled AND configured, false otherwise"
+      - "Response time < 50ms (in-memory config read)"
+      - "No authentication required"
+    dependencies: []
+    
+  - id: "frontend-fetch"
+    type: "implementation"
+    description: "Add JavaScript function to fetch publisher config on page load"
+    files:
+      - path: "publisher_v2/src/publisher_v2/web/templates/index.html"
+        action: "modify"
+        rationale: "Add fetchPublisherConfig() function and integrate into DOMContentLoaded"
+    acceptance_criteria:
+      - "fetchPublisherConfig() calls GET /api/config/publishers"
+      - "Stores result in window.publisherConfig"
+      - "Handles API errors gracefully (defaults to all true)"
+      - "Called on page load"
+    dependencies: ["backend-endpoint"]
+    
+  - id: "frontend-rendering"
+    type: "implementation"
+    description: "Implement conditional rendering of publisher buttons based on config"
+    files:
+      - path: "publisher_v2/src/publisher_v2/web/templates/index.html"
+        action: "modify"
+        rationale: "Refactor button creation into renderPublisherButtons() with conditional logic"
+    acceptance_criteria:
+      - "Only renders buttons for enabled publishers"
+      - "Shows 'No publishers configured' message when all disabled"
+      - "Button click handlers work correctly for visible buttons"
+      - "No console errors or rendering glitches"
+    dependencies: ["frontend-fetch"]
+    
+  - id: "unit-tests-endpoint"
+    type: "test"
+    description: "Add unit tests for new /api/config/publishers endpoint"
+    files:
+      - path: "publisher_v2/tests/web/test_web_app.py"
+        action: "modify"
+        rationale: "Add 4 test cases covering all scenarios"
+    test_cases:
+      - name: "test_get_publishers_config_all_enabled"
+        description: "All publishers enabled and configured returns all true"
+      - name: "test_get_publishers_config_partial"
+        description: "Only subset of publishers enabled"
+      - name: "test_get_publishers_config_none_enabled"
+        description: "No publishers enabled returns all false"
+      - name: "test_get_publishers_config_enabled_but_not_configured"
+        description: "Platform enabled flag true but config object None returns false"
+    dependencies: ["backend-endpoint"]
+    
+  - id: "manual-tests"
+    type: "test"
+    description: "Execute manual test plan for UI button visibility"
+    test_cases:
+      - name: "All publishers enabled"
+        steps:
+          - "Configure all publishers in config file"
+          - "Restart web app"
+          - "Load UI in browser"
+          - "Verify all three buttons visible"
+          - "Click each button, verify publish succeeds"
+      - name: "Only Telegram enabled"
+        steps:
+          - "Configure only Telegram"
+          - "Restart web app"
+          - "Load UI"
+          - "Verify only Telegram button visible"
+      - name: "No publishers enabled"
+        steps:
+          - "Disable all publishers"
+          - "Restart web app"
+          - "Load UI"
+          - "Verify no publisher buttons, message shows"
+      - name: "API error handling"
+        steps:
+          - "Simulate API failure"
+          - "Verify console warning and all buttons shown (fallback)"
+      - name: "Config change workflow"
+        steps:
+          - "Start with Telegram enabled"
+          - "Edit config to enable Email instead"
+          - "Restart and refresh"
+          - "Verify Email visible, Telegram gone"
+    dependencies: ["frontend-rendering", "unit-tests-endpoint"]
+    
+  - id: "update-docs"
+    type: "documentation"
+    description: "Update architecture docs to mention new endpoint"
+    files:
+      - path: "docs_v2/03_Architecture/ARCHITECTURE.md"
+        action: "modify"
+        rationale: "Document new /api/config/publishers endpoint in web API section"
+    acceptance_criteria:
+      - "Endpoint listed in web API inventory"
+      - "Purpose and response schema documented"
+    dependencies: ["backend-endpoint"]
+
+acceptance_criteria:
+  - description: "Given Telegram enabled and Email/Instagram disabled, when user loads UI, then only Telegram button visible"
+    test_type: "integration"
+    priority: "must"
+    
+  - description: "Given all publishers enabled, when user loads UI, then all buttons visible (no regression)"
+    test_type: "integration"
+    priority: "must"
+    
+  - description: "Given all publishers disabled, when user loads UI, then no buttons visible and message shown"
+    test_type: "integration"
+    priority: "must"
+    
+  - description: "Given API endpoint fails, when user loads UI, then graceful degradation (show all buttons)"
+    test_type: "manual"
+    priority: "should"
+    
+  - description: "Given visible publisher button, when clicked, then publish succeeds (no regression)"
+    test_type: "integration"
+    priority: "must"
+
+quality_gates:
+  test_coverage:
+    enabled: true
+    coverage_delta_min: 0
+    rationale: "New endpoint covered by unit tests; frontend covered by manual tests"
+    
+  linting:
+    enabled: true
+    must_pass: true
+    
+  type_checking:
+    enabled: true
+    must_pass: true
+    
+  backwards_compatibility:
+    enabled: true
+    checks:
+      - "Existing /api/images/* endpoints unchanged"
+      - "CLI behavior unchanged"
+      - "No config schema changes"
+
+release:
+  changelog_entry: |
+    ### Web UI Enhancement
+    - Publisher buttons now only appear when the corresponding publisher is enabled in configuration
+    - Cleaner UI with reduced visual clutter
+    - Shows "No publishers configured" message when all publishers disabled
+    - New endpoint: GET /api/config/publishers returns enablement state
+    
+  deployment_notes: |
+    - No migration required
+    - No config changes required
+    - Additive API change only (backward compatible)
+    - Users may need to refresh browser to see new behavior
+    
+  rollback_plan: |
+    - Revert to previous version if UI rendering issues occur
+    - No data migration or state cleanup needed
+    - Config remains unchanged; safe to rollback
+
+estimated_effort_hours: 2.5
+
+risks:
+  - risk: "API endpoint failure breaks UI"
+    mitigation: "Frontend defaults to showing all buttons on error"
+    severity: "low"
+    
+  - risk: "User confusion if button suddenly missing"
+    mitigation: "Show 'No publishers configured' message; document behavior"
+    severity: "low"
+

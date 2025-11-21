@@ -58,6 +58,14 @@ async def main_async() -> int:
     generator = CaptionGeneratorOpenAI(cfg.openai)
     ai_service = AIService(analyzer, generator)
 
+    log_json(
+        logger,
+        logging.INFO,
+        "feature_toggles_loaded",
+        analyze_caption_enabled=cfg.features.analyze_caption_enabled,
+        publish_enabled=cfg.features.publish_enabled,
+    )
+
     publishers: List[Publisher] = [
         TelegramPublisher(cfg.telegram, cfg.platforms.telegram_enabled),
         EmailPublisher(cfg.email, cfg.platforms.email_enabled),
@@ -72,6 +80,8 @@ async def main_async() -> int:
             caption_model=cfg.openai.caption_model,
             config_file=args.config,
         )
+        print(f"  Feature - Analyze & Caption: {'ON' if cfg.features.analyze_caption_enabled else 'OFF'}")
+        print(f"  Feature - Publish: {'ON' if cfg.features.publish_enabled else 'OFF'}")
 
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
     
@@ -97,12 +107,12 @@ async def main_async() -> int:
             is_new=True,
         )
         
-        # Show vision analysis
-        if result.image_analysis:
-            preview_utils.print_vision_analysis(
-                analysis=result.image_analysis,
-                model=analyzer.model,
-            )
+        # Show vision analysis (always call to show disabled state)
+        preview_utils.print_vision_analysis(
+            analysis=result.image_analysis,
+            model=analyzer.model,
+            feature_enabled=cfg.features.analyze_caption_enabled,
+        )
         
         # Show caption
         if result.caption_spec:
@@ -112,6 +122,7 @@ async def main_async() -> int:
                 spec=result.caption_spec,
                 model=generator.model,
                 hashtag_count=hashtag_count,
+                feature_enabled=cfg.features.analyze_caption_enabled,
             )
             # Show caption sidecar content (sd_caption + metadata)
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
@@ -164,6 +175,7 @@ async def main_async() -> int:
             email_subject=email_subject,
             email_caption_target=email_caption_target,
             email_subject_mode=email_subject_mode,
+            publish_enabled=cfg.features.publish_enabled,
         )
         
         # Show email confirmation details (FetLife email path)

@@ -27,6 +27,7 @@ External Services (Dropbox, OpenAI, IG API, Telegram, SMTP)
 - AIService: composes VisionAnalyzer + CaptionGenerator and applies style templates
 - Publishers: InstagramPublisher, TelegramPublisher, EmailPublisher
 - Config Manager (pydantic): loads `.env` + INI, validates, exposes typed config
+- FeaturesConfig: boolean toggles (`analyze_caption_enabled`, `publish_enabled`) applied globally across CLI + web
 - Utilities: image ops, logging, rate limiting, retries, ID generation
 
 ## 3. Interfaces (summaries)
@@ -46,6 +47,17 @@ Publishers (async):
 - publish(image_path, caption, context: dict | None) -> PublishResult(success: bool, post_id: Optional[str], error: Optional[str])
 - is_enabled() -> bool
 
+Web API (FastAPI):
+- GET / -> HTML UI
+- GET /api/images/random -> ImageResponse (random image with metadata)
+- POST /api/images/{filename}/analyze -> AnalysisResponse (run AI analysis)
+- POST /api/images/{filename}/publish -> PublishResponse (publish to platforms)
+- GET /api/config/features -> dict[str, bool] (high-level feature flags from .env)
+- GET /api/admin/status -> AdminStatusResponse (admin session status)
+- POST /api/admin/login -> AdminStatusResponse (admin login)
+- POST /api/admin/logout -> AdminStatusResponse (admin logout)
+- GET /health -> {"status": "ok"}
+
 ## 4. Execution Model
 - Async entrypoint; wrap blocking SDK methods with `asyncio.to_thread`.
 - Parallel publishing with `asyncio.gather(return_exceptions=True)`.
@@ -59,6 +71,11 @@ Publishers (async):
 4) Caption generator produces platform‑aware copy from templates.  
 5) Publishers run in parallel; collect results.  
 6) If any success and not debug → archive; cleanup temp; update posted state with SHA256 and, when available, Dropbox `content_hash`; log metrics.
+
+### Feature Toggle Integration (v2.5+)
+- `FEATURE_ANALYZE_CAPTION=false` → orchestrator skips steps 3–4; preview + web return cached sidecar data when available and log `feature_analyze_caption_skipped`.
+- `FEATURE_PUBLISH=false` → orchestrator skips step 5 entirely (no publisher invocations, no archive). Web `/publish` returns 403 when toggle is off.
+- Toggles are read once during config load and are exposed via `ApplicationConfig.features` for all layers (CLI, workflow, web). Storage remains always-on.
 
 ## 6. Deployment
 - Local or server with Poetry + Python 3.12

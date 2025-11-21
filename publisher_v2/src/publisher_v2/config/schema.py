@@ -170,6 +170,17 @@ class CaptionFileConfig(BaseModel):
     )
 
 
+class FeaturesConfig(BaseModel):
+    analyze_caption_enabled: bool = Field(
+        default=True,
+        description="Enable AI vision analysis and caption generation feature",
+    )
+    publish_enabled: bool = Field(
+        default=True,
+        description="Enable publishing feature (all platforms)",
+    )
+
+
 class WebConfig(BaseModel):
     """
     Optional configuration for the web interface.
@@ -215,6 +226,7 @@ class ApplicationConfig(BaseModel):
     dropbox: DropboxConfig
     openai: OpenAIConfig
     platforms: PlatformsConfig
+    features: FeaturesConfig = FeaturesConfig()
     telegram: Optional[TelegramConfig] = None
     instagram: Optional[InstagramConfig] = None
     email: Optional[EmailConfig] = None
