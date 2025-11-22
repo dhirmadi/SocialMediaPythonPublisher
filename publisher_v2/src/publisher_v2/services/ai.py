@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import time
 from typing import Optional
 
@@ -10,10 +11,68 @@ from openai import AsyncOpenAI
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from publisher_v2.config.schema import OpenAIConfig
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
+
+
+_DEFAULT_VISION_SYSTEM_PROMPT = (
+    "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
+    "as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end fine-art "
+    "training datasets.\n\n"
+    "OUTPUT RULES:\n"
+    "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
+    "- Use EXACTLY these keys (lowercase):\n"
+    "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
+    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette\n\n"
+    "TYPES & CONSTRAINTS:\n"
+    "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
+    "- mood: string\n"
+    "- tags: array of 10–25 strings, lowercase_snake_case, ordered by relevance\n"
+    "- nsfw: boolean (true if nudity, erotic context, or bondage elements)\n"
+    "- safety_labels: array of strings ONLY from:\n"
+    "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
+    "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
+    "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
+    "- subject: string (≤ 10 words)\n"
+    "- style: string (fine-art and photographic style)\n"
+    "- lighting: string (type, quality, direction)\n"
+    "- camera: string or null (perspective + focal-length bucket + depth of field if known)\n"
+    "- clothing_or_accessories: string or null (include rope/knots if present; avoid explicit body detail)\n"
+    "- aesthetic_terms: array of 5–15 fine-art/photography terms\n"
+    "- pose: string (orientation/gesture/tension; avoid explicit anatomy)\n"
+    "- composition: string (framing, structure, focal emphasis, leading lines/negative space)\n"
+    "- background: string (environment/backdrop/texture)\n"
+    "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n\n"
+    "ADDITIONAL RULES:\n"
+    "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
+    "- Avoid explicit terminology or slang; no sexual description.\n"
+    "- Do not guess identities, locations, or brands.\n"
+    "- If unknown, return null or [].\n"
+)
+
+
+_DEFAULT_VISION_USER_PROMPT = (
+    "Analyze this image and return strict JSON with keys:\n"
+    "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
+    "subject, style, lighting, camera, clothing_or_accessories,\n"
+    "aesthetic_terms (array), pose, composition, background, color_palette (array).\n\n"
+    "GUIDELINES:\n"
+    "- description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.\n"
+    "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
+    "- nsfw: true if nudity, erotic context, or rope bondage.\n"
+    "- safety_labels: choose only from:\n"
+    "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
+    "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
+    "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
+    "- camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.\n"
+    "- lighting: type + quality + direction (e.g., soft sidelight, high-key studio).\n"
+    "- color_palette: 3–6 dominant colors (hex preferred).\n"
+    "- Unknown values → null or [].\n\n"
+    "Return ONE JSON object ONLY — no extra text."
+)
 
 
 class VisionAnalyzerOpenAI:
@@ -50,6 +109,10 @@ class VisionAnalyzerOpenAI:
                 # For now we only support URLs; bytes support may be added later via data URLs.
                 raise AIServiceError("Byte input not supported in V2 analysis; provide a temporary URL.")
 
+            static_cfg = get_static_config().ai_prompts
+            system_prompt = static_cfg.vision.system or _DEFAULT_VISION_SYSTEM_PROMPT
+            user_prompt = static_cfg.vision.user or _DEFAULT_VISION_USER_PROMPT
+
             user_content = [
                 {
                     "type": "image_url",
@@ -57,25 +120,7 @@ class VisionAnalyzerOpenAI:
                 },
                 {
                     "type": "text",
-                    "text": (
-                        "Analyze this image and return strict JSON with keys:\n"
-                        "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
-                        "subject, style, lighting, camera, clothing_or_accessories,\n"
-                        "aesthetic_terms (array), pose, composition, background, color_palette (array).\n\n"
-                        "GUIDELINES:\n"
-                        "- description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.\n"
-                        "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
-                        "- nsfw: true if nudity, erotic context, or rope bondage.\n"
-                        "- safety_labels: choose only from:\n"
-                        "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
-                        "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
-                        "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
-                        "- camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.\n"
-                        "- lighting: type + quality + direction (e.g., soft sidelight, high-key studio).\n"
-                        "- color_palette: 3–6 dominant colors (hex preferred).\n"
-                        "- Unknown values → null or [].\n\n"
-                        "Return ONE JSON object ONLY — no extra text."
-                    ),
+                    "text": user_prompt,
                 },
             ]
             try:
@@ -84,40 +129,7 @@ class VisionAnalyzerOpenAI:
                     messages=[
                         {
                             "role": "system",
-                            "content": (
-                                "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
-                                "as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end fine-art "
-                                "training datasets.\n\n"
-                                "OUTPUT RULES:\n"
-                                "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
-                                "- Use EXACTLY these keys (lowercase):\n"
-                                "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
-                                "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette\n\n"
-                                "TYPES & CONSTRAINTS:\n"
-                                "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
-                                "- mood: string\n"
-                                "- tags: array of 10–25 strings, lowercase_snake_case, ordered by relevance\n"
-                                "- nsfw: boolean (true if nudity, erotic context, or bondage elements)\n"
-                                "- safety_labels: array of strings ONLY from:\n"
-                                "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
-                                "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
-                                "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
-                                "- subject: string (≤ 10 words)\n"
-                                "- style: string (fine-art and photographic style)\n"
-                                "- lighting: string (type, quality, direction)\n"
-                                "- camera: string or null (perspective + focal-length bucket + depth of field if known)\n"
-                                "- clothing_or_accessories: string or null (include rope/knots if present; avoid explicit body detail)\n"
-                                "- aesthetic_terms: array of 5–15 fine-art/photography terms\n"
-                                "- pose: string (orientation/gesture/tension; avoid explicit anatomy)\n"
-                                "- composition: string (framing, structure, focal emphasis, leading lines/negative space)\n"
-                                "- background: string (environment/backdrop/texture)\n"
-                                "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n\n"
-                                "ADDITIONAL RULES:\n"
-                                "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
-                                "- Avoid explicit terminology or slang; no sexual description.\n"
-                                "- Do not guess identities, locations, or brands.\n"
-                                "- If unknown, return null or [].\n"
-                            ),
+                            "content": system_prompt,
                         },
                         {"role": "user", "content": user_content},
                     ],
@@ -132,40 +144,7 @@ class VisionAnalyzerOpenAI:
                     messages=[
                         {
                             "role": "system",
-                            "content": (
-                                "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
-                                "as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end fine-art "
-                                "training datasets.\n\n"
-                                "OUTPUT RULES:\n"
-                                "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
-                                "- Use EXACTLY these keys (lowercase):\n"
-                                "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
-                                "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette\n\n"
-                                "TYPES & CONSTRAINTS:\n"
-                                "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
-                                "- mood: string\n"
-                                "- tags: array of 10–25 strings, lowercase_snake_case, ordered by relevance\n"
-                                "- nsfw: boolean (true if nudity, erotic context, or bondage elements)\n"
-                                "- safety_labels: array of strings ONLY from:\n"
-                                "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
-                                "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
-                                "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
-                                "- subject: string (≤ 10 words)\n"
-                                "- style: string (fine-art and photographic style)\n"
-                                "- lighting: string (type, quality, direction)\n"
-                                "- camera: string or null (perspective + focal-length bucket + depth of field if known)\n"
-                                "- clothing_or_accessories: string or null (include rope/knots if present; avoid explicit body detail)\n"
-                                "- aesthetic_terms: array of 5–15 fine-art/photography terms\n"
-                                "- pose: string (orientation/gesture/tension; avoid explicit anatomy)\n"
-                                "- composition: string (framing, structure, focal emphasis, leading lines/negative space)\n"
-                                "- background: string (environment/backdrop/texture)\n"
-                                "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n\n"
-                                "ADDITIONAL RULES:\n"
-                                "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
-                                "- Avoid explicit terminology or slang; no sexual description.\n"
-                                "- Do not guess identities, locations, or brands.\n"
-                                "- If unknown, return null or [].\n"
-                            ),
+                            "content": system_prompt,
                         },
                         {"role": "user", "content": user_content},
                     ],
@@ -240,6 +219,16 @@ class CaptionGeneratorOpenAI:
             "2) 'sd_caption' optimized for Stable Diffusion prompts (PG-13 fine-art phrasing; include pose, styling/material, lighting, mood). "
             "Respond strictly as JSON with keys caption, sd_caption."
         )
+        # Static prompt overrides (non-secret, optional)
+        static_prompts = get_static_config().ai_prompts
+        if static_prompts.caption.system:
+            self.system_prompt = static_prompts.caption.system
+        if static_prompts.caption.role:
+            self.role_prompt = static_prompts.caption.role
+        if static_prompts.sd_caption.system:
+            self.sd_caption_system_prompt = static_prompts.sd_caption.system
+        if static_prompts.sd_caption.role:
+            self.sd_caption_role_prompt = static_prompts.sd_caption.role
 
     @retry(
         reraise=True,
@@ -325,7 +314,18 @@ class AIService:
     def __init__(self, analyzer: VisionAnalyzerOpenAI, generator: CaptionGeneratorOpenAI):
         self.analyzer = analyzer
         self.generator = generator
-        self._rate_limiter = AsyncRateLimiter(rate_per_minute=20)
+        limits = get_static_config().service_limits.ai
+        rate = limits.rate_per_minute
+        env_rate = os.environ.get("AI_RATE_PER_MINUTE")
+        if env_rate:
+            try:
+                parsed = int(env_rate)
+                if parsed > 0:
+                    rate = parsed
+            except ValueError:
+                # Ignore invalid override; keep config/default rate.
+                pass
+        self._rate_limiter = AsyncRateLimiter(rate_per_minute=rate)
 
     async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
         async with self._rate_limiter:

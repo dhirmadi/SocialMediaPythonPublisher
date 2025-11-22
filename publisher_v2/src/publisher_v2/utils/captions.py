@@ -4,6 +4,7 @@ import json
 import re
 from typing import Any, Dict
 
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import ImageAnalysis
 
 
@@ -26,12 +27,12 @@ def _trim_to_length(text: str, max_len: int) -> str:
     return text[: max_len - 1].rstrip() + "…"
 
 
-def _limit_instagram_hashtags(text: str) -> str:
+def _limit_instagram_hashtags(text: str, max_hashtags: int) -> str:
     hashtags = re.findall(r"#\w+", text)
-    if len(hashtags) <= 30:
+    if len(hashtags) <= max_hashtags:
         return text
-    # Keep the first 30, remove extras
-    keep = set(hashtags[:30])
+    # Keep the first N, remove extras
+    keep = set(hashtags[:max_hashtags])
     def repl(m):
         return m.group(0) if m.group(0) in keep else ""
     text = re.sub(r"#\w+", repl, text)
@@ -63,10 +64,22 @@ def _sanitize_for_fetlife(text: str) -> str:
 
 def format_caption(platform: str, caption: str) -> str:
     p = platform.lower()
-    max_len = _MAX_LEN.get(p, _MAX_LEN["generic"])
+    static_limits = get_static_config().platform_limits
+    if p == "instagram":
+        max_len = static_limits.instagram.max_caption_length or _MAX_LEN["instagram"]
+        max_hashtags = static_limits.instagram.max_hashtags or 30
+    elif p == "telegram":
+        max_len = static_limits.telegram.max_caption_length or _MAX_LEN["telegram"]
+        max_hashtags = None
+    elif p == "email":
+        max_len = static_limits.email.max_caption_length or _MAX_LEN["email"]
+        max_hashtags = None
+    else:
+        max_len = static_limits.generic.max_caption_length or _MAX_LEN["generic"]
+        max_hashtags = None
     formatted = caption.strip()
     if p == "instagram":
-        formatted = _limit_instagram_hashtags(formatted)
+        formatted = _limit_instagram_hashtags(formatted, max_hashtags or 30)
     elif p == "email":
         # FetLife email path: strip all hashtags entirely
         formatted = re.sub(r"#\w+", "", formatted)

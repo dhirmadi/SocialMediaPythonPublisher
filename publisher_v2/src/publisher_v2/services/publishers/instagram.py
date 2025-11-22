@@ -7,6 +7,7 @@ from typing import Optional
 from instagrapi import Client
 
 from publisher_v2.config.schema import InstagramConfig
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.images import ensure_max_width_async
@@ -20,6 +21,7 @@ class InstagramPublisher(Publisher):
     def __init__(self, config: Optional[InstagramConfig], enabled: bool):
         self._config = config
         self._enabled = enabled and config is not None
+        self._limits = get_static_config().service_limits.instagram
 
     @property
     def platform_name(self) -> str:
@@ -38,7 +40,10 @@ class InstagramPublisher(Publisher):
 
             def _upload() -> str:
                 client = Client()
-                client.delay_range = [1, 3]
+                client.delay_range = [
+                    self._limits.delay_min_seconds,
+                    self._limits.delay_max_seconds,
+                ]
                 # Try session-based login first
                 try:
                     client.load_settings(self._config.session_file)

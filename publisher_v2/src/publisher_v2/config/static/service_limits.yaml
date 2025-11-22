@@ -1,0 +1,14 @@
+ai:
+  rate_per_minute: 20
+
+instagram:
+  delay_min_seconds: 1
+  delay_max_seconds: 3
+
+web:
+  image_cache_ttl_seconds: 30.0
+
+smtp:
+  timeout_seconds: null
+
+
