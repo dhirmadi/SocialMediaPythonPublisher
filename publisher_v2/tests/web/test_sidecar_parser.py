@@ -53,3 +53,24 @@ def test_rehydrate_sidecar_view_falls_back_to_sd_caption() -> None:
     assert view["caption"] == "sd caption only"
     assert view["has_sidecar"] is True
 
+
+def test_parse_sidecar_without_metadata_header() -> None:
+    content = "caption only\n# missing header line"
+    sd, meta = parse_sidecar_text(content)
+    assert sd == "caption only"
+    assert meta is None
+
+
+def test_parse_sidecar_keeps_invalid_json() -> None:
+    content = (
+        "sd text\n"
+        "\n"
+        "# ---\n"
+        "# tags: [invalid\n"
+        "# caption:   custom caption\n"
+    )
+    sd, meta = parse_sidecar_text(content)
+    assert sd == "sd text"
+    assert meta is not None
+    assert meta["caption"] == "custom caption"
+
