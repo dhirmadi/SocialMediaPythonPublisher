@@ -1,45 +1,89 @@
 # Configuration — Social Media Publisher V2
 
-Version: 2.3  
-Last Updated: November 21, 2025
+Version: 2.6  
+Last Updated: November 22, 2025
 
-## 1. Environment (.env)
-Required:
-- DROPBOX_APP_KEY=...
-- DROPBOX_APP_SECRET=...
-- DROPBOX_REFRESH_TOKEN=...
-- OPENAI_API_KEY=...
+---
 
-Optional:
-- TELEGRAM_BOT_TOKEN=...
-- TELEGRAM_CHANNEL_ID=...
-- INSTA_PASSWORD=... (if using instagrapi)
-- EMAIL_PASSWORD=... (Gmail app password)
-- SMTP_SERVER="smtp.gmail.com"
-- SMTP_PORT=587
-- FEATURE_ANALYZE_CAPTION=true|false (default: true)
-- FEATURE_PUBLISH=true|false (default: true)
-- FEATURE_KEEP_CURATE=true|false (default: true)
-- FEATURE_REMOVE_CURATE=true|false (default: true)
-- folder_keep=<keep-subfolder-name> (overrides [Dropbox].folder_keep)
-- folder_remove=<remove-subfolder-name> (overrides [Dropbox].folder_remove)
+## Overview
 
-### Feature Toggles (v2.5+)
+Publisher V2 uses a **three-layer configuration model** that cleanly separates:
+
+1. **Secrets** — Sensitive credentials (`.env` only, never in repo)
+2. **Dynamic Configuration** — Runtime toggles and deployment-specific settings (`.env` + `.ini`)
+3. **Static Configuration** — AI prompts, platform limits, UI text, and service limits (versioned YAML files)
+
+This separation enables:
+- Safe secret management (no accidental commits)
+- Feature flags and deployment customization without code changes
+- AI prompt tuning and internationalization without redeploy
+
+---
+
+## 1. Secrets (Environment Variables Only)
+**All secrets must be set via environment variables or `.env` file. Never commit secrets to the repository.**
+
+### Required Secrets
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `DROPBOX_APP_KEY` | Dropbox OAuth app key | `abc123...` |
+| `DROPBOX_APP_SECRET` | Dropbox OAuth app secret | `xyz789...` |
+| `DROPBOX_REFRESH_TOKEN` | OAuth2 refresh token | `token123...` |
+| `OPENAI_API_KEY` | OpenAI API key (must start with `sk-`) | `sk-proj-...` |
+
+### Optional Secrets (Platform-Specific)
+
+| Variable | Description | Required When |
+|----------|-------------|---------------|
+| `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram publishing enabled |
+| `TELEGRAM_CHANNEL_ID` | Telegram channel/chat ID | Telegram publishing enabled |
+| `INSTA_PASSWORD` | Instagram account password | Instagram publishing enabled |
+| `EMAIL_PASSWORD` | Email/SMTP app password | Email/FetLife publishing enabled |
+| `WEB_AUTH_TOKEN` | Bearer token for web API auth | Web interface enabled |
+| `WEB_AUTH_USER` | Basic auth username | Web interface enabled |
+| `WEB_AUTH_PASS` | Basic auth password | Web interface enabled |
+| `web_admin_pw` | Admin mode password | Web admin features enabled |
+
+---
+
+## 2. Dynamic Configuration (Environment + INI)
+
+Dynamic configuration controls runtime behavior and is split between environment variables and INI files.
+
+### 2.1 Feature Toggles (Environment Variables)
 
 Environment variables provide coarse-grained feature switches without editing INI files:
 
 | Variable | Default | Behavior |
-| --- | --- | --- |
-| `FEATURE_ANALYZE_CAPTION` | `true` | When `false`, the workflow skips OpenAI vision analysis, caption generation, and sidecar writes. Preview/output will show “Analysis skipped”. |
-| `FEATURE_PUBLISH` | `true` | When `false`, no publishers are invoked (CLI + web). The workflow still analyzes/captions (if enabled) but skips publish + archive. Web `/publish` returns HTTP 403. |
-| `FEATURE_KEEP_CURATE` | `true` | When `false`, the Keep curation action is disabled in both CLI and web flows; Keep buttons are hidden and `/keep` returns HTTP 403. |
-| `FEATURE_REMOVE_CURATE` | `true` | When `false`, the Remove curation action is disabled; Remove buttons are hidden and `/remove` returns HTTP 403. |
+|----------|---------|----------|
+| `FEATURE_ANALYZE_CAPTION` | `true` | When `false`, skips AI analysis, caption generation, and sidecar writes. |
+| `FEATURE_PUBLISH` | `true` | When `false`, skips publishing (CLI + web); Web `/publish` returns HTTP 403. |
+| `FEATURE_KEEP_CURATE` | `true` | When `false`, disables Keep curation action; buttons hidden, `/keep` returns 403. |
+| `FEATURE_REMOVE_CURATE` | `true` | When `false`, disables Remove curation action; buttons hidden, `/remove` returns 403. |
+| `AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. |
 
-Accepted values: `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive). Any other value raises `ConfigurationError`.
+**Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).  
+**Invalid values:** Raise `ConfigurationError` at startup.
 
-Storage/Dropbox integration is always enabled—there is no toggle for the base storage feature.
+**Note:** Storage/Dropbox integration is always enabled (base feature, cannot be disabled).
 
-## 2. INI Schema
+### 2.2 Advanced Environment Overrides
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `folder_keep` | Override `[Dropbox].folder_keep` | (from INI) |
+| `folder_remove` | Override `[Dropbox].folder_remove` | (from INI) |
+| `AI_RATE_PER_MINUTE` | Override OpenAI rate limit | 20 (from static config) |
+| `PV2_STATIC_CONFIG_DIR` | Custom static config directory | `<package>/config/static` |
+| `WEB_DEBUG` | Enable FastAPI debug mode | `false` |
+| `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
+| `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
+| `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
+| `ENV_PATH` | Path to `.env` file | `.env` |
+| `PORT` | Web server port | 8000 |
+
+### 2.3 INI Schema
 
 **Note:** The config parser supports inline comments with `;` or `#`. Values are automatically stripped of trailing comments.
 
@@ -148,11 +192,14 @@ Behavior:
   - Line 3: `# ---`
   - Subsequent lines: `# key: value` (`tags` and `moderation` as JSON arrays)
 
-## 4. Validation Rules (pydantic)
-- Dropbox folder must start with "/"
-- OPENAI_API_KEY must start with "sk-"
-- Model names must start with "gpt-4", "gpt-3.5", "o1", or "o3"
-- If Telegram enabled, both token and channel id are required
+## 6. Validation Rules (Pydantic)
+
+- Dropbox folder must start with `/`
+- `OPENAI_API_KEY` must start with `sk-`
+- Model names must start with `gpt-4`, `gpt-3.5`, `o1`, or `o3`
+- If Telegram enabled, both token and channel ID are required
+- Feature toggle values must be valid booleans (`true/false/1/0/yes/no/on/off`)
+- Keep/remove folder names must not contain path separators or `..`
 - SMTP port int in {25,465,587}; default 587
 - archive/debug booleans parsed strictly
 - Email caption placement validation:
@@ -186,5 +233,47 @@ PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.
 - ✅ No images moved/archived on Dropbox
 - ✅ No state/cache updates
 - ✅ Can preview same image multiple times
+
+---
+
+## 7. Configuration Reference Summary
+
+| Layer | Source | Scope | Example |
+|-------|--------|-------|---------|
+| **Secrets** | `.env` only | Credentials | `OPENAI_API_KEY`, `DROPBOX_APP_KEY` |
+| **Dynamic** | `.env` + INI | Runtime toggles | `FEATURE_PUBLISH`, `[Content].archive` |
+| **Static** | YAML files | Prompts, limits, text | `ai_prompts.yaml`, `web_ui_text.en.yaml` |
+
+### Configuration Load Order
+
+1. **Environment variables** loaded from `.env` (if present)
+2. **INI file** parsed and validated
+3. **Static config YAMLs** loaded from `config/static/` (or `$PV2_STATIC_CONFIG_DIR`)
+4. **Pydantic validation** applied to all layers
+5. **Secrets** extracted from environment only
+6. **ApplicationConfig** instance created with all three layers
+
+### Best Practices
+
+✅ **DO:**
+- Keep secrets in `.env` (never commit)
+- Use environment vars for feature toggles
+- Edit YAML files for prompt tuning and i18n
+- Override static config dir for per-environment customization
+- Use INI for deployment-specific folders and platform enablement
+
+❌ **DON'T:**
+- Put secrets in INI or YAML files
+- Hard-code prompts or UI text in Python/HTML
+- Edit static YAML defaults directly (override with custom dir instead)
+- Change feature flags in code (use env vars)
+
+---
+
+## See Also
+
+- [Feature 012: Centralized Configuration & i18n Text](/docs_v2/08_Features/012_central-config-i18n-text.md)
+- [i18n Activation Summary](/docs_v2/08_Features/012_i18n_activation_summary.md)
+- [Architecture Documentation](/docs_v2/03_Architecture/ARCHITECTURE.md)
 
 

@@ -57,7 +57,11 @@ make preview-v2 CONFIG=configfiles/fetlife.ini
 make run-v2
 ```
 
-See `docs_v2/05_Configuration/CONFIGURATION.md` for full schema, OpenAI model selection, and FetLife email options.
+**Full Configuration Guide:** See `docs_v2/05_Configuration/CONFIGURATION.md` for:
+- Complete secrets, dynamic config, and static config reference
+- OpenAI model selection and prompt customization
+- FetLife email options and platform limits
+- Feature toggles and internationalization
 
 ---
 
@@ -74,12 +78,18 @@ Preview mode shows: image details (temp link, SHA256), vision analysis (descript
 
 ### ⚙️ Configuration (Essentials)
 
-Put secrets in `.env` (git‑ignored):
+Publisher V2 uses a **three-layer configuration model**:
+
+1. **Secrets** (`.env` only) — API keys, passwords, tokens
+2. **Dynamic Config** (`.env` + INI) — Feature toggles, platform settings, folders
+3. **Static Config** (YAML files) — AI prompts, platform limits, UI text
+
+**Secrets in `.env` (git‑ignored):**
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`
 - `OPENAI_API_KEY`
 - Optional: `EMAIL_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `INSTA_PASSWORD`
 
-INI example (excerpt):
+**INI example (excerpt):**
 
 ```ini
 [Dropbox]

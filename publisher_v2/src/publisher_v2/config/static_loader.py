@@ -45,10 +45,22 @@ class AISDCaptionPrompts(BaseModel):
     )
 
 
+class ConfirmationTagsConfig(BaseModel):
+    prompt: str = Field(
+        default="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
+        description="Prompt for confirmation tags generation",
+    )
+    default_count: int = Field(
+        default=5,
+        description="Default number of confirmation tags to generate",
+    )
+
+
 class AIPromptsConfig(BaseModel):
     vision: AIVisionPrompts = AIVisionPrompts()
     caption: AICaptionPrompts = AICaptionPrompts()
     sd_caption: AISDCaptionPrompts = AISDCaptionPrompts()
+    confirmation_tags: ConfirmationTagsConfig = ConfirmationTagsConfig()
 
 
 class PlatformLimit(BaseModel):
@@ -64,6 +76,15 @@ class PlatformLimit(BaseModel):
         default=None,
         description="Maximum resize width in pixels for this platform",
     )
+    # Email/FetLife-specific settings
+    caption_target: Optional[str] = Field(
+        default=None,
+        description="Where to place caption: subject | body | both",
+    )
+    subject_mode: Optional[str] = Field(
+        default=None,
+        description="Subject prefix mode: normal | private | avatar",
+    )
 
 
 class PlatformLimitsConfig(BaseModel):
@@ -78,6 +99,8 @@ class PlatformLimitsConfig(BaseModel):
     )
     email: PlatformLimit = PlatformLimit(
         max_caption_length=240,
+        caption_target="subject",
+        subject_mode="normal",
     )
     generic: PlatformLimit = PlatformLimit(
         max_caption_length=2200,

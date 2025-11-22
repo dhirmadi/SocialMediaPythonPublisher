@@ -39,4 +39,9 @@ sd_caption:
     2) 'sd_caption' optimized for Stable Diffusion prompts (PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).
     Respond strictly as JSON with keys caption, sd_caption.
 
+# Email confirmation tags prompt (FetLife)
+confirmation_tags:
+  prompt: "short, lowercase, human-friendly topical nouns as used on FetLife; no hashtags; no emojis"
+  default_count: 5
+
 

@@ -7,7 +7,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Added
+## [2.6.0] - 2025-11-22
+
+### Added - Feature 012: Centralized Configuration & i18n
+- **Static configuration layer** for AI prompts, platform limits, service limits, preview text, and web UI text
+- Five new YAML configuration files under `publisher_v2/config/static/`:
+  - `ai_prompts.yaml` — Vision analysis and caption generation prompts
+  - `platform_limits.yaml` — Caption lengths, hashtag limits, resize widths
+  - `service_limits.yaml` — Rate limits, delays, timeouts, cache TTLs
+  - `preview_text.yaml` — CLI preview mode headers and messages
+  - `web_ui_text.en.yaml` — Web UI strings (buttons, panels, placeholders, dialogs)
+- `StaticConfig` loader with graceful fallback to in-code defaults
+- `PV2_STATIC_CONFIG_DIR` environment variable for custom config directory
+- `AI_RATE_PER_MINUTE` environment variable override for OpenAI rate limiting
+- **i18n capability** for web UI — all user-facing text externalized and ready for localization
+- `/api/config/web_ui_text` endpoint for client-side i18n text access
+- Jinja2 template injection of localized text with fallbacks
+
+### Changed
+- AI prompts now read from static config with fallback to existing defaults (zero behavior change)
+- Platform caption limits now read from static config (Instagram 2200/30 hashtags, Telegram 4096, Email 240)
+- Web UI text now sourced from YAML with English as default locale
+- Service limits (AI rate, Instagram delays, web cache TTL) externalized to YAML
+- Preview mode text now sourced from static config
+- `WebImageService` cache TTL configurable via static config (default 30s preserved)
+- Instagram publisher delay range configurable via static config (default [1,3] preserved)
+- Documentation updated: `CONFIGURATION.md`, `ARCHITECTURE.md`, `README.md`, and new i18n guides
+
+### Technical
+- All changes are **backward-compatible** — static config is optional and falls back to existing defaults
+- Static config loaded once at startup and cached (`@lru_cache`)
+- Zero runtime performance impact (1-2ms startup overhead)
+- All 210 tests passing
+- No breaking changes to CLI, web API, or configuration schema
+
+### Documentation
+- Feature 012 request, design, plan, and shipped docs in `docs_v2/08_Features/`
+- i18n activation summary with how-to guides in `docs_v2/08_Features/012_i18n_activation_summary.md`
+- Full implementation review with verification in `docs_v2/09_Reviews/20251122_fullreview.md`
+- Updated configuration reference with three-layer model
+
+---
+
+### Added (V1 archived)
 - Comprehensive documentation in `docs/` folder
   - Complete user guide (DOCUMENTATION.md)
   - Detailed code review report (CODE_REVIEW_REPORT.md)

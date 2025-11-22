@@ -227,11 +227,21 @@ Refer to `docs_v2/05_Configuration/CONFIGURATION.md` for the authoritative, tabu
 
 ---
 
-## Artifacts
+## Artifacts & Documentation
 
+### Feature 012 Documentation
 - **Feature Request:** `docs_v2/08_Features/08_01_Feature_Request/012_central-config-i18n-text.md`
 - **Feature Design:** `docs_v2/08_Features/08_02_Feature_Design/012_central-config-i18n-text_design.md`
 - **Plan:** `docs_v2/08_Features/08_03_Feature_plan/012_central-config-i18n-text_plan.yaml`
 - **Shipped Summary (this file):** `docs_v2/08_Features/012_central-config-i18n-text.md`
+- **i18n Activation Guide:** `docs_v2/08_Features/012_i18n_activation_summary.md`
+- **Documentation Update Summary:** `docs_v2/08_Features/012_DOCUMENTATION_UPDATE_SUMMARY.md`
+- **Implementation Review:** `docs_v2/09_Reviews/20251122_fullreview.md`
+
+### Core Documentation Updated
+- `docs_v2/05_Configuration/CONFIGURATION.md` → v2.6 (three-layer model, static config reference)
+- `docs_v2/03_Architecture/ARCHITECTURE.md` → v2.6 (static config architecture)
+- `README.md` → Updated configuration section
+- `CHANGELOG.md` → v2.6.0 release notes
 
 

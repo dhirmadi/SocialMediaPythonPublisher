@@ -9,8 +9,9 @@ telegram:
 
 email:
   max_caption_length: 240
+  # FetLife-specific email behavior
+  caption_target: subject  # subject | body | both
+  subject_mode: normal     # normal | private | avatar
 
 generic:
   max_caption_length: 2200
-
-
