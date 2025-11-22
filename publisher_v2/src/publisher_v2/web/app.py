@@ -11,6 +11,7 @@ from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.utils.logging import setup_logging, log_json, now_monotonic, elapsed_ms
 from publisher_v2.web.auth import (
     require_auth,
@@ -89,8 +90,18 @@ templates = Jinja2Templates(directory=templates_dir)
 async def index(request: Request) -> HTMLResponse:
     """
     Render the main HTML page.
+
+    Web UI text defaults come from static, non-secret configuration so that
+    labels and headings can be tuned or localized without code changes.
     """
-    return templates.TemplateResponse("index.html", {"request": request})
+    static_cfg = get_static_config().web_ui_text.values
+    return templates.TemplateResponse(
+        "index.html",
+        {
+            "request": request,
+            "web_ui_text": static_cfg,
+        },
+    )
 
 
 @app.post(

@@ -1,0 +1,16 @@
+headers:
+  preview_mode: "PUBLISHER V2 - PREVIEW MODE"
+  image_selected: "📸 IMAGE SELECTED"
+  vision_analysis: "🔍 AI VISION ANALYSIS"
+  caption_generation: "✍️  AI CAPTION GENERATION"
+  publishing_preview: "📤 PUBLISHING PREVIEW"
+  email_confirmation: "✉️  EMAIL CONFIRMATION"
+  configuration: "⚙️  CONFIGURATION"
+  preview_footer: "⚠️  PREVIEW MODE - NO ACTIONS TAKEN"
+
+messages:
+  no_caption_yet: "No caption yet."
+  analysis_skipped: "⚠ Analysis skipped (FEATURE_ANALYZE_CAPTION=false)"
+  publish_disabled: "⚠ Publish feature disabled (FEATURE_PUBLISH=false). No platforms will be contacted."
+
+

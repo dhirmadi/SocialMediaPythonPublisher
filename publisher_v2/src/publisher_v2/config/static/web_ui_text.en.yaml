@@ -1,0 +1,36 @@
+title: "Publisher V2 Web"
+header_title: "Publisher V2 Web"
+
+buttons:
+  next: "Next image"
+  admin: "Admin"
+  logout: "Logout"
+  analyze: "Analyze & caption"
+  publish: "Publish"
+  keep: "Keep"
+  remove: "Remove"
+
+panels:
+  caption_title: "Caption"
+  admin_title: "Administration"
+  activity_title: "Activity"
+
+placeholders:
+  image_empty: "No image loaded yet."
+
+status:
+  ready: "Ready."
+  admin_mode_on: "Admin mode: on"
+  admin_mode_off: "Admin mode: off"
+  admin_required: "Admin mode required to view images."
+
+placeholders:
+  image_empty: "No image loaded yet."
+  caption_empty: "No caption yet."
+
+admin_dialog:
+  title: "Admin login"
+  description: "Enter the admin password to enable analysis and publishing."
+  password_placeholder: "Admin password"
+
+

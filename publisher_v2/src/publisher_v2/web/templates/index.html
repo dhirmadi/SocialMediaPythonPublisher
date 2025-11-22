@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Publisher V2 Web</title>
+  <title>{{ web_ui_text.title or "Publisher V2 Web" }}</title>
   <style>
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -157,24 +157,28 @@
 <body>
   <header>
     <div class="header-left">
-      <h1>Publisher V2 Web</h1>
+      <h1 id="app-title">{{ web_ui_text.header_title or "Publisher V2 Web" }}</h1>
     </div>
     <div class="header-right">
       <span id="env-indicator" class="status"></span>
-      <button id="btn-admin" class="secondary" type="button">Admin</button>
-      <button id="btn-admin-logout" class="secondary admin-only hidden" type="button">Logout</button>
+      <button id="btn-admin" class="secondary" type="button">
+        {{ web_ui_text.buttons.admin or "Admin" }}
+      </button>
+      <button id="btn-admin-logout" class="secondary admin-only hidden" type="button">
+        {{ web_ui_text.buttons.logout or "Logout" }}
+      </button>
     </div>
   </header>
 
   <div id="admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
     <div class="modal-dialog">
-      <h2 id="admin-modal-title">Admin login</h2>
-      <p class="status" id="admin-modal-description">Enter the admin password to enable analysis and publishing.</p>
+      <h2 id="admin-modal-title">{{ web_ui_text.admin_dialog.title or "Admin login" }}</h2>
+      <p class="status" id="admin-modal-description">{{ web_ui_text.admin_dialog.description or "Enter the admin password to enable analysis and publishing." }}</p>
       <form id="admin-login-form">
         <input
           type="password"
           id="admin-password"
-          placeholder="Admin password"
+          placeholder="{{ web_ui_text.admin_dialog.password_placeholder or 'Admin password' }}"
           autocomplete="current-password"
           style="width: 100%; padding: 0.5rem; border-radius: 9999px; border: 1px solid #374151; background-color: #020617; color: #e5e7eb;"
         />
@@ -189,40 +193,57 @@
   <main>
     <div class="image-container">
       <div id="image-placeholder" class="image-placeholder">
-        No image loaded yet.
+        {{ web_ui_text.placeholders.image_empty or "No image loaded yet." }}
       </div>
       <img id="image" class="hidden" alt="No image loaded yet" />
     </div>
 
     <div class="controls">
-      <button id="btn-next">Next image</button>
+      <button id="btn-next">
+        {{ web_ui_text.buttons.next or "Next image" }}
+      </button>
       <div id="admin-controls" class="controls admin-only hidden">
-        <button id="btn-analyze" class="secondary">Analyze &amp; caption</button>
-        <button id="btn-publish" class="secondary">Publish</button>
-        <button id="btn-keep" class="secondary">Keep</button>
-        <button id="btn-remove" class="secondary">Remove</button>
+        <button id="btn-analyze" class="secondary">
+          {{ web_ui_text.buttons.analyze or "Analyze & caption" }}
+        </button>
+        <button id="btn-publish" class="secondary">
+          {{ web_ui_text.buttons.publish or "Publish" }}
+        </button>
+        <button id="btn-keep" class="secondary">
+          {{ web_ui_text.buttons.keep or "Keep" }}
+        </button>
+        <button id="btn-remove" class="secondary">
+          {{ web_ui_text.buttons.remove or "Remove" }}
+        </button>
       </div>
     </div>
 
     <div class="panel" id="panel-caption">
-      <h2>Caption</h2>
-      <div id="caption-text">No caption yet.</div>
+      <h2>{{ web_ui_text.panels.caption_title or "Caption" }}</h2>
+      <div id="caption-text">{{ web_ui_text.placeholders.caption_empty or "No caption yet." }}</div>
     </div>
 
     <div class="panel admin-only hidden" id="panel-admin">
-      <h2>Administration</h2>
-      <div id="admin-mode-indicator" class="status">Admin mode: off</div>
+      <h2>{{ web_ui_text.panels.admin_title or "Administration" }}</h2>
+      <div id="admin-mode-indicator" class="status">
+        {{ web_ui_text.status.admin_mode_off or "Admin mode: off" }}
+      </div>
       <div class="status">Admin-only controls are active while you are logged in.</div>
     </div>
 
     <div class="panel admin-only hidden" id="panel-activity">
-      <h2>Activity</h2>
-      <div id="status" class="status">Ready.</div>
+      <h2>{{ web_ui_text.panels.activity_title or "Activity" }}</h2>
+      <div id="status" class="status">
+        {{ web_ui_text.status.ready or "Ready." }}
+      </div>
       <div id="details"></div>
     </div>
   </main>
 
   <script>
+    // i18n text injected from static config (YAML → Jinja → JS)
+    const TEXT = {{ web_ui_text | tojson }};
+    
     const bodyEl = document.body;
     const imgEl = document.getElementById("image");
     const imagePlaceholder = document.getElementById("image-placeholder");
@@ -233,7 +254,6 @@
     const btnNext = document.getElementById("btn-next");
     const btnAnalyze = document.getElementById("btn-analyze");
     const btnPublish = document.getElementById("btn-publish");
-    // Keep/Remove buttons will be added alongside Analyze/Publish for admins.
     const btnKeep = document.getElementById("btn-keep");
     const btnRemove = document.getElementById("btn-remove");
     const btnAdmin = document.getElementById("btn-admin");
@@ -250,8 +270,6 @@
 
     let currentFilename = null;
     let isAdmin = false;
-    // Defaults: if feature config cannot be loaded, behave as before and show all buttons,
-    // but keep AUTO_VIEW disabled (private) unless explicitly enabled via API.
     let featureConfig = {
       analyze_caption_enabled: true,
       publish_enabled: true,
@@ -273,7 +291,8 @@
     }
 
     function setCaption(text) {
-      captionEl.textContent = text || "No caption yet.";
+      const fallback = TEXT.placeholders?.caption_empty || "No caption yet.";
+      captionEl.textContent = text || fallback;
     }
 
     function showImagePlaceholder(message) {
@@ -282,7 +301,8 @@
         imgEl.classList.add("hidden");
       }
       if (imagePlaceholder) {
-        imagePlaceholder.textContent = message || "No image loaded yet.";
+        const fallback = TEXT.placeholders?.image_empty || "No image loaded yet.";
+        imagePlaceholder.textContent = message || fallback;
         imagePlaceholder.classList.remove("hidden");
       }
     }
@@ -343,7 +363,9 @@
     }
 
     function updateAdminUI() {
-      adminModeIndicator.textContent = isAdmin ? "Admin mode: on" : "Admin mode: off";
+      const onText = TEXT.status?.admin_mode_on || "Admin mode: on";
+      const offText = TEXT.status?.admin_mode_off || "Admin mode: off";
+      adminModeIndicator.textContent = isAdmin ? onText : offText;
       if (envIndicator) {
         envIndicator.textContent = featureConfig.auto_view_enabled
           ? "Viewer mode"
@@ -388,7 +410,7 @@
       // When AUTO_VIEW is disabled and user is not admin, replace the image
       // area with a clear login-required message instead of a broken image.
       if (!isAdmin && !featureConfig.auto_view_enabled) {
-        showImagePlaceholder("Admin mode required to view images.");
+        showImagePlaceholder(TEXT.status?.admin_required || "Admin mode required to view images.");
       }
       // Ensure Next button reflects current admin + AUTO_VIEW state when not globally disabled.
       disableButtons(false);
@@ -422,10 +444,11 @@
       setActivity("Loading random image…");
       disableButtons(true);
       try {
+        const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
         if (!isAdmin && !featureConfig.auto_view_enabled) {
-          setActivity("Admin mode required to view images.");
+          setActivity(adminReq);
           setDetails("");
-          showImagePlaceholder("Admin mode required to view images.");
+          showImagePlaceholder(adminReq);
           return;
         }
         const res = await fetch("/api/images/random");

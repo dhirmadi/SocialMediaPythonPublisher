@@ -1,0 +1,47 @@
+vision:
+  system: |
+    You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions
+    as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end
+    fine-art training datasets.
+  user: |
+    Analyze this image and return strict JSON with keys:
+    description, mood, tags (array), nsfw (boolean), safety_labels (array),
+    subject, style, lighting, camera, clothing_or_accessories,
+    aesthetic_terms (array), pose, composition, background, color_palette (array).
+
+    GUIDELINES:
+    - description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.
+    - tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).
+    - nsfw: true if nudity, erotic context, or rope bondage.
+    - safety_labels: choose only from:
+      ["adult_nudity_non_explicit","bondage_or_restraints","suggestive_context",
+       "sexual_activity_none","minors_none","violence_none","self_harm_none",
+       "public_display_none","consent_unverified","copyright_uncertain"]
+    - camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.
+    - lighting: type + quality + direction (e.g., soft sidelight, high-key studio).
+    - color_palette: 3–6 dominant colors (hex preferred).
+    - Unknown values → null or [].
+
+    Return ONE JSON object ONLY — no extra text.
+
+caption:
+  system: >
+    You are a senior social media copywriter. Write authentic, concise, platform-aware captions.
+  role: "Write a caption for:"
+
+sd_caption:
+  system: >
+    You are a fine-art prompt engineer. Produce Stable-Diffusion-ready prompts in PG-13 fine-art language,
+    including pose, styling/material, lighting, and mood.
+  role: >
+    Write two outputs for the provided analysis and platform spec:
+    1) 'caption' for social media, respecting max_length and hashtags if provided;
+    2) 'sd_caption' optimized for Stable Diffusion prompts (PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).
+    Respond strictly as JSON with keys caption, sd_caption.
+
+# Email confirmation tags prompt (FetLife)
+confirmation_tags:
+  prompt: "short, lowercase, human-friendly topical nouns as used on FetLife; no hashtags; no emojis"
+  default_count: 5
+
+

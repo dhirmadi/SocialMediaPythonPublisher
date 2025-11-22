@@ -9,6 +9,7 @@ import time
 from typing import List, Dict, Any, Optional
 
 from publisher_v2.config.loader import load_application_config
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 from publisher_v2.services.publishers.base import Publisher
@@ -64,7 +65,18 @@ class WebImageService:
         # repeated list_images calls on hot paths (see CR 005-004).
         self._image_cache: Optional[List[str]] = None
         self._image_cache_expiry: Optional[float] = None
-        self._image_cache_ttl_seconds: float = 30.0
+        limits = get_static_config().service_limits
+        ttl = limits.web.image_cache_ttl_seconds
+        env_ttl = os.environ.get("WEB_IMAGE_CACHE_TTL_SECONDS")
+        if env_ttl:
+            try:
+                parsed_ttl = float(env_ttl)
+                if parsed_ttl > 0:
+                    ttl = parsed_ttl
+            except ValueError:
+                # Ignore invalid override; keep config/default TTL.
+                pass
+        self._image_cache_ttl_seconds: float = ttl
 
     async def _get_cached_images(self) -> List[str]:
         """

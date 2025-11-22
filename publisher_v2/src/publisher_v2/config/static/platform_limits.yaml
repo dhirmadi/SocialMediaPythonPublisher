@@ -1,0 +1,17 @@
+instagram:
+  max_caption_length: 2200
+  max_hashtags: 30
+  resize_width_px: 1080
+
+telegram:
+  max_caption_length: 4096
+  resize_width_px: 1280
+
+email:
+  max_caption_length: 240
+  # FetLife-specific email behavior
+  caption_target: subject  # subject | body | both
+  subject_mode: normal     # normal | private | avatar
+
+generic:
+  max_caption_length: 2200

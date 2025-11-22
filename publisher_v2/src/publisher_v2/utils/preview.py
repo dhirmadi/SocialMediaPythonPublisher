@@ -5,6 +5,8 @@ Displays what will be published without taking any actions.
 from __future__ import annotations
 
 from typing import List, Dict, Optional
+
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.captions import build_caption_sidecar
@@ -12,8 +14,10 @@ from publisher_v2.utils.captions import build_caption_sidecar
 
 def print_preview_header() -> None:
     """Print beautiful header for preview mode"""
+    cfg = get_static_config().preview_text
     print("\n" + "═" * 70)
-    print("  PUBLISHER V2 - PREVIEW MODE")
+    title = cfg.headers.get("preview_mode", "PUBLISHER V2 - PREVIEW MODE")
+    print(f"  {title}")
     print("═" * 70)
 
 
@@ -26,6 +30,7 @@ def print_image_details(
     already_posted: bool = False,
 ) -> None:
     """Print image selection details"""
+    cfg = get_static_config().preview_text
     print("\n📸 IMAGE SELECTED")
     print("─" * 70)
     print(f"  File:        {filename}")
@@ -43,7 +48,9 @@ def print_image_details(
 
 def print_vision_analysis(analysis: Optional[ImageAnalysis], model: str, feature_enabled: bool = True) -> None:
     """Print vision analysis results"""
-    print(f"\n🔍 AI VISION ANALYSIS ({model})")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("vision_analysis", "🔍 AI VISION ANALYSIS")
+    print(f"\n{header} ({model})")
     print("─" * 70)
 
     if not feature_enabled:
@@ -125,7 +132,9 @@ def print_caption(
     feature_enabled: bool = True,
 ) -> None:
     """Print generated caption"""
-    print(f"\n✍️  AI CAPTION GENERATION ({model})")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("caption_generation", "✍️  AI CAPTION GENERATION")
+    print(f"\n{header} ({model})")
     print("─" * 70)
 
     if not feature_enabled:
@@ -142,7 +151,8 @@ def print_caption(
         for line in caption_lines:
             print(f"  \"{line}\"")
     else:
-        print("  ⚠ No caption generated.")
+        msg = cfg.messages.get("no_caption_yet", "⚠ No caption generated.")
+        print(f"  {msg}")
     
     print(f"\n  Length:      {len(caption)} characters")
     print(f"  Hashtags:    {hashtag_count}")
@@ -158,11 +168,17 @@ def print_platform_preview(
     publish_enabled: bool = True,
 ) -> None:
     """Print which platforms will receive what"""
-    print(f"\n📤 PUBLISHING PREVIEW")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("publishing_preview", "📤 PUBLISHING PREVIEW")
+    print(f"\n{header}")
     print("─" * 70)
 
     if not publish_enabled:
-        print("  ⚠ Publish feature disabled (FEATURE_PUBLISH=false). No platforms will be contacted.")
+        msg = cfg.messages.get(
+            "publish_disabled",
+            "⚠ Publish feature disabled (FEATURE_PUBLISH=false). No platforms will be contacted.",
+        )
+        print(f"  {msg}")
     
     enabled_count = 0
     disabled_count = 0
@@ -217,7 +233,9 @@ def print_email_confirmation_preview(
     """Show what confirmation email settings will do"""
     if not enabled:
         return
-    print(f"\n✉️  EMAIL CONFIRMATION")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("email_confirmation", "✉️  EMAIL CONFIRMATION")
+    print(f"\n{header}")
     print("─" * 70)
     print(f"  To sender:   {'ON' if to_sender else 'OFF'}")
     if to_sender:
@@ -233,7 +251,9 @@ def print_config_summary(
     config_file: str,
 ) -> None:
     """Print configuration summary"""
-    print(f"\n⚙️  CONFIGURATION")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("configuration", "⚙️  CONFIGURATION")
+    print(f"\n{header}")
     print("─" * 70)
     print(f"  Config File:    {config_file}")
     print(f"  Vision Model:   {vision_model}")
@@ -242,7 +262,9 @@ def print_config_summary(
 
 def print_preview_footer() -> None:
     """Print warning that this is preview only"""
-    print(f"\n⚠️  PREVIEW MODE - NO ACTIONS TAKEN")
+    cfg = get_static_config().preview_text
+    header = cfg.headers.get("preview_footer", "⚠️  PREVIEW MODE - NO ACTIONS TAKEN")
+    print(f"\n{header}")
     print("─" * 70)
     print("  • No content published to any platform")
     print("  • No images moved or archived on Dropbox")
