@@ -9,6 +9,13 @@ import time
 import urllib.parse
 from typing import List, Dict, Any, Optional
 
+from dotenv import load_dotenv
+
+# Load .env early so CONFIG_PATH can come from it (for local development).
+# This is idempotent and won't override existing env vars (e.g., on Heroku).
+# Called at module import time to avoid test interference.
+load_dotenv()
+
 from publisher_v2.config.loader import load_application_config
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.workflow import WorkflowOrchestrator

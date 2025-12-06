@@ -273,7 +273,8 @@
     const adminModalClose = document.getElementById("admin-modal-close");
 
     let currentFilename = null;
-    let currentFullUrl = null;  // Store full-size URL for future "Full Size" button (Story 02)
+    let currentFullUrl = null;  // Store full-size URL for "Full Size" button
+    let prefetchedImage = null; // Prefetched next image for instant loading (Story 03)
     let isAdmin = false;
     let featureConfig = {
       analyze_caption_enabled: true,
@@ -336,6 +337,38 @@
       // Show Full Size button when image is loaded
       if (btnFullSize) {
         btnFullSize.classList.remove("hidden");
+      }
+    }
+
+    // Prefetch next image for instant loading during curation (Story 03)
+    async function prefetchNextThumbnail() {
+      // Only prefetch if user can view images
+      if (!isAdmin && !featureConfig.auto_view_enabled) {
+        prefetchedImage = null;
+        return;
+      }
+      try {
+        const res = await fetch("/api/images/random");
+        if (!res.ok) {
+          prefetchedImage = null;
+          return;
+        }
+        const data = await res.json();
+        prefetchedImage = data;
+        
+        // Prefetch thumbnail via link element (browser caches it)
+        if (data.thumbnail_url) {
+          const link = document.createElement("link");
+          link.rel = "prefetch";
+          link.as = "image";
+          link.href = data.thumbnail_url;
+          document.head.appendChild(link);
+          // Clean up link after 30 seconds to prevent DOM bloat
+          setTimeout(() => link.remove(), 30000);
+        }
+      } catch (e) {
+        console.warn("Prefetch failed:", e);
+        prefetchedImage = null;
       }
     }
 
@@ -462,16 +495,42 @@
     }
 
     async function apiGetRandom() {
+      const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
+      
+      // Check permission first
+      if (!isAdmin && !featureConfig.auto_view_enabled) {
+        setActivity(adminReq);
+        setDetails("");
+        showImagePlaceholder(adminReq);
+        return;
+      }
+      
+      // Check for prefetched image (instant load path)
+      if (prefetchedImage) {
+        const data = prefetchedImage;
+        prefetchedImage = null; // Consume the prefetch
+        
+        currentFilename = data.filename;
+        const displayUrl = data.thumbnail_url || data.temp_url;
+        showImage(
+          displayUrl,
+          data.temp_url,
+          data.caption || data.sd_caption || data.filename
+        );
+        setCaption(data.caption || data.sd_caption || "No caption yet.");
+        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
+        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
+        setActivity("Image loaded (prefetched).");
+        
+        // Start prefetching the next image
+        prefetchNextThumbnail();
+        return;
+      }
+      
+      // Cold start path: fetch from API
       setActivity("Loading random image…");
       disableButtons(true);
       try {
-        const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
-        if (!isAdmin && !featureConfig.auto_view_enabled) {
-          setActivity(adminReq);
-          setDetails("");
-          showImagePlaceholder(adminReq);
-          return;
-        }
         const res = await fetch("/api/images/random");
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
@@ -483,13 +542,16 @@
         const displayUrl = data.thumbnail_url || data.temp_url;
         showImage(
           displayUrl,
-          data.temp_url,  // Store full URL for future "Full Size" access
+          data.temp_url,  // Store full URL for "Full Size" access
           data.caption || data.sd_caption || data.filename
         );
         setCaption(data.caption || data.sd_caption || "No caption yet.");
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
         setActivity("Image loaded.");
+        
+        // Start prefetching the next image
+        prefetchNextThumbnail();
       } catch (e) {
         console.error(e);
         currentFilename = null;
