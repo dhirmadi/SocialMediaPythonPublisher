@@ -83,6 +83,62 @@
       transform: translateX(20px);
       opacity: 0.7;
     }
+    .nav-overlay {
+      position: absolute;
+      top: 0;
+      bottom: 0;
+      width: 15%; /* Functional width for touch targets */
+      border: none;
+      background: rgba(0, 0, 0, 0); /* Transparent by default */
+      color: rgba(255, 255, 255, 0.7);
+      font-size: 2rem;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background-color 0.2s, color 0.2s;
+      z-index: 10;
+      padding: 0;
+      margin: 0;
+      border-radius: 0;
+    }
+    .nav-overlay:hover {
+      background: rgba(0, 0, 0, 0.1);
+      color: rgba(255, 255, 255, 1);
+    }
+    .nav-overlay.nav-left {
+      left: 0;
+      border-top-left-radius: 0.75rem;
+      border-bottom-left-radius: 0.75rem;
+    }
+    .nav-overlay.nav-right {
+      right: 0;
+      border-top-right-radius: 0.75rem;
+      border-bottom-right-radius: 0.75rem;
+    }
+    .download-overlay {
+      position: absolute;
+      bottom: 10px;
+      right: 10px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: 9999px;
+      width: 44px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.2rem;
+      cursor: pointer;
+      z-index: 20;
+      padding: 0;
+      transition: all 0.2s;
+    }
+    .download-overlay:hover {
+      background: rgba(0, 0, 0, 0.8);
+      transform: scale(1.05);
+    }
     .controls {
       display: flex;
       gap: 0.5rem;
@@ -207,17 +263,13 @@
         {{ web_ui_text.placeholders.image_empty or "No image loaded yet." }}
       </div>
       <img id="image" class="hidden" alt="No image loaded yet" />
-      <div id="position-indicator" class="status hidden" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: #e5e7eb;"></div>
+      <div id="position-indicator" class="status hidden" style="position: absolute; top: 10px; right: 10px; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: #e5e7eb; z-index: 15;"></div>
+      <button id="btn-prev" class="nav-overlay nav-left hidden">&lt;</button>
+      <button id="btn-next" class="nav-overlay nav-right">&gt;</button>
+      <button id="btn-fullsize" class="download-overlay hidden" title="Download">📥</button>
     </div>
 
     <div class="controls">
-      <button id="btn-prev" class="secondary hidden">Previous</button>
-      <button id="btn-next">
-        {{ web_ui_text.buttons.next or "Next image" }}
-      </button>
-      <button id="btn-fullsize" class="secondary hidden">
-        {{ web_ui_text.buttons.fullsize or "📥 Full Size" }}
-      </button>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
           {{ web_ui_text.buttons.analyze or "Analyze & caption" }}
@@ -309,11 +361,11 @@
     function updateModeUI() {
       if (currentMode === "review") {
         btnPrev.classList.remove("hidden");
-        btnNext.textContent = "Next";
+        // btnNext.textContent = "Next"; // Removed text update for overlay
         positionIndicator.classList.remove("hidden");
       } else {
         btnPrev.classList.add("hidden");
-        btnNext.textContent = TEXT.buttons?.next || "Next image";
+        // btnNext.textContent = TEXT.buttons?.next || "Next image"; // Removed text update for overlay
         positionIndicator.classList.add("hidden");
       }
     }
@@ -533,10 +585,34 @@
       }
     }
 
-    function handleFullSize() {
-      if (currentFullUrl) {
-        window.open(currentFullUrl, "_blank");
+    async function handleFullSize() {
+      if (!currentFullUrl) return;
+
+      // Attempt native share (Save to Photos on iOS)
+      if (navigator.share && navigator.canShare) {
+        setActivity("Preparing download...");
+        try {
+           const response = await fetch(currentFullUrl);
+           const blob = await response.blob();
+           const file = new File([blob], currentFilename || "image.jpg", { type: blob.type });
+           
+           if (navigator.canShare({ files: [file] })) {
+             await navigator.share({
+               files: [file],
+               title: 'Image',
+               text: currentFilename
+             });
+             setActivity("Shared successfully.");
+             return;
+           }
+        } catch (e) {
+           console.warn("Native share failed or unsupported, falling back.", e);
+        }
       }
+
+      // Fallback
+      window.open(currentFullUrl, "_blank");
+      setActivity("Opened in new tab.");
     }
 
     function showImage(thumbnailUrl, fullUrl, altText) {
