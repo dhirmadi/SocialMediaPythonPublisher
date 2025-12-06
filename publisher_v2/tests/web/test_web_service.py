@@ -134,8 +134,12 @@ async def test_get_random_image_returns_basic_fields(web_service: WebImageServic
     img = await web_service.get_random_image()
     assert img.filename == "test.jpg"
     assert img.temp_url.endswith("test.jpg")
-    # sha256 may be computed from dummy bytes
-    assert img.sha256 is not None
+    # sha256 is no longer computed during display for performance (Story 018-01)
+    assert img.sha256 is None
+    # thumbnail_url should be populated for fast preview loading
+    assert img.thumbnail_url is not None
+    assert "/api/images/" in img.thumbnail_url
+    assert "/thumbnail" in img.thumbnail_url
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ import logging
 import os
 import uuid
 from dataclasses import dataclass
+from enum import Enum
 from functools import lru_cache
 from typing import Optional
 
@@ -459,6 +460,121 @@ async def api_remove_image(
             web_remove_ms=web_remove_ms,
         )
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
+
+class ThumbnailSizeParam(str, Enum):
+    """Valid thumbnail size options."""
+    w256h256 = "w256h256"
+    w480h320 = "w480h320"
+    w640h480 = "w640h480"
+    w960h640 = "w960h640"
+    w1024h768 = "w1024h768"
+
+
+@app.get(
+    "/api/images/{filename}/thumbnail",
+    responses={
+        200: {"content": {"image/jpeg": {}}},
+        404: {"model": ErrorResponse},
+    },
+)
+async def api_get_thumbnail(
+    filename: str,
+    request: Request,
+    size: ThumbnailSizeParam = ThumbnailSizeParam.w960h640,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> Response:
+    """
+    Return a thumbnail of the specified image.
+
+    Thumbnails are generated server-side by Dropbox and cached by
+    the browser. This provides fast loading for previews while
+    full-size images remain accessible via temp_url.
+
+    Size options:
+    - w256h256: Small icon (256×256)
+    - w480h320: Mobile preview (480×320)
+    - w640h480: Tablet preview (640×480)
+    - w960h640: Desktop preview (960×640, default)
+    - w1024h768: High-quality preview (1024×768)
+    """
+    # Respect AUTO_VIEW semantics (same as random image endpoint)
+    features = service.config.features
+    if not getattr(features, "auto_view_enabled", False):
+        if not is_admin_configured():
+            web_thumbnail_ms = elapsed_ms(telemetry.start_time)
+            log_json(
+                logger,
+                logging.WARNING,
+                "web_thumbnail_admin_required_unconfigured",
+                filename=filename,
+                correlation_id=telemetry.correlation_id,
+                web_thumbnail_ms=web_thumbnail_ms,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Image viewing requires admin mode but admin is not configured",
+            )
+        try:
+            require_admin(request)
+        except HTTPException:
+            web_thumbnail_ms = elapsed_ms(telemetry.start_time)
+            log_json(
+                logger,
+                logging.WARNING,
+                "web_thumbnail_admin_required",
+                filename=filename,
+                correlation_id=telemetry.correlation_id,
+                web_thumbnail_ms=web_thumbnail_ms,
+            )
+            raise
+
+    try:
+        thumb_bytes = await service.get_thumbnail(filename, size=size.value)
+
+        web_thumbnail_ms = elapsed_ms(telemetry.start_time)
+        log_json(
+            logger,
+            logging.INFO,
+            "web_thumbnail_served",
+            filename=filename,
+            size=size.value,
+            bytes_served=len(thumb_bytes),
+            correlation_id=telemetry.correlation_id,
+            web_thumbnail_ms=web_thumbnail_ms,
+        )
+
+        return Response(
+            content=thumb_bytes,
+            media_type="image/jpeg",
+            headers={
+                "Cache-Control": "public, max-age=3600",
+                "X-Correlation-ID": telemetry.correlation_id,
+            },
+        )
+    except Exception as exc:
+        msg = str(exc)
+        if "not found" in msg.lower() or "path/not_found" in msg.lower():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Image not found",
+            )
+
+        web_thumbnail_ms = elapsed_ms(telemetry.start_time)
+        log_json(
+            logger,
+            logging.ERROR,
+            "web_thumbnail_error",
+            filename=filename,
+            error=str(exc),
+            correlation_id=telemetry.correlation_id,
+            web_thumbnail_ms=web_thumbnail_ms,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate thumbnail",
+        )
 
 
 @app.get("/api/config/publishers")

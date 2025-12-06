@@ -17,4 +17,5 @@
 | 015 | Cloud Storage Dropbox | Proposed |
 | 016 | Structured Logging Redaction | Proposed |
 | 017 | Multi Platform Publishing | Proposed |
+| 018 | Thumbnail Preview Optimization | Proposed |
 

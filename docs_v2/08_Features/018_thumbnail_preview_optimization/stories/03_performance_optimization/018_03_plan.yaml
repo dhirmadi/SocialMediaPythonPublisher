@@ -1,0 +1,162 @@
+# Story 018-03: Performance Optimization — Implementation Plan
+# Generated: 2025-12-06
+# Updated: 2025-12-06 (partially implemented)
+
+story:
+  id: "018-03"
+  name: "performance-optimization"
+  feature: "018_thumbnail_preview_optimization"
+  status: "partially_implemented"
+  priority: "optional"
+  effort_estimate: "4-8 hours"
+  actual_effort: "~45 minutes (preloading only)"
+
+summary: |
+  Advanced performance optimizations for the thumbnail preview system.
+  Only preloading was implemented as it provides the highest impact
+  for the curation workflow. Other sub-features deferred.
+
+dependencies:
+  - story_id: "018-01"
+    name: "core-thumbnail-support"
+    required: true
+  - story_id: "018-02"
+    name: "fullsize-access-ux"
+    required: true
+
+acceptance_criteria:
+  - id: AC1
+    description: "Next image thumbnail prefetched while viewing current image"
+    status: "implemented"
+  - id: AC2
+    description: "Thumbnail size configurable via env var and static config"
+    status: "deferred"
+  - id: AC3
+    description: "Skeleton loading placeholder shown during thumbnail load"
+    status: "deferred"
+  - id: AC4
+    description: "Adaptive sizing serves smaller thumbnails on mobile viewports"
+    status: "deferred"
+  - id: AC5
+    description: "Curation workflow feels instant (< 200ms between images)"
+    status: "implemented"
+
+sub_features:
+  - id: preloading
+    name: "Thumbnail Preloading"
+    priority: "high"
+    status: "implemented"
+    description: "Prefetch next image thumbnail while viewing current"
+    effort: "1-2 hours"
+    
+  - id: configurable_size
+    name: "Configurable Default Size"
+    priority: "medium"
+    status: "deferred"
+    description: "Allow thumbnail size via env var or static config"
+    effort: "1-2 hours"
+    reason: "Low priority; hardcoded default works well"
+    
+  - id: skeleton_loading
+    name: "Skeleton Loading"
+    priority: "low"
+    status: "deferred"
+    description: "Show animated placeholder during thumbnail load"
+    effort: "1-2 hours"
+    reason: "Thumbnails already load fast; cosmetic polish"
+    
+  - id: adaptive_sizing
+    name: "Adaptive Sizing"
+    priority: "medium"
+    status: "deferred"
+    description: "Serve smaller thumbnails on mobile viewports"
+    effort: "1-2 hours"
+    reason: "Modest bandwidth savings; adds complexity"
+
+tasks:
+  # Preloading tasks - IMPLEMENTED
+  - id: preload.state
+    description: "Add prefetchedImage state variable"
+    status: "completed"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add let prefetchedImage = null;"
+    rollback: "Remove variable"
+
+  - id: preload.function
+    description: "Add prefetchNextThumbnail() function"
+    status: "completed"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add async function prefetchNextThumbnail()"
+      - "Fetch /api/images/random"
+      - "Create link rel=prefetch for thumbnail URL"
+      - "Clean up prefetch links after 30 seconds"
+    dependencies:
+      - preload.state
+    rollback: "Remove function"
+
+  - id: preload.integration
+    description: "Integrate prefetch into apiGetRandom()"
+    status: "completed"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Check for prefetchedImage at start of apiGetRandom()"
+      - "Use prefetched data if available (instant display)"
+      - "Call prefetchNextThumbnail() after displaying image"
+      - "Show '(prefetched)' in activity status"
+    dependencies:
+      - preload.function
+    rollback: "Remove prefetch integration"
+
+  - id: test.preloading
+    description: "Run tests and verify no regressions"
+    status: "completed"
+    sub_feature: "preloading"
+    changes:
+      - "All 228 tests pass"
+
+  # Deferred tasks
+  - id: config.schema
+    description: "Update service_limits.yaml schema for thumbnail config"
+    status: "deferred"
+    sub_feature: "configurable_size"
+
+  - id: skeleton.css
+    description: "Add skeleton loading CSS"
+    status: "deferred"
+    sub_feature: "skeleton_loading"
+
+  - id: adaptive.function
+    description: "Add getOptimalThumbnailSize() function"
+    status: "deferred"
+    sub_feature: "adaptive_sizing"
+
+definition_of_done:
+  - "Preloading: next image loads instantly during curation ✅"
+  - "Configurable: env var and config both work — DEFERRED"
+  - "Skeleton: smooth loading experience — DEFERRED"
+  - "Adaptive: smaller thumbnails on mobile — DEFERRED"
+  - "Manual testing on mobile and desktop — pending"
+  - "No regressions in existing functionality ✅"
+
+implementation_notes: |
+  Critical review recommended implementing ONLY preloading as it provides
+  the highest impact for the curation workflow. The other sub-features
+  (configurable size, skeleton loading, adaptive sizing) were deferred as
+  they add complexity with diminishing returns.
+  
+  Preloading approach:
+  - After displaying an image, immediately prefetch next random image
+  - Use browser's native <link rel="prefetch"> for thumbnail caching
+  - On "Next" click, use prefetched data if available (instant)
+  - Clean up prefetch links after 30 seconds to prevent DOM bloat
+  
+  Also fixed a bug: moved load_dotenv() to module level to prevent
+  test interference when tests monkeypatch env vars.

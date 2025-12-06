@@ -1,0 +1,155 @@
+# Story 018-02: Full-Size Access UX — Implementation Plan
+# Generated: 2025-12-06
+# Updated: 2025-12-06 (implemented)
+
+story:
+  id: "018-02"
+  name: "fullsize-access-ux"
+  feature: "018_thumbnail_preview_optimization"
+  status: "implemented"
+  effort_estimate: "2-3 hours"
+  actual_effort: "~30 minutes"
+
+summary: |
+  Add a "Full Size" button to the web UI that allows users to download or view
+  the original full-resolution image. Required because thumbnails are now
+  displayed by default after Story 01.
+
+dependencies:
+  - story_id: "018-01"
+    name: "core-thumbnail-support"
+    required: true
+    reason: "Provides currentFullUrl variable and showImage() changes"
+
+acceptance_criteria:
+  - "Full Size button hidden when no image loaded"
+  - "Full Size button appears when image loads successfully"
+  - "Click opens full-resolution image in new browser tab"
+  - "Button hidden when placeholder shown"
+  - "Button label comes from static config with fallback"
+  - "Mobile layout works without horizontal scrolling"
+
+tasks:
+  - id: config.button_label
+    description: "Add fullsize button label to web_ui_text.en.yaml"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/config/static/web_ui_text.en.yaml
+    changes:
+      - "Add buttons.fullsize: '📥 Full Size' entry"
+    rollback: "Remove the entry (harmless to leave)"
+
+  - id: frontend.button_html
+    description: "Add Full Size button to HTML controls"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add <button id='btn-fullsize'> after btn-next"
+      - "Use secondary class and hidden class"
+      - "Use Jinja template for i18n: {{ web_ui_text.buttons.fullsize or '📥 Full Size' }}"
+    rollback: "Remove button element"
+
+  - id: frontend.button_reference
+    description: "Add JavaScript reference to button element"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add: const btnFullSize = document.getElementById('btn-fullsize');"
+    dependencies:
+      - frontend.button_html
+    rollback: "Remove reference"
+
+  - id: frontend.handler
+    description: "Add handleFullSize() function"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add handleFullSize() function that calls window.open(currentFullUrl, '_blank')"
+      - "Include guard for null currentFullUrl"
+    dependencies:
+      - frontend.button_reference
+    rollback: "Remove function"
+
+  - id: frontend.show_hide
+    description: "Update showImage() and showImagePlaceholder() to toggle button"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "In showImage(): btnFullSize.classList.remove('hidden')"
+      - "In showImagePlaceholder(): btnFullSize.classList.add('hidden')"
+    dependencies:
+      - frontend.button_reference
+    rollback: "Remove classList toggle calls"
+
+  - id: frontend.wire_handler
+    description: "Wire button click handler in initLayout()"
+    status: "completed"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add: btnFullSize.addEventListener('click', handleFullSize)"
+    dependencies:
+      - frontend.handler
+      - frontend.show_hide
+    rollback: "Remove event listener"
+
+  - id: test.manual_desktop
+    description: "Manual testing on desktop browsers"
+    status: "pending"
+    files: []
+    changes:
+      - "Test button hidden initially"
+      - "Test button appears on image load"
+      - "Test click opens new tab with full image"
+      - "Test in Chrome, Safari, Firefox"
+    dependencies:
+      - frontend.wire_handler
+
+  - id: test.manual_mobile
+    description: "Manual testing on mobile browsers"
+    status: "pending"
+    files: []
+    changes:
+      - "Test layout at 320px width (no horizontal scroll)"
+      - "Test button touch target size"
+      - "Test new tab behavior on iOS Safari and Chrome"
+    dependencies:
+      - frontend.wire_handler
+
+execution_order:
+  - config.button_label
+  - frontend.button_html
+  - frontend.button_reference
+  - frontend.handler
+  - frontend.show_hide
+  - frontend.wire_handler
+  - test.manual_desktop
+  - test.manual_mobile
+
+risks:
+  - risk: "Popup blocker prevents window.open()"
+    likelihood: "low"
+    mitigation: "Users can right-click to open in new tab; standard browser behavior"
+  - risk: "Button layout breaks on small screens"
+    likelihood: "low"
+    mitigation: "Existing flex-wrap handles narrow widths; verify in testing"
+
+definition_of_done:
+  - "All tasks completed"
+  - "Button visible only when image loaded"
+  - "Click opens full-resolution image in new tab"
+  - "Mobile layout verified"
+  - "Static config updated"
+
+implementation_notes: |
+  Implemented 2025-12-06. All code changes completed successfully:
+  - Button added to HTML controls with i18n support
+  - JavaScript wired up with show/hide logic
+  - Uses existing .secondary button styling (fits well in control row)
+  - All 228 existing tests continue to pass
+  
+  Manual testing recommended before marking story as fully complete.

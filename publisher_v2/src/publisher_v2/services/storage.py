@@ -7,6 +7,7 @@ from typing import List, Tuple, Optional
 
 import dropbox
 from dropbox.exceptions import ApiError
+from dropbox.files import ThumbnailSize, ThumbnailFormat, ThumbnailMode, PathOrLink
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 
 from publisher_v2.config.schema import DropboxConfig
@@ -251,3 +252,49 @@ class DropboxStorage:
         semantics in one place.
         """
         await self.move_image_with_sidecars(folder, filename, archive_folder)
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def get_thumbnail(
+        self,
+        folder: str,
+        filename: str,
+        size: ThumbnailSize = ThumbnailSize.w960h640,
+        format: ThumbnailFormat = ThumbnailFormat.jpeg,
+    ) -> bytes:
+        """
+        Return a thumbnail of the specified image using Dropbox's thumbnail API.
+
+        Uses Dropbox's server-side thumbnail generation, which is fast and
+        avoids downloading the full image. Default size (960×640) produces
+        ~30-80KB files suitable for web preview.
+
+        Args:
+            folder: Dropbox folder path
+            filename: Image filename
+            size: Thumbnail size enum (default w960h640)
+            format: Output format (default JPEG for smaller files)
+
+        Returns:
+            Thumbnail image bytes
+
+        Raises:
+            StorageError: If thumbnail generation fails
+        """
+        try:
+            def _get_thumb() -> bytes:
+                path = os.path.join(folder, filename)
+                _, response = self.client.files_get_thumbnail_v2(
+                    resource=PathOrLink.path(path),
+                    size=size,
+                    format=format,
+                    mode=ThumbnailMode.fitone_bestfit,
+                )
+                return response.content
+
+            return await asyncio.to_thread(_get_thumb)
+        except ApiError as exc:
+            raise StorageError(f"Failed to get thumbnail for {filename}: {exc}") from exc
