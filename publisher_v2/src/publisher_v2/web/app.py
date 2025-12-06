@@ -25,6 +25,7 @@ from publisher_v2.web.auth import (
 )
 from publisher_v2.web.models import (
     ImageResponse,
+    ImageListResponse,
     AnalysisResponse,
     PublishResponse,
     PublishRequest,
@@ -174,6 +175,34 @@ async def api_admin_logout(response: Response) -> AdminStatusResponse:
 
 
 @app.get(
+    "/api/images/list",
+    response_model=ImageListResponse,
+)
+async def api_list_images(
+    request: Request,
+    response: Response,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> ImageListResponse:
+    features = service.config.features
+    if not getattr(features, "auto_view_enabled", False):
+        # reuse same logic as random image for permissions
+        if not is_admin_configured():
+             raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Image viewing requires admin mode but admin is not configured",
+            )
+        try:
+            require_admin(request)
+        except HTTPException:
+            raise
+
+    # Service method returns dict, pydantic validates
+    data = await service.list_images()
+    return ImageListResponse(**data)
+
+
+@app.get(
     "/api/images/random",
     response_model=ImageResponse,
     responses={404: {"model": ErrorResponse}},
@@ -240,6 +269,40 @@ async def api_get_random_image(
             correlation_id=telemetry.correlation_id,
             web_random_image_ms=web_random_image_ms,
         )
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+
+
+@app.get(
+    "/api/images/{filename}",
+    response_model=ImageResponse,
+    responses={404: {"model": ErrorResponse}},
+)
+async def api_get_image_details(
+    filename: str,
+    request: Request,
+    response: Response,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> ImageResponse:
+    # Enforce same permissions as random/list
+    features = service.config.features
+    if not getattr(features, "auto_view_enabled", False):
+        if not is_admin_configured():
+             raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Image viewing requires admin mode but admin is not configured",
+            )
+        try:
+            require_admin(request)
+        except HTTPException:
+            raise
+
+    try:
+        return await service.get_image_details(filename)
+    except FileNotFoundError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    except Exception as exc:
+        log_json(logger, logging.ERROR, "web_get_image_error", error=str(exc))
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
 
 
