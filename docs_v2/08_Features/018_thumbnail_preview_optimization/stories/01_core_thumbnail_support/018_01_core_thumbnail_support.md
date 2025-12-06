@@ -3,7 +3,7 @@
 **Feature ID:** 018  
 **Story ID:** 018-01  
 **Name:** core-thumbnail-support  
-**Status:** Proposed  
+**Status:** Shipped  
 **Date:** 2025-12-06  
 **Parent Feature:** 018_thumbnail_preview_optimization
 

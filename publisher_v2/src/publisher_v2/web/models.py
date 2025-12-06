@@ -8,6 +8,7 @@ from pydantic import BaseModel
 class ImageResponse(BaseModel):
     filename: str
     temp_url: str
+    thumbnail_url: Optional[str] = None
     sha256: Optional[str] = None
     caption: Optional[str] = None
     sd_caption: Optional[str] = None

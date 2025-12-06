@@ -5,8 +5,9 @@ story:
   id: "018-01"
   name: "core-thumbnail-support"
   feature: "018_thumbnail_preview_optimization"
-  status: "proposed"
+  status: "shipped"
   effort_estimate: "4-6 hours"
+  completed_date: "2025-12-06"
 
 summary: |
   Implement core thumbnail infrastructure using Dropbox's files/get_thumbnail_v2 API.

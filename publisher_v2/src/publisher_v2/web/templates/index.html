@@ -269,6 +269,7 @@
     const adminModalClose = document.getElementById("admin-modal-close");
 
     let currentFilename = null;
+    let currentFullUrl = null;  // Store full-size URL for future "Full Size" button (Story 02)
     let isAdmin = false;
     let featureConfig = {
       analyze_caption_enabled: true,
@@ -305,17 +306,20 @@
         imagePlaceholder.textContent = message || fallback;
         imagePlaceholder.classList.remove("hidden");
       }
+      currentFullUrl = null;
     }
 
-    function showImage(url, altText) {
+    function showImage(thumbnailUrl, fullUrl, altText) {
       if (imagePlaceholder) {
         imagePlaceholder.classList.add("hidden");
       }
       if (imgEl) {
-        imgEl.src = url;
+        imgEl.src = thumbnailUrl;  // Load thumbnail (fast!)
         imgEl.alt = altText || "Image";
         imgEl.classList.remove("hidden");
       }
+      // Store full URL for future "Full Size" button (Story 02)
+      currentFullUrl = fullUrl;
     }
 
     function disableButtons(disabled) {
@@ -458,8 +462,11 @@
         }
         const data = await res.json();
         currentFilename = data.filename;
+        // Use thumbnail_url for display (fast), fallback to temp_url for backward compat
+        const displayUrl = data.thumbnail_url || data.temp_url;
         showImage(
-          data.temp_url,
+          displayUrl,
+          data.temp_url,  // Store full URL for future "Full Size" access
           data.caption || data.sd_caption || data.filename
         );
         setCaption(data.caption || data.sd_caption || "No caption yet.");

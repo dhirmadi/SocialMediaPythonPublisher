@@ -6,6 +6,7 @@ import logging
 import os
 import tempfile
 import time
+import urllib.parse
 from typing import List, Dict, Any, Optional
 
 from publisher_v2.config.loader import load_application_config
@@ -105,13 +106,14 @@ class WebImageService:
 
         folder = self.config.dropbox.image_folder
 
-        # Fetch temporary link, sidecar (if any), and image bytes for hash in parallel.
+        # Fetch temporary link and sidecar in parallel.
         # Sidecar reads use a dedicated helper that treats "not found" as a fast,
         # non-error outcome to avoid multi-second retries for missing sidecars.
-        temp_link_result, sidecar_result, image_result = await asyncio.gather(
+        # NOTE: We no longer download the full image here for performance reasons.
+        # SHA256 is computed on-demand during analyze/publish if needed.
+        temp_link_result, sidecar_result = await asyncio.gather(
             self.storage.get_temporary_link(folder, selected),
             self.storage.download_sidecar_if_exists(folder, selected),
-            self.storage.download_image(folder, selected),
             return_exceptions=True,
         )
 
@@ -133,23 +135,48 @@ class WebImageService:
             metadata = view.get("metadata")
             has_sidecar = bool(view.get("has_sidecar"))
 
-        # Optionally compute hash for display (not used for dedup here)
-        sha256 = None
-        if not isinstance(image_result, Exception) and image_result:
-            try:
-                sha256 = hashlib.sha256(image_result).hexdigest()
-            except Exception:
-                sha256 = None
+        # Build thumbnail URL (served via our API endpoint for caching control)
+        thumbnail_url = f"/api/images/{urllib.parse.quote(selected, safe='')}/thumbnail"
 
         return ImageResponse(
             filename=selected,
             temp_url=temp_link,
-            sha256=sha256,
+            thumbnail_url=thumbnail_url,
+            sha256=None,  # No longer computed during display for performance
             caption=caption,
             sd_caption=sd_caption,
             metadata=metadata,
             has_sidecar=has_sidecar,
         )
+
+    async def get_thumbnail(
+        self,
+        filename: str,
+        size: str = "w960h640",
+    ) -> bytes:
+        """
+        Return thumbnail bytes for the specified image.
+
+        Args:
+            filename: Image filename
+            size: Thumbnail size string (maps to ThumbnailSize enum)
+
+        Returns:
+            JPEG thumbnail bytes
+        """
+        from dropbox.files import ThumbnailSize
+
+        size_map = {
+            "w256h256": ThumbnailSize.w256h256,
+            "w480h320": ThumbnailSize.w480h320,
+            "w640h480": ThumbnailSize.w640h480,
+            "w960h640": ThumbnailSize.w960h640,
+            "w1024h768": ThumbnailSize.w1024h768,
+        }
+        thumb_size = size_map.get(size, ThumbnailSize.w960h640)
+
+        folder = self.config.dropbox.image_folder
+        return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 
     async def analyze_and_caption(
         self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False

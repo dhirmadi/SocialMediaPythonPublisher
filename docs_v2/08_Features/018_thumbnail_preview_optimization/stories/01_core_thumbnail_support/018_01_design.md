@@ -3,7 +3,7 @@
 **Story ID:** 018-01  
 **Design Version:** 1.0  
 **Date:** 2025-12-06  
-**Status:** Proposed  
+**Status:** Shipped  
 **Parent Story:** 018_01_core_thumbnail_support.md
 
 ## 1. Overview

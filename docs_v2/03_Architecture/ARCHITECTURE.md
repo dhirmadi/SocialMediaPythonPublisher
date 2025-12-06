@@ -47,6 +47,7 @@ Storage:
 - list_images_with_hashes(folder) -> list[tuple[str, str]]  (filename, Dropbox content_hash)
 - download_image(folder, filename) -> bytes
 - get_temporary_link(folder, filename) -> str
+- get_thumbnail(folder, filename, size, format) -> bytes (server-side thumbnail, Feature 018)
 - archive_image(folder, filename, archive_folder) -> None
 
 AI:
@@ -60,7 +61,8 @@ Publishers (async):
 
 Web API (FastAPI):
 - `GET /` → HTML UI (with i18n text injection from static config)
-- `GET /api/images/random` → ImageResponse (random image with metadata)
+- `GET /api/images/random` → ImageResponse (random image with metadata, includes `thumbnail_url`)
+- `GET /api/images/{filename}/thumbnail` → JPEG thumbnail bytes (fast preview, Feature 018)
 - `POST /api/images/{filename}/analyze` → AnalysisResponse (run AI analysis)
 - `POST /api/images/{filename}/publish` → PublishResponse (publish to platforms)
 - `POST /api/images/{filename}/keep` → CurationResponse (move to keep folder)
