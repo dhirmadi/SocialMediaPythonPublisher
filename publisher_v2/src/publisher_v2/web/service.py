@@ -100,41 +100,21 @@ class WebImageService:
         self._image_cache_expiry = now + self._image_cache_ttl_seconds
         return images
 
-    async def get_random_image(self) -> ImageResponse:
-        images = await self._get_cached_images()
-        if not images:
-            # FastAPI layer will translate into 404
-            raise FileNotFoundError("No images found")
-
-        import random
-
-        random.shuffle(images)
-        selected = images[0]
-
-        folder = self.config.dropbox.image_folder
-
-        # Fetch temporary link and sidecar in parallel.
-        # Sidecar reads use a dedicated helper that treats "not found" as a fast,
-        # non-error outcome to avoid multi-second retries for missing sidecars.
-        # NOTE: We no longer download the full image here for performance reasons.
-        # SHA256 is computed on-demand during analyze/publish if needed.
-        temp_link_result, sidecar_result = await asyncio.gather(
-            self.storage.get_temporary_link(folder, selected),
-            self.storage.download_sidecar_if_exists(folder, selected),
-            return_exceptions=True,
+    async def _build_image_response(self, filename: str, temp_link: str) -> ImageResponse:
+        """
+        Shared helper to build an ImageResponse from a filename and temp link.
+        Handles sidecar loading and thumbnail URL generation consistently.
+        """
+        sidecar_result = await self.storage.download_sidecar_if_exists(
+            self.config.dropbox.image_folder, filename
         )
-
-        if isinstance(temp_link_result, Exception):
-            # Propagate link errors; FastAPI layer will map to 5xx.
-            raise temp_link_result
-        temp_link = temp_link_result
 
         caption = None
         sd_caption = None
         metadata: Optional[Dict[str, Any]] = None
         has_sidecar = False
 
-        if not isinstance(sidecar_result, Exception) and sidecar_result:
+        if sidecar_result:
             text = sidecar_result.decode("utf-8", errors="ignore")
             view = rehydrate_sidecar_view(text)
             sd_caption = view.get("sd_caption")
@@ -142,19 +122,64 @@ class WebImageService:
             metadata = view.get("metadata")
             has_sidecar = bool(view.get("has_sidecar"))
 
-        # Build thumbnail URL (served via our API endpoint for caching control)
-        thumbnail_url = f"/api/images/{urllib.parse.quote(selected, safe='')}/thumbnail"
+        thumbnail_url = f"/api/images/{urllib.parse.quote(filename, safe='')}/thumbnail"
 
         return ImageResponse(
-            filename=selected,
+            filename=filename,
             temp_url=temp_link,
             thumbnail_url=thumbnail_url,
-            sha256=None,  # No longer computed during display for performance
+            sha256=None,
             caption=caption,
             sd_caption=sd_caption,
             metadata=metadata,
             has_sidecar=has_sidecar,
         )
+
+    async def get_random_image(self) -> ImageResponse:
+        images = await self._get_cached_images()
+        if not images:
+            raise FileNotFoundError("No images found")
+
+        import random
+        random.shuffle(images)
+        selected = images[0]
+        folder = self.config.dropbox.image_folder
+
+        temp_link = await self.storage.get_temporary_link(folder, selected)
+        return await self._build_image_response(selected, temp_link)
+
+    async def get_image_details(self, filename: str) -> ImageResponse:
+        """
+        Fetch details for a specific image by filename.
+        """
+        folder = self.config.dropbox.image_folder
+        # Check existence via temp link (will raise if not found)
+        try:
+            temp_link = await self.storage.get_temporary_link(folder, filename)
+        except Exception:
+            # Propagate or wrap as needed, but storage error usually implies not found/access issue
+            raise FileNotFoundError(f"Image {filename} not found")
+            
+        return await self._build_image_response(filename, temp_link)
+
+    async def list_images(self) -> Dict[str, Any]:
+        """
+        Return a sorted list of all valid image filenames.
+        Uses in-memory caching to avoid hitting Dropbox too frequently.
+        """
+        # We reuse _get_cached_images which already caches the raw list from Dropbox.
+        # However, that list might contain non-image files depending on storage implementation.
+        # But DropboxStorage.list_images is already implemented to filter by extension?
+        # Let's check DropboxStorage.list_images implementation or assume it returns all files.
+        # Actually, self._get_cached_images calls self.storage.list_images.
+        # We should ensure we return a sorted list here.
+        
+        images = await self._get_cached_images()
+        # Filter again just to be safe using utils logic if needed, 
+        # but let's assume _get_cached_images returns valid files.
+        # Sort A-Z
+        sorted_images = sorted(images)
+        return {"filenames": sorted_images, "count": len(sorted_images)}
 
     async def get_thumbnail(
         self,

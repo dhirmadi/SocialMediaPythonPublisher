@@ -1,0 +1,3 @@
+Wrote contents to docs_v2/08_Features/019_swipe_workflow_modes/stories/03_mode_toggle_integration/019_03_design.md.
+
+When you're done with your current set of changes to this file, you should call the read_lints tool with the specific file path and fix any newly introduced errors.

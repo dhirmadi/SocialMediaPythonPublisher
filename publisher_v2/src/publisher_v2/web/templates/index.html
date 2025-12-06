@@ -48,6 +48,28 @@
       width: 100%;
       margin: 0 auto;
     }
+    .mode-toggle {
+      display: flex;
+      justify-content: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+    .mode-btn {
+      flex: 0 1 auto;
+      padding: 0.5rem 1rem;
+      font-size: 0.85rem;
+      border-radius: 9999px;
+      border: 1px solid #374151;
+      background: #1e293b;
+      color: #9ca3af;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn.active {
+      background: #3b82f6;
+      color: white;
+      border-color: #3b82f6;
+    }
     .image-container {
       display: flex;
       justify-content: center;
@@ -59,6 +81,8 @@
       max-width: min(100%, 1280px);
       width: 100%;
       margin: 0 auto;
+      transition: transform 0.15s ease-out, opacity 0.15s ease-out;
+      position: relative;
     }
     .image-placeholder {
       text-align: center;
@@ -71,6 +95,14 @@
       height: auto;
       border-radius: 0.5rem;
       object-fit: contain;
+    }
+    .image-container.swiping-left {
+      transform: translateX(-20px);
+      opacity: 0.7;
+    }
+    .image-container.swiping-right {
+      transform: translateX(20px);
+      opacity: 0.7;
     }
     .controls {
       display: flex;
@@ -191,14 +223,20 @@
     </div>
   </div>
   <main>
+    <div class="mode-toggle">
+      <button id="mode-publish" class="mode-btn active">Publish Mode</button>
+      <button id="mode-review" class="mode-btn">Review Mode</button>
+    </div>
     <div class="image-container">
       <div id="image-placeholder" class="image-placeholder">
         {{ web_ui_text.placeholders.image_empty or "No image loaded yet." }}
       </div>
       <img id="image" class="hidden" alt="No image loaded yet" />
+      <div id="position-indicator" class="status hidden" style="position: absolute; bottom: 10px; right: 10px; background: rgba(0,0,0,0.6); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; color: #e5e7eb;"></div>
     </div>
 
     <div class="controls">
+      <button id="btn-prev" class="secondary hidden">Previous</button>
       <button id="btn-next">
         {{ web_ui_text.buttons.next or "Next image" }}
       </button>
@@ -272,9 +310,20 @@
     const adminModal = document.getElementById("admin-modal");
     const adminModalClose = document.getElementById("admin-modal-close");
 
+    const modePublishBtn = document.getElementById("mode-publish");
+    const modeReviewBtn = document.getElementById("mode-review");
+    const btnPrev = document.getElementById("btn-prev");
+
+    const imageContainer = document.querySelector(".image-container");
+    const positionIndicator = document.getElementById("position-indicator");
+
     let currentFilename = null;
     let currentFullUrl = null;  // Store full-size URL for "Full Size" button
     let prefetchedImage = null; // Prefetched next image for instant loading (Story 03)
+    let reviewList = [];
+    let reviewIndex = -1;
+    let currentMode = localStorage.getItem("pv2_mode") || "publish"; // "publish" or "review"
+
     let isAdmin = false;
     let featureConfig = {
       analyze_caption_enabled: true,
@@ -283,6 +332,210 @@
       remove_enabled: true,
       auto_view_enabled: false,
     };
+
+    function updateModeUI() {
+      if (currentMode === "review") {
+        modePublishBtn.classList.remove("active");
+        modeReviewBtn.classList.add("active");
+        btnPrev.classList.remove("hidden");
+        btnNext.textContent = "Next";
+        positionIndicator.classList.remove("hidden");
+      } else {
+        modePublishBtn.classList.add("active");
+        modeReviewBtn.classList.remove("active");
+        btnPrev.classList.add("hidden");
+        btnNext.textContent = TEXT.buttons?.next || "Next image";
+        positionIndicator.classList.add("hidden");
+      }
+      localStorage.setItem("pv2_mode", currentMode);
+    }
+
+    async function switchMode(newMode) {
+      if (currentMode === newMode) return;
+      currentMode = newMode;
+      updateModeUI();
+      
+      if (currentMode === "review") {
+        await initReviewMode();
+      } else {
+        // Publish mode logic
+        reviewList = [];
+        reviewIndex = -1;
+        await apiGetRandom();
+      }
+    }
+
+    async function initReviewMode() {
+      setActivity("Loading image list...");
+      disableButtons(true);
+      try {
+        const res = await fetch("/api/images/list");
+        if (!res.ok) throw new Error("Failed to fetch image list");
+        const data = await res.json();
+        reviewList = data.filenames || [];
+        
+        if (reviewList.length === 0) {
+          showImagePlaceholder("No images found.");
+          return;
+        }
+
+        // Try to find current image in list to sync position
+        if (currentFilename) {
+          const idx = reviewList.indexOf(currentFilename);
+          if (idx !== -1) {
+            reviewIndex = idx;
+          } else {
+            reviewIndex = 0;
+            await loadReviewImage(reviewIndex);
+          }
+        } else {
+          reviewIndex = 0;
+          await loadReviewImage(reviewIndex);
+        }
+        updatePositionIndicator();
+      } catch (e) {
+        console.error(e);
+        setActivity("Error loading list.");
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    async function loadReviewImage(index) {
+      if (index < 0 || index >= reviewList.length) return;
+      
+      const filename = reviewList[index];
+      setActivity(`Loading ${filename}...`);
+      disableButtons(true);
+      
+      try {
+        // Check prefetch first
+        if (prefetchedImage && prefetchedImage.filename === filename) {
+           applyImageData(prefetchedImage);
+           prefetchedImage = null;
+        } else {
+           const res = await fetch(`/api/images/${encodeURIComponent(filename)}`);
+           if (!res.ok) throw new Error("Failed to load image");
+           const data = await res.json();
+           applyImageData(data);
+        }
+        reviewIndex = index;
+        updatePositionIndicator();
+        prefetchNextSequential();
+      } catch (e) {
+        console.error(e);
+        setActivity(`Error loading ${filename}`);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    function applyImageData(data) {
+        currentFilename = data.filename;
+        const displayUrl = data.thumbnail_url || data.temp_url;
+        showImage(
+          displayUrl,
+          data.temp_url,
+          data.caption || data.sd_caption || data.filename
+        );
+        setCaption(data.caption || data.sd_caption || "No caption yet.");
+        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
+        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
+        setActivity("Image loaded.");
+    }
+
+    function updatePositionIndicator() {
+      if (currentMode === "review" && reviewList.length > 0) {
+        positionIndicator.textContent = `${reviewIndex + 1} / ${reviewList.length}`;
+      } else {
+        positionIndicator.textContent = "";
+      }
+    }
+
+    async function prefetchNextSequential() {
+      if (reviewIndex + 1 < reviewList.length) {
+        const nextFilename = reviewList[reviewIndex + 1];
+        try {
+          const res = await fetch(`/api/images/${encodeURIComponent(nextFilename)}`);
+          if (res.ok) {
+            const data = await res.json();
+            prefetchedImage = data;
+            // Browser cache warming
+            if (data.thumbnail_url) {
+                const link = document.createElement("link");
+                link.rel = "prefetch";
+                link.as = "image";
+                link.href = data.thumbnail_url;
+                document.head.appendChild(link);
+                setTimeout(() => link.remove(), 30000);
+            }
+          }
+        } catch (e) { console.warn("Prefetch failed", e); }
+      }
+    }
+
+    async function handleNext() {
+      if (currentMode === "review") {
+        if (reviewIndex + 1 < reviewList.length) {
+          await loadReviewImage(reviewIndex + 1);
+        } else {
+          setActivity("End of list.");
+        }
+      } else {
+        await apiGetRandom();
+      }
+    }
+
+    async function handlePrev() {
+      if (currentMode === "review") {
+        if (reviewIndex > 0) {
+          await loadReviewImage(reviewIndex - 1);
+        } else {
+          setActivity("Start of list.");
+        }
+      }
+    }
+
+    // Modify apiGetRandom to use applyImageData for consistency and handle new response shape
+    async function apiGetRandom() {
+      const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
+      
+      if (!isAdmin && !featureConfig.auto_view_enabled) {
+        setActivity(adminReq);
+        setDetails("");
+        showImagePlaceholder(adminReq);
+        return;
+      }
+      
+      if (prefetchedImage) {
+        applyImageData(prefetchedImage);
+        prefetchedImage = null;
+        prefetchNextThumbnail(); // Original random prefetch
+        return;
+      }
+      
+      setActivity("Loading random image…");
+      disableButtons(true);
+      try {
+        const res = await fetch("/api/images/random");
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || err.error || "Failed to load image");
+        }
+        const data = await res.json();
+        applyImageData(data);
+        prefetchNextThumbnail();
+      } catch (e) {
+        console.error(e);
+        currentFilename = null;
+        showImagePlaceholder("Error loading image.");
+        setCaption(null);
+        setDetails("");
+        setActivity(e.message || "Error loading image.");
+      } finally {
+        disableButtons(false);
+      }
+    }
 
     function setActivity(msg) {
       statusEl.textContent = msg || "";
@@ -801,8 +1054,57 @@
       btnAdminLogout.addEventListener("click", handleAdminLogout);
     }
 
+    function initGestures() {
+      let touchStartX = 0;
+      let touchStartY = 0;
+      let touchEndX = 0;
+      let touchEndY = 0;
+      const SWIPE_THRESHOLD = 50;
+
+      imageContainer.addEventListener('touchstart', (e) => {
+        touchStartX = e.changedTouches[0].screenX;
+        touchStartY = e.changedTouches[0].screenY;
+      }, { passive: true });
+
+      imageContainer.addEventListener('touchend', (e) => {
+        touchEndX = e.changedTouches[0].screenX;
+        touchEndY = e.changedTouches[0].screenY;
+        handleSwipe();
+      }, { passive: true });
+
+      function handleSwipe() {
+        const diffX = touchStartX - touchEndX;
+        const diffY = touchStartY - touchEndY;
+
+        // Check for horizontal dominance
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+           // Horizontal swipe
+           if (Math.abs(diffX) > SWIPE_THRESHOLD) {
+             if (diffX > 0) {
+               // Swipe Left -> Next
+               imageContainer.classList.add("swiping-left");
+               setTimeout(() => imageContainer.classList.remove("swiping-left"), 300);
+               handleNext();
+             } else {
+               // Swipe Right -> Previous (if allowed)
+               if (currentMode === "review") {
+                 imageContainer.classList.add("swiping-right");
+                 setTimeout(() => imageContainer.classList.remove("swiping-right"), 300);
+                 handlePrev();
+               }
+             }
+           }
+        }
+      }
+    }
+
     function initLayout() {
-      btnNext.addEventListener("click", apiGetRandom);
+      btnNext.addEventListener("click", handleNext);
+      btnPrev.addEventListener("click", handlePrev);
+      
+      modePublishBtn.addEventListener("click", () => switchMode("publish"));
+      modeReviewBtn.addEventListener("click", () => switchMode("review"));
+
       if (btnFullSize) {
         btnFullSize.addEventListener("click", handleFullSize);
       }
@@ -819,14 +1121,20 @@
         btnRemove.addEventListener("click", apiRemove);
       }
       initAdminControls();
+      initGestures();
       window.addEventListener("load", async () => {
         // Fetch feature config first so we can gate buttons from .env feature flags.
         featureConfig = await fetchFeatureConfig();
         await refreshAdminStatus();
         updateAdminUI();
+        updateModeUI();
 
         if (isAdmin || featureConfig.auto_view_enabled) {
-          await apiGetRandom();
+          if (currentMode === "review") {
+            await initReviewMode();
+          } else {
+            await apiGetRandom();
+          }
         } else {
           setActivity("Ready. Admin mode required to view images.");
           setDetails("");

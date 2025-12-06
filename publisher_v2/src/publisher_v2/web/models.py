@@ -5,6 +5,11 @@ from typing import Optional, Dict, Any, List
 from pydantic import BaseModel
 
 
+class ImageListResponse(BaseModel):
+    filenames: List[str]
+    count: int
+
+
 class ImageResponse(BaseModel):
     filename: str
     temp_url: str
