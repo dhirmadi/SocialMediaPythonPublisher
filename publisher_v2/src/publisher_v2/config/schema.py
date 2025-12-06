@@ -10,12 +10,12 @@ class DropboxConfig(BaseModel):
     refresh_token: str = Field(..., description="OAuth2 refresh token")
     image_folder: str = Field(..., description="Source image folder path in Dropbox")
     archive_folder: str = Field(default="archive", description="Archive folder name (relative)")
-    folder_keep: Optional[str] = Field(
-        default=None,
+    folder_keep: str = Field(
+        default="keep",
         description="Subfolder name under image_folder for Keep curation moves",
     )
-    folder_remove: Optional[str] = Field(
-        default=None,
+    folder_remove: str = Field(
+        default="reject",
         description="Subfolder name under image_folder for Remove curation moves (alias for legacy folder_reject)",
     )
 
