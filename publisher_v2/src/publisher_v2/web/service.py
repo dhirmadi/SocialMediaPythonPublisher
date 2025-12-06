@@ -477,5 +477,25 @@ class WebImageService:
             preview_only=False,
         )
 
+    async def verify_curation_folders(self) -> None:
+        """
+        Proactively ensure that configured Keep/Remove folders exist in Dropbox.
+        Safe to call repeatedly (idempotent).
+        """
+        tasks = []
+        image_folder = self.config.dropbox.image_folder.rstrip("/")
+
+        if self.config.features.keep_enabled and self.config.dropbox.folder_keep:
+            keep_path = f"{image_folder}/{self.config.dropbox.folder_keep}"
+            tasks.append(self.storage.ensure_folder_exists(keep_path))
+
+        if self.config.features.remove_enabled and self.config.dropbox.folder_remove:
+            remove_path = f"{image_folder}/{self.config.dropbox.folder_remove}"
+            tasks.append(self.storage.ensure_folder_exists(remove_path))
+
+        if tasks:
+            log_json(self.logger, logging.INFO, "web_verifying_curation_folders", count=len(tasks))
+            await asyncio.gather(*tasks)
+
 
 

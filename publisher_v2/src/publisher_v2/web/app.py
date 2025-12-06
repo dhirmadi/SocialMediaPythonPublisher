@@ -114,7 +114,11 @@ async def index(request: Request) -> HTMLResponse:
         503: {"model": ErrorResponse},
     },
 )
-async def api_admin_login(payload: AdminLoginRequest, response: Response) -> AdminStatusResponse:
+async def api_admin_login(
+    payload: AdminLoginRequest,
+    response: Response,
+    service: WebImageService = Depends(get_service),
+) -> AdminStatusResponse:
     """
     Simple admin login endpoint.
 
@@ -146,6 +150,18 @@ async def api_admin_login(payload: AdminLoginRequest, response: Response) -> Adm
 
     set_admin_cookie(response)
     log_json(logger, logging.INFO, "web_admin_login_success")
+
+    # Proactively verify curation folders for admin convenience
+    try:
+        await service.verify_curation_folders()
+    except Exception as exc:
+        log_json(
+            logger,
+            logging.WARNING,
+            "web_admin_login_folder_check_error",
+            error=str(exc),
+        )
+
     return AdminStatusResponse(admin=True)
 
 
