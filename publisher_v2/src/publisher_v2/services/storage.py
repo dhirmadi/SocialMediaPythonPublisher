@@ -211,6 +211,32 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
+    async def ensure_folder_exists(self, folder_path: str) -> None:
+        """
+        Ensure the specified folder exists in Dropbox.
+        Creates it if it does not exist; ignores error if it already exists.
+        """
+        try:
+            def _ensure() -> None:
+                try:
+                    self.client.files_create_folder_v2(folder_path)
+                except ApiError as exc:
+                    # Check if error is "path already exists"
+                    error = getattr(exc, "error", None)
+                    if error and error.is_path() and error.get_path().is_conflict():
+                         pass
+                    else:
+                        raise
+
+            await asyncio.to_thread(_ensure)
+        except ApiError as exc:
+            raise StorageError(f"Failed to ensure folder exists {folder_path}: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
         """
         Move the image and its .txt sidecar (if present) into a subfolder under the given folder.
