@@ -202,6 +202,9 @@
       <button id="btn-next">
         {{ web_ui_text.buttons.next or "Next image" }}
       </button>
+      <button id="btn-fullsize" class="secondary hidden">
+        {{ web_ui_text.buttons.fullsize or "📥 Full Size" }}
+      </button>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
           {{ web_ui_text.buttons.analyze or "Analyze & caption" }}
@@ -252,6 +255,7 @@
     const envIndicator = document.getElementById("env-indicator");
     const captionEl = document.getElementById("caption-text");
     const btnNext = document.getElementById("btn-next");
+    const btnFullSize = document.getElementById("btn-fullsize");
     const btnAnalyze = document.getElementById("btn-analyze");
     const btnPublish = document.getElementById("btn-publish");
     const btnKeep = document.getElementById("btn-keep");
@@ -307,6 +311,16 @@
         imagePlaceholder.classList.remove("hidden");
       }
       currentFullUrl = null;
+      // Hide Full Size button when no image is loaded
+      if (btnFullSize) {
+        btnFullSize.classList.add("hidden");
+      }
+    }
+
+    function handleFullSize() {
+      if (currentFullUrl) {
+        window.open(currentFullUrl, "_blank");
+      }
     }
 
     function showImage(thumbnailUrl, fullUrl, altText) {
@@ -318,8 +332,11 @@
         imgEl.alt = altText || "Image";
         imgEl.classList.remove("hidden");
       }
-      // Store full URL for future "Full Size" button (Story 02)
       currentFullUrl = fullUrl;
+      // Show Full Size button when image is loaded
+      if (btnFullSize) {
+        btnFullSize.classList.remove("hidden");
+      }
     }
 
     function disableButtons(disabled) {
@@ -724,6 +741,9 @@
 
     function initLayout() {
       btnNext.addEventListener("click", apiGetRandom);
+      if (btnFullSize) {
+        btnFullSize.addEventListener("click", handleFullSize);
+      }
       if (btnAnalyze) {
         btnAnalyze.addEventListener("click", apiAnalyze);
       }

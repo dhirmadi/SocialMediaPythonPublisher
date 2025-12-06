@@ -1,12 +1,14 @@
 # Story 018-02: Full-Size Access UX — Implementation Plan
 # Generated: 2025-12-06
+# Updated: 2025-12-06 (implemented)
 
 story:
   id: "018-02"
   name: "fullsize-access-ux"
   feature: "018_thumbnail_preview_optimization"
-  status: "proposed"
+  status: "implemented"
   effort_estimate: "2-3 hours"
+  actual_effort: "~30 minutes"
 
 summary: |
   Add a "Full Size" button to the web UI that allows users to download or view
@@ -30,7 +32,7 @@ acceptance_criteria:
 tasks:
   - id: config.button_label
     description: "Add fullsize button label to web_ui_text.en.yaml"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/config/static/web_ui_text.en.yaml
     changes:
@@ -39,7 +41,7 @@ tasks:
 
   - id: frontend.button_html
     description: "Add Full Size button to HTML controls"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/web/templates/index.html
     changes:
@@ -50,7 +52,7 @@ tasks:
 
   - id: frontend.button_reference
     description: "Add JavaScript reference to button element"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/web/templates/index.html
     changes:
@@ -61,7 +63,7 @@ tasks:
 
   - id: frontend.handler
     description: "Add handleFullSize() function"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/web/templates/index.html
     changes:
@@ -73,7 +75,7 @@ tasks:
 
   - id: frontend.show_hide
     description: "Update showImage() and showImagePlaceholder() to toggle button"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/web/templates/index.html
     changes:
@@ -85,7 +87,7 @@ tasks:
 
   - id: frontend.wire_handler
     description: "Wire button click handler in initLayout()"
-    status: "pending"
+    status: "completed"
     files:
       - publisher_v2/src/publisher_v2/web/templates/index.html
     changes:
@@ -143,3 +145,11 @@ definition_of_done:
   - "Mobile layout verified"
   - "Static config updated"
 
+implementation_notes: |
+  Implemented 2025-12-06. All code changes completed successfully:
+  - Button added to HTML controls with i18n support
+  - JavaScript wired up with show/hide logic
+  - Uses existing .secondary button styling (fits well in control row)
+  - All 228 existing tests continue to pass
+  
+  Manual testing recommended before marking story as fully complete.

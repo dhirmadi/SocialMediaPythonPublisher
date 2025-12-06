@@ -9,6 +9,7 @@ buttons:
   publish: "Publish"
   keep: "Keep"
   remove: "Remove"
+  fullsize: "📥 Full Size"
 
 panels:
   caption_title: "Caption"

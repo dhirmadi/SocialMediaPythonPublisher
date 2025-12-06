@@ -1,9 +1,9 @@
 # Story 018-02: Full-Size Access UX — Design
 
 **Story ID:** 018-02  
-**Design Version:** 1.0  
+**Design Version:** 1.1  
 **Date:** 2025-12-06  
-**Status:** Proposed  
+**Status:** Implemented  
 **Parent Story:** 018_02_fullsize_access_ux.md
 
 ## 1. Overview
