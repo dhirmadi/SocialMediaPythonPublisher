@@ -1,0 +1,256 @@
+# Story 018-03: Performance Optimization — Implementation Plan
+# Generated: 2025-12-06
+
+story:
+  id: "018-03"
+  name: "performance-optimization"
+  feature: "018_thumbnail_preview_optimization"
+  status: "proposed"
+  priority: "optional"
+  effort_estimate: "4-8 hours"
+
+summary: |
+  Advanced performance optimizations for the thumbnail preview system.
+  Includes preloading, configurable sizes, skeleton loading, and adaptive sizing.
+  These are nice-to-have enhancements that improve curation workflow.
+
+dependencies:
+  - story_id: "018-01"
+    name: "core-thumbnail-support"
+    required: true
+  - story_id: "018-02"
+    name: "fullsize-access-ux"
+    required: true
+
+acceptance_criteria:
+  - "Next image thumbnail prefetched while viewing current image"
+  - "Thumbnail size configurable via env var and static config"
+  - "Skeleton loading placeholder shown during thumbnail load"
+  - "Adaptive sizing serves smaller thumbnails on mobile viewports"
+  - "Curation workflow feels instant (< 200ms between images)"
+
+sub_features:
+  - id: preloading
+    name: "Thumbnail Preloading"
+    priority: "high"
+    description: "Prefetch next image thumbnail while viewing current"
+    effort: "1-2 hours"
+    
+  - id: configurable_size
+    name: "Configurable Default Size"
+    priority: "medium"
+    description: "Allow thumbnail size via env var or static config"
+    effort: "1-2 hours"
+    
+  - id: skeleton_loading
+    name: "Skeleton Loading"
+    priority: "low"
+    description: "Show animated placeholder during thumbnail load"
+    effort: "1-2 hours"
+    
+  - id: adaptive_sizing
+    name: "Adaptive Sizing"
+    priority: "medium"
+    description: "Serve smaller thumbnails on mobile viewports"
+    effort: "1-2 hours"
+
+tasks:
+  # Preloading tasks
+  - id: preload.state
+    description: "Add prefetchedImage state variable"
+    status: "pending"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add let prefetchedImage = null;"
+    rollback: "Remove variable"
+
+  - id: preload.function
+    description: "Add prefetchNextThumbnail() function"
+    status: "pending"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add async function prefetchNextThumbnail()"
+      - "Fetch /api/images/random"
+      - "Create link rel=prefetch for thumbnail URL"
+    dependencies:
+      - preload.state
+    rollback: "Remove function"
+
+  - id: preload.integration
+    description: "Integrate prefetch into apiGetRandom()"
+    status: "pending"
+    sub_feature: "preloading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Check for prefetchedImage at start of apiGetRandom()"
+      - "Use prefetched data if available"
+      - "Call prefetchNextThumbnail() after displaying image"
+    dependencies:
+      - preload.function
+    rollback: "Remove prefetch integration"
+
+  # Configurable size tasks
+  - id: config.schema
+    description: "Update service_limits.yaml schema for thumbnail config"
+    status: "pending"
+    sub_feature: "configurable_size"
+    files:
+      - publisher_v2/src/publisher_v2/config/static/service_limits.yaml
+    changes:
+      - "Add web.thumbnail.default_size field"
+      - "Add web.thumbnail.cache_ttl_seconds field"
+    rollback: "Remove thumbnail section"
+
+  - id: config.service
+    description: "Add _get_default_thumbnail_size() to WebImageService"
+    status: "pending"
+    sub_feature: "configurable_size"
+    files:
+      - publisher_v2/src/publisher_v2/web/service.py
+    changes:
+      - "Add VALID_THUMBNAIL_SIZES constant"
+      - "Add _get_default_thumbnail_size() method"
+      - "Check env var first, then static config, then default"
+    dependencies:
+      - config.schema
+    rollback: "Remove method and constant"
+
+  - id: config.endpoint
+    description: "Use configurable default size in thumbnail endpoint"
+    status: "pending"
+    sub_feature: "configurable_size"
+    files:
+      - publisher_v2/src/publisher_v2/web/app.py
+    changes:
+      - "Use service._get_default_thumbnail_size() when no size param"
+    dependencies:
+      - config.service
+    rollback: "Revert to hardcoded default"
+
+  # Skeleton loading tasks
+  - id: skeleton.css
+    description: "Add skeleton loading CSS"
+    status: "pending"
+    sub_feature: "skeleton_loading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add .image-skeleton class with shimmer animation"
+      - "Add @keyframes skeleton-shimmer"
+      - "Add .loaded class for fade-in transition"
+    rollback: "Remove CSS"
+
+  - id: skeleton.html
+    description: "Add skeleton element to HTML"
+    status: "pending"
+    sub_feature: "skeleton_loading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add <div id='image-skeleton'> in image-container"
+    dependencies:
+      - skeleton.css
+    rollback: "Remove element"
+
+  - id: skeleton.js
+    description: "Add skeleton show/hide logic"
+    status: "pending"
+    sub_feature: "skeleton_loading"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add showSkeleton() function"
+      - "Update showImage() to show skeleton, preload image, then fade in"
+    dependencies:
+      - skeleton.html
+    rollback: "Remove JavaScript changes"
+
+  # Adaptive sizing tasks
+  - id: adaptive.function
+    description: "Add getOptimalThumbnailSize() function"
+    status: "pending"
+    sub_feature: "adaptive_sizing"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add getOptimalThumbnailSize() with viewport breakpoints"
+      - "Return w480h320, w640h480, or w960h640 based on width"
+    rollback: "Remove function"
+
+  - id: adaptive.integration
+    description: "Use adaptive size in thumbnail URL"
+    status: "pending"
+    sub_feature: "adaptive_sizing"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Call getOptimalThumbnailSize() when building thumbnail URL"
+      - "Append size parameter to URL"
+    dependencies:
+      - adaptive.function
+    rollback: "Remove size parameter from URL"
+
+  # Testing tasks
+  - id: test.preloading
+    description: "Manual testing of preloading"
+    status: "pending"
+    sub_feature: "preloading"
+    changes:
+      - "Verify link rel=prefetch created"
+      - "Verify instant load on second+ 'Next' clicks"
+    dependencies:
+      - preload.integration
+
+  - id: test.adaptive
+    description: "Manual testing of adaptive sizing"
+    status: "pending"
+    sub_feature: "adaptive_sizing"
+    changes:
+      - "Test on 320px, 480px, 768px, 1024px viewports"
+      - "Verify correct size parameter in network requests"
+    dependencies:
+      - adaptive.integration
+
+execution_order:
+  # Preloading (highest impact)
+  - preload.state
+  - preload.function
+  - preload.integration
+  - test.preloading
+  # Adaptive sizing (mobile benefit)
+  - adaptive.function
+  - adaptive.integration
+  - test.adaptive
+  # Skeleton loading (polish)
+  - skeleton.css
+  - skeleton.html
+  - skeleton.js
+  # Configurable size (operational)
+  - config.schema
+  - config.service
+  - config.endpoint
+
+risks:
+  - risk: "Preloading doubles API calls"
+    likelihood: "medium"
+    mitigation: "Only prefetch one ahead; monitor rate limits"
+  - risk: "Skeleton feels too busy"
+    likelihood: "low"
+    mitigation: "Only show after 200ms delay; smooth transitions"
+  - risk: "Adaptive sizing adds complexity"
+    likelihood: "low"
+    mitigation: "Keep simple (3 breakpoints); fallback to largest"
+
+definition_of_done:
+  - "Preloading: next image loads instantly during curation"
+  - "Configurable: env var and config both work"
+  - "Skeleton: smooth loading experience"
+  - "Adaptive: smaller thumbnails on mobile"
+  - "Manual testing on mobile and desktop"
+  - "No regressions in existing functionality"
+

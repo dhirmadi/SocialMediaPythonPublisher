@@ -1,0 +1,167 @@
+# Story 018-01: Core Thumbnail Support — Implementation Plan
+# Generated: 2025-12-06
+
+story:
+  id: "018-01"
+  name: "core-thumbnail-support"
+  feature: "018_thumbnail_preview_optimization"
+  status: "proposed"
+  effort_estimate: "4-6 hours"
+
+summary: |
+  Implement core thumbnail infrastructure using Dropbox's files/get_thumbnail_v2 API.
+  This delivers the MVP: storage method, API endpoint, updated model, and frontend changes.
+
+acceptance_criteria:
+  - "DropboxStorage.get_thumbnail() returns thumbnail bytes using Dropbox API"
+  - "GET /api/images/{filename}/thumbnail returns JPEG with Cache-Control headers"
+  - "ImageResponse includes thumbnail_url field"
+  - "Frontend displays thumbnail by default with fallback to temp_url"
+  - "get_random_image() no longer downloads full image (performance)"
+  - "Structured logging for thumbnail requests"
+
+tasks:
+  - id: storage.get_thumbnail
+    description: "Add get_thumbnail() method to DropboxStorage"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/services/storage.py
+    changes:
+      - "Import ThumbnailSize, ThumbnailFormat, ThumbnailMode, PathOrLink from dropbox.files"
+      - "Add async get_thumbnail(folder, filename, size, format) method"
+      - "Use @retry decorator with same pattern as existing methods"
+      - "Call client.files_get_thumbnail_v2() in asyncio.to_thread()"
+      - "Raise StorageError on ApiError"
+    tests:
+      - publisher_v2/tests/test_storage_thumbnail.py
+    rollback: "Remove get_thumbnail method"
+
+  - id: models.thumbnail_url
+    description: "Add thumbnail_url field to ImageResponse model"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/web/models.py
+    changes:
+      - "Add thumbnail_url: Optional[str] = None to ImageResponse"
+    tests:
+      - publisher_v2/tests/test_web_models.py
+    rollback: "Remove thumbnail_url field"
+
+  - id: service.get_thumbnail
+    description: "Add get_thumbnail() method to WebImageService"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/web/service.py
+    changes:
+      - "Add get_thumbnail(filename, size) method"
+      - "Map size string to ThumbnailSize enum"
+      - "Delegate to storage.get_thumbnail()"
+    dependencies:
+      - storage.get_thumbnail
+    tests:
+      - publisher_v2/tests/test_web_service.py
+    rollback: "Remove get_thumbnail method"
+
+  - id: service.optimize_random_image
+    description: "Optimize get_random_image() to skip full image download"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/web/service.py
+    changes:
+      - "Import urllib.parse"
+      - "Remove download_image() from asyncio.gather()"
+      - "Build thumbnail_url from filename"
+      - "Return sha256=None (no longer computed)"
+    dependencies:
+      - models.thumbnail_url
+    tests:
+      - publisher_v2/tests/test_web_service.py
+    rollback: "Restore download_image() call and sha256 computation"
+
+  - id: app.thumbnail_endpoint
+    description: "Add /api/images/{filename}/thumbnail endpoint"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/web/app.py
+    changes:
+      - "Add ThumbnailSizeParam enum"
+      - "Add api_get_thumbnail() endpoint handler"
+      - "Include telemetry, logging, error handling"
+      - "Respect AUTO_VIEW/admin authentication"
+      - "Set Cache-Control: public, max-age=3600"
+    dependencies:
+      - service.get_thumbnail
+    tests:
+      - publisher_v2/tests/test_web_thumbnail_endpoint.py
+    signatures:
+      - "class ThumbnailSizeParam(str, Enum)"
+      - "async def api_get_thumbnail(filename, request, response, size, service, telemetry)"
+    rollback: "Remove endpoint and enum"
+
+  - id: frontend.thumbnail_display
+    description: "Update frontend to display thumbnails by default"
+    status: "pending"
+    files:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    changes:
+      - "Add currentFullUrl variable"
+      - "Modify showImage() to accept thumbnailUrl and fullUrl"
+      - "Modify apiGetRandom() to use thumbnail_url with fallback"
+      - "Store temp_url in currentFullUrl for future use"
+    dependencies:
+      - app.thumbnail_endpoint
+    tests:
+      - "Manual testing: image loads < 1s on 4G"
+    rollback: "Revert showImage and apiGetRandom changes"
+
+  - id: tests.storage_thumbnail
+    description: "Add unit tests for storage thumbnail method"
+    status: "pending"
+    files:
+      - publisher_v2/tests/test_storage_thumbnail.py
+    changes:
+      - "test_get_thumbnail_returns_bytes()"
+      - "test_get_thumbnail_raises_on_not_found()"
+      - "test_get_thumbnail_uses_correct_size()"
+    dependencies:
+      - storage.get_thumbnail
+    rollback: "Delete test file"
+
+  - id: tests.web_thumbnail_endpoint
+    description: "Add API tests for thumbnail endpoint"
+    status: "pending"
+    files:
+      - publisher_v2/tests/test_web_thumbnail_endpoint.py
+    changes:
+      - "test_thumbnail_endpoint_returns_jpeg()"
+      - "test_thumbnail_endpoint_sets_cache_headers()"
+      - "test_thumbnail_endpoint_404_not_found()"
+      - "test_thumbnail_endpoint_respects_auto_view()"
+    dependencies:
+      - app.thumbnail_endpoint
+    rollback: "Delete test file"
+
+execution_order:
+  - storage.get_thumbnail
+  - models.thumbnail_url
+  - service.get_thumbnail
+  - service.optimize_random_image
+  - app.thumbnail_endpoint
+  - frontend.thumbnail_display
+  - tests.storage_thumbnail
+  - tests.web_thumbnail_endpoint
+
+risks:
+  - risk: "Dropbox SDK version incompatibility"
+    likelihood: "low"
+    mitigation: "Verify files_get_thumbnail_v2 exists in current SDK"
+  - risk: "Thumbnail quality complaints"
+    likelihood: "low"
+    mitigation: "Default w960h640 is high quality; full-size always available"
+
+definition_of_done:
+  - "All tasks completed"
+  - "All tests pass"
+  - "Manual testing confirms < 1s load time on 4G"
+  - "No regressions in existing functionality"
+
