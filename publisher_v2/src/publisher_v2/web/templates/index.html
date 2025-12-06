@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{{ web_ui_text.title or "Publisher V2 Web" }}</title>
   <style>
+    *, *::before, *::after {
+      box-sizing: border-box;
+    }
     body {
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
@@ -14,6 +17,8 @@
       display: flex;
       flex-direction: column;
       min-height: 100vh;
+      width: 100%;
+      overflow-x: hidden;
       transition: background-color 0.2s ease;
     }
     body.admin-mode {
@@ -183,6 +188,12 @@
     code {
       font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
       font-size: 0.8rem;
+    }
+    pre {
+      white-space: pre-wrap;
+      word-wrap: break-word;
+      overflow-x: auto;
+      max-width: 100%;
     }
     .hidden {
       display: none !important;
