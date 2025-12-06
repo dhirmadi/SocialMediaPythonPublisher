@@ -1,0 +1,41 @@
+# docs_v2/08_Features/019_swipe_workflow_modes/stories/08_horizontal_scroll_fix/019_08_plan.yaml
+
+version: "1.0"
+feature_id: "019"
+story_id: "019-08"
+story_name: "horizontal_scroll_fix"
+design_ref: "019_08_design.md"
+
+summary: |
+  Fix horizontal scrolling issues to improve swipe gesture reliability.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/web/templates/index.html"
+  excluded_paths: []
+
+acceptance_criteria:
+  - id: AC1
+    description: "Page body has no horizontal scroll"
+    test_ref: "manual_verification"
+  - id: AC2
+    description: "Metadata JSON wraps instead of causing overflow"
+    test_ref: "manual_verification"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add box-sizing reset and overflow-x fixes to CSS"
+    file: "publisher_v2/src/publisher_v2/web/templates/index.html"
+    depends_on: []
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert changes to index.html"
+
