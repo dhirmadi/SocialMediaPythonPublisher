@@ -48,28 +48,7 @@
       width: 100%;
       margin: 0 auto;
     }
-    .mode-toggle {
-      display: flex;
-      justify-content: center;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-    }
-    .mode-btn {
-      flex: 0 1 auto;
-      padding: 0.5rem 1rem;
-      font-size: 0.85rem;
-      border-radius: 9999px;
-      border: 1px solid #374151;
-      background: #1e293b;
-      color: #9ca3af;
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .mode-btn.active {
-      background: #3b82f6;
-      color: white;
-      border-color: #3b82f6;
-    }
+    /* .mode-toggle, .mode-btn CSS removed */
     .image-container {
       display: flex;
       justify-content: center;
@@ -223,10 +202,6 @@
     </div>
   </div>
   <main>
-    <div class="mode-toggle">
-      <button id="mode-publish" class="mode-btn active">Publish Mode</button>
-      <button id="mode-review" class="mode-btn">Review Mode</button>
-    </div>
     <div class="image-container">
       <div id="image-placeholder" class="image-placeholder">
         {{ web_ui_text.placeholders.image_empty or "No image loaded yet." }}
@@ -310,8 +285,6 @@
     const adminModal = document.getElementById("admin-modal");
     const adminModalClose = document.getElementById("admin-modal-close");
 
-    const modePublishBtn = document.getElementById("mode-publish");
-    const modeReviewBtn = document.getElementById("mode-review");
     const btnPrev = document.getElementById("btn-prev");
 
     const imageContainer = document.querySelector(".image-container");
@@ -322,7 +295,7 @@
     let prefetchedImage = null; // Prefetched next image for instant loading (Story 03)
     let reviewList = [];
     let reviewIndex = -1;
-    let currentMode = localStorage.getItem("pv2_mode") || "publish"; // "publish" or "review"
+    let currentMode = "publish"; // Set automatically based on config
 
     let isAdmin = false;
     let featureConfig = {
@@ -335,34 +308,23 @@
 
     function updateModeUI() {
       if (currentMode === "review") {
-        modePublishBtn.classList.remove("active");
-        modeReviewBtn.classList.add("active");
         btnPrev.classList.remove("hidden");
         btnNext.textContent = "Next";
         positionIndicator.classList.remove("hidden");
       } else {
-        modePublishBtn.classList.add("active");
-        modeReviewBtn.classList.remove("active");
         btnPrev.classList.add("hidden");
         btnNext.textContent = TEXT.buttons?.next || "Next image";
         positionIndicator.classList.add("hidden");
       }
-      localStorage.setItem("pv2_mode", currentMode);
     }
 
-    async function switchMode(newMode) {
-      if (currentMode === newMode) return;
-      currentMode = newMode;
-      updateModeUI();
-      
-      if (currentMode === "review") {
-        await initReviewMode();
-      } else {
-        // Publish mode logic
-        reviewList = [];
-        reviewIndex = -1;
-        await apiGetRandom();
-      }
+    async function setModeFromConfig() {
+        if (featureConfig.publish_enabled) {
+            currentMode = "publish";
+        } else {
+            currentMode = "review";
+        }
+        updateModeUI();
     }
 
     async function initReviewMode() {
@@ -1102,9 +1064,6 @@
       btnNext.addEventListener("click", handleNext);
       btnPrev.addEventListener("click", handlePrev);
       
-      modePublishBtn.addEventListener("click", () => switchMode("publish"));
-      modeReviewBtn.addEventListener("click", () => switchMode("review"));
-
       if (btnFullSize) {
         btnFullSize.addEventListener("click", handleFullSize);
       }
@@ -1125,9 +1084,9 @@
       window.addEventListener("load", async () => {
         // Fetch feature config first so we can gate buttons from .env feature flags.
         featureConfig = await fetchFeatureConfig();
+        await setModeFromConfig();
         await refreshAdminStatus();
         updateAdminUI();
-        updateModeUI();
 
         if (isAdmin || featureConfig.auto_view_enabled) {
           if (currentMode === "review") {
