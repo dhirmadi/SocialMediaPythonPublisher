@@ -1,0 +1,37 @@
+version: 1
+feature_id: keep-remove-curation
+story_id: 05_client_state_sync
+summary: "Update client-side navigation state (review list) after a successful curation action (Keep/Remove) to prevent navigation errors."
+design_refs:
+  - docs_v2/08_Features/019_swipe_workflow_modes/019_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/web/templates/index.html
+    - publisher_v2/tests/**
+
+acceptance_criteria:
+  - "Given the app is in Review Mode (sequential list), when a Keep or Remove action succeeds, then the curated image's filename is removed from the local `reviewList`."
+  - "Given an updated `reviewList`, when the user clicks 'Next', then the app advances to the correct next image in the sequence."
+  - "Given an updated `reviewList`, when the user clicks 'Previous' immediately after curation, then the app navigates to the image preceding the curated one, not the curated one itself."
+  - "Given the app is in Publish Mode (random), when a curation action succeeds, then the current filename is cleared/reset so 'Previous' (if enabled) doesn't trap the user, though random mode typically disables 'Previous'."
+
+tasks:
+  # 1. Update Frontend JS
+  - id: keep_remove.update_client_state
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    files_out: []
+    contracts:
+      signatures:
+        - "function removeFromReviewList(filename)"
+        - "async function apiKeep()"
+        - "async function apiRemove()"
+
+  # 2. Manual Verification (as this is UI logic)
+  # No automated unit tests for inline JS logic in Jinja templates currently,
+  # but we can verify the logic via review.
+
+quality_gates:
+  tests_required: [] # UI-only change in JS
+

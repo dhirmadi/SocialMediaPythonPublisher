@@ -951,6 +951,30 @@
       }
     }
 
+    function removeFromReviewList(filename) {
+      if (currentMode !== "review") return;
+      
+      const idx = reviewList.indexOf(filename);
+      if (idx !== -1) {
+        reviewList.splice(idx, 1);
+        // If we removed the item at the current index, the next item slides into this index.
+        // We don't need to increment reviewIndex to go "next", we just stay at reviewIndex
+        // (unless we were at the end, then we decrement).
+        // However, apiGetRandom (or loadReviewImage) will be called next.
+        
+        // Adjust index if necessary to keep it valid
+        if (reviewIndex >= reviewList.length) {
+          reviewIndex = Math.max(0, reviewList.length - 1);
+        }
+        // If we removed an item *before* current index (unlikely in this flow), decrement.
+        if (idx < reviewIndex) {
+          reviewIndex--;
+        }
+        
+        updatePositionIndicator();
+      }
+    }
+
     async function apiKeep() {
       if (!currentFilename) {
         setActivity("No image selected.");
@@ -977,8 +1001,23 @@
         }
         const data = await res.json();
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
+        
+        // Sync client state
+        removeFromReviewList(currentFilename);
+        
         // After a successful keep, advance to the next image.
-        await apiGetRandom();
+        if (currentMode === "review") {
+             // In review mode, the list shifted, so the "next" image is now at the current reviewIndex
+             // (unless we were at the end).
+             // If list is empty, handle that.
+             if (reviewList.length === 0) {
+                 showImagePlaceholder("No images left.");
+                 return;
+             }
+             await loadReviewImage(reviewIndex);
+        } else {
+             await apiGetRandom();
+        }
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error keeping image.";
@@ -1016,8 +1055,20 @@
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
+        
+        // Sync client state
+        removeFromReviewList(currentFilename);
+
         // After a successful remove, advance to the next image.
-        await apiGetRandom();
+        if (currentMode === "review") {
+             if (reviewList.length === 0) {
+                 showImagePlaceholder("No images left.");
+                 return;
+             }
+             await loadReviewImage(reviewIndex);
+        } else {
+             await apiGetRandom();
+        }
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error removing image.";
