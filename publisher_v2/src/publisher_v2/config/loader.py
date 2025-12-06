@@ -64,11 +64,14 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         archive_folder = cp.get("Dropbox", "archive", fallback="archive")
 
         # Optional keep/remove folders with legacy alias support and .env overrides.
-        folder_keep = cp.get("Dropbox", "folder_keep", fallback=None)
+        folder_keep = cp.get("Dropbox", "folder_keep", fallback="keep")
         folder_remove = cp.get("Dropbox", "folder_remove", fallback=None)
-        if folder_remove is None and cp.has_option("Dropbox", "folder_reject"):
-            # Backward-compatible alias for existing configs.
-            folder_remove = cp.get("Dropbox", "folder_reject")
+        if folder_remove is None:
+            if cp.has_option("Dropbox", "folder_reject"):
+                # Backward-compatible alias for existing configs.
+                folder_remove = cp.get("Dropbox", "folder_reject")
+            else:
+                folder_remove = "reject"
 
         # Environment overrides (lowercase, as requested for V2).
         env_keep = os.environ.get("folder_keep")

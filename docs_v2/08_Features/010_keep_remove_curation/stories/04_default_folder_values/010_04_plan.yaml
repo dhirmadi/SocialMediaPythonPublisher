@@ -1,0 +1,50 @@
+version: 1
+feature_id: keep-remove-curation
+story_id: 04_default_folder_values
+summary: "Set default values for 'folder_keep' ('keep') and 'folder_remove' ('reject') to prevent configuration errors when using curation features."
+design_refs:
+  - docs_v2/08_Features/08_02_Feature_Design/010_keep-remove-curation_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+
+acceptance_criteria:
+  - "Given no folder_keep/folder_remove in INI or Env, when config is loaded, then DropboxConfig.folder_keep is 'keep' and folder_remove is 'reject'."
+  - "Given configured values, when config is loaded, then configured values take precedence."
+  - "Given the web UI, when a curation action is triggered without explicit folder config, then it succeeds using the defaults."
+
+tasks:
+  # 1. Schema Defaults
+  - id: keep_remove.schema_defaults
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/schema.py
+    files_out: []
+    contracts:
+      signatures:
+        - "folder_keep: str = Field(default='keep', ...)"
+        - "folder_remove: str = Field(default='reject', ...)"
+
+  # 2. Loader Defaults
+  - id: keep_remove.loader_defaults
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/loader.py
+    files_out: []
+    contracts:
+      signatures:
+        - "def load_application_config(...) -> ApplicationConfig"
+
+  # Tests
+  - id: keep_remove.tests_defaults
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_config_keep_remove_defaults.py
+
+quality_gates:
+  tests_required:
+    - keep_remove.tests_defaults
+
