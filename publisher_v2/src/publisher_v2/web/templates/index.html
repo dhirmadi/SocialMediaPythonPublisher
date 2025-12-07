@@ -301,6 +301,21 @@
     </div>
   </main>
 
+  <div id="admin-modal" class="modal hidden">
+    <div class="modal-dialog">
+      <h2>{{ web_ui_text.modal.title or "Admin Login" }}</h2>
+      <div style="margin: 1rem 0;">
+        <label style="display: block; margin-bottom: 0.5rem;">Password</label>
+        <input type="password" id="admin-password" style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;" />
+        <div id="login-error" style="color: #ef4444; font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2rem;"></div>
+      </div>
+      <div class="modal-footer">
+        <button id="btn-cancel-login" class="secondary">Cancel</button>
+        <button id="btn-submit-login">Login</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     // i18n text injected from static config (YAML → Jinja → JS)
     const TEXT = {{ web_ui_text | tojson }};
@@ -326,6 +341,12 @@
     const adminModeIndicator = document.getElementById("admin-mode-indicator");
     const toastContainer = document.getElementById("toast-container");
 
+    const modal = document.getElementById("admin-modal");
+    const passwordInput = document.getElementById("admin-password");
+    const btnSubmitLogin = document.getElementById("btn-submit-login");
+    const btnCancelLogin = document.getElementById("btn-cancel-login");
+    const loginError = document.getElementById("login-error");
+
     const btnPrev = document.getElementById("btn-prev");
 
     const imageContainer = document.querySelector(".image-container");
@@ -345,6 +366,7 @@
       keep_enabled: true,
       remove_enabled: true,
       auto_view_enabled: false,
+      auth_mode: "none",
     };
 
     function updateModeUI() {
@@ -503,6 +525,7 @@
     async function apiGetRandom() {
       const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
       
+      // Check permission first
       if (!isAdmin && !featureConfig.auto_view_enabled) {
         setActivity(adminReq);
         setDetails("");
@@ -510,13 +533,29 @@
         return;
       }
       
+      // Check for prefetched image (instant load path)
       if (prefetchedImage) {
-        applyImageData(prefetchedImage);
-        prefetchedImage = null;
-        prefetchNextThumbnail(); // Original random prefetch
+        const data = prefetchedImage;
+        prefetchedImage = null; // Consume the prefetch
+        
+        currentFilename = data.filename;
+        const displayUrl = data.thumbnail_url || data.temp_url;
+        showImage(
+          displayUrl,
+          data.temp_url,
+          data.caption || data.sd_caption || data.filename
+        );
+        setCaption(data.caption || data.sd_caption || "No caption yet.");
+        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
+        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
+        setActivity("Image loaded (prefetched).");
+        
+        // Start prefetching the next image
+        prefetchNextThumbnail();
         return;
       }
       
+      // Cold start path: fetch from API
       setActivity("Loading random image…");
       disableButtons(true);
       try {
@@ -526,7 +565,20 @@
           throw new Error(err.detail || err.error || "Failed to load image");
         }
         const data = await res.json();
-        applyImageData(data);
+        currentFilename = data.filename;
+        // Use thumbnail_url for display (fast), fallback to temp_url for backward compat
+        const displayUrl = data.thumbnail_url || data.temp_url;
+        showImage(
+          displayUrl,
+          data.temp_url,  // Store full URL for "Full Size" access
+          data.caption || data.sd_caption || data.filename
+        );
+        setCaption(data.caption || data.sd_caption || "No caption yet.");
+        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
+        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
+        setActivity("Image loaded.");
+        
+        // Start prefetching the next image
         prefetchNextThumbnail();
       } catch (e) {
         console.error(e);
@@ -674,6 +726,7 @@
             keep_enabled: true,
             remove_enabled: true,
             auto_view_enabled: false,
+            auth_mode: "none",
           };
         }
         const data = await res.json();
@@ -683,6 +736,7 @@
           keep_enabled: data.keep_enabled ?? true,
           remove_enabled: data.remove_enabled ?? true,
           auto_view_enabled: data.auto_view_enabled ?? false,
+          auth_mode: data.auth_mode ?? "none",
         };
       } catch (error) {
         console.error("Error fetching feature config:", error);
@@ -692,6 +746,7 @@
           keep_enabled: true,
           remove_enabled: true,
           auto_view_enabled: false,
+          auth_mode: "none",
         };
       }
     }
@@ -705,6 +760,8 @@
           ? "Viewer mode"
           : "Private mode";
       }
+      
+      // Handle Admin Button Visibility & Type
       if (isAdmin) {
         bodyEl.classList.add("admin-mode");
         adminControls.classList.remove("hidden");
@@ -717,9 +774,22 @@
         adminControls.classList.add("hidden");
         panelAdmin.classList.add("hidden");
         panelActivity.classList.add("hidden");
-        btnAdmin.classList.remove("hidden");
         btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
+        
+        // Only show login button if auth is configured
+        if (featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password") {
+            btnAdmin.classList.remove("hidden");
+            // Set up link for Auth0, or remove it for password (JS handles click)
+            if (featureConfig.auth_mode === "auth0") {
+                btnAdmin.href = "/api/auth/login";
+            } else {
+                btnAdmin.removeAttribute("href");
+                btnAdmin.style.cursor = "pointer";
+            }
+        } else {
+            btnAdmin.classList.add("hidden");
+        }
       }
       if (btnAnalyze) {
         const shouldShowAnalyze = featureConfig.analyze_caption_enabled;
@@ -774,75 +844,9 @@
       updateAdminState(admin);
     }
 
-    async function apiGetRandom() {
-      const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
-      
-      // Check permission first
-      if (!isAdmin && !featureConfig.auto_view_enabled) {
-        setActivity(adminReq);
-        setDetails("");
-        showImagePlaceholder(adminReq);
-        return;
-      }
-      
-      // Check for prefetched image (instant load path)
-      if (prefetchedImage) {
-        const data = prefetchedImage;
-        prefetchedImage = null; // Consume the prefetch
-        
-        currentFilename = data.filename;
-        const displayUrl = data.thumbnail_url || data.temp_url;
-        showImage(
-          displayUrl,
-          data.temp_url,
-          data.caption || data.sd_caption || data.filename
-        );
-        setCaption(data.caption || data.sd_caption || "No caption yet.");
-        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
-        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
-        setActivity("Image loaded (prefetched).");
-        
-        // Start prefetching the next image
-        prefetchNextThumbnail();
-        return;
-      }
-      
-      // Cold start path: fetch from API
-      setActivity("Loading random image…");
-      disableButtons(true);
-      try {
-        const res = await fetch("/api/images/random");
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || err.error || "Failed to load image");
-        }
-        const data = await res.json();
-        currentFilename = data.filename;
-        // Use thumbnail_url for display (fast), fallback to temp_url for backward compat
-        const displayUrl = data.thumbnail_url || data.temp_url;
-        showImage(
-          displayUrl,
-          data.temp_url,  // Store full URL for "Full Size" access
-          data.caption || data.sd_caption || data.filename
-        );
-        setCaption(data.caption || data.sd_caption || "No caption yet.");
-        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
-        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
-        setActivity("Image loaded.");
-        
-        // Start prefetching the next image
-        prefetchNextThumbnail();
-      } catch (e) {
-        console.error(e);
-        currentFilename = null;
-        showImagePlaceholder("Error loading image.");
-        setCaption(null);
-        setDetails("");
-        setActivity(e.message || "Error loading image.");
-      } finally {
-        disableButtons(false);
-      }
-    }
+    // apiGetRandom is already defined above, but there was a duplicate here in previous version.
+    // Ensure we are calling the correct function and not redefining it.
+    // The previous implementation block that was around here has been removed to avoid duplication.
 
     async function apiAnalyze() {
       if (!currentFilename) {
@@ -1056,6 +1060,53 @@
       }
     }
 
+    async function handleAdminLogin() {
+      const password = passwordInput.value;
+      if (!password) {
+        loginError.textContent = "Please enter a password.";
+        return;
+      }
+      loginError.textContent = "";
+      btnSubmitLogin.disabled = true;
+
+      try {
+        const res = await fetch("/api/admin/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ password }),
+        });
+        
+        if (!res.ok) {
+           throw new Error("Invalid password");
+        }
+        
+        // Success
+        isAdmin = true;
+        modal.classList.add("hidden");
+        passwordInput.value = "";
+        updateAdminUI();
+        showToast("Logged in successfully.");
+        // Refresh view if needed
+        if (currentMode === "review") {
+           await initReviewMode();
+        } else {
+           await apiGetRandom();
+        }
+      } catch (e) {
+        loginError.textContent = "Invalid password.";
+        btnSubmitLogin.disabled = false;
+      }
+    }
+
+    function toggleAdminModal() {
+      modal.classList.toggle("hidden");
+      if (!modal.classList.contains("hidden")) {
+        passwordInput.focus();
+        loginError.textContent = "";
+        btnSubmitLogin.disabled = false;
+      }
+    }
+
     function initAdminControls() {
       // Check for auth error in URL
       const urlParams = new URLSearchParams(window.location.search);
@@ -1065,6 +1116,24 @@
         // Clean URL
         window.history.replaceState({}, document.title, "/");
       }
+
+      // Handle legacy password login events
+      btnSubmitLogin.addEventListener("click", handleAdminLogin);
+      btnCancelLogin.addEventListener("click", () => modal.classList.add("hidden"));
+      passwordInput.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") handleAdminLogin();
+        if (e.key === "Escape") modal.classList.add("hidden");
+      });
+      
+      // Admin button behavior is now dynamic based on auth_mode (handled in updateAdminUI/init)
+      btnAdmin.addEventListener("click", (e) => {
+          if (featureConfig.auth_mode === "password") {
+              e.preventDefault();
+              toggleAdminModal();
+          }
+          // If auth_mode is "auth0", the href handles it.
+          // If "none", nothing happens (or hidden).
+      });
     }
 
     function showToast(message, type = "info") {

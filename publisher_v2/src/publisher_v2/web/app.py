@@ -6,7 +6,7 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, Response
@@ -19,9 +19,12 @@ from publisher_v2.web.auth import (
     require_auth,
     require_admin,
     is_admin_configured,
+    get_admin_password,
+    verify_admin_password,
     set_admin_cookie,
     clear_admin_cookie,
     is_admin_request,
+    get_auth_mode,
 )
 from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.models import (
@@ -31,6 +34,7 @@ from publisher_v2.web.models import (
     PublishResponse,
     PublishRequest,
     ErrorResponse,
+    AdminLoginRequest,
     AdminStatusResponse,
     CurationResponse,
 )
@@ -146,6 +150,34 @@ async def api_admin_status(request: Request) -> AdminStatusResponse:
     """
     admin = is_admin_request(request)
     return AdminStatusResponse(admin=admin)
+
+
+@app.post(
+    "/api/admin/login",
+    response_model=AdminStatusResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+async def api_admin_login(
+    body: AdminLoginRequest,
+    response: Response,
+    request: Request,
+) -> AdminStatusResponse:
+    """
+    Exchange a password for an admin session cookie.
+    Only available if legacy password auth is configured.
+    """
+    actual_pass = get_admin_password()
+    if not actual_pass:
+        # Legacy login disabled
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy login not enabled")
+
+    if not verify_admin_password(body.password, actual_pass):
+        # 401 enables the client to re-prompt
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+
+    set_admin_cookie(response)
+    log_json(logger, logging.INFO, "web_admin_login_success")
+    return AdminStatusResponse(admin=True)
 
 
 # Deprecated: use /api/auth/logout instead
@@ -653,7 +685,7 @@ async def api_get_publishers_config(
 @app.get("/api/config/features")
 async def api_get_features_config(
     service: WebImageService = Depends(get_service),
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     """
     Return high-level product feature flags for the web UI.
 
@@ -662,12 +694,17 @@ async def api_get_features_config(
     in config.loader.
     """
     features = service.config.features
+    
+    # Determine auth mode
+    auth_mode = get_auth_mode()
+
     return {
         "analyze_caption_enabled": features.analyze_caption_enabled,
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
         "auto_view_enabled": getattr(features, "auto_view_enabled", False),
+        "auth_mode": auth_mode,
     }
 
 

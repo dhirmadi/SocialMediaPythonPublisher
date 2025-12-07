@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from typing import Optional
 
 from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Request, Depends, status
