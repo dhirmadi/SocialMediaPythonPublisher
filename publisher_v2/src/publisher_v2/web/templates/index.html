@@ -239,35 +239,17 @@
     </div>
     <div class="header-right">
       <span id="env-indicator" class="status"></span>
-      <button id="btn-admin" class="secondary" type="button">
+      <a id="btn-admin" class="secondary" href="/api/auth/login" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.admin or "Admin" }}
-      </button>
-      <button id="btn-admin-logout" class="secondary admin-only hidden" type="button">
+      </a>
+      <a id="btn-admin-logout" class="secondary admin-only hidden" href="/api/auth/logout" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.logout or "Logout" }}
-      </button>
+      </a>
     </div>
   </header>
 
-  <div id="admin-modal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="admin-modal-title">
-    <div class="modal-dialog">
-      <h2 id="admin-modal-title">{{ web_ui_text.admin_dialog.title or "Admin login" }}</h2>
-      <p class="status" id="admin-modal-description">{{ web_ui_text.admin_dialog.description or "Enter the admin password to enable analysis and publishing." }}</p>
-      <form id="admin-login-form">
-        <input
-          type="password"
-          id="admin-password"
-          placeholder="{{ web_ui_text.admin_dialog.password_placeholder or 'Admin password' }}"
-          autocomplete="current-password"
-          style="width: 100%; padding: 0.5rem; border-radius: 9999px; border: 1px solid #374151; background-color: #020617; color: #e5e7eb;"
-        />
-        <div class="modal-footer">
-          <button type="button" id="admin-modal-close" class="secondary">Cancel</button>
-          <button type="submit">Login</button>
-        </div>
-      </form>
-      <div id="admin-message" class="status"></div>
-    </div>
-  </div>
+  <div id="toast-container" style="position: fixed; top: 1rem; left: 50%; transform: translateX(-50%); z-index: 100;"></div>
+
   <main>
     <div class="image-container">
       <div id="image-placeholder" class="image-placeholder">
@@ -342,11 +324,7 @@
     const panelAdmin = document.getElementById("panel-admin");
     const panelActivity = document.getElementById("panel-activity");
     const adminModeIndicator = document.getElementById("admin-mode-indicator");
-    const adminForm = document.getElementById("admin-login-form");
-    const adminPasswordInput = document.getElementById("admin-password");
-    const adminMessage = document.getElementById("admin-message");
-    const adminModal = document.getElementById("admin-modal");
-    const adminModalClose = document.getElementById("admin-modal-close");
+    const toastContainer = document.getElementById("toast-container");
 
     const btnPrev = document.getElementById("btn-prev");
 
@@ -1078,80 +1056,44 @@
       }
     }
 
-    async function handleAdminLogin(event) {
-      event.preventDefault();
-      adminMessage.textContent = "";
-      const password = adminPasswordInput.value || "";
-      if (!password) {
-        adminMessage.textContent = "Please enter the admin password.";
-        return;
-      }
-      try {
-        const res = await fetch("/api/admin/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok || !data.admin) {
-          isAdmin = false;
-          adminMessage.textContent = data.detail || data.error || "Invalid admin password.";
-        } else {
-          updateAdminState(true);
-          adminMessage.textContent = "Admin mode enabled.";
-          setActivity("Admin mode enabled.");
-          adminModal.classList.add("hidden");
-          // After successful admin login, immediately load an image so the
-          // placeholder does not keep showing a login-required message.
-          await apiGetRandom();
-        }
-      } catch (e) {
-        console.error(e);
-        isAdmin = false;
-        adminMessage.textContent = "Error logging in as admin.";
-      } finally {
-        adminPasswordInput.value = "";
-      }
-    }
-
-    async function handleAdminLogout() {
-      adminMessage.textContent = "";
-      try {
-        const res = await fetch("/api/admin/logout", {
-          method: "POST",
-        });
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
-          adminMessage.textContent = data.detail || data.error || "Error logging out of admin mode.";
-        } else {
-          updateAdminState(false);
-          adminMessage.textContent = "Admin mode disabled.";
-          setActivity("Admin mode disabled.");
-        }
-      } catch (e) {
-        console.error(e);
-        adminMessage.textContent = "Error logging out of admin mode.";
-      } finally {
-      }
-    }
-
     function initAdminControls() {
-      btnAdmin.addEventListener("click", () => {
-        adminModal.classList.remove("hidden");
-        adminPasswordInput.focus();
-      });
-      adminModalClose.addEventListener("click", () => {
-        adminModal.classList.add("hidden");
-        adminMessage.textContent = "";
-      });
-      adminModal.addEventListener("click", (event) => {
-        if (event.target === adminModal) {
-          adminModal.classList.add("hidden");
-          adminMessage.textContent = "";
-        }
-      });
-      adminForm.addEventListener("submit", handleAdminLogin);
-      btnAdminLogout.addEventListener("click", handleAdminLogout);
+      // Check for auth error in URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const authError = urlParams.get('auth_error');
+      if (authError) {
+        showToast("Authentication Error: " + authError, "error");
+        // Clean URL
+        window.history.replaceState({}, document.title, "/");
+      }
+    }
+
+    function showToast(message, type = "info") {
+      const toast = document.createElement("div");
+      toast.textContent = message;
+      toast.style.padding = "1rem";
+      toast.style.marginBottom = "0.5rem";
+      toast.style.borderRadius = "0.5rem";
+      toast.style.color = "#fff";
+      toast.style.fontWeight = "bold";
+      toast.style.boxShadow = "0 4px 6px rgba(0, 0, 0, 0.3)";
+      toast.style.opacity = "0";
+      toast.style.transition = "opacity 0.3s ease";
+      
+      if (type === "error") {
+        toast.style.backgroundColor = "#ef4444"; // Red
+      } else {
+        toast.style.backgroundColor = "#3b82f6"; // Blue
+      }
+      
+      toastContainer.appendChild(toast);
+      // Fade in
+      requestAnimationFrame(() => toast.style.opacity = "1");
+      
+      // Auto remove
+      setTimeout(() => {
+        toast.style.opacity = "0";
+        setTimeout(() => toast.remove(), 300);
+      }, 5000);
     }
 
     function initGestures() {

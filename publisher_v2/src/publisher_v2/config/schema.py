@@ -242,6 +242,26 @@ class WebConfig(BaseModel):
     )
 
 
+class Auth0Config(BaseModel):
+    """
+    Configuration for Auth0 OIDC integration.
+    Loaded primarily from AUTH0_* environment variables.
+    """
+    domain: str = Field(..., description="Auth0 domain (e.g. tenant.auth0.com)")
+    client_id: str = Field(..., description="Auth0 Client ID")
+    client_secret: str = Field(..., description="Auth0 Client Secret")
+    audience: Optional[str] = Field(default=None, description="Auth0 API Audience (optional)")
+    callback_url: str = Field(..., description="Full callback URL (e.g. https://app.com/api/auth/callback)")
+    admin_emails: str = Field(..., description="Comma-separated list of allowed emails")
+
+    @property
+    def admin_emails_list(self) -> list[str]:
+        """Parse admin_emails CSV string into a list of emails, stripping whitespace."""
+        if not self.admin_emails:
+            return []
+        return [e.strip() for e in self.admin_emails.split(",") if e.strip()]
+
+
 class ApplicationConfig(BaseModel):
     dropbox: DropboxConfig
     openai: OpenAIConfig
@@ -253,5 +273,7 @@ class ApplicationConfig(BaseModel):
     content: ContentConfig
     captionfile: CaptionFileConfig = CaptionFileConfig()
     web: WebConfig = WebConfig()
+    auth0: Optional[Auth0Config] = None
+
 
 
