@@ -227,7 +227,7 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
                 client_secret=os.environ["AUTH0_CLIENT_SECRET"],
                 audience=os.environ.get("AUTH0_AUDIENCE"),
                 callback_url=os.environ["AUTH0_CALLBACK_URL"],
-                admin_emails=os.environ["ADMIN_LOGIN_EMAILS"],
+                admin_emails=os.environ.get("ADMIN_LOGIN_EMAILS") or os.environ["AUTH0_ADMIN_EMAIL_ALLOWLIST"],
             )
         except KeyError as exc:
              # If partial Auth0 config is present, fail fast or log warning.

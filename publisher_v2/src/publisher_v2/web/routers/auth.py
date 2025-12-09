@@ -10,7 +10,7 @@ from publisher_v2.utils.logging import log_json
 from publisher_v2.web.service import WebImageService
 from publisher_v2.web.auth import set_admin_cookie, clear_admin_cookie
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("publisher_v2.web.auth0")
 
 # OAuth instance is global but configured lazily

@@ -1,0 +1,40 @@
+version: 1
+feature_id: core-workflow-dedup-performance
+story_id: 02_selection_logic
+summary: "Update the core workflow to prioritize metadata-based deduplication during image selection."
+design_refs:
+  - docs_v2/08_Features/006_core_workflow_dedup_performance/006_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+
+acceptance_criteria:
+  - "Given a list of candidate images with hashes, the workflow filters out those already in posted_content_hashes without downloading."
+  - "Given no new images (all hashes match), the workflow exits early with 'No new images' and zero image downloads."
+  - "Given a successful publish, the workflow persists both the legacy SHA256 and the new content_hash."
+
+tasks:
+  # 1. Workflow Orchestrator
+  - id: dedup.workflow_selection
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/core/workflow.py
+    files_out: []
+    contracts:
+      signatures:
+        - "async def execute(self, ...) -> WorkflowResult"
+
+  # Tests
+  - id: dedup.tests_workflow
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_workflow_metadata_selection.py
+      - publisher_v2/tests/test_dedup_selection.py
+
+quality_gates:
+  tests_required:
+    - dedup.tests_workflow
+

@@ -239,10 +239,10 @@
     </div>
     <div class="header-right">
       <span id="env-indicator" class="status"></span>
-      <a id="btn-admin" class="secondary" href="/api/auth/login" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
+      <a id="btn-admin" class="secondary" href="/auth/login" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.admin or "Admin" }}
       </a>
-      <a id="btn-admin-logout" class="secondary admin-only hidden" href="/api/auth/logout" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
+      <a id="btn-admin-logout" class="secondary admin-only hidden" href="/auth/logout" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.logout or "Logout" }}
       </a>
     </div>
@@ -303,10 +303,18 @@
 
   <div id="admin-modal" class="modal hidden">
     <div class="modal-dialog">
-      <h2>{{ web_ui_text.modal.title or "Admin Login" }}</h2>
+      <h2>{{ web_ui_text.admin_dialog.title or "Admin Login" }}</h2>
       <div style="margin: 1rem 0;">
+        <p style="font-size: 0.9rem; color: #9ca3af; margin-bottom: 1rem;">
+            {{ web_ui_text.admin_dialog.description or "Enter the admin password to enable analysis and publishing." }}
+        </p>
         <label style="display: block; margin-bottom: 0.5rem;">Password</label>
-        <input type="password" id="admin-password" style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;" />
+        <input 
+            type="password" 
+            id="admin-password" 
+            placeholder="{{ web_ui_text.admin_dialog.password_placeholder or 'Admin password' }}"
+            style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;" 
+        />
         <div id="login-error" style="color: #ef4444; font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2rem;"></div>
       </div>
       <div class="modal-footer">
@@ -782,7 +790,7 @@
             btnAdmin.classList.remove("hidden");
             // Set up link for Auth0, or remove it for password (JS handles click)
             if (featureConfig.auth_mode === "auth0") {
-                btnAdmin.href = "/api/auth/login";
+                btnAdmin.href = "/auth/login";
             } else {
                 btnAdmin.removeAttribute("href");
                 btnAdmin.style.cursor = "pointer";
