@@ -19,6 +19,7 @@ from publisher_v2.config.schema import (
     PlatformsConfig,
     TelegramConfig,
     WebConfig,
+    Auth0Config,
 )
 from publisher_v2.core.exceptions import ConfigurationError
 
@@ -216,6 +217,23 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
     # code can depend on it without having to read os.environ directly.
     web_cfg = WebConfig()
 
+    # Auth0 Config (Optional) - only populated if AUTH0_DOMAIN and CLIENT_ID are present
+    auth0_cfg = None
+    if os.environ.get("AUTH0_DOMAIN") and os.environ.get("AUTH0_CLIENT_ID"):
+        try:
+            auth0_cfg = Auth0Config(
+                domain=os.environ["AUTH0_DOMAIN"],
+                client_id=os.environ["AUTH0_CLIENT_ID"],
+                client_secret=os.environ["AUTH0_CLIENT_SECRET"],
+                audience=os.environ.get("AUTH0_AUDIENCE"),
+                callback_url=os.environ["AUTH0_CALLBACK_URL"],
+                admin_emails=os.environ.get("ADMIN_LOGIN_EMAILS") or os.environ["AUTH0_ADMIN_EMAIL_ALLOWLIST"],
+            )
+        except KeyError as exc:
+             # If partial Auth0 config is present, fail fast or log warning.
+             # Here we raise ConfigurationError to prevent startup with broken auth config.
+             raise ConfigurationError(f"Missing required Auth0 environment variable: {exc}") from exc
+
     return ApplicationConfig(
         dropbox=dropbox,
         openai=openai_cfg,
@@ -227,6 +245,7 @@ def load_application_config(config_file_path: str, env_path: str | None = None) 
         content=content,
         captionfile=captionfile,
         web=web_cfg,
+        auth0=auth0_cfg,
     )
 
 

@@ -88,7 +88,30 @@ def get_admin_password() -> Optional[str]:
 
 
 def is_admin_configured() -> bool:
-    return get_admin_password() is not None
+    """
+    Check if admin mode is available via either legacy password or Auth0.
+    """
+    # Legacy password check
+    if get_admin_password() is not None:
+        return True
+    
+    # Auth0 check (MVP: check for domain env var, mirroring config loader)
+    if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
+        return True
+        
+    return False
+
+
+def get_auth_mode() -> str:
+    """
+    Determine the active authentication mode.
+    Returns: 'auth0', 'password', or 'none'.
+    """
+    if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
+        return "auth0"
+    if get_admin_password() is not None:
+        return "password"
+    return "none"
 
 
 def verify_admin_password(candidate: str, actual: str) -> bool:
@@ -120,7 +143,7 @@ def set_admin_cookie(response: Response, expires_in_seconds: Optional[int] = Non
     """
     ttl = expires_in_seconds if expires_in_seconds is not None else _admin_cookie_ttl_seconds()
     # Default to non-secure for local/testing; production can enable via WEB_SECURE_COOKIES.
-    secure = (_get_env("WEB_SECURE_COOKIES") or "false").lower() in ("1", "true", "yes")
+    secure = (_get_env("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes")
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
         value="1",
@@ -147,7 +170,7 @@ def require_admin(request: Request) -> None:
     """
     Enforce admin mode for web-triggered mutating actions.
 
-    If no admin password is configured, admin mode is considered unavailable.
+    If no admin auth (password or Auth0) is configured, admin mode is considered unavailable.
     """
     if not is_admin_configured():
         raise HTTPException(

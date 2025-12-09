@@ -6,11 +6,12 @@ import uuid
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Optional
+from typing import Optional, Any
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.utils.logging import setup_logging, log_json, now_monotonic, elapsed_ms
@@ -19,10 +20,13 @@ from publisher_v2.web.auth import (
     require_admin,
     is_admin_configured,
     get_admin_password,
+    verify_admin_password,
     set_admin_cookie,
     clear_admin_cookie,
     is_admin_request,
+    get_auth_mode,
 )
+from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.models import (
     ImageResponse,
     ImageListResponse,
@@ -82,10 +86,40 @@ async def _startup() -> None:
     setup_logging(level)
     log_json(logger, logging.INFO, "web_server_start")
 
+    # Configure Auth0 if enabled
+    # We do this here to ensure the OAuth registry is populated at startup
+    from publisher_v2.web.routers.auth import configure_oauth
+    
+    # We need to load config to check if Auth0 is enabled
+    # Using get_service() is safe here as it caches the result
+    try:
+        service = get_service()
+        if service.config.auth0:
+             configure_oauth(service.config)
+             log_json(logger, logging.INFO, "auth0_configured")
+    except Exception as e:
+        log_json(logger, logging.WARNING, "auth0_config_error", error=str(e))
+
 
 # Templates (server-rendered HTML with a small bit of JS)
 templates_dir = os.path.join(os.path.dirname(__file__), "templates")
 templates = Jinja2Templates(directory=templates_dir)
+
+# Session Middleware is required for OIDC state
+# Fail fast if SECRET_KEY is missing in production-like environments
+session_secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
+if not session_secret:
+    # Allow dev fallback only if strictly local/debug, otherwise fail
+    if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
+        session_secret = "dev_secret_do_not_use_in_prod"
+        logger.warning("Using insecure dev session secret!")
+    else:
+        raise RuntimeError("Missing WEB_SESSION_SECRET or SECRET_KEY env var for SessionMiddleware")
+
+# Secure cookies default to True (prod), but can be disabled via env for local dev
+secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
+app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
+app.include_router(auth_router.router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -106,65 +140,6 @@ async def index(request: Request) -> HTMLResponse:
     )
 
 
-@app.post(
-    "/api/admin/login",
-    response_model=AdminStatusResponse,
-    responses={
-        401: {"model": ErrorResponse},
-        503: {"model": ErrorResponse},
-    },
-)
-async def api_admin_login(
-    payload: AdminLoginRequest,
-    response: Response,
-    service: WebImageService = Depends(get_service),
-) -> AdminStatusResponse:
-    """
-    Simple admin login endpoint.
-
-    Verifies the provided password against web_admin_pw and, on success,
-    issues a short-lived admin cookie.
-    """
-    configured_password = get_admin_password()
-    if not configured_password:
-        log_json(logger, logging.WARNING, "web_admin_login_unconfigured")
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Admin mode not configured",
-        )
-    if not payload.password:
-        log_json(logger, logging.WARNING, "web_admin_login_failure", reason="empty_password")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin password",
-        )
-
-    from publisher_v2.web.auth import verify_admin_password  # local import to avoid cycles
-
-    if not verify_admin_password(payload.password, configured_password):
-        log_json(logger, logging.WARNING, "web_admin_login_failure", reason="mismatch")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid admin password",
-        )
-
-    set_admin_cookie(response)
-    log_json(logger, logging.INFO, "web_admin_login_success")
-
-    # Proactively verify curation folders for admin convenience
-    try:
-        await service.verify_curation_folders()
-    except Exception as exc:
-        log_json(
-            logger,
-            logging.WARNING,
-            "web_admin_login_folder_check_error",
-            error=str(exc),
-        )
-
-    return AdminStatusResponse(admin=True)
-
-
 @app.get(
     "/api/admin/status",
     response_model=AdminStatusResponse,
@@ -178,14 +153,47 @@ async def api_admin_status(request: Request) -> AdminStatusResponse:
 
 
 @app.post(
+    "/api/admin/login",
+    response_model=AdminStatusResponse,
+    responses={401: {"model": ErrorResponse}},
+)
+async def api_admin_login(
+    body: AdminLoginRequest,
+    response: Response,
+    request: Request,
+) -> AdminStatusResponse:
+    """
+    Exchange a password for an admin session cookie.
+    Only available if legacy password auth is configured.
+    """
+    actual_pass = get_admin_password()
+    if not actual_pass:
+        # Legacy login disabled
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy login not enabled")
+
+    if not verify_admin_password(body.password, actual_pass):
+        # 401 enables the client to re-prompt
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+
+    set_admin_cookie(response)
+    log_json(logger, logging.INFO, "web_admin_login_success")
+    return AdminStatusResponse(admin=True)
+
+
+# Deprecated: use /api/auth/logout instead
+# Kept temporarily if any older clients rely on it, but web UI uses new route.
+@app.post(
     "/api/admin/logout",
     response_model=AdminStatusResponse,
+    deprecated=True,
 )
-async def api_admin_logout(response: Response) -> AdminStatusResponse:
+async def api_admin_logout(response: Response, request: Request) -> AdminStatusResponse:
     """
     Explicitly log out of admin mode by clearing the admin cookie.
+    Also clears server-side session.
     """
     clear_admin_cookie(response)
+    request.session.clear()
     log_json(logger, logging.INFO, "web_admin_logout")
     return AdminStatusResponse(admin=False)
 
@@ -677,7 +685,7 @@ async def api_get_publishers_config(
 @app.get("/api/config/features")
 async def api_get_features_config(
     service: WebImageService = Depends(get_service),
-) -> dict[str, bool]:
+) -> dict[str, Any]:
     """
     Return high-level product feature flags for the web UI.
 
@@ -686,12 +694,17 @@ async def api_get_features_config(
     in config.loader.
     """
     features = service.config.features
+    
+    # Determine auth mode
+    auth_mode = get_auth_mode()
+
     return {
         "analyze_caption_enabled": features.analyze_caption_enabled,
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
         "auto_view_enabled": getattr(features, "auto_view_enabled", False),
+        "auth_mode": auth_mode,
     }
 
 

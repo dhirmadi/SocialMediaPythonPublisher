@@ -1,0 +1,84 @@
+version: "1.0"
+feature_id: "020"
+story_id: "020-01"
+story_name: "auth0-core-implementation"
+design_ref: "020_01_design.md"
+
+summary: |
+  Implement Auth0 OIDC login flow, adding dependencies, config, router, and UI updates.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/"
+    - "publisher_v2/tests/"
+    - "pyproject.toml"
+    - "poetry.lock"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Clicking Admin Login redirects to Auth0"
+    test_ref: "tests/web/test_auth0.py::test_login_redirect"
+  - id: AC2
+    description: "Valid email login sets admin cookie"
+    test_ref: "tests/web/test_auth0.py::test_callback_success"
+  - id: AC3
+    description: "Invalid email login denies access"
+    test_ref: "tests/web/test_auth0.py::test_callback_email_mismatch"
+  - id: AC4
+    description: "Logout clears session"
+    test_ref: "tests/web/test_auth0.py::test_logout"
+
+non_goals:
+  - "User management"
+  - "RBAC beyond email list"
+
+tasks:
+  - id: task_01
+    type: config
+    description: "Add authlib and httpx dependencies"
+    file: "pyproject.toml"
+    depends_on: []
+
+  - id: task_02
+    type: code
+    description: "Update Config Schema for Auth0"
+    file: "publisher_v2/src/publisher_v2/config/schema.py"
+    depends_on: [task_01]
+
+  - id: task_03
+    type: code
+    description: "Implement Auth0 Router"
+    file: "publisher_v2/src/publisher_v2/web/routers/auth.py"
+    depends_on: [task_02]
+
+  - id: task_04
+    type: code
+    description: "Update App with Middleware (check secret) and Router"
+    file: "publisher_v2/src/publisher_v2/web/app.py"
+    depends_on: [task_03]
+
+  - id: task_05
+    type: code
+    description: "Update Frontend UI (cleanup modal, simplified button)"
+    file: "publisher_v2/src/publisher_v2/web/templates/index.html"
+    depends_on: [task_04]
+
+  - id: task_06
+    type: test
+    description: "Add Auth0 Integration Tests (incl. CSV parsing)"
+    file: "publisher_v2/tests/web/test_auth0.py"
+    depends_on: [task_03]
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+
