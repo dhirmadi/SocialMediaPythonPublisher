@@ -198,9 +198,62 @@ async def api_admin_logout(response: Response, request: Request) -> AdminStatusR
     return AdminStatusResponse(admin=False)
 
 
+def verify_view_permissions(
+    request: Request,
+    service: WebImageService = Depends(get_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> None:
+    """
+    Enforce permission policy for viewing images (list, details, random, thumbnails).
+    
+    Policy:
+      - If FEATURE_AUTO_VIEW=true (default for local/dev), allow public access.
+      - If FEATURE_AUTO_VIEW=false (default for prod/cloud), require Admin mode.
+        - If Admin is not configured, fail closed (503).
+    """
+    features = service.config.features
+    # Check if public view is allowed
+    if getattr(features, "auto_view_enabled", False):
+        return
+
+    # Otherwise, strict admin check
+    is_conf = is_admin_configured()
+    logger.debug(f"verify_view_permissions: is_admin_configured={is_conf}")
+    if not is_conf:
+        # Admin required but not available -> Service Unavailable
+        # Log telemetry if available
+        if telemetry:
+             log_json(
+                logger,
+                logging.WARNING,
+                "view_permission_denied_admin_unconfigured",
+                correlation_id=telemetry.correlation_id,
+                path=request.url.path
+            )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Image viewing requires admin mode but admin is not configured",
+        )
+    
+    try:
+        require_admin(request)
+    except HTTPException:
+        # Log the specific access denial
+        if telemetry:
+            log_json(
+                logger,
+                logging.WARNING,
+                "view_permission_denied_admin_required",
+                correlation_id=telemetry.correlation_id,
+                path=request.url.path
+            )
+        raise
+
+
 @app.get(
     "/api/images/list",
     response_model=ImageListResponse,
+    dependencies=[Depends(verify_view_permissions)],
 )
 async def api_list_images(
     request: Request,
@@ -208,19 +261,7 @@ async def api_list_images(
     service: WebImageService = Depends(get_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageListResponse:
-    features = service.config.features
-    if not getattr(features, "auto_view_enabled", False):
-        # reuse same logic as random image for permissions
-        if not is_admin_configured():
-             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Image viewing requires admin mode but admin is not configured",
-            )
-        try:
-            require_admin(request)
-        except HTTPException:
-            raise
-
+    # Permissions checked by dependency
     # Service method returns dict, pydantic validates
     data = await service.list_images()
     return ImageListResponse(**data)
@@ -230,6 +271,7 @@ async def api_list_images(
     "/api/images/random",
     response_model=ImageResponse,
     responses={404: {"model": ErrorResponse}},
+    dependencies=[Depends(verify_view_permissions)],
 )
 async def api_get_random_image(
     request: Request,
@@ -237,36 +279,7 @@ async def api_get_random_image(
     service: WebImageService = Depends(get_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
-    # Enforce AUTO_VIEW semantics: when disabled, only admin may view images.
-    features = service.config.features
-    if not getattr(features, "auto_view_enabled", False):
-        if not is_admin_configured():
-            web_random_image_ms = elapsed_ms(telemetry.start_time)
-            response.headers["X-Correlation-ID"] = telemetry.correlation_id
-            log_json(
-                logger,
-                logging.WARNING,
-                "web_random_image_admin_required_unconfigured",
-                correlation_id=telemetry.correlation_id,
-                web_random_image_ms=web_random_image_ms,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Image viewing requires admin mode but admin is not configured",
-            )
-        try:
-            require_admin(request)
-        except HTTPException:
-            web_random_image_ms = elapsed_ms(telemetry.start_time)
-            response.headers["X-Correlation-ID"] = telemetry.correlation_id
-            log_json(
-                logger,
-                logging.WARNING,
-                "web_random_image_admin_required",
-                correlation_id=telemetry.correlation_id,
-                web_random_image_ms=web_random_image_ms,
-            )
-            raise
+    # Permissions checked by dependency
     try:
         img = await service.get_random_image()
         web_random_image_ms = elapsed_ms(telemetry.start_time)
@@ -300,6 +313,7 @@ async def api_get_random_image(
     "/api/images/{filename}",
     response_model=ImageResponse,
     responses={404: {"model": ErrorResponse}},
+    dependencies=[Depends(verify_view_permissions)],
 )
 async def api_get_image_details(
     filename: str,
@@ -308,19 +322,7 @@ async def api_get_image_details(
     service: WebImageService = Depends(get_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
-    # Enforce same permissions as random/list
-    features = service.config.features
-    if not getattr(features, "auto_view_enabled", False):
-        if not is_admin_configured():
-             raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Image viewing requires admin mode but admin is not configured",
-            )
-        try:
-            require_admin(request)
-        except HTTPException:
-            raise
-
+    # Permissions checked by dependency
     try:
         return await service.get_image_details(filename)
     except FileNotFoundError:
@@ -564,6 +566,7 @@ class ThumbnailSizeParam(str, Enum):
         200: {"content": {"image/jpeg": {}}},
         404: {"model": ErrorResponse},
     },
+    dependencies=[Depends(verify_view_permissions)],
 )
 async def api_get_thumbnail(
     filename: str,
@@ -586,37 +589,8 @@ async def api_get_thumbnail(
     - w960h640: Desktop preview (960×640, default)
     - w1024h768: High-quality preview (1024×768)
     """
-    # Respect AUTO_VIEW semantics (same as random image endpoint)
-    features = service.config.features
-    if not getattr(features, "auto_view_enabled", False):
-        if not is_admin_configured():
-            web_thumbnail_ms = elapsed_ms(telemetry.start_time)
-            log_json(
-                logger,
-                logging.WARNING,
-                "web_thumbnail_admin_required_unconfigured",
-                filename=filename,
-                correlation_id=telemetry.correlation_id,
-                web_thumbnail_ms=web_thumbnail_ms,
-            )
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="Image viewing requires admin mode but admin is not configured",
-            )
-        try:
-            require_admin(request)
-        except HTTPException:
-            web_thumbnail_ms = elapsed_ms(telemetry.start_time)
-            log_json(
-                logger,
-                logging.WARNING,
-                "web_thumbnail_admin_required",
-                filename=filename,
-                correlation_id=telemetry.correlation_id,
-                web_thumbnail_ms=web_thumbnail_ms,
-            )
-            raise
-
+    # Permissions checked by dependency
+    
     try:
         thumb_bytes = await service.get_thumbnail(filename, size=size.value)
 
@@ -711,6 +685,3 @@ async def api_get_features_config(
 @app.get("/health")
 async def health() -> dict:
     return {"status": "ok"}
-
-
-

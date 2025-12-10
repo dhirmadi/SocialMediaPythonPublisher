@@ -3,10 +3,12 @@ from __future__ import annotations
 import base64
 import hmac
 import os
+import logging
 from typing import Optional
 
 from fastapi import Request, HTTPException, Response, status
 
+logger = logging.getLogger("publisher_v2.web.auth")
 
 def _get_env(name: str) -> Optional[str]:
     value = os.environ.get(name)
@@ -182,4 +184,3 @@ def require_admin(request: Request) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
-

@@ -105,9 +105,14 @@ async def test_startup_and_correlation_id(monkeypatch: pytest.MonkeyPatch) -> No
 
 def test_admin_login_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("web_admin_pw", raising=False)
+    # Also ensure Auth0 env vars are cleared so we don't accidentally enable admin via that path
+    # (though this endpoint only checks password auth)
+    monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
+    monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
+    
     with TestClient(app) as client:
         resp = client.post("/api/admin/login", json={"password": "pw"})
-        assert resp.status_code == 503
+        assert resp.status_code == 404
 
 
 def test_admin_login_empty_password(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -119,7 +124,10 @@ def test_admin_login_empty_password(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_random_image_requires_admin_when_unconfigured(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
     service = _StubWebService()
+    # Patch both auth and app to be sure
+    monkeypatch.setattr("publisher_v2.web.auth.is_admin_configured", lambda: False)
     monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
+    
     client = client_factory(service)
     resp = client.get("/api/images/random")
     assert resp.status_code == 503
