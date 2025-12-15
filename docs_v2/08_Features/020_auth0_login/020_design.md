@@ -18,9 +18,9 @@ This feature introduces Auth0 OIDC login for admin authentication while maintain
 
 ## 3. Requirements
 ### 3.1 Functional Requirements
-- **FR1:** If configured with Auth0, the "Admin" button redirects to `/api/auth/login`.
+- **FR1:** If configured with Auth0, the "Admin" button redirects to `/auth/login`.
 - **FR2:** If configured with only a password, the "Admin" button opens a password modal (legacy flow).
-- **FR3:** `GET /api/auth/callback` handles OIDC code exchange and verifies email against `ADMIN_LOGIN_EMAILS`.
+- **FR3:** `GET /auth/callback` handles OIDC code exchange and verifies email against `ADMIN_LOGIN_EMAILS`.
 - **FR4:** `POST /api/admin/login` handles password verification (legacy).
 - **FR5:** Successful login (via either method) sets the `pv2_admin` cookie.
 - **FR6:** Logout endpoint clears the session and cookie.
@@ -34,7 +34,7 @@ This feature introduces Auth0 OIDC login for admin authentication while maintain
 
 ### 4.1 Frontend Logic
 The frontend (`index.html`) queries `/api/config/features` on load to determine the `auth_mode`:
-- `"auth0"`: Admin button is a link to `/api/auth/login`.
+- `"auth0"`: Admin button is a link to `/auth/login`.
 - `"password"`: Admin button opens the JS modal to POST to `/api/admin/login`.
 - `"none"`: Admin button is hidden.
 
@@ -50,10 +50,10 @@ The frontend (`index.html`) queries `/api/config/features` on load to determine 
 New `Auth0Config` model added to schema. Legacy password remains as an environment variable read directly by helper functions.
 
 ### 4.4 API/Contracts
-- **`GET /api/auth/login`**: Redirects to Auth0.
-- **`GET /api/auth/callback`**: OIDC Callback.
+- **`GET /auth/login`**: Redirects to Auth0.
+- **`GET /auth/callback`**: OIDC Callback.
 - **`POST /api/admin/login`**: Legacy password login (JSON body `{"password": "..."}`).
-- **`GET /api/auth/logout`**: Unified logout.
+- **`GET /auth/logout`**: Unified logout.
 
 ## 5. Security, Privacy, Compliance
 - **Session Secret:** Required for OIDC state management. Fails fast in production if missing.

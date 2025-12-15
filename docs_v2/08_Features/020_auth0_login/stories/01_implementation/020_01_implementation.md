@@ -3,7 +3,7 @@
 **Feature ID:** 020
 **Story ID:** 020-01
 **Name:** implementation
-**Status:** Proposed
+**Status:** Implementation Complete
 **Date:** 2025-12-07
 **Parent Feature:** 020_auth0_login
 
@@ -18,7 +18,7 @@ Implement the Auth0 OIDC login flow for the Web UI, replacing the existing passw
 - Update `publisher_v2.web.app` to include the new router and middleware.
 - Update `publisher_v2.web.templates.index.html`:
   - Remove the password modal and existing admin login JS.
-  - "Admin" button now links to `/api/auth/login`.
+  - "Admin" button now links to `/auth/login`.
   - Add JS to parse `?auth_error=` query param and show a toast/notification (reusing existing status UI).
 - Ensure `ADMIN_LOGIN_EMAILS` logic parses CSV robustly (strip whitespace).
 - Preserve existing `WEB_AUTH_TOKEN` behavior for API clients.

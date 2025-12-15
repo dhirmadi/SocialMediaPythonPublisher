@@ -2,7 +2,7 @@
 
 **ID:** 020
 **Name:** auth0-login
-**Status:** Proposed
+**Status:** Implementation Complete
 **Date:** 2025-12-07
 **Author:** AI Agent
 
@@ -44,7 +44,7 @@ The current admin authentication relies on a shared password (`web_admin_pw`) or
 - **Given** I am logged in, **when** the session expires, **then** I must re-authenticate.
 
 ## UX / Content Requirements
-- "Admin" button triggers `GET /api/auth/login`.
+- "Admin" button triggers `GET /auth/login`.
 - Login Callback handles the OIDC response.
 - "Permission Denied" is handled via query parameter redirection (e.g., `/?error=access_denied`) shown in the existing UI (toast/modal).
 

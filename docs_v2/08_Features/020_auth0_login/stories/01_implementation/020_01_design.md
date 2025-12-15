@@ -6,7 +6,7 @@
 **Parent Feature:** auth0_login
 **Design Version:** 1.0
 **Date:** 2025-12-07
-**Status:** Design Review
+**Status:** Implementation Complete
 **Story Definition:** 020_01_implementation.md
 **Parent Feature Design:** ../../020_design.md
 
@@ -24,9 +24,9 @@ This story implements the core Auth0 OIDC login flow for the Web UI. It replaces
 - **SR1:** Add `authlib` and `httpx` dependencies.
 - **SR2:** Implement `Auth0Config` model to validating `AUTH0_DOMAIN`, `CLIENT_ID`, `CLIENT_SECRET`, `AUDIENCE`, `CALLBACK_URL`, `ADMIN_LOGIN_EMAILS`.
 - **SR3:** Add `SessionMiddleware` to `app.py` using `WEB_SESSION_SECRET`.
-- **SR4:** Implement `GET /api/auth/login` to redirect to Auth0.
-- **SR5:** Implement `GET /api/auth/callback` to exchange code, verify email, and set `pv2_admin` cookie on success.
-- **SR6:** Implement `GET /api/auth/logout` to clear cookie.
+- **SR4:** Implement `GET /auth/login` to redirect to Auth0.
+- **SR5:** Implement `GET /auth/callback` to exchange code, verify email, and set `pv2_admin` cookie on success.
+- **SR6:** Implement `GET /auth/logout` to clear cookie.
 - **SR7:** Update `index.html` to remove password modal and handle `?auth_error=` query params via toast/alert.
 
 ### 3.2 Non-Functional Requirements
@@ -38,7 +38,7 @@ This story implements the core Auth0 OIDC login flow for the Web UI. It replaces
 - **Current:** `app.py` has `/api/admin/login` (POST). Frontend has password modal JS.
 - **Proposed:**
   - `app.py`: Remove `POST /api/admin/login`. Add `SessionMiddleware`. Include `auth_router`.
-  - `frontend`: Remove modal HTML/JS. "Admin" button is `<a href="/api/auth/login">`. JS checks URL for errors on load.
+  - `frontend`: Remove modal HTML/JS. "Admin" button is `<a href="/auth/login">`. JS checks URL for errors on load.
 
 ### 4.2 Components & Responsibilities
 - **`publisher_v2.config.schema`**: Add `Auth0Config`.
@@ -60,7 +60,7 @@ This story implements the core Auth0 OIDC login flow for the Web UI. It replaces
 - **PII:** Only log `email` for audit. No tokens.
 
 ## 5. Detailed Flow
-1. **User** clicks Admin -> `GET /api/auth/login`.
+1. **User** clicks Admin -> `GET /auth/login`.
 2. **Server** (`login`):
    - `oauth.auth0.authorize_redirect(request, redirect_uri)`.
    - Saves `state` in signed session cookie.

@@ -21,7 +21,7 @@ def mock_service():
             domain="test.auth0.com",
             client_id="test-client-id",
             client_secret="test-client-secret",
-            callback_url="http://testserver/api/auth/callback",
+            callback_url="http://testserver/auth/callback",
             admin_emails="admin@example.com, user@example.com"
         )
         # Ensure that dependencies using this service get this mocked instance
@@ -43,12 +43,12 @@ def mock_oauth():
 
 @pytest.mark.asyncio
 async def test_login_redirect(client, mock_service, mock_oauth):
-    mock_service.config.auth0.callback_url = "http://testserver/api/auth/callback"
+    mock_service.config.auth0.callback_url = "http://testserver/auth/callback"
     from publisher_v2.web.service import WebImageService
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/login", follow_redirects=False)
+        response = client.get("/auth/login", follow_redirects=False)
         assert response.status_code == 303
         assert "test.auth0.com" in response.headers["location"]
         mock_oauth.auth0.authorize_redirect.assert_called_once()
@@ -61,7 +61,7 @@ def test_login_redirect_no_config(client, mock_service):
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/login", follow_redirects=False)
+        response = client.get("/auth/login", follow_redirects=False)
         assert response.status_code == 303
         assert "auth_not_configured" in response.headers["location"]
     finally:
@@ -76,7 +76,7 @@ async def test_callback_success(client, mock_service, mock_oauth):
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/callback?code=123&state=xyz", follow_redirects=False)
+        response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/"
         assert "pv2_admin" in response.cookies
@@ -92,7 +92,7 @@ async def test_callback_email_mismatch(client, mock_service, mock_oauth):
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/callback?code=123&state=xyz", follow_redirects=False)
+        response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
         assert response.status_code == 303
         assert "auth_error=access_denied" in response.headers["location"]
         assert "pv2_admin" not in response.cookies
@@ -109,7 +109,7 @@ async def test_callback_email_case_insensitive(client, mock_service, mock_oauth)
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/callback?code=123&state=xyz", follow_redirects=False)
+        response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
         assert response.status_code == 303
         assert response.headers["location"] == "/"
         assert "pv2_admin" in response.cookies
@@ -122,7 +122,7 @@ async def test_callback_auth0_error(client, mock_service, mock_oauth):
     app.dependency_overrides[WebImageService] = lambda: mock_service
     
     try:
-        response = client.get("/api/auth/callback?error=access_denied&error_description=User+denied", follow_redirects=False)
+        response = client.get("/auth/callback?error=access_denied&error_description=User+denied", follow_redirects=False)
         assert response.status_code == 303
         assert "auth_error=access_denied" in response.headers["location"]
     finally:
@@ -130,7 +130,7 @@ async def test_callback_auth0_error(client, mock_service, mock_oauth):
 
 def test_logout(client):
     client.cookies.set("pv2_admin", "1")
-    response = client.get("/api/auth/logout", follow_redirects=False)
+    response = client.get("/auth/logout", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert 'pv2_admin=""' in response.headers.get("set-cookie", "") or \
