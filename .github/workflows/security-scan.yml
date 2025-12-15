@@ -64,7 +64,7 @@ jobs:
           pip-audit-report.json
     
     - name: Check for secrets in code
-      uses: trufflesecurity/trufflehog@v3
+      uses: trufflesecurity/trufflehog@main
       with:
         path: ./
         base: ${{ github.event.repository.default_branch }}
