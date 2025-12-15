@@ -37,14 +37,14 @@ help:
 
 # Installation
 install:
-	poetry install --no-root
+	uv sync
 
 install-dev:
-	poetry install --no-root
+	uv sync --group dev
 
 setup-dev: install-dev
 	@echo "Setting up pre-commit hooks..."
-	@poetry run pre-commit --version >/dev/null 2>&1 && poetry run pre-commit install || echo "Skipping pre-commit (not available for this Python)"
+	@uv run pre-commit --version >/dev/null 2>&1 && uv run pre-commit install || echo "Skipping pre-commit (not available for this Python)"
 	@echo "Creating configuration files from examples..."
 	@if [ ! -f .env ]; then cp dotenv.example .env; echo "Created .env - EDIT THIS FILE"; fi
 	@if [ ! -f configfiles/SocialMediaConfig.ini ]; then \
@@ -62,59 +62,51 @@ setup-dev: install-dev
 
 # Export pip requirement files for non-Poetry environments
 export-reqs:
-	@echo "Exporting requirements.txt from Poetry..."
-	@if ! poetry help | grep -q 'export'; then \
-		echo "Poetry export plugin not found. Installing poetry-plugin-export..."; \
-		poetry self add poetry-plugin-export || { echo "Failed to install poetry-plugin-export. Please install it manually."; exit 1; }; \
-	fi
-	poetry export -f requirements.txt --output requirements.txt --without-hashes
+	@echo "Exporting requirements.txt from uv..."
+	uv export --format requirements-txt --no-hashes > requirements.txt
 	@echo "✅ requirements.txt updated"
 
 export-reqs-dev:
-	@echo "Exporting requirements-dev.txt (includes dev deps) from Poetry..."
-	@if ! poetry help | grep -q 'export'; then \
-		echo "Poetry export plugin not found. Installing poetry-plugin-export..."; \
-		poetry self add poetry-plugin-export || { echo "Failed to install poetry-plugin-export. Please install it manually."; exit 1; }; \
-	fi
-	poetry export -f requirements.txt --with dev --output requirements-dev.txt --without-hashes
+	@echo "Exporting requirements-dev.txt (includes dev deps) from uv..."
+	uv export --format requirements-txt --group dev --no-hashes > requirements-dev.txt
 	@echo "✅ requirements-dev.txt updated"
 
 # Code Quality
 format:
 	@echo "Formatting code with black..."
-	poetry run black . --line-length 120
+	uv run black . --line-length 120
 	@echo "Sorting imports with isort..."
-	poetry run isort . --profile black --line-length 120
+	uv run isort . --profile black --line-length 120
 	@echo "✅ Code formatted"
 
 lint:
 	@echo "Running flake8..."
-	poetry run flake8 . --max-line-length=120 --extend-ignore=E203,E501 --exclude=venv,env,.venv,.git,__pycache__
+	uv run flake8 . --max-line-length=120 --extend-ignore=E203,E501 --exclude=venv,env,.venv,.git,__pycache__
 	@echo "Running pylint..."
-	poetry run pylint py_rotator_daily.py py_db_auth.py --max-line-length=120 || true
+	uv run pylint py_rotator_daily.py py_db_auth.py --max-line-length=120 || true
 	@echo "✅ Linting complete"
 
 type-check:
 	@echo "Running mypy type checker..."
-	poetry run mypy . --ignore-missing-imports --exclude=venv --exclude=env || true
+	uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env || true
 	@echo "✅ Type checking complete"
 
 test:
 	@echo "Running tests with coverage..."
-	poetry run pytest -v --cov=. --cov-report=term --cov-report=html
+	uv run pytest -v --cov=. --cov-report=term --cov-report=html
 	@echo "✅ Tests complete - see htmlcov/index.html for coverage report"
 
 check: format lint type-check test
 	@echo "Running pre-commit hooks..."
-	@poetry run pre-commit --version >/dev/null 2>&1 && poetry run pre-commit run --all-files || echo "Skipping pre-commit run (not available)"
+	@uv run pre-commit --version >/dev/null 2>&1 && uv run pre-commit run --all-files || echo "Skipping pre-commit run (not available)"
 	@echo "✅ All checks complete"
 
 # Security
 security:
 	@echo "Running safety check..."
-	poetry run safety check || true
+	uv run safety check || true
 	@echo "Running bandit security scan..."
-	poetry run bandit -r . -f json -o bandit-report.json || true
+	uv run bandit -r . -f json -o bandit-report.json || true
 	@echo "✅ Security scans complete - see bandit-report.json"
 
 check-secrets:
@@ -158,7 +150,7 @@ run:
 		echo "Run 'make setup-dev' first"; \
 		exit 1; \
 	fi
-	poetry run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
+	uv run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 
 run-v2:
 	@if [ ! -f code_v1/configfiles/SocialMediaConfig.ini ] && [ ! -f configfiles/SocialMediaConfig.ini ]; then \
@@ -166,7 +158,7 @@ run-v2:
 		exit 1; \
 	fi; \
 	CONFIG_PATH=$$( [ -f configfiles/SocialMediaConfig.ini ] && echo "configfiles/SocialMediaConfig.ini" || echo "code_v1/configfiles/SocialMediaConfig.ini" ); \
-	PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
+	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
 
 preview-v2:
 	@if [ -z "$(CONFIG)" ]; then \
@@ -178,7 +170,7 @@ preview-v2:
 		exit 1; \
 	fi; \
 	echo "🔍 Running preview mode with $(CONFIG)..."; \
-	PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py --config $(CONFIG) --preview
+	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config $(CONFIG) --preview
 
 auth:
 	@if [ ! -f .env ]; then \
@@ -186,12 +178,12 @@ auth:
 		echo "Run 'make setup-dev' first"; \
 		exit 1; \
 	fi
-	poetry run python py_db_auth.py .env
+	uv run python py_db_auth.py .env
 
 # Development helpers
 watch-test:
 	@echo "Watching for changes and running tests..."
-	poetry run pytest-watch -v
+	uv run pytest-watch -v
 
 docs:
 	@echo "Opening documentation..."
@@ -204,12 +196,12 @@ status:
 	@git status --short || echo "Not a git repository"
 	@echo ""
 	@echo "Virtual Environment:"
-	@poetry env info --path >/dev/null 2>&1 && echo "✅ Poetry venv: $$(poetry env info --path)" || echo "❌ Poetry venv not created"
+	@uv run which python >/dev/null 2>&1 && echo "✅ uv venv: $$(uv run which python)" || echo "❌ uv venv not created"
 	@echo ""
 	@echo "Configuration Files:"
 	@if [ -f .env ]; then echo "✅ .env exists"; else echo "❌ .env missing"; fi
 	@if [ -f configfiles/SocialMediaConfig.ini ]; then echo "✅ Config exists"; else echo "❌ Config missing"; fi
 	@echo ""
 	@echo "Dependencies:"
-	@poetry show -q | grep -E "dropbox|openai|telegram|instagrapi" || echo "Dependencies not installed"
+	@uv pip list -q | grep -E "dropbox|openai|telegram|instagrapi" || echo "Dependencies not installed"
 

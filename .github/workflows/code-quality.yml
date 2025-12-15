@@ -27,29 +27,33 @@ jobs:
       with:
         python-version: '3.11'
     
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+    
     - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install flake8 black isort mypy pylint
+        uv sync --group dev
     
     - name: Run Black (code formatting check)
       run: |
-        black --check --diff .
+        uv run black --check --diff .
       continue-on-error: true
     
     - name: Run isort (import sorting check)
       run: |
-        isort --check-only --diff .
+        uv run isort --check-only --diff .
       continue-on-error: true
     
     - name: Run flake8 (linting)
       run: |
-        flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
-        flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
+        uv run flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        uv run flake8 . --count --exit-zero --max-complexity=10 --max-line-length=120 --statistics
     
     - name: Run mypy (type checking)
       run: |
-        mypy . --ignore-missing-imports
+        uv run mypy . --ignore-missing-imports
       continue-on-error: true
 
   test:
@@ -65,16 +69,18 @@ jobs:
       with:
         python-version: '3.11'
     
-    - name: Install Poetry and project dependencies (incl. dev)
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
       run: |
-        python -m pip install --upgrade pip
-        pip install poetry
-        poetry config virtualenvs.create false
-        poetry install --no-interaction --no-root --with dev
+        uv sync --group dev
     
     - name: Run tests with coverage
       run: |
-        pytest --cov=. --cov-report=xml --cov-report=html
+        uv run pytest --cov=. --cov-report=xml --cov-report=html
       continue-on-error: true
     
     - name: Upload coverage reports
