@@ -265,7 +265,7 @@ This change extends the pattern of conditional visibility established in these p
 - Parent Feature Request: `docs_v2/08_Features/08_01_Feature_Request/005_web-interface-mvp.md`
 - Parent Feature Design: `docs_v2/08_Features/08_02_Feature_Design/005_web-interface-mvp_design.md`
 - Configuration Schema: `publisher_v2/src/publisher_v2/config/schema.py`
-- Repo Rules: `.cursorrules`
+- Repo Rules: `.cursor/rules/*.mdc` (canonical) and `.cursorrules` (compatibility shim)
 
 ---
 
