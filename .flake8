@@ -1,0 +1,15 @@
+[flake8]
+# Flake8 should lint *our* code, not the local virtualenv / site-packages.
+exclude =
+    .git,
+    .venv,
+    venv,
+    __pycache__,
+    .pytest_cache,
+    .mypy_cache,
+    .ruff_cache,
+    build,
+    dist,
+    code_v1
+
+
