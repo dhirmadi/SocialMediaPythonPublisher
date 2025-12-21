@@ -1,7 +1,7 @@
 # Configuration — Social Media Publisher V2
 
 Version: 2.6  
-Last Updated: November 22, 2025
+Last Updated: December 21, 2025
 
 ---
 
@@ -111,7 +111,7 @@ caption_model = gpt-4o-mini     ; Cost-effective caption generation
 system_prompt = You are a senior social media copywriter...
 role_prompt = Write a caption for:
 
-[; Stable-Diffusion sidecar (optional, defaults shown)]
+; Stable-Diffusion sidecar (optional, defaults shown)
 sd_caption_enabled = true
 sd_caption_single_call_enabled = true
 ; sd_caption_model = gpt-4o-mini
@@ -186,13 +186,11 @@ Behavior:
 - When enabled, the caption generator prefers a single call returning `{caption, sd_caption}`.
 - On error or if disabled, falls back to legacy caption‑only path.
 - Sidecar write is skipped in preview/dry/debug modes and does not block publishing.
-- Sidecar file format:
-  - Line 1: the `sd_caption` only
-  - Line 2: blank
-  - Line 3: `# ---`
-  - Subsequent lines: `# key: value` (`tags` and `moderation` as JSON arrays)
+- SD caption file (`<image>.txt`) format:
+  - **One line only**: the `sd_caption` text (no metadata)
+  - Overwritten on re-processing
 
-## 6. Validation Rules (Pydantic)
+## 5. Validation Rules (Pydantic)
 
 - Dropbox folder must start with `/`
 - `OPENAI_API_KEY` must start with `sk-`
@@ -206,7 +204,7 @@ Behavior:
   - caption_target ∈ {subject, body, both}
   - subject_mode ∈ {normal, private, avatar}
 
-## 5. Preview Mode (v2.2+)
+## 6. Preview Mode (v2.2+)
 
 Test your configuration without publishing or modifying anything:
 
@@ -215,12 +213,12 @@ Test your configuration without publishing or modifying anything:
 make preview-v2 CONFIG=configfiles/fetlife.ini
 
 # Or direct command
-PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py \
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
   --config configfiles/fetlife.ini \
   --preview
 
 # Preview specific image
-PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py \
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
   --config configfiles/fetlife.ini \
   --select image.jpg \
   --preview
@@ -272,8 +270,8 @@ PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.
 
 ## See Also
 
-- [Feature 012: Centralized Configuration & i18n Text](/docs_v2/08_Features/012_central-config-i18n-text.md)
-- [i18n Activation Summary](/docs_v2/08_Features/012_i18n_activation_summary.md)
-- [Architecture Documentation](/docs_v2/03_Architecture/ARCHITECTURE.md)
+- [Feature 012: Central Config & i18n](../08_Features/012_central_config_i18n_text/012_feature.md)
+- [i18n Activation Summary](../08_Features/012_central_config_i18n_text/stories/01_implementation/ACTIVATION_SUMMARY.md)
+- [Architecture Documentation](../03_Architecture/ARCHITECTURE.md)
 
 

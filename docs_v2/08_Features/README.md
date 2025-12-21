@@ -70,3 +70,15 @@ Change requests are modifications to an existing story or feature.
 2.  Add a new change request file in the `change_requests/` subfolder.
 3.  If the change request is substantial (requires its own design/plan), consider promoting it to a new Story instead.
 
+## Legacy Path References (Important)
+
+Some older story/design docs may contain references to now-removed documentation paths such as:
+- `docs_v2/08_Features/08_02_Feature_Design/...`
+- `docs_v2/08_Features/08_04_ChangeRequests/...`
+
+These folders **do not exist** in the current V2 documentation layout. Treat those references as **historical artifacts**.
+
+**Canonical rule:** if you are looking for a design, story doc, or plan, it lives *inside the feature folder*:
+- Feature design: `docs_v2/08_Features/NNN_feature_name/NNN_design.md`
+- Story artifacts: `docs_v2/08_Features/NNN_feature_name/stories/SS_story_name/NNN_SS_*.{md,yaml}`
+

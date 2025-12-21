@@ -41,7 +41,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
   - Publishers: Telegram, Email, Instagram (pluggable).
 - **Configuration:** INI file + `.env` for secrets; Pydantic validation.
 - **State management:** SHA256 dedup via `posted_hashes.txt`; sidecar `.txt` files for metadata.
-- **Deployment:** Local or server with Poetry; no existing web layer.
+- **Deployment:** Local or server with **uv**; no existing web layer (Poetry also supported).
 
 ### Constraints
 1. Python 3.9–3.12 compatibility (per `pyproject.toml`).
@@ -515,7 +515,7 @@ web: uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT
 
 **Optional: CLI still available via `worker` dyno:**
 ```
-worker: poetry run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
+worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 ```
 
 ### Migration/Backfill Plan

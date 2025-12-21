@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from publisher_v2.web.app import app, _startup, _get_correlation_id, get_service
+from publisher_v2.web.app import app, _get_correlation_id, get_service
 
 
 class _StubWebService:
@@ -93,14 +93,21 @@ def client_factory():
     app.dependency_overrides.clear()
 
 
-@pytest.mark.asyncio
-async def test_startup_and_correlation_id(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WEB_DEBUG", "1")
-    await _startup()
-
+def test_correlation_id_from_header() -> None:
+    """Test that correlation ID is extracted from X-Request-ID header."""
     scope = {"type": "http", "headers": [(b"x-request-id", b"abc")]}
     req = Request(scope)
     assert _get_correlation_id(req) == "abc"
+
+
+def test_correlation_id_generated_when_missing() -> None:
+    """Test that a new UUID is generated when no X-Request-ID header is present."""
+    scope = {"type": "http", "headers": []}
+    req = Request(scope)
+    cid = _get_correlation_id(req)
+    # Should be a valid UUID4 string (36 chars with hyphens)
+    assert len(cid) == 36
+    assert cid.count("-") == 4
 
 
 def test_admin_login_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:

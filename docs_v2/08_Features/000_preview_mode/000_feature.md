@@ -1,7 +1,7 @@
 # Preview Mode Guide — Publisher V2
 
 Version: 2.2  
-Last Updated: November 8, 2025
+Last Updated: December 21, 2025
 
 ## Overview
 
@@ -20,7 +20,7 @@ Preview mode allows you to test your configuration and see exactly what will be 
 make preview-v2 CONFIG=configfiles/fetlife.ini
 
 # Direct command
-PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py \
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
   --config configfiles/fetlife.ini \
   --preview
 
@@ -192,7 +192,7 @@ Preview each to compare vision analysis quality.
 Preview a particular image before posting:
 
 ```bash
-PYTHONPATH=publisher_v2/src poetry run python publisher_v2/src/publisher_v2/app.py \
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
   --config configfiles/fetlife.ini \
   --select risky_image.jpg \
   --preview

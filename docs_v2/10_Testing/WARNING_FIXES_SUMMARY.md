@@ -4,6 +4,8 @@
 **Status:** ✅ COMPLETE — All Warnings Fixed  
 **Result:** 0 warnings (down from 12)
 
+**Update (2025-12-21):** The suite has since expanded (273 tests, 92% coverage). For current status, see **`docs_v2/10_Testing/TEST_EXECUTION_REPORT_2025-12-21.md`**.
+
 ---
 
 ## Summary
@@ -183,7 +185,7 @@ addopts = [
 
 ### Test Results
 ```bash
-$ poetry run pytest -v
+$ uv run pytest -v
 ============================= 36 passed in 10.52s ==============================
 ```
 
@@ -233,7 +235,7 @@ Now that warnings are fixed, the focus shifts to **test coverage expansion** (se
 - ✅ Add `-Werror` flag to fail on warnings in CI (optional, strict mode)
 
 ### For Development
-- ✅ Run `poetry run pytest -v` regularly to catch new warnings early
+- ✅ Run `uv run pytest -v` regularly to catch new warnings early
 - ✅ Fix warnings immediately — don't let them accumulate
 
 ### For Future Publishers

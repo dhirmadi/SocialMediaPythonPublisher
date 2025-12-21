@@ -1,14 +1,14 @@
 # Architecture — Social Media Publisher V2
 
 Version: 2.6  
-Last Updated: November 22, 2025
+Last Updated: December 21, 2025
 
 ## 1. Architecture Pattern
 
 Layered architecture with service abstractions, dependency injection, and a **three-layer configuration model**.
 
 ```
-CLI (poetry run) / Scheduler / Web (FastAPI)
+CLI (uv run) / Scheduler / Web (FastAPI)
         ↓
 Application Layer (Workflow Orchestrator, Use Cases)
         ↓
@@ -95,7 +95,7 @@ Web API (FastAPI):
 - Toggles are read once during config load and are exposed via `ApplicationConfig.features` for all layers (CLI, workflow, web). Storage remains always-on.
 
 ## 6. Deployment
-- Local or server with Poetry + Python 3.12
+- Local or server with **uv** + Python 3.12 (Poetry also supported)
 - Cron/systemd/CI scheduler for recurring jobs
 - Optional containerization; secrets via env
 
@@ -159,8 +159,8 @@ Web API (FastAPI):
 
 ## See Also
 
-- [Configuration Documentation](/docs_v2/05_Configuration/CONFIGURATION.md)
-- [Feature 012: Centralized Configuration](/docs_v2/08_Features/012_central-config-i18n-text.md)
-- [System Design](/docs_v2/03_Architecture/SYSTEM_DESIGN.md)
+- [Configuration Documentation](../05_Configuration/CONFIGURATION.md)
+- [Feature 012: Central Config & i18n](../08_Features/012_central_config_i18n_text/012_feature.md)
+- [System Design](./SYSTEM_DESIGN.md)
 
 

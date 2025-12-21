@@ -1,0 +1,5 @@
+version: 1
+legacy_redirect: true
+migrated_to:
+  story_plan: "../../001_caption_file/stories/02_sidecars-as-ai-cache/001_02_plan.yaml"
+

@@ -76,7 +76,7 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 - Localization is not required in MVP; English copy is sufficient.
 
 ## Technical Constraints & Assumptions
-- Backend remains Python 3.9–3.12 compatible, using the existing Poetry/pyproject toolchain.
+- Backend remains Python 3.9–3.12 compatible. Documentation examples standardize on **uv**, with Poetry supported via `pyproject.toml`.
 - Web server is implemented using a lightweight Python web framework (e.g., FastAPI/Starlette/Flask) integrated into the `publisher_v2` package without altering current CLI entrypoint behavior.
 - Deployment target is Heroku (or Heroku-like) as a single web dyno:
   - `Procfile` defines a `web` process using an ASGI server like `uvicorn`.

@@ -30,171 +30,49 @@ This directory contains comprehensive testing analysis and proposals for the Soc
 
 ## Current Status
 
-### Test Suite Health: ✅ GOOD
+### Test Suite Health: ✅ EXCELLENT
 
 | Metric | Status | Target |
 |--------|--------|--------|
-| **Tests Passing** | 36/36 (100%) | 100% |
+| **Tests Passing** | 273/273 (100%) | 100% |
 | **Warnings** | 0 | 0 |
-| **Coverage** | 72% | 85%+ |
+| **Coverage** | 92% | 85%+ |
+| **CLI Coverage** | 97% | 80%+ |
+| **Execution Time** | ~25s | <30s |
 | **Test Quality** | High | High |
 
 ### Summary
 
-- ✅ All tests passing
-- ✅ Zero warnings (fixed from 12)
-- ⚠️ Coverage below target (72% vs. 85%+ target)
+- ✅ All 273 tests passing
+- ✅ Zero warnings (fixed all deprecation warnings)
+- ✅ Coverage well above target (92% vs. 85%+ target)
+- ✅ CLI entrypoint fully tested (97% coverage)
 - ✅ Test patterns are excellent
+- ✅ Shared fixtures via conftest.py
 
 ---
 
-## Investigation Results
+## Latest Results (Source of Truth)
 
-### What Was Found
+The **current metrics above** are sourced from:
+- **[TEST_EXECUTION_REPORT_2025-12-21.md](TEST_EXECUTION_REPORT_2025-12-21.md)** — authoritative run output + coverage summary
 
-1. **12 Warnings → 0 Warnings** (FIXED)
-   - pytest-asyncio configuration deprecation
-   - datetime.utcnow() deprecation (12 instances)
-   - Resource cleanup issues
+### What changed in the Dec 21, 2025 review
 
-2. **28% Missing Coverage** (276 untested lines)
-   - Critical gaps: CLI entrypoint, config loader, all publishers
-   - High-value gaps: Storage operations, state management
-   - Well-tested: Workflow orchestrator, AI services, captions
+| Metric | Before | After |
+|--------|--------|-------|
+| Tests Passing | 251/251 | 273/273 |
+| Warnings | 8 | 0 |
+| Coverage | 87% | 92% |
+| CLI Coverage | 0% | 97% |
+| Execution Time | ~31.5s | ~25.5s |
 
-3. **Test Quality: High**
-   - Good async patterns
-   - Proper mocking
-   - Clear test structure
-   - Stable and reliable
+### Historical / supporting documents
 
----
-
-## Implementation Phases
-
-### Phase 1: Fix Warnings ✅ COMPLETE
-
-**Time:** 1 hour  
-**Result:** 0 warnings (down from 12)  
-
-**Changes:**
-- Fixed pytest-asyncio configuration
-- Fixed datetime.utcnow() deprecation
-- Added async resource cleanup to TelegramPublisher
-- Removed `--disable-warnings` flag
-
-**See:** [WARNING_FIXES_SUMMARY.md](WARNING_FIXES_SUMMARY.md)
-
----
-
-### Phase 2: Critical Coverage 🔜 RECOMMENDED
-
-**Time:** 2-3 days  
-**Expected Gain:** +18% coverage (72% → 90%)  
-**Priority:** High
-
-**Deliverables:**
-- test_config_loader.py (12-15 tests)
-- test_app_cli.py (8-10 tests)
-- test_publishers_unit.py (20-25 tests)
-
-**Focus:**
-- 0% coverage modules (294 untested critical lines)
-- CLI entrypoint, config loading, all publishers
-- Error paths and edge cases
-
-**See:** [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) Part 4, Phase 2
-
----
-
-### Phase 3: Support Coverage 🔜 OPTIONAL
-
-**Time:** 1-2 days  
-**Expected Gain:** +7% coverage (90% → 95%+)  
-**Priority:** Medium
-
-**Deliverables:**
-- test_storage_unit.py (10-12 tests)
-- test_state_unit.py (6-8 tests)
-- test_logging_unit.py (5-6 tests)
-
-**Focus:**
-- Complete Dropbox operations testing
-- Deduplication cache management
-- Secret redaction and structured logging
-
-**See:** [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) Part 4, Phase 3
-
----
-
-### Phase 4: Edge Cases 📋 BACKLOG
-
-**Time:** 1 day  
-**Expected Gain:** +3-5% coverage (95%+ → 98%+)  
-**Priority:** Low
-
-**Focus:**
-- Edge cases in existing modules
-- Concurrent execution tests
-- Performance/stress tests
-- Integration tests with real APIs
-
-**See:** [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) Part 4, Phase 4
-
----
-
-## Key Metrics
-
-### Coverage by Module
-
-| Module | Coverage | Status | Tests Needed |
-|--------|----------|--------|--------------|
-| app.py | 0% | 🔴 Critical | 8-10 |
-| config/loader.py | 0% | 🔴 Critical | 12-15 |
-| publishers/email.py | 0% | 🔴 Critical | 8 |
-| publishers/telegram.py | 0% | 🔴 Critical | 6 |
-| publishers/instagram.py | 0% | 🔴 Critical | 8 |
-| services/storage.py | 48% | 🟡 High | 10-12 |
-| utils/state.py | 55% | 🟡 High | 6-8 |
-| utils/logging.py | 67% | 🟢 Medium | 5-6 |
-| **Current Total** | **72%** | ⚠️ Below Target | - |
-| **Phase 2 Target** | **90%** | ✅ Above Target | 40-50 |
-
----
-
-## Recommendations
-
-### For Decision Makers
-
-**Approve Phase 2 Implementation:**
-- **Investment:** 2-3 days of developer time
-- **Return:** 18% coverage increase + risk mitigation
-- **Priority:** High (critical business logic untested)
-
-**Business Risk Without Tests:**
-- Publishers may fail silently (content never published)
-- Config errors crash app at startup
-- CLI bugs make app unusable
-
-**See:** [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) → Risk Assessment
-
----
-
-### For Developers
-
-**If Implementing Tests:**
-1. Read [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) for full details
-2. Follow existing test patterns in `publisher_v2/tests/`
-3. Use the test strategies outlined in Part 5 of the proposal
-4. Target Phase 2 modules first (critical coverage)
-
-**Test Patterns:**
-- Use dummy classes for full control (see `test_cli_flags_select_dry.py`)
-- Mock external APIs (Dropbox, OpenAI, SMTP, Telegram)
-- Use `pytest.tmpdir` for file operations
-- Use `monkeypatch` for environment variables
-
-**See:** [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) Part 5 → Test Structure
+- [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md) — why the work mattered (risk + ROI)
+- [TEST_ANALYSIS_AND_PROPOSAL.md](TEST_ANALYSIS_AND_PROPOSAL.md) — the original deep dive + plan
+- [WARNING_FIXES_SUMMARY.md](WARNING_FIXES_SUMMARY.md) — exactly what was changed to eliminate warnings
+- [PHASE2_PROGRESS.md](PHASE2_PROGRESS.md) — progress log for the coverage expansion
 
 ---
 
@@ -206,6 +84,7 @@ This directory contains comprehensive testing analysis and proposals for the Soc
 | `EXECUTIVE_SUMMARY.md` | High-level findings and recommendations | Managers, PMs | 5 pages |
 | `TEST_ANALYSIS_AND_PROPOSAL.md` | Complete technical analysis | Developers | 11 pages |
 | `WARNING_FIXES_SUMMARY.md` | Implementation record of warning fixes | Developers | 4 pages |
+| `TEST_EXECUTION_REPORT_2025-12-21.md` | Latest test execution report | All | 6 pages |
 
 ---
 
@@ -214,46 +93,46 @@ This directory contains comprehensive testing analysis and proposals for the Soc
 ### Run All Tests
 ```bash
 cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
-poetry run pytest -v
+uv run pytest -v
 ```
 
-**Expected:** 36 passed in ~10s, 0 warnings
+**Expected:** 273 passed in ~25s, 0 warnings
 
 ### Run With Coverage
 ```bash
-poetry run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
+uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
 ```
 
-**Expected:** 72% coverage (276 lines missing)
+**Expected:** 92% coverage (196 lines missing)
 
 ### Run Specific Test File
 ```bash
-poetry run pytest -v publisher_v2/tests/test_config_validation.py
+uv run pytest -v publisher_v2/tests/test_config_validation.py
 ```
 
 ### Run Tests in Watch Mode
 ```bash
-poetry run pytest-watch
+uv run pytest-watch
 ```
 
 ---
 
 ## Next Steps
 
-### Immediate (This Week) ✅ DONE
-1. ✅ Fix all warnings (COMPLETE)
-2. ✅ Document coverage gaps (COMPLETE)
-3. ✅ Create test expansion plan (COMPLETE)
+### Immediate (This Sprint) ✅ DONE
+1. ✅ Eliminate deprecation warnings (now 0)
+2. ✅ Add shared fixtures (`conftest.py`) and reduce duplication
+3. ✅ Add CLI entrypoint tests (CLI coverage now 97%)
+4. ✅ Lift overall coverage to 92% (above 85% target)
 
-### Short-Term (Next 2 Weeks) 🔜 PENDING APPROVAL
-4. Implement Phase 2 tests (critical coverage)
-5. Increase coverage to 90%+
-6. Mitigate business risks
+### Short-Term (Next 2 Sprints) 🔜 Planned
+5. Improve storage service coverage (target: 90%+)
+6. Improve web service layer coverage (target: 90%+)
+7. Add more integration tests with mocked external APIs
 
-### Long-Term (Ongoing) 📋 BACKLOG
-7. Maintain 90%+ coverage in PR reviews
-8. Implement Phase 3 and 4 tests
-9. Add integration tests with real APIs
+### Long-Term (Ongoing) 📋 Backlog
+8. Maintain 90%+ coverage in PR reviews
+9. Add performance/load tests where needed
 
 ---
 
@@ -264,13 +143,13 @@ poetry run pytest-watch
 - Business justification → See [EXECUTIVE_SUMMARY.md](EXECUTIVE_SUMMARY.md)
 - What was fixed → See [WARNING_FIXES_SUMMARY.md](WARNING_FIXES_SUMMARY.md)
 
-**Status:** Phase 1 complete, Phase 2 ready for approval
+**Status:** Suite healthy; see `TEST_EXECUTION_REPORT_2025-12-21.md` for the latest run and next steps.
 
 ---
 
-**Last Updated:** November 11, 2025  
-**Version:** 1.0  
-**Maintainer:** Testing Expert
+**Last Updated:** December 21, 2025  
+**Version:** 2.0  
+**Maintainer:** Senior Testing Engineer
 
 
 

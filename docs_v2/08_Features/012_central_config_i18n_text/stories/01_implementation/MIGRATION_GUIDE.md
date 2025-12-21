@@ -284,7 +284,7 @@ recipient = 12345@upload.fetlife.com
 
 ```bash
 cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
-poetry run python -c "
+uv run python -c "
 from publisher_v2.config.static_loader import get_static_config
 cfg = get_static_config()
 print('Email caption_target:', cfg.platform_limits.email.caption_target)
@@ -387,7 +387,7 @@ if ini_has("Email", "caption_target"):
 
 ## See Also
 
-- [Configuration Reference](../05_Configuration/CONFIGURATION.md)
-- [Feature 012: Centralized Configuration](012_central-config-i18n-text.md)
-- [Static Config Files](../../publisher_v2/src/publisher_v2/config/static/)
+- [Configuration Reference](../../../../05_Configuration/CONFIGURATION.md)
+- [Feature 012: Central Config & i18n](../../012_feature.md)
+- [Static Config Files](../../../../../publisher_v2/src/publisher_v2/config/static/)
 

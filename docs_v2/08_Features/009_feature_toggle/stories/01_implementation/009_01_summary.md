@@ -47,7 +47,7 @@ Introduced environment-variable-driven feature toggles that allow operators to i
 - Preview mode always reports toggle state and still computes per-platform formatting while warning if publish is disabled.
 
 ## Testing
-- `poetry run pytest publisher_v2/tests/test_config_loader.py publisher_v2/tests/test_workflow_feature_toggles.py publisher_v2/tests/web/test_web_service.py publisher_v2/tests/test_preview_helpers_more.py`
+- `uv run pytest publisher_v2/tests/test_config_loader.py publisher_v2/tests/test_workflow_feature_toggles.py publisher_v2/tests/web/test_web_service.py publisher_v2/tests/test_preview_helpers_more.py`
 - Coverage focus: config parsing, workflow gating (analysis + publish), web service behavior, preview output messaging.
 - Existing suites continue to pass; warning about `asyncio_default_fixture_loop_scope` is pre-existing.
 
@@ -57,9 +57,9 @@ Introduced environment-variable-driven feature toggles that allow operators to i
 - Preview and web UI clearly indicate when features are disabled to avoid confusion.
 
 ## Artifacts
-- Feature Request: `docs_v2/08_Features/08_01_Feature_Request/009_feature-toggle.md`
-- Feature Design: `docs_v2/08_Features/08_02_Feature_Design/009_feature-toggle_design.md`
-- Plan: `docs_v2/08_Features/08_03_Feature_plan/009_feature-toggle_plan.yaml`
+- Feature Request: `docs_v2/08_Features/009_feature_toggle/009_feature.md`
+- Feature Design: `docs_v2/08_Features/009_feature_toggle/009_design.md`
+- Plan: `docs_v2/08_Features/009_feature_toggle/stories/01_implementation/009_01_plan.yaml`
 - Critical Review: `docs_v2/09_Reviews/009_feature-toggle_review.md`
 - Final Doc (this file)
 
