@@ -1,16 +1,16 @@
-<!-- docs_v2/08_Features/08_04_ChangeRequests/001/002_design.md -->
+<!-- docs_v2/08_Features/001_caption_file/stories/03_sd-caption-ai-service-integration/001_03_design.md -->
 
-# SD Caption AI Service Integration — Change Design
+# SD Caption AI Service Integration — Story Design
 
 **Feature ID:** 001  
-**Change ID:** 001-002  
+**Story ID:** 001-03  
 **Parent Feature:** Stable Diffusion Caption File  
 **Design Version:** 1.0  
 **Date:** 2025-11-20  
 **Status:** Design Review  
 **Author:** TODO  
-**Linked Change Request:** docs_v2/08_Features/08_04_ChangeRequests/001/002_sd-caption-ai-service-integration.md  
-**Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/001_captionfile_design.md  
+**Linked Story:** docs_v2/08_Features/001_caption_file/stories/03_sd-caption-ai-service-integration/001_03_sd-caption-ai-service-integration.md  
+**Parent Feature Design:** docs_v2/08_Features/001_caption_file/001_design.md  
 
 ## 1. Summary
 

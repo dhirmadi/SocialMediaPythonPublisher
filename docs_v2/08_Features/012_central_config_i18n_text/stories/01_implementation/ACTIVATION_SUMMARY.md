@@ -215,7 +215,7 @@ Currently, the system uses a single locale (`en`). To support multiple languages
 
 3. **Restart the web server:**
    ```bash
-   make run-web  # or poetry run uvicorn publisher_v2.web.app:app --reload
+   make run-web  # or: uv run uvicorn publisher_v2.web.app:app --reload
    ```
 
 4. **Visit the web UI:**

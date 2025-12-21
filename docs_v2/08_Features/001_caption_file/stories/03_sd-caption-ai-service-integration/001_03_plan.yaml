@@ -1,10 +1,10 @@
-<!-- docs_v2/08_Features/08_04_ChangeRequests/001/002_plan.yaml -->
+<!-- docs_v2/08_Features/001_caption_file/stories/03_sd-caption-ai-service-integration/001_03_plan.yaml -->
 version: 1
-feature_id: captionfile-change-002-sd-caption-ai-service-integration
+feature_id: captionfile-story-03-sd-caption-ai-service-integration
 summary: "Route all Stable Diffusion caption generation through AIService while preserving existing behavior."
 design_refs:
-  - docs_v2/08_Features/08_04_ChangeRequests/001/002_design.md
-  - docs_v2/08_Features/08_02_Feature_Design/001_captionfile_design.md
+  - docs_v2/08_Features/001_caption_file/stories/03_sd-caption-ai-service-integration/001_03_design.md
+  - docs_v2/08_Features/001_caption_file/001_design.md
 repo_constraints:
   allowed_paths:
     - "publisher_v2/src/publisher_v2/**"

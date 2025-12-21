@@ -313,7 +313,7 @@ log_json(self.logger, logging.INFO, "caption_generated",
 
 2. **Coverage Reporting** — Run pytest with --cov to measure code coverage
    ```bash
-   poetry run pytest --cov=publisher_v2 --cov-report=html
+   uv run pytest --cov=publisher_v2 --cov-report=html
    ```
 
 3. **Integration Tests with Real APIs** — Optional verification (requires careful cleanup)

@@ -182,7 +182,7 @@ All changes are scoped to V2 modules and do not touch archived V1 code or CLI ar
     - Checks that `AIService` uses the default rate limit.
     - Verifies Instagram publisher delay range defaults to 1–3 seconds via static limits.
 - **Existing tests**
-  - Full pytest suite (`poetry run pytest -q`) passes unchanged:
+  - Full pytest suite (`uv run pytest -q`) passes unchanged:
     - All 210 tests pass, including AI, preview, sidecar, web, and workflow tests.
   - Web integration tests confirm that `/` still renders and that admin visibility behavior is unchanged.
 

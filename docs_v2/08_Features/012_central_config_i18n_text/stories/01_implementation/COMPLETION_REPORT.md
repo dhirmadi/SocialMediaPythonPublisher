@@ -289,11 +289,11 @@ If issues arise:
 
 ## Quick Links
 
-- [Configuration Reference](../05_Configuration/CONFIGURATION.md)
-- [Architecture](../03_Architecture/ARCHITECTURE.md)
-- [i18n Activation Guide](012_i18n_activation_summary.md)
-- [Implementation Review](../09_Reviews/20251122_fullreview.md)
-- [Feature Request](08_01_Feature_Request/012_central-config-i18n-text.md)
-- [Feature Design](08_02_Feature_Design/012_central-config-i18n-text_design.md)
-- [Feature Plan](08_03_Feature_plan/012_central-config-i18n-text_plan.yaml)
+- [Configuration Reference](../../../../05_Configuration/CONFIGURATION.md)
+- [Architecture](../../../../03_Architecture/ARCHITECTURE.md)
+- [i18n Activation Guide](ACTIVATION_SUMMARY.md)
+- [Implementation Review](../../../../09_Reviews/20251122_fullreview.md)
+- [Feature Request](../../012_feature.md)
+- [Feature Design](../../012_design.md)
+- [Feature Plan](012_01_plan.yaml)
 

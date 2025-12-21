@@ -3,10 +3,11 @@ from __future__ import annotations
 import logging
 import os
 import uuid
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from functools import lru_cache
-from typing import Optional, Any
+from typing import Optional, Any, AsyncIterator
 
 from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
 from fastapi.responses import HTMLResponse, Response
@@ -46,7 +47,39 @@ def get_service() -> WebImageService:
     return WebImageService()
 
 
-app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0")
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """
+    Lifespan context manager for FastAPI app startup and shutdown events.
+    
+    This replaces the deprecated @app.on_event("startup") decorator.
+    """
+    # Startup logic
+    level = logging.INFO
+    if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
+        level = logging.DEBUG
+    setup_logging(level)
+    
+    _logger = logging.getLogger("publisher_v2.web")
+    log_json(_logger, logging.INFO, "web_server_start")
+
+    # Configure Auth0 if enabled
+    from publisher_v2.web.routers.auth import configure_oauth
+    
+    try:
+        service = get_service()
+        if service.config.auth0:
+            configure_oauth(service.config)
+            log_json(_logger, logging.INFO, "auth0_configured")
+    except Exception as e:
+        log_json(_logger, logging.WARNING, "auth0_config_error", error=str(e))
+    
+    yield
+    
+    # Shutdown logic (if needed in future)
+
+
+app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=lifespan)
 
 logger = logging.getLogger("publisher_v2.web")
 
@@ -75,30 +108,6 @@ async def get_request_telemetry(request: Request) -> RequestTelemetry:
     # Expose on request.state so deeper layers can opt-in if needed.
     request.state.correlation_id = correlation_id
     return RequestTelemetry(correlation_id=correlation_id, start_time=start_time)
-
-
-@app.on_event("startup")
-async def _startup() -> None:
-    # Minimal logging setup; reuse existing setup util
-    level = logging.INFO
-    if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
-        level = logging.DEBUG
-    setup_logging(level)
-    log_json(logger, logging.INFO, "web_server_start")
-
-    # Configure Auth0 if enabled
-    # We do this here to ensure the OAuth registry is populated at startup
-    from publisher_v2.web.routers.auth import configure_oauth
-    
-    # We need to load config to check if Auth0 is enabled
-    # Using get_service() is safe here as it caches the result
-    try:
-        service = get_service()
-        if service.config.auth0:
-             configure_oauth(service.config)
-             log_json(logger, logging.INFO, "auth0_configured")
-    except Exception as e:
-        log_json(logger, logging.WARNING, "auth0_config_error", error=str(e))
 
 
 # Templates (server-rendered HTML with a small bit of JS)
@@ -132,9 +141,9 @@ async def index(request: Request) -> HTMLResponse:
     """
     static_cfg = get_static_config().web_ui_text.values
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "web_ui_text": static_cfg,
         },
     )

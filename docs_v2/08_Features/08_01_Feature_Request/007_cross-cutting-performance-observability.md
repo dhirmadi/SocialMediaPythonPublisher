@@ -1,0 +1,7 @@
+# Legacy Redirect: 007_cross-cutting-performance-observability.md
+
+This document moved.
+
+- Canonical: `../007_cross_cutting_performance_observability/007_feature.md`
+
+

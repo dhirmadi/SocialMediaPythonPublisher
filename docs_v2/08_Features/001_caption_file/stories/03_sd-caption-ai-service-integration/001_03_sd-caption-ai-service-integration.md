@@ -1,14 +1,14 @@
-<!-- docs_v2/08_Features/08_04_ChangeRequests/001/002_sd-caption-ai-service-integration.md -->
+<!-- docs_v2/08_Features/001_caption_file/stories/03_sd-caption-ai-service-integration/001_03_sd-caption-ai-service-integration.md -->
 
-# SD Caption AI Service Integration — Change Request
+# SD Caption AI Service Integration — Story
 
 **Feature ID:** 001  
-**Change ID:** 001-002  
+**Story ID:** 001-03  
 **Name:** sd-caption-ai-service-integration  
 **Status:** Shipped  
 **Date:** 2025-11-20  
 **Author:** Architecture Team  
-**Parent Feature Design:** docs_v2/08_Features/08_02_Feature_Design/001_captionfile_design.md  
+**Parent Feature Design:** docs_v2/08_Features/001_caption_file/001_design.md  
 
 ## Summary
 This change ensures that all Stable Diffusion caption generation flows go through the shared `AIService` abstraction instead of calling `CaptionGeneratorOpenAI` directly from multiple places.  

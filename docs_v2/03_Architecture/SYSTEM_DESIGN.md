@@ -39,7 +39,7 @@ Non‑Goals (V2):
 7) Logs include correlation IDs, sanitized for secrets/PII; metrics emitted for success/failure.
 
 ## 5. Technology Choices (2025)
-- Python 3.12, Poetry
+- Python 3.12, uv (primary workflow; Poetry also supported via `pyproject.toml`)
 - Dropbox SDK (refresh token + app key/secret)
 - AI: OpenAI GPT‑4o / GPT‑4.1 family with vision (OpenAI‑only, MaaS)
 - Image processing: Pillow

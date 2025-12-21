@@ -1,13 +1,14 @@
 # Implementation Specification — Social Media Publisher V2
 
 Version: 2.0  
-Last Updated: November 7, 2025
+Last Updated: December 21, 2025
 
 This document is the ground truth for implementation. An AI coder can build V2 using this spec alone.
 
 ## 1. Environment and Tooling
 - Python 3.12
-- Poetry (package-mode=false)
+- **uv** (primary workflow; `uv run ...` for CLI/test commands)
+- Poetry (supported; repository includes `pyproject.toml` / `poetry.lock`)
 - Dev tools: black, isort, flake8, mypy, pylint, pytest(+asyncio,+cov), safety, bandit
 
 ## 2. Configuration
@@ -105,7 +106,8 @@ WorkflowOrchestrator.execute():
 - Temp files deleted in finally blocks; optional secure overwrite for sensitive contexts
 
 ## 9. CLI
-Entrypoint: `poetry run publisher_v2 --config path/to.ini [--debug] [--select filename] [--dry-publish] [--preview]`
+Entrypoint:
+- `uv run publisher_v2 --config path/to.ini [--debug] [--select filename] [--dry-publish] [--preview]`
 
 ## 10. Testing
 - Unit: config loader/validator, prompt builders, caption post‑processor
