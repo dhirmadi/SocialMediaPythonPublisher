@@ -7,33 +7,64 @@
 
 ## Summary
 
-Documented the migration procedure for Heroku `fetlife` pipeline apps to transition from `FETLIFE_INI` config var bootstrap to the env-first configuration model introduced by Feature 021.
+Documented the complete migration procedure for Heroku `fetlife` pipeline apps to transition from `FETLIFE_INI` config var bootstrap to the env-first configuration model introduced by Feature 021.
+
+The story provides a comprehensive runbook for Heroku engineers including:
+- Complete config var reference with examples
+- Step-by-step migration procedure
+- Procfile updates
+- Troubleshooting guide
+- Validation checklist
 
 ## Files Changed
 
 ### Documentation
-- `docs_v2/08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md` — Story definition with:
-  - Required environment variables (secrets + non-secrets)
-  - Deprecated variables to remove after migration
-  - Conservative rollout plan for pipeline migration
-  - Local developer migration instructions
+- `docs_v2/08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md` — **Complete Heroku migration runbook** with:
+  - Full config var reference table (secrets, JSON vars, web/admin vars)
+  - Exact JSON examples for all config vars
+  - Old vs new Procfile comparison
+  - Step-by-step migration procedure with `heroku` CLI commands
+  - Pipeline rollout plan (canary → batch)
+  - Troubleshooting table with common errors and fixes
 
-- `docs_v2/05_Configuration/CONFIGURATION.md` — Added Heroku migration section (Section 9.3) with:
-  - Step-by-step Heroku migration procedure
-  - Reference link to detailed story documentation
+- `docs_v2/05_Configuration/CONFIGURATION.md` — Enhanced Section 9.3 with:
+  - Quick start commands for minimal config
+  - Migration steps checklist
+  - Procfile before/after comparison
+  - Troubleshooting table
 
-- `dotenv.v2.example` — Includes deprecation notes for:
-  - `CONFIG_PATH` (old INI approach)
-  - `FETLIFE_INI` (primary target of migration)
+- `dotenv.v2.example` — Full example `.env` with all JSON env vars documented
 
-## Implementation Notes
+## Key Config Vars for Heroku Engineers
 
-This story is primarily documentation-focused. The technical infrastructure for env-first configuration was implemented in Stories 01-06. Story 07 provides:
+### Required for Env-First Mode (minimum 3)
+```bash
+STORAGE_PATHS='{"root": "/Photos/MySocialMedia"}'
+PUBLISHERS='[{"type": "fetlife", "recipient": "user@fetlife.com"}]'
+OPENAI_SETTINGS='{}'
+```
 
-1. **Operator Guidance**: Clear instructions for migrating Heroku apps
-2. **Rollout Safety**: Conservative canary-first approach
-3. **Validation Steps**: Specific checks (health, web UI, Dropbox, admin login)
-4. **Rollback Option**: Keep FETLIFE_INI during initial migration for safety
+### Publisher-Specific
+```bash
+# FetLife/Email
+EMAIL_SERVER='{"sender": "bot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}'
+EMAIL_PASSWORD=your-app-password
+
+# Telegram
+TELEGRAM_BOT_TOKEN=123456:ABC-xxx
+```
+
+### Deprecated (remove after migration)
+- `FETLIFE_INI`
+- `CONFIG_PATH`
+
+## New Procfile
+
+```
+web: PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT
+```
+
+(Removes the INI file creation step)
 
 ## Acceptance Criteria Status
 
@@ -42,24 +73,26 @@ This story is primarily documentation-focused. The technical infrastructure for 
 - [x] AC3: Documented rollout plan for pipeline with N apps
 - [x] AC4: Documented local .env migration for developers
 
-## Rollout Plan Summary
+## Validation Checklist
 
-1. **Canary**: Pick one app in fetlife pipeline
-2. **Configure**: Set new env vars (keep FETLIFE_INI initially)
-3. **Validate**: /health, web UI, Dropbox access, admin login
-4. **Remove**: Unset FETLIFE_INI, restart dyno
-5. **Validate Again**: Confirm app works without INI
-6. **Roll Forward**: Batch remaining apps (5-10 at a time)
+After migration, confirm:
+1. ✅ `/health` returns 200
+2. ✅ Web UI loads at root URL
+3. ✅ "Random image" shows an image (Dropbox works)
+4. ✅ Admin login works (password or Auth0)
+5. ✅ Logs show `Config source: env_vars` (not deprecation warnings)
 
 ## Follow-up Items
 
-- Execute the documented migration on production Heroku pipeline
-- Monitor deprecation warnings during migration period
-- Remove FETLIFE_INI bootstrap from Procfile after full migration
+- [ ] Execute the documented migration on production Heroku pipeline
+- [ ] Monitor deprecation warnings during migration period
+- [ ] Update Procfile in repo after all apps migrated
+- [ ] Remove FETLIFE_INI bootstrap code after full migration
 
 ## Artifacts
 
 - Story Definition: 021_07_heroku-pipeline-migration.md
 - Story Design: 021_07_design.md
 - Story Plan: 021_07_plan.yaml
+- Configuration Docs: docs_v2/05_Configuration/CONFIGURATION.md
 
