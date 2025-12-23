@@ -16,6 +16,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         pytest.skip("CONFIG_PATH does not point to a real config; skip web admin integration tests")
     monkeypatch.setenv("CONFIG_PATH", cfg)
     monkeypatch.setenv("web_admin_pw", "secret-admin")
+    # Disable secure cookies for test client (uses HTTP, not HTTPS)
+    monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     # For admin tests we do not require WEB_AUTH_TOKEN to be set; if it is,
     # callers should provide it, but here we focus on admin cookie behavior.
     return TestClient(app)

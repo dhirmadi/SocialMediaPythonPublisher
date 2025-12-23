@@ -388,13 +388,61 @@ DEPRECATION: INI-based config is deprecated. Migrate to JSON env vars
 
 For Heroku apps using `FETLIFE_INI`:
 
-1. Set new config vars on a canary app (keep `FETLIFE_INI` initially)
-2. Validate: `/health` returns 200, web UI works, admin login works
-3. Remove `FETLIFE_INI` config var and restart
-4. Validate again
-5. Roll out to remaining pipeline apps
+#### Quick Start (Minimal Config Vars)
 
-See [Story 021-07: Heroku Pipeline Migration](../08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md) for detailed instructions.
+Set these three required JSON config vars to enable env-first mode:
+
+```bash
+# Required for env-first mode
+heroku config:set STORAGE_PATHS='{"root": "/Photos/MySocialMedia"}' -a YOUR_APP
+heroku config:set PUBLISHERS='[{"type": "fetlife", "recipient": "user@fetlife.com"}]' -a YOUR_APP
+heroku config:set OPENAI_SETTINGS='{}' -a YOUR_APP
+
+# If using email/FetLife publisher
+heroku config:set EMAIL_SERVER='{"sender": "bot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}' -a YOUR_APP
+```
+
+#### Migration Steps
+
+1. **Set new config vars** on a canary app (keep `FETLIFE_INI` initially for safety)
+2. **Validate**: 
+   - `/health` returns 200
+   - Web UI loads
+   - "Random image" works (Dropbox access)
+   - Admin login works
+3. **Check logs** for `Config source: env_vars` (not deprecation warnings)
+4. **Remove legacy config vars**:
+   ```bash
+   heroku config:unset FETLIFE_INI CONFIG_PATH -a YOUR_APP
+   heroku ps:restart -a YOUR_APP
+   ```
+5. **Validate again** — app should work without INI
+6. **Roll out** to remaining pipeline apps (batch 5-10 at a time)
+
+#### Procfile Update
+
+Once all apps are migrated, update your Procfile:
+
+**Old (INI-based):**
+```
+web: bash -lc 'mkdir -p configfiles && printf "%s\n" "$FETLIFE_INI" > configfiles/fetlife.ini && PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT'
+```
+
+**New (env-first):**
+```
+web: PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0 --port $PORT
+```
+
+#### Troubleshooting
+
+| Symptom | Cause | Fix |
+|---------|-------|-----|
+| `ConfigurationError: Either config_file_path...` | Missing required JSON env var | Set `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` |
+| `Invalid JSON in X` | Malformed JSON | Validate at jsonlint.com |
+| `DEPRECATION: INI-based config...` | Falling back to INI | Add missing JSON env var for mentioned section |
+| Publishing fails | Missing publisher secret | Set `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, or `INSTA_PASSWORD` |
+
+See [Story 021-07: Heroku Pipeline Migration](../08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md) for complete reference including all config var examples.
 
 ---
 

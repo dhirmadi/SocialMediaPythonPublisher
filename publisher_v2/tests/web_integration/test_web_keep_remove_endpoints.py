@@ -15,6 +15,8 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         pytest.skip("CONFIG_PATH does not point to a real config; skip web keep/remove integration tests")
     monkeypatch.setenv("CONFIG_PATH", cfg)
     monkeypatch.setenv("web_admin_pw", "secret-admin")
+    # Disable secure cookies for test client (uses HTTP, not HTTPS)
+    monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     return TestClient(app)
 
 
