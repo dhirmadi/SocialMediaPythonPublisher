@@ -1,0 +1,118 @@
+# Story Plan: JSON Config Parser Infrastructure
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-01"
+story_name: "json-parser-infrastructure"
+design_ref: "021_01_design.md"
+
+summary: |
+  Add foundational JSON parsing helpers to config/loader.py:
+  - _parse_json_env() for parsing JSON from environment variables
+  - _safe_log_config() for redacting secrets in log output
+  - REDACT_KEYS constant with sensitive key patterns
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Valid JSON string parsed and returned as dict/list"
+    test_ref: "test_loader_json_helpers.py::test_parse_valid_json_object"
+  - id: AC2
+    description: "Invalid JSON raises ConfigurationError with position"
+    test_ref: "test_loader_json_helpers.py::test_parse_invalid_json"
+  - id: AC3
+    description: "Empty/unset env var returns None"
+    test_ref: "test_loader_json_helpers.py::test_parse_empty_env_var"
+  - id: AC4
+    description: "Sensitive keys redacted in log output"
+    test_ref: "test_loader_json_helpers.py::test_safe_log_config_redacts_password"
+
+non_goals:
+  - "Parsing specific env vars (PUBLISHERS, EMAIL_SERVER, etc.)"
+  - "Changing existing INI loading logic"
+  - "Adding precedence logic"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add REDACT_KEYS constant to loader.py"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      Add near top of module:
+      REDACT_KEYS: set[str] = {"password", "secret", "token", "refresh_token", "bot_token", "api_key"}
+
+  - id: task_02
+    type: code
+    description: "Implement _parse_json_env() helper function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      def _parse_json_env(var_name: str) -> Optional[dict | list]:
+          value = os.environ.get(var_name)
+          if not value or not value.strip():
+              return None
+          try:
+              return json.loads(value)
+          except json.JSONDecodeError as exc:
+              raise ConfigurationError(
+                  f"Invalid JSON in {var_name}: {exc.msg} at position {exc.pos}"
+              ) from exc
+
+  - id: task_03
+    type: code
+    description: "Implement _safe_log_config() helper function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
+          keys = redact_keys or REDACT_KEYS
+          return {
+              k: "***REDACTED***" if k.lower() in {rk.lower() for rk in keys} else v
+              for k, v in cfg.items()
+          }
+
+  - id: task_04
+    type: code
+    description: "Add json import to loader.py"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      Add to imports: import json
+
+  - id: task_05
+    type: test
+    description: "Create test file for JSON helpers"
+    file: "publisher_v2/tests/config/test_loader_json_helpers.py"
+    depends_on: [task_02, task_03]
+    details: |
+      Tests for:
+      - test_parse_valid_json_object
+      - test_parse_valid_json_array
+      - test_parse_invalid_json_raises_config_error
+      - test_parse_empty_env_var_returns_none
+      - test_parse_unset_env_var_returns_none
+      - test_parse_whitespace_only_returns_none
+      - test_safe_log_config_redacts_password
+      - test_safe_log_config_redacts_bot_token
+      - test_safe_log_config_keeps_non_sensitive
+      - test_safe_log_config_case_insensitive
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

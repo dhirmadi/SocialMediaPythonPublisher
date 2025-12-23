@@ -11,5 +11,6 @@ Epics should:
 
 ## Index
 - `001_single-dyno_multi-tenant_domain-based_runtime-config.md` — Move from many tenant apps/dynos to a single web fleet with wildcard domain routing and orchestrator-sourced runtime config.
+- `001_orchestrator_service_api_integration_guide.md` — Exact service-to-service API contract (runtime-by-host + credentials resolve) used by Publisher V2.
 
 

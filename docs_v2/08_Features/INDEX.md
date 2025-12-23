@@ -18,4 +18,7 @@
 | 016 | Structured Logging Redaction | Proposed |
 | 017 | Multi Platform Publishing | Proposed |
 | 018 | Thumbnail Preview Optimization | Proposed |
+| 019 | Swipe Workflow Modes | Proposed |
+| 020 | Auth0 Login | Live |
+| 021 | Config Env Consolidation | Shipped |
 

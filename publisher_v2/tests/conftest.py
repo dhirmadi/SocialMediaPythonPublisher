@@ -49,7 +49,12 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     
     Clears commonly used env vars that could affect test isolation.
     This runs automatically for all tests.
+    
+    Patches load_dotenv to prevent the workspace .env from being loaded
+    during tests (unless an explicit env_path is provided to load_application_config).
     """
+    from unittest.mock import patch
+    
     # Clear environment variables that might leak between tests
     env_vars_to_clear = [
         # Auth-related
@@ -67,6 +72,14 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
         "SECRET_KEY",
         # Debug flags
         "WEB_DEBUG",
+        # Env-first configuration vars (prevent workspace .env from interfering)
+        "STORAGE_PATHS",
+        "PUBLISHERS",
+        "OPENAI_SETTINGS",
+        "EMAIL_SERVER",
+        "CONTENT_SETTINGS",
+        "CAPTIONFILE_SETTINGS",
+        "CONFIRMATION_SETTINGS",
     ]
     for var in env_vars_to_clear:
         monkeypatch.delenv(var, raising=False)
@@ -75,7 +88,19 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     monkeypatch.setenv("WEB_DEBUG", "1")  # Enable dev mode for tests
     monkeypatch.setenv("WEB_SESSION_SECRET", "test_secret_key_for_testing_only")
     
-    yield
+    # Patch load_dotenv to be a no-op when called without arguments
+    # This prevents the workspace .env from being loaded during tests
+    from dotenv import load_dotenv as real_load_dotenv
+    
+    def noop_load_dotenv(dotenv_path=None, **kwargs):
+        """Only load if an explicit path is provided."""
+        if dotenv_path:
+            return real_load_dotenv(dotenv_path, **kwargs)
+        # Don't load workspace .env automatically
+        return False
+    
+    with patch("publisher_v2.config.loader.load_dotenv", noop_load_dotenv):
+        yield
 
 
 @pytest.fixture

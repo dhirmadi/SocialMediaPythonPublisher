@@ -1,0 +1,192 @@
+# =============================================================================
+# Social Media Python Publisher - V2 Environment Configuration
+# =============================================================================
+#
+# This file demonstrates the new env-first configuration structure.
+# Copy this file to .env and fill in your values.
+#
+# Migration Guide: docs_v2/05_Configuration/CONFIGURATION.md#migration
+#
+# Key Differences from V1:
+#   - Configuration is primarily via environment variables (not INI files)
+#   - Non-secret settings use JSON-encoded env vars for grouping
+#   - Secrets remain as flat env vars (for auditability and rotation)
+#   - INI files are deprecated but still supported for backward compatibility
+#
+# =============================================================================
+
+# =============================================================================
+# SECRETS (flat env vars - never in JSON)
+# =============================================================================
+
+# Required: OpenAI API key for caption generation
+OPENAI_API_KEY=sk-xxx
+
+# Required: Dropbox API credentials
+DROPBOX_APP_KEY=xxx
+DROPBOX_APP_SECRET=xxx
+DROPBOX_REFRESH_TOKEN=xxx
+
+
+TELEGRAM_BOT_TOKEN=123456:ABC-xxx
+EMAIL_PASSWORD=your-app-password
+INSTA_PASSWORD=your-instagram-password
+
+# =============================================================================
+# STORAGE_PATHS - Dropbox folder configuration
+# =============================================================================
+# JSON object with:
+#   root (required): Absolute path to image folder
+#   archive (optional): Subfolder or absolute path for archived images (default: "archive")
+#   keep (optional): Subfolder or absolute path for kept images (default: "keep")
+#   remove (optional): Subfolder or absolute path for rejected images (default: "reject")
+#
+# Example (minimal):
+STORAGE_PATHS={"root": "/Photos/MySocialMedia"}
+
+# Example (with custom subfolders):
+# STORAGE_PATHS={"root": "/Photos/MySocialMedia", "archive": "sent", "keep": "favorites", "remove": "trash"}
+
+# =============================================================================
+# PUBLISHERS - Publisher configuration array
+# =============================================================================
+# JSON array of publisher objects. Each object must have a "type" field.
+# Supported types: telegram, fetlife, instagram
+#
+# Secrets (TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD, INSTA_PASSWORD) are NOT in JSON.
+#
+# Example (single telegram publisher):
+PUBLISHERS=[{"type": "telegram", "channel_id": "@my_channel"}]
+
+# Example (multiple publishers):
+# PUBLISHERS=[{"type": "telegram", "channel_id": "@my_channel"}, {"type": "fetlife", "recipient": "user@fetlife.com", "caption_target": "subject"}]
+
+# Example (Instagram publisher):
+# PUBLISHERS=[{"type": "instagram", "username": "my_account"}]
+
+# FetLife publisher options:
+#   recipient (required): Email address to send to
+#   caption_target (optional): "subject", "body", or "both" (default: "subject")
+#   subject_mode (optional): "normal", "private", or "avatar" (default: "normal")
+
+# =============================================================================
+# EMAIL_SERVER - SMTP configuration (for FetLife/email publisher)
+# =============================================================================
+# JSON object with:
+#   sender (required): Email address to send from
+#   smtp_server (optional): SMTP server hostname (default: "smtp.gmail.com")
+#   smtp_port (optional): SMTP port (default: 587)
+#
+# Note: EMAIL_PASSWORD is a separate flat env var (not in JSON)
+#
+# Example:
+EMAIL_SERVER={"sender": "mybot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
+
+# =============================================================================
+# OPENAI_SETTINGS - AI model configuration
+# =============================================================================
+# JSON object with:
+#   vision_model (optional): Model for image analysis (default: "gpt-4o")
+#   caption_model (optional): Model for caption generation (default: "gpt-4o-mini")
+#   system_prompt (optional): System prompt for caption generation
+#   role_prompt (optional): Role prompt for caption generation
+#   sd_caption_enabled (optional): Enable SD caption feature (default: true)
+#   sd_caption_single_call_enabled (optional): Enable single-call SD captioning (default: true)
+#   sd_caption_model (optional): Model for SD captioning
+#   sd_caption_system_prompt (optional): System prompt for SD captioning
+#   sd_caption_role_prompt (optional): Role prompt for SD captioning
+#
+# Note: OPENAI_API_KEY is a separate flat env var (not in JSON)
+#
+# Example (using defaults):
+OPENAI_SETTINGS={}
+
+# Example (custom models):
+# OPENAI_SETTINGS={"vision_model": "gpt-4-vision-preview", "caption_model": "gpt-3.5-turbo"}
+
+# =============================================================================
+# CAPTIONFILE_SETTINGS - Caption file metadata options
+# =============================================================================
+# JSON object with:
+#   extended_metadata_enabled (optional): Enable extended metadata in caption files (default: false)
+#   artist_alias (optional): Artist alias for metadata
+#
+# Example:
+CAPTIONFILE_SETTINGS={"extended_metadata_enabled": true, "artist_alias": "MyArtistName"}
+
+# =============================================================================
+# CONFIRMATION_SETTINGS - Email confirmation behavior
+# =============================================================================
+# JSON object with:
+#   confirmation_to_sender (optional): Send confirmation to sender (default: true)
+#   confirmation_tags_count (optional): Number of tags in confirmation (default: 5)
+#   confirmation_tags_nature (optional): Nature of tags for confirmation
+#
+# Example:
+CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
+
+# =============================================================================
+# CONTENT_SETTINGS - Content publishing options
+# =============================================================================
+# JSON object with:
+#   hashtag_string (optional): Hashtags to append to captions (default: "")
+#   archive (optional): Archive images after publishing (default: true)
+#   debug (optional): Enable debug mode (default: false)
+#
+# Example:
+CONTENT_SETTINGS={"hashtag_string": "#photo #art", "archive": true, "debug": false}
+
+# =============================================================================
+# FEATURE FLAGS (optional - boolean env vars)
+# =============================================================================
+
+# Enable/disable caption analysis (default: true)
+# FEATURE_ANALYZE_CAPTION=true
+
+# Enable/disable publishing (default: true)
+# FEATURE_PUBLISH=true
+
+# Enable/disable keep curation (default: true)
+# FEATURE_KEEP_CURATE=true
+
+# Enable/disable remove curation (default: true)
+# FEATURE_REMOVE_CURATE=true
+
+# Enable/disable auto-view mode (default: false)
+# AUTO_VIEW=false
+
+# =============================================================================
+# WEB UI CONFIGURATION (optional)
+# =============================================================================
+
+# Web session secret (generate a random string)
+# WEB_SESSION_SECRET=your-secret-key
+
+# Admin HTTP auth (if not using Auth0)
+# ADMIN_USERNAME=admin
+# ADMIN_PASSWORD=your-password
+
+# =============================================================================
+# AUTH0 CONFIGURATION (optional - for Auth0-based login)
+# =============================================================================
+
+# AUTH0_DOMAIN=your-tenant.auth0.com
+# AUTH0_CLIENT_ID=xxx
+# AUTH0_CLIENT_SECRET=xxx
+# AUTH0_CALLBACK_URL=https://yourapp.herokuapp.com/callback
+# AUTH0_ADMIN_EMAIL_ALLOWLIST=admin@example.com,another@example.com
+
+# =============================================================================
+# DEPRECATED (INI-based configuration)
+# =============================================================================
+#
+# The following approach is DEPRECATED. Migrate to the env vars above.
+#
+# Old approach: CONFIG_PATH=configfiles/fetlife.ini
+# Old approach: FETLIFE_INI=<base64-encoded-ini-content>
+#
+# INI files are still supported for backward compatibility but will emit
+# deprecation warnings at startup.
+#
+# =============================================================================
+

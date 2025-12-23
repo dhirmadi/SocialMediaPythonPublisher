@@ -66,6 +66,9 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
         # Ensure Auth0 is also disabled so is_admin_configured() returns False
         monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
         monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
+        
+        # Disable secure cookies for test client (HTTP, not HTTPS)
+        monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
 
         # Clear cached WebImageService so the patched loader is used.
         from publisher_v2.web.app import app, get_service

@@ -43,7 +43,8 @@ def service(mock_storage):
         features=features_config
     )
     
-    svc = WebImageService()
+    # Create service without calling __init__ to avoid config loading
+    svc = object.__new__(WebImageService)
     svc.config = config
     svc.storage = mock_storage
     # Suppress normal logging

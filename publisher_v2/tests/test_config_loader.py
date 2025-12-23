@@ -44,6 +44,14 @@ def valid_env_vars(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
     monkeypatch.delenv("TELEGRAM_CHANNEL_ID", raising=False)
+    # Clear env-first vars to ensure INI mode is used
+    monkeypatch.delenv("STORAGE_PATHS", raising=False)
+    monkeypatch.delenv("PUBLISHERS", raising=False)
+    monkeypatch.delenv("OPENAI_SETTINGS", raising=False)
+    monkeypatch.delenv("EMAIL_SERVER", raising=False)
+    monkeypatch.delenv("CONTENT_SETTINGS", raising=False)
+    monkeypatch.delenv("CAPTIONFILE_SETTINGS", raising=False)
+    monkeypatch.delenv("CONFIRMATION_SETTINGS", raising=False)
     
     # Set test values
     monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
