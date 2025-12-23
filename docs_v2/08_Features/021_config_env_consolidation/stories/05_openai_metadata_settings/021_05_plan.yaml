@@ -1,0 +1,145 @@
+# Story Plan: OpenAI and Metadata Settings
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-05"
+story_name: "openai-metadata-settings"
+design_ref: "021_05_design.md"
+
+summary: |
+  Implement JSON parsing for OPENAI_SETTINGS, CAPTIONFILE_SETTINGS,
+  CONFIRMATION_SETTINGS, and CONTENT_SETTINGS env vars.
+  - All have sensible defaults
+  - OPENAI_API_KEY remains flat env var
+  - Partial JSON objects use defaults for missing fields
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "OPENAI_SETTINGS parsed with all fields"
+    test_ref: "test_loader_settings.py::test_openai_settings_full"
+  - id: AC2
+    description: "OPENAI_SETTINGS defaults applied for missing fields"
+    test_ref: "test_loader_settings.py::test_openai_settings_defaults"
+  - id: AC3
+    description: "CAPTIONFILE_SETTINGS parsed correctly"
+    test_ref: "test_loader_settings.py::test_captionfile_settings"
+  - id: AC4
+    description: "CONFIRMATION_SETTINGS parsed correctly"
+    test_ref: "test_loader_settings.py::test_confirmation_settings"
+  - id: AC5
+    description: "CONTENT_SETTINGS parsed correctly"
+    test_ref: "test_loader_settings.py::test_content_settings"
+  - id: AC6
+    description: "Fallback to INI when not set"
+    test_ref: "test_loader_settings.py::test_settings_fallback_to_ini"
+
+non_goals:
+  - "OPENAI_API_KEY in JSON"
+  - "Changing AI service behavior"
+  - "Caption file format changes"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add _load_openai_settings_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_openai_settings_from_env() -> dict | None:
+          parsed = _parse_json_env("OPENAI_SETTINGS")
+          if parsed is None:
+              return None
+          return {
+              "vision_model": parsed.get("vision_model", "gpt-4o"),
+              "caption_model": parsed.get("caption_model", "gpt-4o-mini"),
+              "system_prompt": parsed.get("system_prompt"),
+              "role_prompt": parsed.get("role_prompt"),
+              "sd_caption_enabled": parsed.get("sd_caption_enabled", True),
+              "sd_caption_single_call_enabled": parsed.get("sd_caption_single_call_enabled", True),
+              "sd_caption_model": parsed.get("sd_caption_model"),
+              "sd_caption_system_prompt": parsed.get("sd_caption_system_prompt"),
+              "sd_caption_role_prompt": parsed.get("sd_caption_role_prompt"),
+          }
+
+  - id: task_02
+    type: code
+    description: "Add _load_captionfile_settings_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_captionfile_settings_from_env() -> dict | None:
+          parsed = _parse_json_env("CAPTIONFILE_SETTINGS")
+          if parsed is None:
+              return None
+          return {
+              "extended_metadata_enabled": parsed.get("extended_metadata_enabled", False),
+              "artist_alias": parsed.get("artist_alias"),
+          }
+
+  - id: task_03
+    type: code
+    description: "Add _load_confirmation_settings_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_confirmation_settings_from_env() -> dict | None:
+          parsed = _parse_json_env("CONFIRMATION_SETTINGS")
+          if parsed is None:
+              return None
+          return {
+              "confirmation_to_sender": parsed.get("confirmation_to_sender", True),
+              "confirmation_tags_count": parsed.get("confirmation_tags_count", 5),
+              "confirmation_tags_nature": parsed.get("confirmation_tags_nature"),
+          }
+
+  - id: task_04
+    type: code
+    description: "Add _load_content_settings_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_content_settings_from_env() -> dict | None:
+          parsed = _parse_json_env("CONTENT_SETTINGS")
+          if parsed is None:
+              return None
+          return {
+              "hashtag_string": parsed.get("hashtag_string", ""),
+              "archive": parsed.get("archive", True),
+              "debug": parsed.get("debug", False),
+          }
+
+  - id: task_05
+    type: code
+    description: "Update load_application_config to use all settings"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01, task_02, task_03, task_04]
+    details: |
+      Use settings from env if available, otherwise fall back to INI
+
+  - id: task_06
+    type: test
+    description: "Create settings parsing tests"
+    file: "publisher_v2/tests/config/test_loader_settings.py"
+    depends_on: [task_05]
+    details: |
+      Tests for all four settings types and fallback behavior
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

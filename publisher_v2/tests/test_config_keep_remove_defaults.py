@@ -6,6 +6,15 @@ from publisher_v2.config.schema import DropboxConfig
 
 @pytest.fixture
 def mock_env(monkeypatch):
+    # Clear env-first vars to ensure INI mode is used
+    monkeypatch.delenv("STORAGE_PATHS", raising=False)
+    monkeypatch.delenv("PUBLISHERS", raising=False)
+    monkeypatch.delenv("OPENAI_SETTINGS", raising=False)
+    monkeypatch.delenv("EMAIL_SERVER", raising=False)
+    monkeypatch.delenv("CONTENT_SETTINGS", raising=False)
+    monkeypatch.delenv("CAPTIONFILE_SETTINGS", raising=False)
+    monkeypatch.delenv("CONFIRMATION_SETTINGS", raising=False)
+    # Set minimal required env vars
     monkeypatch.setenv("DROPBOX_APP_KEY", "key")
     monkeypatch.setenv("DROPBOX_APP_SECRET", "secret")
     monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "token")

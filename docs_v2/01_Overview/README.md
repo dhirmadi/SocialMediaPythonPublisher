@@ -11,6 +11,7 @@ Contents:
 - `03_Architecture/ARCHITECTURE.md` — Architecture, components, interfaces, deployment
 - `02_Specifications/USER_FLOW.md` — End‑to‑end flows, sequence diagrams, UX behaviors
 - `02_Specifications/SPECIFICATION.md` — Complete implementation spec (APIs, contracts, data models)
+- `02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md` — Orchestrator service-to-service API integration (when using platform orchestrator)
 - `07_AI/AI_PROMPTS_AND_MODELS.md` — Model choices, prompting strategies, evaluation
 - `05_Configuration/CONFIGURATION.md` — Environment, INI schema, pydantic validation
 - `08_Features/000_preview_mode/000_feature.md` — Preview mode guarantees (no side effects)

@@ -28,6 +28,14 @@ def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "FEATURE_REMOVE_CURATE",
         "folder_keep",
         "folder_remove",
+        # Clear env-first vars to ensure INI mode is used
+        "STORAGE_PATHS",
+        "PUBLISHERS",
+        "OPENAI_SETTINGS",
+        "EMAIL_SERVER",
+        "CONTENT_SETTINGS",
+        "CAPTIONFILE_SETTINGS",
+        "CONFIRMATION_SETTINGS",
     ]:
         monkeypatch.delenv(key, raising=False)
     # Provide minimal required secrets for load_application_config.

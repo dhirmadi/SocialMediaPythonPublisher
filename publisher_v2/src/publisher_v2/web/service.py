@@ -47,10 +47,10 @@ class WebImageService:
         self.logger = logging.getLogger("publisher_v2.web")
 
         config_path = os.environ.get("CONFIG_PATH")
-        if not config_path:
-            raise RuntimeError("CONFIG_PATH environment variable must be set for web interface")
         env_path = os.environ.get("ENV_PATH")
 
+        # CONFIG_PATH is optional when all required env vars are set
+        # (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
         cfg = load_application_config(config_path, env_path)
 
         storage = DropboxStorage(cfg.dropbox)

@@ -1,0 +1,99 @@
+# Story Plan: Email Server Environment Variable
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-03"
+story_name: "email-server-env-var"
+design_ref: "021_03_design.md"
+
+summary: |
+  Implement EMAIL_SERVER JSON parsing for SMTP settings.
+  - Parse smtp_server, smtp_port, sender from JSON
+  - Password comes from EMAIL_PASSWORD flat env var (NOT in JSON)
+  - Apply defaults for smtp_server and smtp_port
+  - Validate sender is required and smtp_port is integer
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "EMAIL_SERVER parsed with all fields"
+    test_ref: "test_loader_email_server.py::test_email_server_full"
+  - id: AC2
+    description: "Defaults applied for smtp_server and smtp_port"
+    test_ref: "test_loader_email_server.py::test_email_server_defaults"
+  - id: AC3
+    description: "Missing sender raises ConfigurationError"
+    test_ref: "test_loader_email_server.py::test_email_server_missing_sender"
+  - id: AC4
+    description: "Non-integer smtp_port raises ConfigurationError"
+    test_ref: "test_loader_email_server.py::test_email_server_invalid_port"
+  - id: AC5
+    description: "Returns None when not set"
+    test_ref: "test_loader_email_server.py::test_email_server_not_set"
+
+non_goals:
+  - "Publisher array parsing (Story 02)"
+  - "Confirmation email settings (Story 05)"
+  - "Embedding password in JSON"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add _load_email_server_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_email_server_from_env() -> dict | None:
+          parsed = _parse_json_env("EMAIL_SERVER")
+          if parsed is None:
+              return None
+          
+          if "sender" not in parsed:
+              raise ConfigurationError("EMAIL_SERVER missing required field 'sender'")
+          
+          smtp_server = parsed.get("smtp_server", "smtp.gmail.com")
+          smtp_port = parsed.get("smtp_port", 587)
+          
+          if not isinstance(smtp_port, int):
+              raise ConfigurationError(
+                  f"EMAIL_SERVER.smtp_port must be an integer, got {type(smtp_port).__name__}"
+              )
+          
+          return {
+              "smtp_server": smtp_server,
+              "smtp_port": smtp_port,
+              "sender": parsed["sender"],
+          }
+
+  - id: task_02
+    type: test
+    description: "Create email server parsing tests"
+    file: "publisher_v2/tests/config/test_loader_email_server.py"
+    depends_on: [task_01]
+    details: |
+      Tests:
+      - test_email_server_full
+      - test_email_server_defaults
+      - test_email_server_missing_sender
+      - test_email_server_invalid_port
+      - test_email_server_not_set
+      - test_email_server_empty_string
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

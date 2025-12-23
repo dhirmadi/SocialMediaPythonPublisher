@@ -1,7 +1,7 @@
 # Configuration — Social Media Publisher V2
 
-Version: 2.6  
-Last Updated: December 21, 2025
+Version: 2.7  
+Last Updated: December 23, 2025
 
 ---
 
@@ -268,10 +268,141 @@ PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
 
 ---
 
+## 8. V2 Env-First Configuration (Feature 021)
+
+**Version 2.7+** introduces a **env-first configuration model** that consolidates INI-based settings into structured JSON environment variables. This aligns with the future Orchestrator API contract (Epic 001) while maintaining backward compatibility.
+
+### 8.1 Why Env-First?
+
+- **Single source of truth**: All runtime config in one place (`.env` or platform config vars)
+- **Heroku/container friendly**: No need for INI file bootstrap
+- **Auditable secrets**: Secrets remain flat env vars, separate from grouped settings
+- **Future-ready**: Matches the Orchestrator API's database-backed config model
+
+### 8.2 New JSON Environment Variables
+
+| Variable | Purpose | Required |
+|----------|---------|----------|
+| `STORAGE_PATHS` | Dropbox folder configuration | For env-first mode |
+| `PUBLISHERS` | Publisher array (telegram, fetlife, instagram) | For env-first mode |
+| `EMAIL_SERVER` | SMTP configuration (for email publishers) | If email publisher used |
+| `OPENAI_SETTINGS` | AI model settings | No (has defaults) |
+| `CAPTIONFILE_SETTINGS` | Caption file metadata options | No |
+| `CONFIRMATION_SETTINGS` | Email confirmation behavior | No |
+| `CONTENT_SETTINGS` | Hashtags, archive, debug flags | No |
+
+### 8.3 Example: Minimal Env-First Configuration
+
+```bash
+# Secrets (flat env vars)
+OPENAI_API_KEY=sk-xxx
+DROPBOX_APP_KEY=xxx
+DROPBOX_APP_SECRET=xxx
+DROPBOX_REFRESH_TOKEN=xxx
+TELEGRAM_BOT_TOKEN=123456:ABC-xxx
+
+# JSON env vars
+STORAGE_PATHS={"root": "/Photos/MySocialMedia"}
+PUBLISHERS=[{"type": "telegram", "channel_id": "@my_channel"}]
+```
+
+### 8.4 Example: Full FetLife/Email Configuration
+
+```bash
+# Secrets
+OPENAI_API_KEY=sk-xxx
+DROPBOX_APP_KEY=xxx
+DROPBOX_APP_SECRET=xxx
+DROPBOX_REFRESH_TOKEN=xxx
+EMAIL_PASSWORD=your-app-password
+
+# JSON env vars
+STORAGE_PATHS={"root": "/Photos/MySocialMedia", "archive": "sent", "keep": "favorites", "remove": "trash"}
+PUBLISHERS=[{"type": "fetlife", "recipient": "user@fetlife.com", "caption_target": "subject", "subject_mode": "normal"}]
+EMAIL_SERVER={"sender": "mybot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
+CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
+CONTENT_SETTINGS={"archive": true, "debug": false}
+```
+
+### 8.5 Precedence Order
+
+Configuration values are loaded in this order (first found wins):
+
+1. **New JSON env vars** (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.)
+2. **Old individual env vars** (TELEGRAM_CHANNEL_ID, folder_keep, etc.)
+3. **INI file sections** (deprecated fallback)
+
+### 8.6 Deprecation Warnings
+
+When INI fallback is used, the loader emits a warning:
+
+```
+DEPRECATION: INI-based config is deprecated. Migrate to JSON env vars 
+(PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.). INI sections used: [Content, Email, openAI]
+```
+
+---
+
+## 9. Migration Guide {#migration}
+
+### 9.1 From INI to Env-First
+
+| INI Section | INI Field | New Env Var |
+|-------------|-----------|-------------|
+| `[Dropbox]` | `image_folder` | `STORAGE_PATHS.root` |
+| `[Dropbox]` | `archive` | `STORAGE_PATHS.archive` |
+| `[Dropbox]` | `folder_keep` | `STORAGE_PATHS.keep` |
+| `[Dropbox]` | `folder_remove` | `STORAGE_PATHS.remove` |
+| `[Content]` | `telegram=true` | `PUBLISHERS` array with `{"type": "telegram", ...}` |
+| `[Content]` | `fetlife=true` | `PUBLISHERS` array with `{"type": "fetlife", ...}` |
+| `[Content]` | `instagram=true` | `PUBLISHERS` array with `{"type": "instagram", ...}` |
+| `[Content]` | `hashtag_string` | `CONTENT_SETTINGS.hashtag_string` |
+| `[Content]` | `archive` | `CONTENT_SETTINGS.archive` |
+| `[Content]` | `debug` | `CONTENT_SETTINGS.debug` |
+| `[Email]` | `sender` | `EMAIL_SERVER.sender` |
+| `[Email]` | `smtp_server` | `EMAIL_SERVER.smtp_server` |
+| `[Email]` | `smtp_port` | `EMAIL_SERVER.smtp_port` |
+| `[Email]` | `recipient` | `PUBLISHERS[].recipient` (in fetlife entry) |
+| `[Email]` | `caption_target` | `PUBLISHERS[].caption_target` (in fetlife entry) |
+| `[Email]` | `subject_mode` | `PUBLISHERS[].subject_mode` (in fetlife entry) |
+| `[Email]` | `confirmation_*` | `CONFIRMATION_SETTINGS.*` |
+| `[openAI]` | `vision_model` | `OPENAI_SETTINGS.vision_model` |
+| `[openAI]` | `caption_model` | `OPENAI_SETTINGS.caption_model` |
+| `[openAI]` | `system_prompt` | `OPENAI_SETTINGS.system_prompt` |
+| `[openAI]` | `sd_caption_*` | `OPENAI_SETTINGS.sd_caption_*` |
+| `[CaptionFile]` | `*` | `CAPTIONFILE_SETTINGS.*` |
+| `[Instagram]` | `name` | `PUBLISHERS[].username` (in instagram entry) |
+
+### 9.2 Step-by-Step Migration
+
+1. **Copy** `dotenv.v2.example` to `.env`
+2. **Set secrets** (OpenAI, Dropbox, publisher-specific)
+3. **Build STORAGE_PATHS** from your `[Dropbox]` section
+4. **Build PUBLISHERS** from `[Content]` toggles + publisher sections
+5. **Build EMAIL_SERVER** from `[Email]` (if using email publisher)
+6. **Set optional settings** (CONTENT_SETTINGS, CAPTIONFILE_SETTINGS, etc.)
+7. **Test** with preview mode: `make preview-v2`
+8. **Remove** INI file dependency once validated
+
+### 9.3 Heroku Migration
+
+For Heroku apps using `FETLIFE_INI`:
+
+1. Set new config vars on a canary app (keep `FETLIFE_INI` initially)
+2. Validate: `/health` returns 200, web UI works, admin login works
+3. Remove `FETLIFE_INI` config var and restart
+4. Validate again
+5. Roll out to remaining pipeline apps
+
+See [Story 021-07: Heroku Pipeline Migration](../08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md) for detailed instructions.
+
+---
+
 ## See Also
 
 - [Feature 012: Central Config & i18n](../08_Features/012_central_config_i18n_text/012_feature.md)
 - [i18n Activation Summary](../08_Features/012_central_config_i18n_text/stories/01_implementation/ACTIVATION_SUMMARY.md)
+- [Feature 021: Config Env Consolidation](../08_Features/021_config_env_consolidation/021_feature.md)
 - [Architecture Documentation](../03_Architecture/ARCHITECTURE.md)
 
 

@@ -1,0 +1,133 @@
+# Story Plan: Storage Paths Environment Variable
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-04"
+story_name: "storage-paths-env-var"
+design_ref: "021_04_design.md"
+
+summary: |
+  Implement STORAGE_PATHS JSON parsing for Dropbox folder configuration.
+  - Parse root (required, absolute), archive, keep, remove
+  - Support absolute paths (used as-is) and relative paths (joined with root)
+  - Validate root is absolute and no paths contain '..'
+  - Apply defaults for optional paths
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "All absolute paths used as-is"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_all_absolute"
+  - id: AC2
+    description: "Relative paths joined with root"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_relative"
+  - id: AC3
+    description: "Defaults applied when only root specified"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_defaults"
+  - id: AC4
+    description: "Root not absolute raises ConfigurationError"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_root_not_absolute"
+  - id: AC5
+    description: "Path with '..' raises ConfigurationError"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_traversal_rejected"
+  - id: AC6
+    description: "Returns None when not set"
+    test_ref: "test_loader_storage_paths.py::test_storage_paths_not_set"
+
+non_goals:
+  - "Dropbox credentials"
+  - "File operations"
+  - "Changing DropboxConfig model"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add _resolve_path() helper"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _resolve_path(base: str, path: str) -> str:
+          if path.startswith("/"):
+              return path
+          return f"{base.rstrip('/')}/{path}"
+
+  - id: task_02
+    type: code
+    description: "Add _validate_path_no_traversal() helper"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _validate_path_no_traversal(path: str, field: str) -> None:
+          if ".." in path.split("/"):
+              raise ConfigurationError(
+                  f"STORAGE_PATHS.{field} contains '..' which is not allowed"
+              )
+
+  - id: task_03
+    type: code
+    description: "Add _load_storage_paths_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01, task_02]
+    details: |
+      def _load_storage_paths_from_env() -> dict | None:
+          parsed = _parse_json_env("STORAGE_PATHS")
+          if parsed is None:
+              return None
+          
+          root = parsed.get("root")
+          if not root:
+              raise ConfigurationError("STORAGE_PATHS missing required field 'root'")
+          if not root.startswith("/"):
+              raise ConfigurationError("STORAGE_PATHS.root must be absolute (start with '/')")
+          _validate_path_no_traversal(root, "root")
+          
+          archive = _resolve_path(root, parsed.get("archive", "archive"))
+          keep = _resolve_path(root, parsed.get("keep", "keep"))
+          remove = _resolve_path(root, parsed.get("remove", "reject"))
+          
+          for name, path in [("archive", archive), ("keep", keep), ("remove", remove)]:
+              _validate_path_no_traversal(path, name)
+          
+          return {"root": root, "archive": archive, "keep": keep, "remove": remove}
+
+  - id: task_04
+    type: code
+    description: "Update load_application_config to use STORAGE_PATHS"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_03]
+    details: |
+      storage_paths = _load_storage_paths_from_env()
+      if storage_paths:
+          image_folder = storage_paths["root"]
+          archive_folder = storage_paths["archive"]
+          folder_keep = storage_paths["keep"]
+          folder_remove = storage_paths["remove"]
+      else:
+          # Existing INI logic
+
+  - id: task_05
+    type: test
+    description: "Create storage paths parsing tests"
+    file: "publisher_v2/tests/config/test_loader_storage_paths.py"
+    depends_on: [task_03, task_04]
+    details: |
+      Tests for all acceptance criteria
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

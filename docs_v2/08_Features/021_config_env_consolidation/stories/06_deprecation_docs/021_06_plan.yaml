@@ -1,0 +1,134 @@
+# Story Plan: Deprecation Warnings and Documentation
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-06"
+story_name: "deprecation-docs"
+design_ref: "021_06_design.md"
+
+summary: |
+  Add deprecation logging when INI fallback is used and update documentation.
+  - Track config source for each section
+  - Emit deprecation warning if any INI fallback used
+  - Log config source at startup
+  - Create dotenv.v2.example template
+  - Add migration guide to docs
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+    - "code_v1/"
+    - "docs_v2/"
+  excluded_paths:
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "No deprecation warning when all env vars used"
+    test_ref: "test_loader_deprecation.py::test_no_deprecation_all_env"
+  - id: AC2
+    description: "Deprecation warning when INI fallback used"
+    test_ref: "test_loader_deprecation.py::test_deprecation_on_ini_fallback"
+  - id: AC3
+    description: "Config source logged at startup"
+    test_ref: "test_loader_deprecation.py::test_config_source_logged"
+  - id: AC4
+    description: "dotenv.v2.example created with full structure"
+    test_ref: "manual review"
+  - id: AC5
+    description: "Migration guide in documentation"
+    test_ref: "manual review"
+
+non_goals:
+  - "Removing INI file support"
+  - "Automated migration scripts"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add config source tracking dict"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      In load_application_config:
+      config_sources = {
+          "PUBLISHERS": False,
+          "EMAIL_SERVER": False,
+          "STORAGE_PATHS": False,
+          "OPENAI_SETTINGS": False,
+          "CAPTIONFILE_SETTINGS": False,
+          "CONFIRMATION_SETTINGS": False,
+          "CONTENT_SETTINGS": False,
+      }
+      # Set True when each env var is successfully used
+
+  - id: task_02
+    type: code
+    description: "Add deprecation warning emission"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      At end of load_application_config:
+      ini_sections = [name for name, env_used in config_sources.items() if not env_used]
+      if ini_sections:
+          logger.warning(
+              "INI-based config is deprecated. Migrate to JSON env vars.",
+              extra={"sections": ini_sections}
+          )
+
+  - id: task_03
+    type: code
+    description: "Add startup config source log"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      source = "env_vars" if not ini_sections else "ini_fallback"
+      logger.info(
+          "Configuration loaded",
+          extra={"source": source, "publishers_source": "PUBLISHERS" if config_sources["PUBLISHERS"] else "INI"}
+      )
+
+  - id: task_04
+    type: docs
+    description: "Create dotenv.v2.example"
+    file: "dotenv.v2.example"
+    depends_on: []
+    details: |
+      Full example with all JSON env vars, comments, and organization
+
+  - id: task_05
+    type: docs
+    description: "Update code_v1/dotenv.example with pointer"
+    file: "code_v1/dotenv.example"
+    depends_on: []
+    details: |
+      Add note at top pointing to dotenv.v2.example for V2 configuration
+
+  - id: task_06
+    type: docs
+    description: "Add migration section to configuration docs"
+    file: "docs_v2/05_Configuration/CONFIGURATION.md"
+    depends_on: []
+    details: |
+      Add section on migrating from INI to env vars
+
+  - id: task_07
+    type: test
+    description: "Create deprecation logic tests"
+    file: "publisher_v2/tests/config/test_loader_deprecation.py"
+    depends_on: [task_02, task_03]
+    details: |
+      Tests for deprecation warning and config source logging
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

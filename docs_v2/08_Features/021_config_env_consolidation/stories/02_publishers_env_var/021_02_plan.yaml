@@ -1,0 +1,124 @@
+# Story Plan: Publishers Environment Variable
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-02"
+story_name: "publishers-env-var"
+design_ref: "021_02_design.md"
+
+summary: |
+  Implement PUBLISHERS JSON array parsing to replace INI toggle flags.
+  - Parse publishers from PUBLISHERS env var
+  - Create TelegramConfig, EmailConfig, InstagramConfig from entries
+  - Derive PlatformsConfig enabled flags from array presence
+  - Secrets come from flat env vars (TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD, etc.)
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Telegram publisher created from PUBLISHERS array with token from env"
+    test_ref: "test_loader_publishers.py::test_telegram_publisher_from_env"
+  - id: AC2
+    description: "FetLife publisher created with recipient from PUBLISHERS"
+    test_ref: "test_loader_publishers.py::test_fetlife_publisher_from_env"
+  - id: AC3
+    description: "Empty array results in no publishers enabled"
+    test_ref: "test_loader_publishers.py::test_empty_publishers_array"
+  - id: AC4
+    description: "PUBLISHERS takes precedence over INI toggles"
+    test_ref: "test_loader_publishers.py::test_publishers_env_precedence"
+  - id: AC5
+    description: "Duplicate types raise ConfigurationError"
+    test_ref: "test_loader_publishers.py::test_duplicate_publisher_type_error"
+  - id: AC6
+    description: "Unknown type logged and skipped"
+    test_ref: "test_loader_publishers.py::test_unknown_publisher_type_skipped"
+
+non_goals:
+  - "EMAIL_SERVER parsing (Story 03)"
+  - "Storage paths (Story 04)"
+  - "Deprecation warnings (Story 06)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add _load_publishers_from_env() function"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _load_publishers_from_env(
+          entries: list,
+          email_server: dict | None,
+          cp: configparser.ConfigParser,
+      ) -> tuple[TelegramConfig | None, InstagramConfig | None, EmailConfig | None, PlatformsConfig]:
+          - Validate no duplicate types
+          - For each entry, create appropriate config
+          - Resolve secrets from flat env vars
+          - Return tuple of configs and platforms
+
+  - id: task_02
+    type: code
+    description: "Update load_application_config to try PUBLISHERS first"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      After loading dotenv and INI:
+      publishers_json = _parse_json_env("PUBLISHERS")
+      if publishers_json is not None:
+          email_server = _load_email_server_from_env()  # Story 03
+          telegram, instagram, email, platforms = _load_publishers_from_env(
+              publishers_json, email_server, cp
+          )
+      else:
+          # Existing INI-based logic
+
+  - id: task_03
+    type: code
+    description: "Add duplicate type validation"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      seen_types = set()
+      for entry in entries:
+          if entry.get("type") in seen_types:
+              raise ConfigurationError(
+                  f"Duplicate publisher type '{entry['type']}' in PUBLISHERS"
+              )
+          seen_types.add(entry.get("type"))
+
+  - id: task_04
+    type: code
+    description: "Add missing secret validation"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      For telegram: require TELEGRAM_BOT_TOKEN
+      For fetlife: require EMAIL_PASSWORD
+      For instagram: require INSTA_PASSWORD
+
+  - id: task_05
+    type: test
+    description: "Create publisher parsing tests"
+    file: "publisher_v2/tests/config/test_loader_publishers.py"
+    depends_on: [task_01, task_02, task_03, task_04]
+    details: |
+      Tests for all acceptance criteria
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert commit"
+

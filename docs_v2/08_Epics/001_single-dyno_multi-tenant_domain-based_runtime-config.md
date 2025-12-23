@@ -113,6 +113,10 @@ This epic is the canonical plan for multi-tenant V2.
 
 ## Orchestrator API Contract (Option B + Credential Resolution)
 
+This epic’s “contract” sections are aligned to the orchestrator’s published integration guide:
+
+- `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
+
 ### 1) Runtime config by host (single call)
 
 **Endpoint (example):** `GET /v1/runtime/by-host?host=xxx.shibari.photo`  
@@ -125,10 +129,20 @@ This epic is the canonical plan for multi-tenant V2.
 - `ttl_seconds`: int (e.g. 600)
 - `config`: object (structured; see below)
 
+**Publisher requirements (Feature 05 / orchestrator guide):**
+- Host must be normalized: lowercase, strip `:port`, strip trailing `.`
+- Reject host shapes without calling orchestrator (return 404 in Publisher):
+  - IPv4/IPv6 literals, `localhost`, `www.*`, double-dot/empty label
+- Treat orchestrator `404` as privacy-preserving “not found” (do not leak whether tenant exists).
+
 ### 2) Credential resolution by reference (Option A)
 
-**Endpoint (example):** `GET /v1/credentials/{credentials_ref}`  
+**Endpoint (actual):** `POST /v1/credentials/resolve`  
 **Auth:** service-to-service bearer token  
+**Request requirements (Feature 06 / orchestrator guide):**
+- Header: `X-Tenant: <tenant>` (must match tenant derived from Host)
+- Body: `{ "credentials_ref": "opaque-ref" }`
+
 **Response (Dropbox example):**
 
 - `provider`: `"dropbox"`
@@ -201,7 +215,7 @@ Non-admin users must not see admin-only controls (Feature 005/CR-005 guidelines 
 ## Caching Strategy (Stable TTL)
 
 ### Runtime config cache (Publisher V2)
-- Key: `tenant`
+- Key: `normalized_host` (recommended by orchestrator guide)
 - Value: `{config_version, expires_at, config}`
 - TTL: `ttl_seconds` from orchestrator (default target 600s / 10m).
 - If config fetch fails:
@@ -209,10 +223,11 @@ Non-admin users must not see admin-only controls (Feature 005/CR-005 guidelines 
   - Else: return 503 and **do not** allow mutating operations
 
 ### Credentials cache (Publisher V2)
-- Key: `credentials_ref`
+- Key: `credentials_ref` (and tenant context for safety)
 - Value: `{version, expires_at, credential_payload}`
 - TTL: use runtime TTL or a slightly shorter TTL
 - If credential fetch fails: deny operations that require that provider
+ - Credentials responses must be treated as secret material (`Cache-Control: no-store`); do not persist beyond process memory.
 
 ## Migration Plan (Phased, Low-Risk)
 

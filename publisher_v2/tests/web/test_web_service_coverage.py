@@ -45,26 +45,25 @@ email_enabled = false
 
 
 class TestWebImageServiceConfigPath:
-    """Tests for CONFIG_PATH validation (line 51)."""
+    """Tests for CONFIG_PATH validation."""
     
     def test_raises_runtime_error_when_config_path_missing(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Verify WebImageService raises RuntimeError when CONFIG_PATH is not set."""
+        """Verify WebImageService raises ConfigurationError when CONFIG_PATH not set and not in env-first mode."""
+        from publisher_v2.core.exceptions import ConfigurationError
+        
         # Ensure CONFIG_PATH is not set
         monkeypatch.delenv("CONFIG_PATH", raising=False)
+        # Ensure not in env-first mode (no STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
+        monkeypatch.delenv("STORAGE_PATHS", raising=False)
+        monkeypatch.delenv("PUBLISHERS", raising=False)
+        monkeypatch.delenv("OPENAI_SETTINGS", raising=False)
         
-        # We need to test the __init__ code path, but the module is already imported.
-        # The check is in __init__, so we need to instantiate the class.
-        # First, patch load_dotenv to prevent any side effects
-        with patch("publisher_v2.web.service.os.environ.get") as mock_get:
-            # Return None for CONFIG_PATH
-            mock_get.return_value = None
-            
-            from publisher_v2.web.service import WebImageService
-            
-            with pytest.raises(RuntimeError, match="CONFIG_PATH environment variable must be set"):
-                WebImageService()
+        from publisher_v2.web.service import WebImageService
+        
+        with pytest.raises(ConfigurationError, match="Either config_file_path must be provided or all required env vars"):
+            WebImageService()
 
 
 class TestWebImageServiceTTLParsing:
