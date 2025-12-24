@@ -42,8 +42,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - No breaking changes to CLI, web API, or configuration schema
 
 ### Documentation
-- Feature 012 request, design, plan, and shipped docs in `docs_v2/08_Features/`
-- i18n activation summary with how-to guides in `docs_v2/08_Features/012_i18n_activation_summary.md`
+- Feature 012 request, design, plans, and shipped docs in `docs_v2/08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/`
+- i18n activation summary with how-to guides in `docs_v2/08_Epics/004_deployment_ops_modernization/012_i18n_activation_summary.md`
 - Full implementation review with verification in `docs_v2/09_Reviews/20251122_fullreview.md`
 - Updated configuration reference with three-layer model
 

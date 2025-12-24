@@ -1,0 +1,123 @@
+<!-- docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_plan.yaml -->
+version: 1
+feature_id: web-interface-mvp-change-005-web-performance-telemetry
+summary: "Add structured performance telemetry and correlation IDs for key web endpoints without changing their HTTP contracts."
+design_refs:
+  - docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_design.md
+  - docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "All calls to /api/images/random emit web_random_image* logs with correlation_id and integer web_random_image_ms timing."
+  - "Calls to /api/images/{filename}/analyze and /api/images/{filename}/publish emit endpoint-specific timing logs with correlation_id without changing HTTP response contracts."
+  - "At least one automated test asserts the presence of timing fields and correlation_id in web logs for a happy-path request."
+non_goals:
+  - "Introducing an external metrics backend or dashboards; this change is log-only."
+  - "Altering JSON request/response schemas for existing web endpoints."
+  - "Changing business logic or side effects of analyze/publish flows."
+tasks:
+  - id: web_story005_005.add_monotonic_timing_helpers
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/utils/logging.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "now_monotonic() -> float"
+        - "elapsed_ms(start: float) -> int"
+    depends_on: []
+  - id: web_story005_005.instrument_workflow_timing
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/core/workflow.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "WorkflowOrchestrator.execute(select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False) -> WorkflowResult"
+    depends_on:
+      - "web_story005_005.add_monotonic_timing_helpers"
+  - id: web_story005_005.add_web_request_telemetry
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/app.py"
+      - "publisher_v2/src/publisher_v2/web/service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "get_request_telemetry(request: Request) -> RequestTelemetry"
+        - "api_get_random_image(...) -> ImageResponse"
+        - "api_analyze_image(filename: str, ...) -> AnalysisResponse"
+        - "api_publish_image(filename: str, ...) -> PublishResponse"
+        - "WebImageService.analyze_and_caption(filename: str, correlation_id: str | None = None) -> AnalysisResponse"
+    depends_on:
+      - "web_story005_005.add_monotonic_timing_helpers"
+  - id: web_story005_005.update_nfr_telemetry_docs
+    type: doc
+    touches:
+      - "docs_v2/06_NFRs/NFRS.md"
+      - "docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry.md"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - "web_story005_005.add_web_request_telemetry"
+  - id: web_story005_005.add_workflow_timing_tests
+    type: test
+    touches:
+      - "publisher_v2/tests/test_orchestrator_debug.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - "web_story005_005.instrument_workflow_timing"
+  - id: web_story005_005.add_web_telemetry_e2e_test
+    type: test
+    touches:
+      - "publisher_v2/tests/test_e2e_performance_telemetry.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - "web_story005_005.add_web_request_telemetry"
+quality_gates:
+  tests_required:
+    - "web_story005_005.add_workflow_timing_tests"
+    - "web_story005_005.add_web_telemetry_e2e_test"
+  coverage_delta_min: +1
+  perf_budget:
+    web_random_image_p95_ms: 5000
+  security_checks:
+    - "dep-audit"
+    - "no-secrets"
+    - "lint"
+release:
+  strategy: "gradual"
+  flags:
+    - "features.web_interface_mvp_performance_telemetry"
+  metrics:
+    - "web_random_image_ms"
+    - "web_analyze_ms"
+    - "web_publish_ms"
+
+

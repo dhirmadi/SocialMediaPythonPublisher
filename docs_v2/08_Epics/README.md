@@ -1,16 +1,20 @@
 # Epics — Social Media Publisher V2
 
-This folder contains **cross-feature initiatives** that span multiple components (web UI, orchestration, storage, auth, deployment), and are too large to fit cleanly into a single `08_Features/<id>_*` feature.
+Epics are the **top-level initiatives** in V2 documentation.
 
-Epics should:
-- Define **goal / non-goals**
-- Capture **decisions** and **constraints**
-- Specify **contracts** between systems (especially with `platform-orchestrator`)
-- Provide a **phased migration plan** and **acceptance criteria**
-- Link to related features under `docs_v2/08_Features/`
+Canonical hierarchy:
+
+**Epics → Features → Stories**
+
+This keeps the documentation navigable as the number of implemented features grows.
 
 ## Index
-- `001_single-dyno_multi-tenant_domain-based_runtime-config.md` — Move from many tenant apps/dynos to a single web fleet with wildcard domain routing and orchestrator-sourced runtime config.
-- `001_orchestrator_service_api_integration_guide.md` — Exact service-to-service API contract (runtime-by-host + credentials resolve) used by Publisher V2.
+
+- **Epic 000 — V2 Foundation (Single‑Tenant Execution Plane)**: `000_v2_foundation/`
+- **Epic 001 — Multi‑Tenant Orchestrator Runtime Config**: `001_multi_tenant_orchestrator_runtime_config/001_single-dyno_multi-tenant_domain-based_runtime-config.md`
+  - Orchestrator API integration guide (spec): `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
+- **Epic 002 — Web Admin & Curation UX**: `002_web_admin_curation_ux/`
+- **Epic 003 — Runtime Controls & Telemetry**: `003_runtime_controls_telemetry/`
+- **Epic 004 — Deployment & Ops Modernization (Pre‑Orchestrator)**: `004_deployment_ops_modernization/`
 
 

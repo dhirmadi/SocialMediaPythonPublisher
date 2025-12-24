@@ -1,5 +1,0 @@
-version: 1
-legacy_redirect: true
-migrated_to:
-  story_plan: "../003_expanded_vision_analysis_json/stories/01_implementation/003_01_plan.yaml"
-

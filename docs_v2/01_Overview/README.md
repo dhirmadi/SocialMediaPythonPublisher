@@ -14,7 +14,7 @@ Contents:
 - `02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md` — Orchestrator service-to-service API integration (when using platform orchestrator)
 - `07_AI/AI_PROMPTS_AND_MODELS.md` — Model choices, prompting strategies, evaluation
 - `05_Configuration/CONFIGURATION.md` — Environment, INI schema, pydantic validation
-- `08_Features/000_preview_mode/000_feature.md` — Preview mode guarantees (no side effects)
+- `08_Epics/000_v2_foundation/000_preview_mode/000_feature.md` — Preview mode guarantees (no side effects)
 - `04_Security_Privacy/SECURITY_PRIVACY.md` — Security posture, secrets, sessions, PII, logging
 - `06_NFRs/NFRS.md` — Non‑functional requirements and targets
 

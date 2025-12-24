@@ -1,0 +1,65 @@
+version: 1
+feature_id: expanded-vision-analysis-json
+summary: "Expand image analysis to include optional structured fields and surface them in preview while preserving strict JSON and backward compatibility."
+design_refs:
+  - docs_v2/08_Epics/08_02_Feature_Design/003_expanded-vision-analysis-json_design.md
+repo_constraints:
+  allowed_paths: [ "publisher_v2/src/publisher_v2/**", "publisher_v2/tests/**", "docs_v2/**" ]
+  excluded_paths: [ "code_v1/**", "docs_v1/**", "htmlcov/**", "poetry.lock" ]
+acceptance_criteria:
+  - "Given an input image, when analysis runs, then JSON includes existing keys and may additionally include: subject, style, lighting, camera, clothing_or_accessories, aesthetic_terms (array), pose, composition, background, color_palette."
+  - "Given any unknown/unavailable detail, when analysis is returned, then the corresponding value is null (or empty array where applicable)."
+  - "Given the description constraint, when analysis is returned, then description is ≤ 30 words."
+  - "Given a successful parse, when --preview is used, then available new fields are printed with clear labels and omitted if absent."
+  - "Given the new fields are optional, when the feature is deployed, then existing tests and flows continue to function unchanged."
+  - "Given malformed model output, when parsing occurs, then retries are applied and a clear error is raised on persistent failure."
+non_goals: [ "Change publisher behavior or delivery logic", "Modify caption generation logic or sd_caption behavior", "Alter storage/archival or de-duplication flows", "Switch AI providers or overhaul configuration" ]
+tasks:
+  - id: code.extend_image_analysis_model
+    type: code
+    touches: [ "publisher_v2/src/publisher_v2/core/models.py" ]
+    contracts:
+      signatures: [ "class ImageAnalysis", "class CaptionSpec" ]
+  - id: code.expand_vision_prompt_and_parse
+    type: code
+    touches: [ "publisher_v2/src/publisher_v2/services/ai.py" ]
+    contracts:
+      signatures: [ "class VisionAnalyzerOpenAI", "VisionAnalyzerOpenAI.analyze(url_or_bytes: str | bytes) -> ImageAnalysis" ]
+    depends_on: [ "code.extend_image_analysis_model" ]
+  - id: code.preview_print_optional_fields
+    type: code
+    touches: [ "publisher_v2/src/publisher_v2/utils/preview.py" ]
+    depends_on: [ "code.extend_image_analysis_model" ]
+  - id: test.unit_analyzer_parsing_expanded_fields
+    type: test
+    files_out: [ "publisher_v2/tests/test_vision_analyzer_expanded_fields.py" ]
+    depends_on: [ "code.expand_vision_prompt_and_parse" ]
+  - id: test.preview_printing_optional_fields
+    type: test
+    files_out: [ "publisher_v2/tests/test_preview_expanded_analysis.py" ]
+    depends_on: [ "code.preview_print_optional_fields" ]
+  - id: test.e2e_preview_with_expanded_analysis
+    type: test
+    files_out: [ "publisher_v2/tests/test_e2e_expanded_analysis_preview.py" ]
+    depends_on: [ "code.expand_vision_prompt_and_parse", "code.preview_print_optional_fields" ]
+  - id: doc.update_ai_prompts_reference
+    type: doc
+    touches: [ "docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md" ]
+    depends_on: [ "code.expand_vision_prompt_and_parse" ]
+  - id: doc.update_feature_request_status
+    type: doc
+    touches: [ "docs_v2/08_Epics/08_01_Feature_Request/003_expanded-vision-analysis-json.md" ]
+  - id: doc.emit_feature_plan_file
+    type: doc
+    files_out: [ "docs_v2/08_Epics/08_03_Feature_plan/003_expanded-vision-analysis-json_plan.yaml" ]
+quality_gates:
+  tests_required: [ "test.unit_analyzer_parsing_expanded_fields", "test.preview_printing_optional_fields", "test.e2e_preview_with_expanded_analysis" ]
+  coverage_delta_min: +2
+  perf_budget:
+    analysis_request_p95_ms: 3000
+  security_checks: [ "dep-audit", "no-secrets", "lint" ]
+release:
+  strategy: "gradual"
+  flags: []
+  metrics: [ "analysis_success_rate", "parse_failure_count", "analysis_request_p95_ms" ]
+

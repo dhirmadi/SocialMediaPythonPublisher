@@ -1,5 +1,0 @@
-version: 1
-legacy_redirect: true
-migrated_to:
-  story_plan: "../012_central_config_i18n_text/stories/01_implementation/012_01_plan.yaml"
-

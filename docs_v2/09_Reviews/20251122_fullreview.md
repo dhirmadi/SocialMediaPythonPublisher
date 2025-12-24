@@ -382,10 +382,10 @@ If issues arise:
 
 ### ✅ All Documentation Updated
 
-1. **Feature Request:** `docs_v2/08_Features/08_01_Feature_Request/012_central-config-i18n-text.md`
-2. **Feature Design:** `docs_v2/08_Features/08_02_Feature_Design/012_central-config-i18n-text_design.md`
-3. **Feature Plan:** `docs_v2/08_Features/08_03_Feature_plan/012_central-config-i18n-text_plan.yaml`
-4. **Shipped Docs:** `docs_v2/08_Features/012_central-config-i18n-text.md`
+1. **Feature Request:** `docs_v2/08_Epics/08_01_Feature_Request/012_central-config-i18n-text.md`
+2. **Feature Design:** `docs_v2/08_Epics/08_02_Feature_Design/012_central-config-i18n-text_design.md`
+3. **Feature Plan:** `docs_v2/08_Epics/08_03_Feature_plan/012_central-config-i18n-text_plan.yaml`
+4. **Shipped Docs:** `docs_v2/08_Epics/012_central-config-i18n-text.md`
 
 ### Required Updates (future work)
 - `docs_v2/05_Configuration/CONFIGURATION.md` - Add static config section

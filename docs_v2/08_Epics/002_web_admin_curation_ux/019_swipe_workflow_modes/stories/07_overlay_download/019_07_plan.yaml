@@ -1,0 +1,54 @@
+# docs_v2/08_Epics/002_web_admin_curation_ux/019_swipe_workflow_modes/stories/07_overlay_download/019_07_plan.yaml
+
+version: "1.0"
+feature_id: "019"
+story_id: "019-07"
+story_name: "overlay_download"
+design_ref: "019_07_design.md"
+
+summary: |
+  Move Full Size button to overlay and implement native sharing for "Save to Photos" support.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/web/templates/index.html"
+  excluded_paths:
+    - "publisher_v2/src/publisher_v2/core/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Download button is an overlay on the image"
+    test_ref: "manual_verification"
+  - id: AC2
+    description: "Position indicator moved to avoid overlap"
+    test_ref: "manual_verification"
+  - id: AC3
+    description: "Clicking download attempts to use Native Share (for Save to Photos)"
+    test_ref: "manual_verification"
+  - id: AC4
+    description: "Fallback to window.open if sharing fails"
+    test_ref: "manual_verification"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Update HTML/CSS: Move button, relocate position indicator"
+    file: "publisher_v2/src/publisher_v2/web/templates/index.html"
+    depends_on: []
+    
+  - id: task_02
+    type: code
+    description: "Update JS: Implement fetch-and-share logic"
+    file: "publisher_v2/src/publisher_v2/web/templates/index.html"
+    depends_on: [task_01]
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "direct"
+  rollback_plan: "revert changes to index.html"
+

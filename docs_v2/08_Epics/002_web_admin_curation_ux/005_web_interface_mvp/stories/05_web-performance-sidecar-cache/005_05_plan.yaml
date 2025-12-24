@@ -1,0 +1,96 @@
+<!-- docs_v2/08_Epics/08_04_ChangeRequests/005/004_plan.yaml -->
+version: 1
+feature_id: web-interface-mvp-change-004-web-performance-sidecar-cache
+summary: "Improve web interface latency by caching Dropbox image listings, reusing sidecars as an AI cache, and parallelizing Dropbox I/O."
+design_refs:
+  - docs_v2/08_Epics/08_04_ChangeRequests/005/004_design.md
+  - docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "Repeated calls to /api/images/random within a short window reuse a cached image list instead of re-listing from Dropbox each time."
+  - "/api/images/{filename}/analyze supports sidecar-first behavior and an explicit force_refresh flag that triggers a fresh AI run and sidecar overwrite."
+non_goals:
+  - "Changing the structure or semantics of the web API JSON payloads."
+  - "Introducing new persistent stores beyond Dropbox and existing state files."
+tasks:
+  - id: web_story005_004.code.web_image_cache_and_parallel_io
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class WebImageService:"
+        - "    async def get_random_image(self) -> ImageResponse"
+        - "    async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False) -> AnalysisResponse"
+    depends_on:
+      - captionfile_change001.code.extend_sidecar_parser_helpers
+      - captionfile_change002.code.web_service_uses_ai_service
+  - id: web_story005_004.code.web_route_force_refresh_param
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/app.py"
+    files_out: []
+    contracts:
+      request:
+        force_refresh: "bool (query parameter, optional)"
+      response: {}
+      signatures:
+        - "async def analyze_image(filename: str, request: Request, svc: WebImageService = Depends(...)) -> AnalysisResponse"
+    depends_on:
+      - web_story005_004.code.web_image_cache_and_parallel_io
+  - id: web_story005_004.test.web_service_cache_and_sidecar
+    type: test
+    touches:
+      - "publisher_v2/tests/web/test_web_service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - web_story005_004.code.web_image_cache_and_parallel_io
+  - id: web_story005_004.test.web_endpoints_cache_and_force_refresh
+    type: test
+    touches:
+      - "publisher_v2/tests/web_integration/test_web_endpoints.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - web_story005_004.code.web_route_force_refresh_param
+quality_gates:
+  tests_required:
+    - web_story005_004.test.web_service_cache_and_sidecar
+    - web_story005_004.test.web_endpoints_cache_and_force_refresh
+  coverage_delta_min: +1
+  perf_budget:
+    web_random_image_p95_ms: 5000
+  security_checks:
+    - "dep-audit"
+    - "no-secrets"
+    - "lint"
+release:
+  strategy: "gradual"
+  flags:
+    - "features.web_interface_sidecar_cache"
+  metrics:
+    - "web_random_image_latency_p95"
+    - "web_analyze_latency_p95"
+    - "web_sidecar_cache_hit_ratio"
+
+

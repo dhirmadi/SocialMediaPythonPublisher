@@ -1,0 +1,112 @@
+# Story Plan: Heroku Pipeline Migration
+# Feature: 021 Config Environment Variable Consolidation
+
+version: "1.0"
+feature_id: "021"
+story_id: "021-07"
+story_name: "heroku-pipeline-migration"
+design_ref: "021_07_design.md"
+
+summary: |
+  Migrate Heroku fetlife pipeline to env-first configuration.
+  - Enable app to start without INI file when env vars set
+  - Document rollout procedure for Heroku apps
+  - Document local development migration
+  - Remove dependency on FETLIFE_INI config var
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+    - "docs_v2/"
+    - "Procfile"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "App starts without INI when env vars set"
+    test_ref: "test_loader_env_first.py::test_env_first_no_ini"
+  - id: AC2
+    description: "Clear error when required env vars missing"
+    test_ref: "test_loader_env_first.py::test_missing_required_env_error"
+  - id: AC3
+    description: "Rollout procedure documented"
+    test_ref: "manual review"
+  - id: AC4
+    description: "Local migration guide complete"
+    test_ref: "manual review"
+
+non_goals:
+  - "Implementing Orchestrator API"
+  - "Changing business logic"
+  - "Automated migration scripts"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add _has_required_env_config() helper"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: []
+    details: |
+      def _has_required_env_config() -> bool:
+          """Check if minimum env vars are set for env-first mode."""
+          required = ["STORAGE_PATHS", "OPENAI_API_KEY", "DROPBOX_APP_KEY"]
+          return all(os.environ.get(var) for var in required)
+
+  - id: task_02
+    type: code
+    description: "Update INI file check to allow env-first"
+    file: "publisher_v2/src/publisher_v2/config/loader.py"
+    depends_on: [task_01]
+    details: |
+      # Before:
+      if not os.path.exists(config_file_path):
+          raise ConfigurationError(f"Config file not found: {config_file_path}")
+      
+      # After:
+      if not os.path.exists(config_file_path):
+          if _has_required_env_config():
+              logger.info("No INI file found; using env-first configuration")
+              # Skip INI parsing, use only env vars
+          else:
+              raise ConfigurationError(
+                  f"Config file not found: {config_file_path}. "
+                  "Set STORAGE_PATHS and other required env vars for env-first mode."
+              )
+
+  - id: task_03
+    type: docs
+    description: "Document Heroku rollout procedure"
+    file: "docs_v2/08_Epics/004_deployment_ops_modernization/021_config_env_consolidation/stories/07_heroku_pipeline_migration/ROLLOUT.md"
+    depends_on: []
+    details: |
+      Step-by-step procedure for migrating Heroku apps
+
+  - id: task_04
+    type: docs
+    description: "Document local migration"
+    file: "docs_v2/08_Epics/004_deployment_ops_modernization/021_config_env_consolidation/stories/07_heroku_pipeline_migration/LOCAL_MIGRATION.md"
+    depends_on: []
+    details: |
+      Instructions for developers to migrate local .env
+
+  - id: task_05
+    type: test
+    description: "Create env-first mode tests"
+    file: "publisher_v2/tests/config/test_loader_env_first.py"
+    depends_on: [task_02]
+    details: |
+      Tests for env-first startup without INI file
+
+quality_gates:
+  tests_pass: true
+  coverage_delta_min: 0
+  no_new_lint_errors: true
+
+release:
+  feature_flag: null
+  rollout_strategy: "canary"
+  rollback_plan: "Restore FETLIFE_INI and restart"
+

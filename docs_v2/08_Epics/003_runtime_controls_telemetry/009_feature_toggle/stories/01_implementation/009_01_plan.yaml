@@ -1,0 +1,219 @@
+version: 1
+feature_id: feature-toggle
+summary: "Add environment variable-based feature toggles for 'AI Analyze and Caption' and 'Publish' features, allowing operators to enable/disable major features at runtime without code changes. Storage/Dropbox remains always enabled as base feature."
+design_refs:
+  - docs_v2/08_Epics/08_02_Feature_Design/009_feature-toggle_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+    - configfiles/**
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+acceptance_criteria:
+  - "Given FEATURE_ANALYZE_CAPTION=false environment variable is set, when workflow executes, then AI vision analysis and caption generation must be skipped, and workflow proceeds with image selection and storage operations only."
+  - "Given FEATURE_PUBLISH=false environment variable is set, when workflow executes, then publishing to all platforms must be skipped, but analysis and captioning (if enabled) must still occur."
+  - "Given no feature toggle environment variables are set, when workflow executes, then all features must behave as they currently do (backward compatible)."
+  - "Given both FEATURE_ANALYZE_CAPTION=false and FEATURE_PUBLISH=false are set, when workflow executes, then only image selection and storage operations must occur (no AI, no publishing)."
+  - "Given feature toggles are set via environment variables, when web interface is used, then the same feature toggles must be respected in web API endpoints."
+  - "Given a feature is disabled via toggle, when preview mode is used, then preview output must reflect the disabled state (e.g., show 'Analysis skipped' or 'Publish skipped')."
+non_goals:
+  - "Feature toggles for individual platform publishers (already handled by platform enablement flags)."
+  - "Feature toggles for sub-features (SD caption, extended metadata, etc.)."
+  - "Remote feature flag service or UI controls."
+  - "Changing preview mode or dry-run behavior."
+tasks:
+  - id: feature_toggle.add_config_schema
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/schema.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class FeaturesConfig(BaseModel)"
+        - "class ApplicationConfig(BaseModel)"
+    depends_on: []
+    rollback: "Remove FeaturesConfig class and features field from ApplicationConfig"
+  - id: feature_toggle.add_bool_parser_utility
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/loader.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def parse_bool_env(value: str | None, default: bool = True) -> bool"
+    depends_on: []
+    rollback: "Remove parse_bool_env function"
+  - id: feature_toggle.update_config_loader
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/loader.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def load_application_config(config_file_path: str, env_path: str | None = None) -> ApplicationConfig"
+    depends_on:
+      - feature_toggle.add_config_schema
+      - feature_toggle.add_bool_parser_utility
+    rollback: "Remove FeaturesConfig instantiation and features field from ApplicationConfig construction"
+  - id: feature_toggle.update_workflow_orchestrator
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/core/workflow.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False) -> WorkflowResult"
+    depends_on:
+      - feature_toggle.update_config_loader
+    rollback: "Remove feature toggle checks from execute() method, restore original analysis and publish logic"
+  - id: feature_toggle.update_web_service
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/web/service.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False) -> AnalysisResponse"
+        - "async def publish_image(self, filename: str, platforms: Optional[List[str]] = None) -> PublishResponse"
+    depends_on:
+      - feature_toggle.update_config_loader
+    rollback: "Remove feature toggle checks from analyze_and_caption() and publish_image() methods"
+  - id: feature_toggle.update_preview_utils
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/utils/preview.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def print_vision_analysis(analysis: ImageAnalysis, model: str) -> None"
+        - "def print_caption(caption: str, spec: CaptionSpec, model: str, hashtag_count: int) -> None"
+    depends_on:
+      - feature_toggle.update_workflow_orchestrator
+    rollback: "Remove disabled feature indicators from preview output"
+  - id: feature_toggle.add_startup_logging
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/app.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - feature_toggle.update_config_loader
+    rollback: "Remove feature toggle startup logging"
+  - id: feature_toggle.unit_tests_config
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_config_feature_toggles.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def test_features_config_defaults_to_enabled() -> None"
+        - "def test_parse_bool_env_various_formats() -> None"
+        - "def test_load_config_with_feature_toggles_disabled() -> None"
+        - "def test_load_config_with_feature_toggles_enabled() -> None"
+        - "def test_load_config_feature_toggles_not_set_defaults_enabled() -> None"
+    depends_on:
+      - feature_toggle.update_config_loader
+    rollback: ""
+  - id: feature_toggle.integration_tests_workflow
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_workflow_feature_toggles.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def test_workflow_with_analyze_caption_disabled() -> None"
+        - "async def test_workflow_with_publish_disabled() -> None"
+        - "async def test_workflow_with_both_disabled() -> None"
+        - "async def test_workflow_with_toggles_enabled_default_behavior() -> None"
+    depends_on:
+      - feature_toggle.update_workflow_orchestrator
+    rollback: ""
+  - id: feature_toggle.integration_tests_web
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_web_feature_toggles.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def test_web_analyze_with_feature_disabled() -> None"
+        - "async def test_web_publish_with_feature_disabled() -> None"
+        - "async def test_web_endpoints_respect_feature_toggles() -> None"
+    depends_on:
+      - feature_toggle.update_web_service
+    rollback: ""
+  - id: feature_toggle.preview_mode_tests
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_preview_feature_toggles.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def test_preview_with_analyze_disabled() -> None"
+        - "def test_preview_with_publish_disabled() -> None"
+        - "def test_preview_shows_disabled_indicators() -> None"
+    depends_on:
+      - feature_toggle.update_preview_utils
+    rollback: ""
+  - id: feature_toggle.update_docs
+    type: doc
+    touches:
+      - docs_v2/05_Configuration/CONFIGURATION.md
+      - docs_v2/03_Architecture/ARCHITECTURE.md
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - feature_toggle.update_config_loader
+    rollback: "Remove feature toggle documentation sections"
+quality_gates:
+  tests_required:
+    - feature_toggle.unit_tests_config
+    - feature_toggle.integration_tests_workflow
+    - feature_toggle.integration_tests_web
+    - feature_toggle.preview_mode_tests
+  coverage_delta_min: +3
+  perf_budget:
+    workflow_execution_p95_ms: 0
+  security_checks:
+    - dep-audit
+    - no-secrets
+    - lint
+release:
+  strategy: immediate
+  flags: []
+  migration_notes:
+    - "Feature toggles default to enabled, so existing deployments continue working without changes."
+    - "Operators can opt-in to using toggles by setting FEATURE_ANALYZE_CAPTION and/or FEATURE_PUBLISH environment variables."
+    - "No migration required for existing deployments."
+

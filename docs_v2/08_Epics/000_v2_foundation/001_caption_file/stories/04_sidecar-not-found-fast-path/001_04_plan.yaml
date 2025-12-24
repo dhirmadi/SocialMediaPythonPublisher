@@ -1,0 +1,97 @@
+<!-- docs_v2/08_Epics/08_04_ChangeRequests/001/003_sidecar-not-found-fast-path_plan.yaml -->
+version: 1
+feature_id: stable-diffusion-caption-file-change-001-003-sidecar-not-found-fast-path
+summary: "Introduce a sidecar-aware fast path for missing .txt files to avoid multi-second Dropbox retries in web flows."
+design_refs:
+  - docs_v2/08_Epics/08_04_ChangeRequests/001/003_sidecar-not-found-fast-path_design.md
+  - docs_v2/08_Epics/08_02_Feature_Design/001_captionfile_design.md
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/**"
+    - "publisher_v2/tests/**"
+    - "docs_v2/**"
+  excluded_paths:
+    - "code_v1/**"
+    - "docs_v1/**"
+    - "htmlcov/**"
+    - "coverage.xml"
+    - "coverage-current.xml"
+acceptance_criteria:
+  - "Given an image without a .txt sidecar in Dropbox, when /api/images/random or /api/images/{filename}/analyze is called, the system determines that the sidecar is absent in a single Dropbox round-trip without multi-second retry delays."
+  - "Given an image with a valid .txt sidecar, when the new sidecar-specific storage method is used, the sidecar contents are returned as before and callers behave identically to the existing cache semantics."
+  - "Given a Dropbox 'file not found' error for a sidecar read, when the new helper is invoked, it surfaces a fast, non-exceptional 'no sidecar' outcome that callers treat as a normal cache miss."
+non_goals:
+  - "Changing sidecar file format, naming, or archival behavior defined by Feature 001."
+  - "Altering AI prompts, SD caption generation, or sidecar-writing logic."
+  - "Introducing new persistent stores or modifying CLI workflows."
+tasks:
+  - id: storage_story001_003.add_sidecar_fast_path_helper
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/services/storage.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class DropboxStorage"
+        - "async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None"
+    depends_on: []
+  - id: web_story001_003.use_sidecar_helper_in_service
+    type: code
+    touches:
+      - "publisher_v2/src/publisher_v2/web/service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class WebImageService"
+        - "async def get_random_image(self) -> ImageResponse"
+        - "async def analyze_and_caption(self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False) -> AnalysisResponse"
+    depends_on:
+      - "storage_story001_003.add_sidecar_fast_path_helper"
+  - id: test_story001_003.extend_dropbox_sidecar_tests
+    type: test
+    touches:
+      - "publisher_v2/tests/test_dropbox_sidecar.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - "storage_story001_003.add_sidecar_fast_path_helper"
+  - id: test_story001_003.extend_web_service_sidecar_tests
+    type: test
+    touches:
+      - "publisher_v2/tests/web/test_web_service.py"
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - "web_story001_003.use_sidecar_helper_in_service"
+quality_gates:
+  tests_required:
+    - "test_story001_003.extend_dropbox_sidecar_tests"
+    - "test_story001_003.extend_web_service_sidecar_tests"
+  coverage_delta_min: +1
+  perf_budget:
+    web_random_image_p95_ms: 5000
+    web_analyze_p95_ms: 20000
+  security_checks:
+    - "dep-audit"
+    - "no-secrets"
+    - "lint"
+release:
+  strategy: "gradual"
+  flags:
+    - "features.captionfile_sidecar_not_found_fast_path"
+  metrics:
+    - "web_random_image_ms"
+    - "web_analyze_ms"
+    - "dropbox_sidecar_read_errors"
+
+

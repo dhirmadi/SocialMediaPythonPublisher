@@ -29,21 +29,36 @@ This separation enables:
 |----------|-------------|---------|
 | `DROPBOX_APP_KEY` | Dropbox OAuth app key | `abc123...` |
 | `DROPBOX_APP_SECRET` | Dropbox OAuth app secret | `xyz789...` |
-| `DROPBOX_REFRESH_TOKEN` | OAuth2 refresh token | `token123...` |
 | `OPENAI_API_KEY` | OpenAI API key (must start with `sk-`) | `sk-proj-...` |
+
+**Orchestrator note (Epic 001):** In multi-tenant orchestrator mode, per-tenant secrets like `OPENAI_API_KEY` and `DROPBOX_REFRESH_TOKEN` are expected to be delivered **on demand** via the orchestrator credentials endpoint, not baked into dyno env vars. The dyno still needs global integration credentials (e.g., `DROPBOX_APP_KEY/SECRET`) and orchestrator service auth.
 
 ### Optional Secrets (Platform-Specific)
 
 | Variable | Description | Required When |
 |----------|-------------|---------------|
 | `TELEGRAM_BOT_TOKEN` | Telegram bot token | Telegram publishing enabled |
-| `TELEGRAM_CHANNEL_ID` | Telegram channel/chat ID | Telegram publishing enabled |
 | `INSTA_PASSWORD` | Instagram account password | Instagram publishing enabled |
 | `EMAIL_PASSWORD` | Email/SMTP app password | Email/FetLife publishing enabled |
 | `WEB_AUTH_TOKEN` | Bearer token for web API auth | Web interface enabled |
 | `WEB_AUTH_USER` | Basic auth username | Web interface enabled |
 | `WEB_AUTH_PASS` | Basic auth password | Web interface enabled |
-| `web_admin_pw` | Admin mode password | Web admin features enabled |
+| `AUTH0_CLIENT_SECRET` | Auth0 OIDC client secret | Auth0 admin login enabled |
+| `WEB_SESSION_SECRET` | Web session signing secret (cookie/session middleware) | Auth0 admin login enabled |
+| `web_admin_pw` | Legacy admin password (deprecated by Auth0) | Only if using legacy admin password |
+
+### Web Admin (Auth0) — Required Non-Secret Env Vars
+
+These are required when enabling Auth0 login (Feature 020). They are not “secrets” except `AUTH0_CLIENT_SECRET` and `WEB_SESSION_SECRET` above.
+
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `AUTH0_DOMAIN` | Auth0 tenant domain | `example.eu.auth0.com` |
+| `AUTH0_CLIENT_ID` | Auth0 client id | `abc123` |
+| `AUTH0_AUDIENCE` | Optional API audience | `https://publisher-api` |
+| `AUTH0_CALLBACK_URL` | Callback URL registered in Auth0 | `https://<host>/auth/callback` |
+| `ADMIN_LOGIN_EMAILS` | CSV allowlist of admin emails | `me@x.com,you@y.com` |
+| `AUTH0_ADMIN_EMAIL_ALLOWLIST` | Alternate allowlist env var (legacy alias) | `me@x.com,you@y.com` |
 
 ---
 
@@ -442,15 +457,88 @@ web: PYTHONPATH=publisher_v2/src uvicorn publisher_v2.web.app:app --host 0.0.0.0
 | `DEPRECATION: INI-based config...` | Falling back to INI | Add missing JSON env var for mentioned section |
 | Publishing fails | Missing publisher secret | Set `TELEGRAM_BOT_TOKEN`, `EMAIL_PASSWORD`, or `INSTA_PASSWORD` |
 
-See [Story 021-07: Heroku Pipeline Migration](../08_Features/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md) for complete reference including all config var examples.
+See [Story 021-07: Heroku Pipeline Migration](../08_Epics/004_deployment_ops_modernization/021_config_env_consolidation/stories/07_heroku_pipeline_migration/021_07_heroku-pipeline-migration.md) for complete reference including all config var examples.
 
 ---
 
+## 10. Orchestrator-Sourced Runtime Configuration (Epic 001)
+
+This section explains **which configuration must live on the dyno** vs what is expected to be delivered **on demand** by the orchestrator in the upcoming multi-tenant runtime (Epic 001).
+
+### 10.1 Operating modes (important)
+
+- **Single-tenant (legacy INI)**: dyno env vars + `configfiles/*.ini` (deprecated).
+- **Single-tenant (env-first / Feature 021)**: dyno env vars only (JSON groupings like `PUBLISHERS`, `STORAGE_PATHS`, etc.).
+- **Multi-tenant (orchestrator runtime / Epic 001)**:
+  - Dyno env vars contain only **global** settings + service auth (no per-tenant secrets).
+  - Per-request, Publisher resolves tenant by host and fetches **runtime config** and **credentials** from the orchestrator.
+
+### 10.2 Dyno-required environment variables (global, not per-tenant)
+
+These must be configured on the single multi-tenant dyno fleet.
+
+#### A) Orchestrator connectivity (service-to-service)
+
+| Variable | Purpose |
+|----------|---------|
+| `ORCHESTRATOR_BASE_URL` | Base URL for orchestrator service API (no trailing slash) |
+| `ORCHESTRATOR_SERVICE_TOKEN` | Bearer token for calling orchestrator `/v1/*` endpoints (secret; never log) |
+
+See: `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md` (Sections 1–2).
+
+#### B) Global integrations (shared credentials / platform-level)
+
+| Variable | Purpose |
+|----------|---------|
+| `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` | Shared Dropbox OAuth app credentials used with per-tenant refresh tokens from orchestrator |
+| `PV2_STATIC_CONFIG_DIR` (optional) | Override static YAML config directory for fleet-wide prompt/text tuning |
+
+#### C) Web UI & Admin (Auth0 + HTTP auth)
+
+In multi-tenant mode, the web UI still needs a consistent security posture per `.cursor/rules/20-web-ui-admin-security.mdc`.
+
+| Variable(s) | Purpose |
+|------------|---------|
+| `WEB_AUTH_TOKEN` **or** `WEB_AUTH_USER`/`WEB_AUTH_PASS` | API-level auth gate for web endpoints |
+| `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_CALLBACK_URL` | Auth0 OIDC login (Feature 020) |
+| `ADMIN_LOGIN_EMAILS` (or `AUTH0_ADMIN_EMAIL_ALLOWLIST`) | Admin allowlist |
+| `WEB_SESSION_SECRET` | Session signing secret |
+| `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin cookie TTL (server-enforced clamp) |
+
+### 10.3 Orchestrator-delivered runtime config (non-secret)
+
+Publisher expects these values to come from `GET /v1/runtime/by-host?host=<normalized_host>` (cached by TTL):
+
+- **`features`**: publish/analyze/keep/remove/auto_view toggles
+- **`storage`**: provider + paths + `credentials_ref`
+- **Additionally required for parity with Feature 021** (see Epic 001 “Delta / Change Request”):
+  - publishers (telegram/email/instagram non-secret settings)
+  - email server (smtp host/port/sender; no password)
+  - ai settings (models/prompts; no API key)
+  - captionfile settings
+  - confirmation settings
+  - content settings
+
+### 10.4 Orchestrator-delivered credentials (secrets)
+
+Publisher expects secrets to be returned only via `POST /v1/credentials/resolve`:
+
+- **Storage provider secrets** (e.g., Dropbox refresh token)
+- **Publisher secrets** (e.g., Telegram bot token, Email password, Instagram credential bundle)
+- **AI provider secrets** (e.g., OpenAI API key)
+
+Secrets must never be embedded in runtime config payloads and must never be persisted to disk by Publisher.
+
+### 10.5 Reference links
+
+- Epic 001: `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/001_single-dyno_multi-tenant_domain-based_runtime-config.md`
+- Orchestrator integration guide: `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
+
 ## See Also
 
-- [Feature 012: Central Config & i18n](../08_Features/012_central_config_i18n_text/012_feature.md)
-- [i18n Activation Summary](../08_Features/012_central_config_i18n_text/stories/01_implementation/ACTIVATION_SUMMARY.md)
-- [Feature 021: Config Env Consolidation](../08_Features/021_config_env_consolidation/021_feature.md)
+- [Feature 012: Central Config & i18n](../08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/012_feature.md)
+- [i18n Activation Summary](../08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/stories/01_implementation/ACTIVATION_SUMMARY.md)
+- [Feature 021: Config Env Consolidation](../08_Epics/004_deployment_ops_modernization/021_config_env_consolidation/021_feature.md)
 - [Architecture Documentation](../03_Architecture/ARCHITECTURE.md)
 
 
