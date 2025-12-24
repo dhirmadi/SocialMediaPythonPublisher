@@ -1,0 +1,66 @@
+<!-- docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_plan.yaml -->
+
+version: 1
+feature_id: heroku-hetzner-app-cloning
+story_id: web-admin-password
+summary: "Make the web admin password a mandatory CLI parameter and set the web_admin_pw config var on newly created Heroku apps."
+design_refs:
+  - docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_design.md
+repo_constraints:
+  allowed_paths:
+    - scripts/**
+    - docs_v2/**
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+
+acceptance_criteria:
+  - "heroku_hetzner_clone.py requires --password for non-dry-run executions and documents this in --help."
+  - "On a successful run, the new Heroku app has web_admin_pw set to the provided password, even if the source app had a different value."
+  - "Dry-run mode does not write or modify any config vars, including web_admin_pw."
+
+tasks:
+  - id: web_admin_password.extend_cli
+    type: code
+    touches:
+      - scripts/heroku_hetzner_clone.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def parse_args("
+    depends_on: []
+    rollback: "Remove the --password argument from the CLI."
+
+  - id: web_admin_password.set_config_var
+    type: code
+    touches:
+      - scripts/heroku_hetzner_clone.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def main("
+    depends_on:
+      - web_admin_password.extend_cli
+    rollback: "Remove logic that sets/overwrites web_admin_pw in the new app's config vars."
+
+quality_gates:
+  tests_required: []
+  coverage_delta_min: 0
+  perf_budget: {}
+  security_checks:
+    - no-secrets
+
+release:
+  strategy: direct
+  flags: []
+  migration_notes:
+    - "The provisioning script now requires a password via --password and will always set web_admin_pw for new apps."
+
+

@@ -1,0 +1,208 @@
+version: 1
+feature_id: web-interface-mvp
+summary: "Add a minimal FastAPI-based web UI on top of Publisher V2 to view random images, run AI analysis/captioning, and publish via existing workflows from a phone, deployable as a single Heroku web app."
+design_refs:
+  - docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+    - pyproject.toml
+    - Procfile
+    - README.md
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+    - coverage.xml
+    - coverage-current.xml
+acceptance_criteria:
+  - "When the app is deployed on Heroku with a valid config INI and credentials, opening `/` in a browser shows a simple page with an image area and buttons for 'Next image', 'Analyze & caption', and 'Publish'."
+  - "Given at least one eligible image in the configured Dropbox folder, clicking 'Next image' fetches a random image from that folder and updates the UI, or returns a clear 'No images found' error if none exist."
+  - "Clicking 'Analyze & caption' for the currently displayed image runs the existing AI analysis and caption/sd_caption generation, writes or overwrites the sidecar file, and updates the UI with the resulting caption and key analysis fields."
+  - "Clicking 'Publish' for the currently displayed image invokes the existing publishers, behaves like the current non-web workflow (including archiving and sidecar movement on success), and the UI shows per-platform success/failure and archive status."
+  - "When configured in dry/preview/debug mode, web-triggered actions do not perform external publishing or archiving and match existing CLI semantics for those modes."
+  - "If simple auth is enabled, unauthenticated requests cannot trigger analysis or publishing and receive 401 responses, while authenticated requests can use all admin actions."
+  - "Errors from Dropbox, AI, or publishing are surfaced as clear error messages in the UI, with structured logs recorded server-side and no secrets exposed."
+non_goals:
+  - "Support for multiple streams or folders; MVP targets a single configured image folder."
+  - "Introduction of MongoDB or any new persistent database for metadata."
+  - "Full user management, multi-tenant roles, or complex RBAC."
+  - "Public gallery or separate viewer-only accounts."
+  - "Changing or deprecating existing CLI behavior; web is additive."
+tasks:
+  - id: web_mvp.update_dependencies
+    type: code
+    touches:
+      - pyproject.toml
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on: []
+    rollback: ""
+  - id: web_mvp.extend_config_schema
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/schema.py
+    files_out: []
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "class WebConfig(BaseModel)"
+        - "class ApplicationConfig(BaseModel)"
+    depends_on:
+      - web_mvp.update_dependencies
+    rollback: ""
+  - id: web_mvp.create_web_module_structure
+    type: code
+    touches: []
+    files_out:
+      - publisher_v2/src/publisher_v2/web/__init__.py
+      - publisher_v2/src/publisher_v2/web/app.py
+      - publisher_v2/src/publisher_v2/web/service.py
+      - publisher_v2/src/publisher_v2/web/models.py
+      - publisher_v2/src/publisher_v2/web/auth.py
+      - publisher_v2/src/publisher_v2/web/sidecar_parser.py
+      - publisher_v2/src/publisher_v2/web/templates/index.html
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "app = FastAPI()"
+        - "async def get_random_image() -> ImageResponse"
+        - "async def analyze_and_caption(filename: str) -> AnalysisResponse"
+        - "async def publish_image(filename: str, platforms: list[str] | None = None) -> PublishResponse"
+    depends_on:
+      - web_mvp.update_dependencies
+    rollback: ""
+  - id: web_mvp.implement_web_api
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/web/app.py
+      - publisher_v2/src/publisher_v2/web/service.py
+      - publisher_v2/src/publisher_v2/web/models.py
+      - publisher_v2/src/publisher_v2/web/auth.py
+      - publisher_v2/src/publisher_v2/web/sidecar_parser.py
+      - publisher_v2/src/publisher_v2/utils/logging.py
+    files_out: []
+    contracts:
+      request:
+        GET_/api/images/random: "none"
+        POST_/api/images/{filename}/analyze: "path: filename:string"
+        POST_/api/images/{filename}/publish: "path: filename:string; body: {platforms?: string[]}"
+      response:
+        GET_/api/images/random: "{filename:string,temp_url:string,sha256?:string,caption?:string,sd_caption?:string,metadata?:object,has_sidecar:boolean}"
+        POST_/api/images/{filename}/analyze: "{filename:string,description:string,mood:string,tags:string[],nsfw:boolean,caption:string,sd_caption?:string,sidecar_written:boolean}"
+        POST_/api/images/{filename}/publish: "{filename:string,results:object,archived:boolean,any_success:boolean}"
+      signatures:
+        - "@app.get('/api/images/random') async def api_get_random_image() -> ImageResponse"
+        - "@app.post('/api/images/{filename}/analyze') async def api_analyze_image(filename: str) -> AnalysisResponse"
+        - "@app.post('/api/images/{filename}/publish') async def api_publish_image(filename: str, req: PublishRequest | None = None) -> PublishResponse"
+        - "async def get_random_image(self) -> ImageResponse"
+        - "async def analyze_and_caption(self, filename: str) -> AnalysisResponse"
+        - "async def publish_image(self, filename: str, platforms: list[str] | None = None) -> PublishResponse"
+    depends_on:
+      - web_mvp.create_web_module_structure
+      - web_mvp.extend_config_schema
+    rollback: ""
+  - id: web_mvp.add_procfile
+    type: chore
+    touches: []
+    files_out:
+      - Procfile
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - web_mvp.implement_web_api
+    rollback: ""
+  - id: web_mvp.unit_tests
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/web/test_web_service.py
+      - publisher_v2/tests/web/test_sidecar_parser.py
+      - publisher_v2/tests/web/test_web_auth.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "def test_get_random_image_returns_image_response() -> None"
+        - "def test_analyze_and_caption_writes_sidecar() -> None"
+        - "def test_auth_rejects_invalid_token() -> None"
+    depends_on:
+      - web_mvp.implement_web_api
+    rollback: ""
+  - id: web_mvp.integration_tests
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/web_integration/test_web_endpoints.py
+      - publisher_v2/tests/web_integration/test_web_auth_integration.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def test_get_random_image_endpoint(client) -> None"
+        - "async def test_analyze_and_publish_endpoints(client) -> None"
+        - "async def test_auth_protection(client) -> None"
+    depends_on:
+      - web_mvp.implement_web_api
+    rollback: ""
+  - id: web_mvp.e2e_tests
+    type: test
+    touches: []
+    files_out:
+      - publisher_v2/tests/test_e2e_web_interface_mvp.py
+    contracts:
+      request: {}
+      response: {}
+      signatures:
+        - "async def test_web_interface_end_to_end(live_base_url: str) -> None"
+    depends_on:
+      - web_mvp.integration_tests
+    rollback: ""
+  - id: web_mvp.update_docs
+    type: doc
+    touches:
+      - docs_v2/03_Architecture/ARCHITECTURE.md
+      - README.md
+    files_out:
+      - docs_v2/08_Epics/08_03_Implementation/005_web-interface-mvp.md
+    contracts:
+      request: {}
+      response: {}
+      signatures: []
+    depends_on:
+      - web_mvp.implement_web_api
+    rollback: ""
+quality_gates:
+  tests_required:
+    - web_mvp.unit_tests
+    - web_mvp.integration_tests
+    - web_mvp.e2e_tests
+  coverage_delta_min: +2
+  perf_budget:
+    web_random_image_p95_ms: 5000
+    web_analyze_caption_p95_ms: 20000
+    web_publish_p95_ms: 30000
+  security_checks:
+    - dep-audit
+    - no-secrets
+    - lint
+release:
+  strategy: gradual
+  flags:
+    - features.web_interface_mvp
+  metrics:
+    - web_requests_total
+    - web_errors_total
+    - web_publish_success_total
+    - web_publish_p95_ms
+
+

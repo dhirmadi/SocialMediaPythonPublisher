@@ -140,7 +140,7 @@ uv run bandit -r publisher_v2/src/
 | Architecture | `docs_v2/03_Architecture/` | Major changes |
 | Configuration | `docs_v2/05_Configuration/` | Config changes |
 | NFRs | `docs_v2/06_NFRs/` | Quarterly |
-| Features | `docs_v2/08_Features/` | Per feature |
+| Features | `docs_v2/08_Epics/` | Per feature |
 | Reviews | `docs_v2/09_Reviews/` | Per review |
 | Testing | `docs_v2/10_Testing/` | Test changes |
 

@@ -1,0 +1,118 @@
+version: 1
+feature_id: caption-file-extended-metadata
+summary: "Append a commented metadata block under the first-line SD caption in sidecar files."
+design_refs:
+  - docs_v2/08_Epics/08_01_Feature_Request/004_caption-file-extended-metadata.md
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/**
+    - publisher_v2/tests/**
+    - docs_v2/**
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+    - htmlcov/**
+acceptance_criteria:
+  - "First line of <image>.txt is exactly sd_caption; metadata strictly below."
+  - "Metadata lines are comment-prefixed with '# ' and preceded by '# ---' separator."
+  - "Phase 1 includes image_file, dropbox_file_id (optional), dropbox_rev (optional), sha256, created (UTC ISO8601), sd_caption_version, model_version."
+  - "Phase 2 (behind flag) adds lighting, pose, materials, art_style, tags[], moderation[]."
+  - "Preview/dry-run never writes files and prints the full caption + metadata block."
+  - "Reprocessing overwrites the sidecar and archives it alongside the image."
+  - "If fields unavailable, omit them (no null-like placeholders)."
+non_goals:
+  - "Change caption semantics or training ingestion of the first line."
+  - "Embed explicit sexual content; metadata remains PG-13 and contextual."
+  - "Replace databases; this is a sidecar enrichment only."
+tasks:
+  - id: config.add_captionfile_config
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/config/schema.py
+      - publisher_v2/src/publisher_v2/config/loader.py
+    contracts:
+      signatures:
+        - "class CaptionFileConfig(BaseModel): extended_metadata_enabled: bool"
+        - "class ApplicationConfig(BaseModel): captionfile: CaptionFileConfig"
+        - "load_application_config(config_file_path: str, env_path: str|None) -> ApplicationConfig"
+    depends_on: []
+  - id: storage.add_get_file_metadata
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/services/storage.py
+    contracts:
+      signatures:
+        - "get_file_metadata(folder: str, filename: str) -> dict[str, str]"
+    depends_on: []
+  - id: utils.add_sidecar_builders
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/utils/captions.py
+    contracts:
+      signatures:
+        - "build_caption_sidecar(sd_caption: str, metadata: dict[str, object]) -> str"
+        - "build_metadata_phase1(image_file: str, sha256: str, created_iso: str, sd_caption_version: str, model_version: str, dropbox_file_id: str|None, dropbox_rev: str|None) -> dict[str, object]"
+        - "build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, object]"
+    depends_on: []
+  - id: workflow.integrate_metadata_sidecar
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/core/workflow.py
+    contracts:
+      signatures:
+        - "WorkflowOrchestrator.execute(select_filename: str|None, dry_publish: bool, preview_mode: bool) -> WorkflowResult"
+    depends_on:
+      - config.add_captionfile_config
+      - storage.add_get_file_metadata
+      - utils.add_sidecar_builders
+  - id: preview.print_sidecar_preview
+    type: code
+    touches:
+      - publisher_v2/src/publisher_v2/utils/preview.py
+      - publisher_v2/src/publisher_v2/app.py
+    contracts:
+      signatures:
+        - "print_caption_sidecar_preview(sd_caption: str, metadata: dict[str, object]) -> None"
+    depends_on:
+      - utils.add_sidecar_builders
+      - config.add_captionfile_config
+  - id: tests.unit_sidecar_builders
+    type: test
+    files_out:
+      - publisher_v2/tests/test_sidecar_builders.py
+    depends_on:
+      - utils.add_sidecar_builders
+  - id: tests.e2e_sidecar_write_and_archive
+    type: test
+    files_out:
+      - publisher_v2/tests/test_e2e_sidecar_metadata.py
+    depends_on:
+      - workflow.integrate_metadata_sidecar
+      - storage.add_get_file_metadata
+  - id: docs.update_feature_flag_and_example
+    type: doc
+    touches:
+      - docs_v2/08_Epics/stable-diffusion-caption-file.md
+      - docs_v2/05_Configuration/CONFIGURATION.md
+    depends_on:
+      - config.add_captionfile_config
+quality_gates:
+  tests_required:
+    - tests.unit_sidecar_builders
+    - tests.e2e_sidecar_write_and_archive
+  coverage_delta_min: +2
+  perf_budget:
+    sidecar_write_p95_ms: 10
+  security_checks:
+    - dep-audit
+    - no-secrets
+    - lint
+release:
+  strategy: "gradual"
+  flags:
+    - "features.captionfile.extended_metadata"
+  metrics:
+    - "captionfile.metadata_written.count"
+    - "captionfile.write.errors.count"
+
+

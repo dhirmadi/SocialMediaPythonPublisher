@@ -1,5 +1,0 @@
-version: 1
-legacy_redirect: true
-migrated_to:
-  story_plan: "../../011_heroku_hetzner_app_cloning/stories/02_servers-log/011_02_plan.yaml"
-

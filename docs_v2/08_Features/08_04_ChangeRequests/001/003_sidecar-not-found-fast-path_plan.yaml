@@ -1,5 +1,0 @@
-version: 1
-legacy_redirect: true
-migrated_to:
-  story_plan: "../../001_caption_file/stories/04_sidecar-not-found-fast-path/001_04_plan.yaml"
-

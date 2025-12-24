@@ -1,5 +1,0 @@
-version: 1
-legacy_redirect: true
-migrated_to:
-  story_plan: "../../005_web_interface_mvp/stories/05_web-performance-sidecar-cache/005_05_plan.yaml"
-

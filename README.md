@@ -13,9 +13,9 @@ Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses Op
   - Overview: `docs_v2/01_Overview/README.md` (start here)
   - Architecture: `docs_v2/03_Architecture/ARCHITECTURE.md`, `docs_v2/03_Architecture/SYSTEM_DESIGN.md`
   - Specification & configuration: `docs_v2/02_Specifications/SPECIFICATION.md`, `docs_v2/05_Configuration/CONFIGURATION.md`
-  - Features & change requests: `docs_v2/08_Features/`
+  - Epics & features (canonical): `docs_v2/08_Epics/README.md`
   - AI prompts & models: `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md`
-  - Preview mode: `docs_v2/08_Features/PREVIEW_MODE.md`
+  - Preview mode: `docs_v2/08_Epics/000_v2_foundation/000_preview_mode/000_feature.md`
   - Reviews & testing: `docs_v2/09_Reviews/REVIEW_SUMMARY.md`, `docs_v2/10_Testing/`
 - V1 docs have been archived to `docs_v1/`
 
@@ -173,7 +173,7 @@ export CONFIG_PATH=configfiles/fetlife.ini
 uv run uvicorn publisher_v2.web.app:app --reload
 ```
 
-Then open `http://localhost:8000` in your browser. See `docs_v2/08_Features/08_01_Feature_Request/005_web-interface-mvp.md` and related change requests under `docs_v2/08_Features/08_04_ChangeRequests/005/` for details.
+Then open `http://localhost:8000` in your browser. See `docs_v2/08_Epics/002_web_admin_curation_ux/005_web_interface_mvp/005_feature.md` for details.
 
 ---
 

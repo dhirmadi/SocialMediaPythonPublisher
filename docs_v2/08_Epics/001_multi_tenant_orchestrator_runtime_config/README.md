@@ -1,0 +1,14 @@
+# Epic 001 — Multi‑Tenant Orchestrator Runtime Config
+
+This epic contains the plan and contract alignment for orchestrator-sourced runtime config and credential resolution to enable multi-tenant Publisher V2.
+
+## Primary Epic Doc
+
+- `001_single-dyno_multi-tenant_domain-based_runtime-config.md`
+
+## Related Specifications
+
+- Orchestrator service-to-service API integration guide:
+  - `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
+
+

@@ -160,7 +160,7 @@ Web API (FastAPI):
 ## See Also
 
 - [Configuration Documentation](../05_Configuration/CONFIGURATION.md)
-- [Feature 012: Central Config & i18n](../08_Features/012_central_config_i18n_text/012_feature.md)
+- [Feature 012: Central Config & i18n](../08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/012_feature.md)
 - [System Design](./SYSTEM_DESIGN.md)
 
 

@@ -2,7 +2,7 @@ import os
 import shutil
 from pathlib import Path
 
-BASE_DIR = Path("docs_v2/08_Features")
+BASE_DIR = Path("docs_v2/08_Epics")
 
 def rename_artifact(path, new_name):
     if not path.exists():

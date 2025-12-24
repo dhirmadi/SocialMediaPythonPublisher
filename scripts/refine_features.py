@@ -3,7 +3,7 @@ import shutil
 import re
 from pathlib import Path
 
-BASE_DIR = Path("docs_v2/08_Features")
+BASE_DIR = Path("docs_v2/08_Epics")
 
 def get_feature_dirs():
     return [d for d in BASE_DIR.iterdir() if d.is_dir() and d.name[0].isdigit()]

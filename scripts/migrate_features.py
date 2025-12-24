@@ -3,7 +3,7 @@ import shutil
 import glob
 from pathlib import Path
 
-BASE_DIR = Path("docs_v2/08_Features")
+BASE_DIR = Path("docs_v2/08_Epics")
 REQUESTS_DIR = BASE_DIR / "08_01_Feature_Request"
 DESIGNS_DIR = BASE_DIR / "08_02_Feature_Design"
 PLANS_DIR = BASE_DIR / "08_03_Feature_plan"
