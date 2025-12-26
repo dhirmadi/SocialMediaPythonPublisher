@@ -369,3 +369,15 @@ class AIService:
         return caption_only, None
 
 
+class NullAIService:
+    """
+    Safe stub used when AI is disabled for a tenant.
+
+    WorkflowOrchestrator guards all AI usage behind config.features.analyze_caption_enabled,
+    so this should never be invoked when that flag is False.
+    """
+
+    analyzer = None
+    generator = None
+
+

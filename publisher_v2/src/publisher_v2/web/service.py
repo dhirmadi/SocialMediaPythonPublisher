@@ -17,9 +17,12 @@ from dotenv import load_dotenv
 load_dotenv()
 
 from publisher_v2.config.loader import load_application_config
+from publisher_v2.config.source import ConfigSource, RuntimeConfig
+from publisher_v2.config.credentials import OpenAICredentials, TelegramCredentials, SMTPCredentials
+from publisher_v2.core.exceptions import CredentialResolutionError, OrchestratorUnavailableError
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI, NullAIService
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.publishers.email import EmailPublisher
 from publisher_v2.services.publishers.telegram import TelegramPublisher
@@ -43,20 +46,35 @@ class WebImageService:
     and avoids duplicating business logic wherever possible.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        runtime: RuntimeConfig | None = None,
+        config_source: ConfigSource | None = None,
+    ) -> None:
         self.logger = logging.getLogger("publisher_v2.web")
 
-        config_path = os.environ.get("CONFIG_PATH")
-        env_path = os.environ.get("ENV_PATH")
+        self._runtime = runtime
+        self._config_source = config_source
 
-        # CONFIG_PATH is optional when all required env vars are set
-        # (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
-        cfg = load_application_config(config_path, env_path)
+        if runtime is None:
+            # Standalone env-first initialization (existing behavior)
+            config_path = os.environ.get("CONFIG_PATH")
+            env_path = os.environ.get("ENV_PATH")
+
+            # CONFIG_PATH is optional when all required env vars are set
+            # (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
+            cfg = load_application_config(config_path, env_path)
+        else:
+            cfg = runtime.config
 
         storage = DropboxStorage(cfg.dropbox)
-        analyzer = VisionAnalyzerOpenAI(cfg.openai)
-        generator = CaptionGeneratorOpenAI(cfg.openai)
-        ai_service = AIService(analyzer, generator)
+
+        # AI may be resolved lazily in orchestrator mode (cfg.openai.api_key may be None)
+        ai_service: AIService | None = None
+        if getattr(cfg.openai, "api_key", None):
+            analyzer = VisionAnalyzerOpenAI(cfg.openai)
+            generator = CaptionGeneratorOpenAI(cfg.openai)
+            ai_service = AIService(analyzer, generator)
 
         publishers: List[Publisher] = [
             TelegramPublisher(cfg.telegram, cfg.platforms.telegram_enabled),
@@ -68,7 +86,18 @@ class WebImageService:
         self.storage = storage
         self.ai_service = ai_service
         self.publishers = publishers
-        self.orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
+        # Keep legacy behavior for standalone mode: orchestrator is ready immediately.
+        # In orchestrator mode we build it lazily to allow late-binding publishers/AI.
+        if runtime is None:
+            if ai_service is None:
+                # Should not happen in standalone mode because OPENAI_API_KEY is required by loader.
+                analyzer = VisionAnalyzerOpenAI(cfg.openai)
+                generator = CaptionGeneratorOpenAI(cfg.openai)
+                ai_service = AIService(analyzer, generator)
+                self.ai_service = ai_service
+            self.orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
+        else:
+            self.orchestrator: WorkflowOrchestrator | None = None
         # Short-lived in-memory cache for Dropbox image listings to avoid
         # repeated list_images calls on hot paths (see CR 005-004).
         self._image_cache: Optional[List[str]] = None
@@ -85,6 +114,104 @@ class WebImageService:
                 # Ignore invalid override; keep config/default TTL.
                 pass
         self._image_cache_ttl_seconds: float = ttl
+
+    def _is_orchestrated(self) -> bool:
+        return self._runtime is not None and self._config_source is not None
+
+    def _cred_ref(self, key: str) -> str | None:
+        if not self._runtime or not self._runtime.credentials_refs:
+            return None
+        return self._runtime.credentials_refs.get(key)
+
+    async def _ensure_ai_service(self) -> AIService | None:
+        if self.ai_service is not None:
+            return self.ai_service
+        if not self._is_orchestrated():
+            return None
+        if not self.config.features.analyze_caption_enabled:
+            return None
+
+        ref = self._cred_ref("openai")
+        if not ref:
+            # No ref available -> disable feature
+            self.config.features.analyze_caption_enabled = False
+            return None
+
+        try:
+            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            creds = OpenAICredentials.model_validate(data)
+            new_openai = self.config.openai.model_copy(update={"api_key": creds.api_key})
+            # Replace openai config to keep downstream access consistent
+            self.config = self.config.model_copy(update={"openai": new_openai})
+            analyzer = VisionAnalyzerOpenAI(new_openai)
+            generator = CaptionGeneratorOpenAI(new_openai)
+            self.ai_service = AIService(analyzer, generator)
+            return self.ai_service
+        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
+            # Degrade gracefully: disable AI for this tenant/request.
+            self.config.features.analyze_caption_enabled = False
+            return None
+
+    async def _ensure_email_publisher(self) -> None:
+        if not self._is_orchestrated():
+            return
+        if not self.config.platforms.email_enabled or not self.config.email:
+            return
+        if getattr(self.config.email, "password", None):
+            return
+        ref = self._cred_ref("smtp")
+        if not ref:
+            self.config.platforms.email_enabled = False
+            return
+        try:
+            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            creds = SMTPCredentials.model_validate(data)
+            new_email = self.config.email.model_copy(update={"password": creds.password})
+            self.config = self.config.model_copy(update={"email": new_email})
+        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
+            self.config.platforms.email_enabled = False
+
+    async def _ensure_telegram_publisher(self) -> None:
+        if not self._is_orchestrated():
+            return
+        if not self.config.platforms.telegram_enabled or not self.config.telegram:
+            return
+        if getattr(self.config.telegram, "bot_token", None):
+            return
+        ref = self._cred_ref("telegram")
+        if not ref:
+            self.config.platforms.telegram_enabled = False
+            return
+        try:
+            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            creds = TelegramCredentials.model_validate(data)
+            new_tg = self.config.telegram.model_copy(update={"bot_token": creds.bot_token})
+            self.config = self.config.model_copy(update={"telegram": new_tg})
+        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
+            self.config.platforms.telegram_enabled = False
+
+    async def _ensure_publishers(self) -> None:
+        """
+        In orchestrator mode, resolve optional publisher secrets lazily before publishing.
+        """
+        await self._ensure_email_publisher()
+        await self._ensure_telegram_publisher()
+
+        # Rebuild publishers list with updated config objects.
+        self.publishers = [
+            TelegramPublisher(self.config.telegram, self.config.platforms.telegram_enabled),
+            EmailPublisher(self.config.email, self.config.platforms.email_enabled),
+            InstagramPublisher(self.config.instagram, self.config.platforms.instagram_enabled),
+        ]
+
+    async def _ensure_orchestrator(self) -> WorkflowOrchestrator:
+        if self.orchestrator is not None:
+            return self.orchestrator
+
+        ai = await self._ensure_ai_service()
+        ai_service = ai if ai is not None else NullAIService()
+        self.orchestrator = WorkflowOrchestrator(self.config, self.storage, ai_service, self.publishers)  # type: ignore[arg-type]
+        return self.orchestrator
 
     async def _get_cached_images(self) -> List[str]:
         """
@@ -264,6 +391,27 @@ class WebImageService:
                 sidecar_written=False,
             )
 
+        # Ensure AI is available (or degrade to disabled).
+        ai = await self._ensure_ai_service()
+        if ai is None:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_analyze_disabled",
+                image=filename,
+                correlation_id=correlation_id,
+            )
+            return AnalysisResponse(
+                filename=filename,
+                description="",
+                mood="",
+                tags=[],
+                nsfw=False,
+                caption="",
+                sd_caption=None,
+                sidecar_written=False,
+            )
+
         # Run analysis when cache is bypassed or missing.
         log_json(
             self.logger,
@@ -272,7 +420,7 @@ class WebImageService:
             image=filename,
             correlation_id=correlation_id,
         )
-        analysis = await self.ai_service.analyzer.analyze(temp_link)
+        analysis = await ai.analyzer.analyze(temp_link)
 
         # Build spec consistent with orchestrator behaviour
         from publisher_v2.core.models import CaptionSpec
@@ -295,7 +443,7 @@ class WebImageService:
         # Generate caption + sd_caption via centralized AIService helper.
         sd_caption = None
         try:
-            caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
+            caption, sd_caption = await ai.create_caption_pair_from_analysis(analysis, spec)
         except Exception as exc:
             log_json(
                 self.logger,
@@ -306,7 +454,7 @@ class WebImageService:
                 correlation_id=correlation_id,
             )
             # Best-effort fallback to legacy caption-only behaviour
-            caption = await self.ai_service.create_caption(temp_link, spec)
+            caption = await ai.create_caption(temp_link, spec)
 
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:
@@ -318,8 +466,8 @@ class WebImageService:
             from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
             model_version = (
-                getattr(self.ai_service.generator, "sd_caption_model", None)
-                or getattr(self.ai_service.generator, "model", "")
+                getattr(ai.generator, "sd_caption_model", None)
+                or getattr(ai.generator, "model", "")
             )
             try:
                 await generate_and_upload_sidecar(
@@ -371,7 +519,11 @@ class WebImageService:
         #   - publish and archive on success
         # We call it with dry_publish=False and preview_mode=False.
 
-        result = await self.orchestrator.execute(
+        # Resolve optional publisher secrets lazily (telegram/smtp) before publishing.
+        await self._ensure_publishers()
+
+        orchestrator = await self._ensure_orchestrator()
+        result = await orchestrator.execute(
             select_filename=filename,
             dry_publish=False,
             preview_mode=False,

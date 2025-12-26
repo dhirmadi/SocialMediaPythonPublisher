@@ -28,7 +28,8 @@ class DropboxConfig(BaseModel):
 
 
 class OpenAIConfig(BaseModel):
-    api_key: str = Field(..., description="OpenAI API key")
+    # In orchestrator mode, api_key may be resolved lazily; loader still requires it.
+    api_key: Optional[str] = Field(default=None, description="OpenAI API key")
     
     # Separate models for optimal quality/cost balance
     vision_model: str = Field(
@@ -75,7 +76,9 @@ class OpenAIConfig(BaseModel):
 
     @field_validator("api_key")
     @classmethod
-    def validate_api_key(cls, v: str) -> str:
+    def validate_api_key(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return v
         if not v.startswith("sk-"):
             raise ValueError("Invalid OpenAI API key format")
         return v
@@ -103,7 +106,8 @@ class PlatformsConfig(BaseModel):
 
 
 class TelegramConfig(BaseModel):
-    bot_token: str = Field(..., description="Telegram bot token")
+    # In orchestrator mode, bot_token may be resolved lazily; env-loader still requires it.
+    bot_token: Optional[str] = Field(default=None, description="Telegram bot token")
     channel_id: str = Field(..., description="Telegram channel/chat id")
 
 
@@ -116,7 +120,8 @@ class InstagramConfig(BaseModel):
 class EmailConfig(BaseModel):
     sender: str = Field(..., description="Sender email address")
     recipient: str = Field(..., description="Recipient email address")
-    password: str = Field(..., description="Email (app) password")
+    # In orchestrator mode, password may be resolved lazily; env-loader still requires it.
+    password: Optional[str] = Field(default=None, description="Email (app) password")
     smtp_server: str = Field(default="smtp.gmail.com")
     smtp_port: int = Field(default=587)
     # Confirmation email back to sender after service email is sent

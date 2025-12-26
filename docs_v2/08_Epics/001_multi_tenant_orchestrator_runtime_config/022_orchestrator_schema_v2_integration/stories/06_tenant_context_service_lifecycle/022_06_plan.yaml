@@ -1,0 +1,77 @@
+# Story Plan: Tenant Context and Service Lifecycle
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-06"
+story_name: "tenant-context-service-lifecycle"
+design_ref: "022_06_tenant-context-service-lifecycle.md"
+
+summary: |
+  Implement tenant middleware, tenant-scoped service cache/factory, lazy optional services,
+  and health endpoints (/health/live and /health/ready) without weakening web/admin security.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/web/"
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/src/publisher_v2/services/"
+    - "publisher_v2/tests/web_integration/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Tenant middleware populates request.state.{host,tenant,config,service} and skips /health/*"
+    test_ref: "publisher_v2/tests/web_integration/test_tenant_middleware.py::test_middleware_populates_state"
+  - id: AC2
+    description: "Service cache is per-tenant with LRU eviction and TTL"
+    test_ref: "publisher_v2/tests/web_integration/test_tenant_service_cache.py::test_lru_eviction"
+  - id: AC3
+    description: "/health/live always 200; /health/ready checks orchestrator connectivity in orchestrator mode"
+    test_ref: "publisher_v2/tests/web_integration/test_health_endpoints.py::test_ready_orchestrator_down"
+  - id: AC4
+    description: "Admin security rules preserved (no weakening): mutating endpoints still require auth+admin"
+    test_ref: "publisher_v2/tests/web_integration/test_web_admin_endpoints.py::test_admin_status_and_cookie_flow"
+
+non_goals:
+  - "Auth0 multi-subdomain callback work"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add tenant middleware + request-scoped service dependency"
+    file: "publisher_v2/src/publisher_v2/web/middleware.py"
+    depends_on: []
+
+  - id: task_02
+    type: code
+    description: "Add tenant service cache/factory (LRU+TTL) producing WebImageService per tenant"
+    file: "publisher_v2/src/publisher_v2/services/tenant_factory.py"
+    depends_on: [task_01]
+
+  - id: task_03
+    type: code
+    description: "Add health endpoints and wire middleware into FastAPI app"
+    file: "publisher_v2/src/publisher_v2/web/app.py"
+    depends_on: [task_01, task_02]
+
+  - id: task_04
+    type: test
+    description: "Add integration tests for tenant middleware/service cache/health endpoints"
+    file: "publisher_v2/tests/web_integration/test_tenant_middleware.py"
+    depends_on: [task_01, task_02, task_03]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "ORCHESTRATOR_BASE_URL"
+  rollout_strategy: "direct"
+  rollback_plan: "Unset ORCHESTRATOR_BASE_URL or set CONFIG_SOURCE=env"
+
+

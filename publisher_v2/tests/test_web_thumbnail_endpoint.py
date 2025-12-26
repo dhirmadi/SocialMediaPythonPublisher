@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.web.app import app, get_service
+from publisher_v2.web.dependencies import get_request_service
 
 
 class MockWebImageService:
@@ -34,8 +35,8 @@ def mock_service():
 @pytest.fixture
 def client_with_mock(mock_service):
     """Create test client with mocked service."""
-    # Override the get_service dependency
-    app.dependency_overrides[get_service] = lambda: mock_service
+    # Override the request-scoped service dependency
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     yield TestClient(app), mock_service
     # Clean up
     app.dependency_overrides.clear()
@@ -130,7 +131,7 @@ def test_thumbnail_endpoint_requires_admin_when_auto_view_disabled():
     """Thumbnail requires admin when AUTO_VIEW is disabled."""
     mock_service = MockWebImageService(auto_view_enabled=False)
     
-    app.dependency_overrides[get_service] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     # Also mock admin check functions
     with patch("publisher_v2.web.app.is_admin_configured") as mock_admin_configured:
@@ -154,7 +155,7 @@ def test_thumbnail_endpoint_503_when_admin_not_configured():
     """Thumbnail returns 503 when AUTO_VIEW disabled and admin not configured."""
     mock_service = MockWebImageService(auto_view_enabled=False)
     
-    app.dependency_overrides[get_service] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     with patch("publisher_v2.web.app.is_admin_configured") as mock_admin_configured:
         mock_admin_configured.return_value = False

@@ -1,0 +1,90 @@
+# Story Plan: Schema V2 Parsing
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-02"
+story_name: "schema-v2-parsing"
+design_ref: "022_02_schema-v2-parsing.md"
+
+summary: |
+  Implement orchestrator runtime config retrieval (schema v1 + v2), map to existing
+  Publisher V2 config models, and add an in-memory LRU+TTL runtime-config cache
+  with hit/miss/stale metrics.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/src/publisher_v2/utils/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "OrchestratorConfigSource.get_config(host) fetches runtime config and parses schema v1 and v2"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_runtime_config.py::test_parses_schema_v2"
+  - id: AC2
+    description: "Schema v1 fallback disables optional blocks per decision table; features+storage required"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_runtime_config.py::test_schema_v1_fallback_defaults"
+  - id: AC3
+    description: "Runtime config cache (LRU+TTL) records hit/miss/stale serve counters"
+    test_ref: "publisher_v2/tests/config/test_runtime_config_cache.py::test_cache_hit_miss_and_stale"
+  - id: AC4
+    description: "No credentials_ref or secrets are logged"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_runtime_config.py::test_no_credentials_ref_in_logs"
+
+non_goals:
+  - "Credential resolution (Story 03)"
+  - "POST runtime-by-host preference (Story 04)"
+  - "Tenant middleware/service factory wiring (Story 06)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add orchestrator runtime models (lightweight Pydantic, extra=allow)"
+    file: "publisher_v2/src/publisher_v2/config/orchestrator_models.py"
+    depends_on: []
+
+  - id: task_02
+    type: code
+    description: "Add orchestrator client wrapper for runtime-by-host (GET for now) with retry policy skeleton"
+    file: "publisher_v2/src/publisher_v2/config/orchestrator_client.py"
+    depends_on: [task_01]
+
+  - id: task_03
+    type: code
+    description: "Implement runtime config cache (LRU+TTL) with counters"
+    file: "publisher_v2/src/publisher_v2/config/runtime_cache.py"
+    depends_on: []
+
+  - id: task_04
+    type: code
+    description: "Implement OrchestratorConfigSource.get_config(host) including schema v1 fallback and cache integration"
+    file: "publisher_v2/src/publisher_v2/config/source.py"
+    depends_on: [task_02, task_03]
+
+  - id: task_05
+    type: test
+    description: "Add orchestrator response fixtures (schema v1 + v2) and parsing tests"
+    file: "publisher_v2/tests/config/test_orchestrator_runtime_config.py"
+    depends_on: [task_01, task_04]
+
+  - id: task_06
+    type: test
+    description: "Add runtime cache tests (hit/miss/stale, LRU eviction, TTL)"
+    file: "publisher_v2/tests/config/test_runtime_config_cache.py"
+    depends_on: [task_03]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "ORCHESTRATOR_BASE_URL"
+  rollout_strategy: "direct"
+  rollback_plan: "Unset ORCHESTRATOR_BASE_URL or set CONFIG_SOURCE=env"
+
+

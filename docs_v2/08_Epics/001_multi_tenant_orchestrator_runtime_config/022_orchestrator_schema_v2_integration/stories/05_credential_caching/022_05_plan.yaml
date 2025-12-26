@@ -1,0 +1,65 @@
+# Story Plan: Credential Caching
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-05"
+story_name: "credential-caching"
+design_ref: "022_05_credential-caching.md"
+
+summary: |
+  Add an in-memory LRU+TTL credential cache keyed by (tenant, credentials_ref, version)
+  and a SingleFlight mechanism to prevent thundering herd on cold cache.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Cache keyed by (tenant, credentials_ref, version) with TTL<=10m and LRU max size"
+    test_ref: "publisher_v2/tests/config/test_credential_cache.py::test_cache_key_ttl_lru"
+  - id: AC2
+    description: "SingleFlight coalesces concurrent resolves and does not cache failures"
+    test_ref: "publisher_v2/tests/config/test_credential_cache.py::test_single_flight_coalesces"
+  - id: AC3
+    description: "Metrics increment for hit/miss"
+    test_ref: "publisher_v2/tests/config/test_credential_cache.py::test_metrics_hit_miss"
+
+non_goals:
+  - "Define external metrics export mechanism (covered elsewhere)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Implement CredentialCache (LRU+TTL) and SingleFlight helper"
+    file: "publisher_v2/src/publisher_v2/config/credential_cache.py"
+    depends_on: []
+
+  - id: task_02
+    type: code
+    description: "Integrate CredentialCache into orchestrator client/source"
+    file: "publisher_v2/src/publisher_v2/config/source.py"
+    depends_on: [task_01]
+
+  - id: task_03
+    type: test
+    description: "Add tests for cache behavior, eviction, TTL, and single-flight"
+    file: "publisher_v2/tests/config/test_credential_cache.py"
+    depends_on: [task_01, task_02]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "CREDENTIAL_CACHE_ENABLED"
+  rollout_strategy: "direct"
+  rollback_plan: "Set CREDENTIAL_CACHE_ENABLED=false"
+
+
