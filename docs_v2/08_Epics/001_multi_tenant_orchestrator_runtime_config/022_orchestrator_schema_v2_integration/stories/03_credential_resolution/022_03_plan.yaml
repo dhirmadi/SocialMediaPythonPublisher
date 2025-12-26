@@ -1,0 +1,78 @@
+# Story Plan: Credential Resolution
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-03"
+story_name: "credential-resolution"
+design_ref: "022_03_credential-resolution.md"
+
+summary: |
+  Implement orchestrator credential resolution via POST /v1/credentials/resolve for
+  providers dropbox/openai/telegram/smtp with retry policy and safe failure modes.
+  Storage credentials are resolved eagerly; optional credentials resolved lazily.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/src/publisher_v2/services/"
+    - "publisher_v2/tests/config/"
+    - "publisher_v2/tests/test_logging_sanitization.py"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "Resolve credentials for dropbox/openai/telegram/smtp with correct headers/body"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_credentials.py::test_resolve_each_provider"
+  - id: AC2
+    description: "Critical failures (dropbox storage) fail fast with 503; optional failures degrade"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_credentials.py::test_failure_modes_critical_vs_optional"
+  - id: AC3
+    description: "Retry policy applied for 429/5xx (3 attempts, backoff+jitter)"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_credentials.py::test_retry_policy"
+  - id: AC4
+    description: "Storage credentials resolved eagerly; others lazily"
+    test_ref: "publisher_v2/tests/config/test_orchestrator_credentials.py::test_eager_vs_lazy_resolution"
+
+non_goals:
+  - "Credential caching and single-flight (Story 05)"
+  - "Tenant middleware/service factory integration (Story 06)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add typed credential payload models (dropbox/openai/telegram/smtp)"
+    file: "publisher_v2/src/publisher_v2/config/credentials.py"
+    depends_on: []
+
+  - id: task_02
+    type: code
+    description: "Extend orchestrator client with resolve_credentials() using retry policy"
+    file: "publisher_v2/src/publisher_v2/config/orchestrator_client.py"
+    depends_on: [task_01]
+
+  - id: task_03
+    type: code
+    description: "Integrate credential resolution into OrchestratorConfigSource and Web service lazy init points"
+    file: "publisher_v2/src/publisher_v2/config/source.py"
+    depends_on: [task_02]
+
+  - id: task_04
+    type: test
+    description: "Add unit tests for credential resolution and failure modes using httpx MockTransport"
+    file: "publisher_v2/tests/config/test_orchestrator_credentials.py"
+    depends_on: [task_01, task_02, task_03]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "ORCHESTRATOR_BASE_URL"
+  rollout_strategy: "direct"
+  rollback_plan: "Unset ORCHESTRATOR_BASE_URL or set CONFIG_SOURCE=env"
+
+

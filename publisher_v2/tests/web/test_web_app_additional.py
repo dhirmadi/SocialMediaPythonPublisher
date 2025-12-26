@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from publisher_v2.web.app import app, _get_correlation_id, get_service
+from publisher_v2.web.dependencies import get_request_service
 
 
 class _StubWebService:
@@ -81,7 +82,7 @@ def client_factory():
     clients: list[TestClient] = []
 
     def _make(service: _StubWebService) -> TestClient:
-        app.dependency_overrides[get_service] = lambda: service
+        app.dependency_overrides[get_request_service] = lambda request=None: service
         client = TestClient(app)
         clients.append(client)
         return client

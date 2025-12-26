@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from publisher_v2.web.app import app
 from publisher_v2.config.schema import Auth0Config
+from publisher_v2.web.dependencies import get_request_service
 
 @pytest.fixture
 def client():
@@ -44,8 +45,7 @@ def mock_oauth():
 @pytest.mark.asyncio
 async def test_login_redirect(client, mock_service, mock_oauth):
     mock_service.config.auth0.callback_url = "http://testserver/auth/callback"
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/login", follow_redirects=False)
@@ -57,8 +57,7 @@ async def test_login_redirect(client, mock_service, mock_oauth):
 
 def test_login_redirect_no_config(client, mock_service):
     mock_service.config.auth0 = None
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/login", follow_redirects=False)
@@ -72,8 +71,7 @@ async def test_callback_success(client, mock_service, mock_oauth):
     mock_oauth.auth0.authorize_access_token.return_value = {
         "userinfo": {"email": "admin@example.com"}
     }
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
@@ -88,8 +86,7 @@ async def test_callback_email_mismatch(client, mock_service, mock_oauth):
     mock_oauth.auth0.authorize_access_token.return_value = {
         "userinfo": {"email": "intruder@example.com"}
     }
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
@@ -105,8 +102,7 @@ async def test_callback_email_case_insensitive(client, mock_service, mock_oauth)
     mock_oauth.auth0.authorize_access_token.return_value = {
         "userinfo": {"email": "ADMIN@EXAMPLE.COM"}
     }
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
@@ -118,8 +114,7 @@ async def test_callback_email_case_insensitive(client, mock_service, mock_oauth)
 
 @pytest.mark.asyncio
 async def test_callback_auth0_error(client, mock_service, mock_oauth):
-    from publisher_v2.web.service import WebImageService
-    app.dependency_overrides[WebImageService] = lambda: mock_service
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     try:
         response = client.get("/auth/callback?error=access_denied&error_description=User+denied", follow_redirects=False)

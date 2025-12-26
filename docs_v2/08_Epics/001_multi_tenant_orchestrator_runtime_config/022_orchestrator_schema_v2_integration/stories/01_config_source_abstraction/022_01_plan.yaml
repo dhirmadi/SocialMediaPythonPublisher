@@ -1,0 +1,100 @@
+# Story Plan: Config Source Abstraction
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-01"
+story_name: "config-source-abstraction"
+design_ref: "022_01_config-source-abstraction.md"
+
+summary: |
+  Introduce a ConfigSource abstraction to support both env-first (standalone)
+  and orchestrator-backed (multi-tenant) configuration resolution. Add host
+  normalization utilities and a safe single-tenant guard for env-first mode.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/src/publisher_v2/web/"
+    - "publisher_v2/tests/config/"
+    - "publisher_v2/tests/web_integration/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "ConfigSource protocol provides async get_config(host) and get_credentials(host, ref)"
+    test_ref: "publisher_v2/tests/config/test_config_source_factory.py::test_protocol_shape_smoke"
+  - id: AC2
+    description: "Factory selects orchestrator source when ORCHESTRATOR_BASE_URL is set; CONFIG_SOURCE=env forces env"
+    test_ref: "publisher_v2/tests/config/test_config_source_factory.py::test_factory_selection"
+  - id: AC3
+    description: "Host normalization and validation rejects invalid shapes without calling orchestrator"
+    test_ref: "publisher_v2/tests/config/test_host_utils.py::test_validate_host_rejects_invalid_shapes"
+  - id: AC4
+    description: "Env-first mode honors STANDALONE_HOST to reject other hosts"
+    test_ref: "publisher_v2/tests/config/test_env_config_source.py::test_standalone_host_rejects_other_hosts"
+
+non_goals:
+  - "Implement orchestrator runtime schema parsing (Story 02)"
+  - "Implement credential resolution logic (Story 03)"
+  - "Implement middleware/service factory/health checks (Story 06)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add host utilities: normalize_host, validate_host, extract_tenant"
+    file: "publisher_v2/src/publisher_v2/config/host_utils.py"
+    depends_on: []
+    details: |
+      Implement contract-aligned host normalization and invalid-host rejection
+      (ipv4/ipv6 literals, localhost, www.*, empty label, whitespace, etc.).
+
+  - id: task_02
+    type: code
+    description: "Create ConfigSource abstraction with EnvConfigSource + OrchestratorConfigSource skeleton and factory"
+    file: "publisher_v2/src/publisher_v2/config/source.py"
+    depends_on: [task_01]
+    details: |
+      - ConfigSource: async get_config(host) and async get_credentials(host, ref)
+      - EnvConfigSource uses existing load_application_config for config
+      - EnvConfigSource enforces STANDALONE_HOST (optional) for tenant isolation
+      - OrchestratorConfigSource is a thin wrapper; core logic in Stories 02-05
+      - get_config_source() selects based on ORCHESTRATOR_BASE_URL unless CONFIG_SOURCE=env
+
+  - id: task_03
+    type: test
+    description: "Add unit tests for host utils and ConfigSource factory"
+    file: "publisher_v2/tests/config/test_config_source_factory.py"
+    depends_on: [task_01, task_02]
+    details: |
+      Cover:
+      - factory selection (env vs orchestrator, override)
+      - missing token when base url is set raises ConfigurationError
+
+  - id: task_04
+    type: test
+    description: "Add unit tests for host utils"
+    file: "publisher_v2/tests/config/test_host_utils.py"
+    depends_on: [task_01]
+    details: |
+      Cover normalize_host + validate_host + extract_tenant for good/bad shapes.
+
+  - id: task_05
+    type: test
+    description: "Add EnvConfigSource isolation tests for STANDALONE_HOST"
+    file: "publisher_v2/tests/config/test_env_config_source.py"
+    depends_on: [task_02]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "CONFIG_SOURCE"
+  rollout_strategy: "direct"
+  rollback_plan: "Set CONFIG_SOURCE=env and remove ORCHESTRATOR_BASE_URL"
+
+

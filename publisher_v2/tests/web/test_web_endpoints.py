@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from publisher_v2.web.app import app
 from publisher_v2.web.service import WebImageService
 from publisher_v2.web.models import ImageResponse, ImageListResponse
+from publisher_v2.web.dependencies import get_request_service
 
 @pytest.fixture
 def mock_service():
@@ -15,11 +16,8 @@ def mock_service():
 def client(mock_service):
     from fastapi.testclient import TestClient
     
-    # Override the dependency
-    app.dependency_overrides[WebImageService] = lambda: mock_service
-    # Need to override get_service actually used in Depends
-    from publisher_v2.web.app import get_service
-    app.dependency_overrides[get_service] = lambda: mock_service
+    # Override the request-scoped dependency used by endpoints
+    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
     
     with TestClient(app) as c:
         yield c

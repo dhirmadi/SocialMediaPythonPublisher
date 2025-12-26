@@ -20,7 +20,13 @@ logger = logging.getLogger("publisher_v2.publishers.email")
 class EmailPublisher(Publisher):
     def __init__(self, config: Optional[EmailConfig], enabled: bool):
         self._config = config
-        self._enabled = enabled and config is not None
+        self._enabled = (
+            enabled
+            and config is not None
+            and bool(getattr(config, "sender", None))
+            and bool(getattr(config, "recipient", None))
+            and bool(getattr(config, "password", None))
+        )
 
     @property
     def platform_name(self) -> str:

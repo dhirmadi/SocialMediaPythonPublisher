@@ -1,0 +1,59 @@
+# Story Plan: POST Runtime By Host
+# Feature: 022 Orchestrator Schema V2 Integration
+
+version: "1.0"
+feature_id: "022"
+story_id: "022-04"
+story_name: "post-runtime-by-host"
+design_ref: "022_04_post-runtime-by-host.md"
+
+summary: |
+  Prefer POST /v1/runtime/by-host with JSON body {host} and fall back to GET on 405,
+  caching the fallback decision per-process to avoid repeated POST attempts.
+
+repo_constraints:
+  allowed_paths:
+    - "publisher_v2/src/publisher_v2/config/"
+    - "publisher_v2/tests/config/"
+  excluded_paths:
+    - "code_v1/"
+    - "docs_v1/"
+
+acceptance_criteria:
+  - id: AC1
+    description: "POST is attempted first when ORCHESTRATOR_PREFER_POST=true"
+    test_ref: "publisher_v2/tests/config/test_post_runtime_by_host.py::test_post_preferred"
+  - id: AC2
+    description: "405 triggers GET fallback and caches post_supported=false per process"
+    test_ref: "publisher_v2/tests/config/test_post_runtime_by_host.py::test_405_fallback_cached"
+  - id: AC3
+    description: "ORCHESTRATOR_PREFER_POST=false uses GET directly"
+    test_ref: "publisher_v2/tests/config/test_post_runtime_by_host.py::test_prefer_post_false_get"
+
+non_goals:
+  - "Implement runtime cache or parsing changes (Story 02)"
+
+tasks:
+  - id: task_01
+    type: code
+    description: "Add POST-first runtime lookup to orchestrator client"
+    file: "publisher_v2/src/publisher_v2/config/orchestrator_client.py"
+    depends_on: []
+
+  - id: task_02
+    type: test
+    description: "Add unit tests for POST/GET fallback behavior using httpx MockTransport"
+    file: "publisher_v2/tests/config/test_post_runtime_by_host.py"
+    depends_on: [task_01]
+
+quality_gates:
+  tests_pass: true
+  coverage_min_percent_affected: 80
+  no_new_lint_errors: true
+
+release:
+  feature_flag: "ORCHESTRATOR_PREFER_POST"
+  rollout_strategy: "direct"
+  rollback_plan: "Set ORCHESTRATOR_PREFER_POST=false"
+
+

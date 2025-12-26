@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - Feature 022: Orchestrator Schema V2 Integration
+- **ConfigSource abstraction** to support env-first standalone mode and orchestrator-backed multi-tenant mode
+- **Host normalization/validation** and tenant extraction utilities
+- **Orchestrator runtime config integration** (schema v1 + v2 parsing) with in-memory LRU+TTL caching and stale serving
+- **Credential resolution** via orchestrator (`dropbox`, `openai`, `telegram`, `smtp`) with retry policy and in-memory caching + single-flight
+- **POST-preferred runtime-by-host** with GET fallback on 405 (per-process cached decision)
+- **Tenant-aware web middleware** and per-tenant service lifecycle (LRU+TTL tenant service cache)
+- **Health endpoints**: `/health/live` and `/health/ready` (readiness checks orchestrator connectivity when configured)
+
 ## [2.6.0] - 2025-11-22
 
 ### Added - Feature 012: Centralized Configuration & i18n

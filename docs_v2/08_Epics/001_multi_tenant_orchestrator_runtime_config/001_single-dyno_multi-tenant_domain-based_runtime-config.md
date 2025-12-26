@@ -2,9 +2,10 @@
 
 **ID:** 001  
 **Name:** single-dyno-multi-tenant-domain-runtime-config  
-**Status:** Draft (Strategy)  
+**Status:** Ready for implementation (Contract locked; remaining open questions are non-blocking)  
 **Date:** 2025-12-21  
-**Owner:** Product / Platform
+**Owner:** Product / Platform  
+**Last updated:** 2025-12-25
 
 ## Summary
 
@@ -117,6 +118,15 @@ This epic’s “contract” sections are aligned to the orchestrator’s publis
 
 - `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
 
+### Canonical contract sources (locked)
+
+The orchestrator PM clarified in `platform-orchestrator#32` that:
+
+- The **canonical lock-in contract** is the orchestrator **Contract Appendix** and the canonical v2 example payload (`platform-orchestrator#31`).
+- The `publisher-v2-service-api.md` file in the orchestrator repo is treated as an integration guide, but **Publisher must implement to the Contract Appendix / schema v2**.
+
+Publisher must treat those artifacts as the source of truth for schema v2 fields and conventions.
+
 ### 1) Runtime config by host (single call)
 
 **Endpoint (example):** `GET /v1/runtime/by-host?host=xxx.shibari.photo`  
@@ -162,6 +172,35 @@ This epic’s “contract” sections are aligned to the orchestrator’s publis
   - 429/5xx: transient issues
 
 Publisher V2 should treat orchestrator failures as **safe failure** (no publishing).
+
+## Contract decisions confirmed by orchestrator PM (Issue #32)
+
+These items are treated as **locked conventions** for Publisher implementation:
+
+- **Doc canonicalization**
+  - Canonical contract is the orchestrator Contract Appendix + v2 example payload.
+
+- **Email server mapping**
+  - Runtime config uses: `config.email_server.{host,port,use_tls,from_email,username,password_ref}`.
+  - Publisher behavior:
+    - `if use_tls: starttls()` else skip
+    - `login_user = username or from_email` (supports `username != from_email`)
+
+- **Publishers enablement convention**
+  - Orchestrator may include entries with `enabled=false` for visibility.
+  - Publisher must filter by `enabled=true` and treat disabled entries as no-ops.
+
+- **Caching semantics**
+  - Treat `config_version` as **opaque**; use it for cache invalidation only.
+  - `ttl_seconds` is currently a **global setting** (default 600), not per-tenant.
+
+- **Privacy-preserving 404 stance**
+  - No machine-readable “reason” is currently emitted for `404` (unknown/disabled/misconfigured).
+  - Operator workflow is via correlation (`X-Request-Id` in Publisher requests) + orchestrator audit logs (and optionally the orchestrator operator UI).
+
+- **Request ID correlation**
+  - Orchestrator includes `X-Request-Id` in audit logs but **does not echo it back** in response headers/body.
+  - Publisher should generate and log the request id and correlate via orchestrator audit logs.
 
 ## Publisher Needs vs Current Orchestrator Guide (Delta / Change Request)
 

@@ -6,6 +6,12 @@ This epic contains the plan and contract alignment for orchestrator-sourced runt
 
 - `001_single-dyno_multi-tenant_domain-based_runtime-config.md`
 
+## Features
+
+| ID | Feature | Status |
+|----|---------|--------|
+| 022 | [Orchestrator Schema V2 Integration](022_orchestrator_schema_v2_integration/022_feature.md) | Ready (external contract locked) |
+
 ## Related Specifications
 
 - Orchestrator service-to-service API integration guide:

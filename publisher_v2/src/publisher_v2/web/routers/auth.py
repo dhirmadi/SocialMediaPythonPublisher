@@ -8,6 +8,7 @@ from fastapi.responses import RedirectResponse
 
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.service import WebImageService
+from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.auth import set_admin_cookie, clear_admin_cookie
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -46,7 +47,7 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
 
 
 @router.get("/login")
-async def login(request: Request, service: WebImageService = Depends(WebImageService)):
+async def login(request: Request, service: WebImageService = Depends(get_request_service)):
     """
     Initiate the OIDC login flow.
     """
@@ -63,7 +64,7 @@ async def login(request: Request, service: WebImageService = Depends(WebImageSer
 
 
 @router.get("/callback")
-async def callback(request: Request, service: WebImageService = Depends(WebImageService)):
+async def callback(request: Request, service: WebImageService = Depends(get_request_service)):
     """
     Handle the OIDC callback.
     """

@@ -40,11 +40,17 @@ from publisher_v2.web.models import (
     CurationResponse,
 )
 from publisher_v2.web.service import WebImageService
+from publisher_v2.web.middleware import tenant_middleware
+from publisher_v2.web.dependencies import get_service, get_request_service
+
+__all__ = [
+    "app",
+    "get_service",  # legacy import path used by tests and older code
+]
+from publisher_v2.config.source import get_config_source
+from publisher_v2.core.exceptions import OrchestratorUnavailableError
 
 
-@lru_cache(maxsize=1)
-def get_service() -> WebImageService:
-    return WebImageService()
 
 
 @asynccontextmanager
@@ -63,16 +69,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     _logger = logging.getLogger("publisher_v2.web")
     log_json(_logger, logging.INFO, "web_server_start")
 
-    # Configure Auth0 if enabled
-    from publisher_v2.web.routers.auth import configure_oauth
-    
-    try:
-        service = get_service()
-        if service.config.auth0:
-            configure_oauth(service.config)
-            log_json(_logger, logging.INFO, "auth0_configured")
-    except Exception as e:
-        log_json(_logger, logging.WARNING, "auth0_config_error", error=str(e))
+    # Auth0 is configured lazily on first auth route call.
+    # Avoid forcing a full ApplicationConfig load here because orchestrator mode
+    # may not have standalone secrets configured at process start.
     
     yield
     
@@ -129,6 +128,7 @@ if not session_secret:
 secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
 app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
 app.include_router(auth_router.router)
+app.middleware("http")(tenant_middleware)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -147,6 +147,39 @@ async def index(request: Request) -> HTMLResponse:
             "web_ui_text": static_cfg,
         },
     )
+
+
+@app.get("/health/live")
+async def health_live() -> dict[str, str]:
+    """Liveness probe: returns 200 if process is running."""
+    return {"status": "ok"}
+
+
+@app.get("/health/ready")
+async def health_ready() -> Response:
+    """
+    Readiness probe:
+    - env-first mode: always ready
+    - orchestrator mode: requires orchestrator connectivity (404 is acceptable)
+    """
+    override = (os.environ.get("CONFIG_SOURCE") or "").strip().lower()
+    if override == "env" or not os.environ.get("ORCHESTRATOR_BASE_URL"):
+        # Env-first mode: always ready (no external dependencies).
+        return Response(content='{"status":"ok","mode":"standalone"}', media_type="application/json")
+
+    # Orchestrator mode
+    try:
+        source = get_config_source()
+        # OrchestratorConfigSource implements check_connectivity()
+        if hasattr(source, "check_connectivity"):
+            await source.check_connectivity()  # type: ignore[attr-defined]
+        return Response(content='{"status":"ok","mode":"orchestrated"}', media_type="application/json")
+    except OrchestratorUnavailableError:
+        return Response(
+            content='{"status":"not_ready","reason":"orchestrator_unavailable"}',
+            media_type="application/json",
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
 
 
 @app.get(
@@ -209,7 +242,7 @@ async def api_admin_logout(response: Response, request: Request) -> AdminStatusR
 
 def verify_view_permissions(
     request: Request,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> None:
     """
@@ -267,7 +300,7 @@ def verify_view_permissions(
 async def api_list_images(
     request: Request,
     response: Response,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageListResponse:
     # Permissions checked by dependency
@@ -285,7 +318,7 @@ async def api_list_images(
 async def api_get_random_image(
     request: Request,
     response: Response,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
     # Permissions checked by dependency
@@ -328,7 +361,7 @@ async def api_get_image_details(
     filename: str,
     request: Request,
     response: Response,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
     # Permissions checked by dependency
@@ -351,7 +384,7 @@ async def api_analyze_image(
     request: Request,
     response: Response,
     force_refresh: bool = Query(False),
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> AnalysisResponse:
     await require_auth(request)
@@ -402,7 +435,7 @@ async def api_publish_image(
     request: Request,
     response: Response,
     body: Optional[PublishRequest] = None,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> PublishResponse:
     await require_auth(request)
@@ -463,7 +496,7 @@ async def api_keep_image(
     filename: str,
     request: Request,
     response: Response,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> CurationResponse:
     await require_auth(request)
@@ -518,7 +551,7 @@ async def api_remove_image(
     filename: str,
     request: Request,
     response: Response,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> CurationResponse:
     await require_auth(request)
@@ -581,7 +614,7 @@ async def api_get_thumbnail(
     filename: str,
     request: Request,
     size: ThumbnailSizeParam = ThumbnailSizeParam.w960h640,
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> Response:
     """
@@ -649,7 +682,7 @@ async def api_get_thumbnail(
 
 @app.get("/api/config/publishers")
 async def api_get_publishers_config(
-    service: WebImageService = Depends(get_service)
+    service: WebImageService = Depends(get_request_service)
 ) -> dict[str, bool]:
     """
     Return enablement state for all configured publishers.
@@ -667,7 +700,7 @@ async def api_get_publishers_config(
 
 @app.get("/api/config/features")
 async def api_get_features_config(
-    service: WebImageService = Depends(get_service),
+    service: WebImageService = Depends(get_request_service),
 ) -> dict[str, Any]:
     """
     Return high-level product feature flags for the web UI.
