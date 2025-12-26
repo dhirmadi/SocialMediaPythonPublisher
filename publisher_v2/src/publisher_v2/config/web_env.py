@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import os
-from typing import Optional, Tuple
+from typing import Optional
 
 from publisher_v2.config.schema import Auth0Config, WebConfig
 from publisher_v2.core.exceptions import ConfigurationError

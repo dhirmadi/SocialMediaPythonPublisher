@@ -3,7 +3,6 @@ from __future__ import annotations
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Optional
 
 from publisher_v2.config.source import ConfigSource, RuntimeConfig
 from publisher_v2.web.service import WebImageService

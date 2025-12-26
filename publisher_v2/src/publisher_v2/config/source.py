@@ -4,7 +4,7 @@ import os
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import Any, Protocol, Optional, cast
+from typing import Any, Protocol, cast
 
 from publisher_v2.config.host_utils import normalize_host, validate_host, extract_tenant
 from publisher_v2.config.loader import load_application_config

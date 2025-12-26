@@ -42,6 +42,11 @@ from publisher_v2.web.models import (
 from publisher_v2.web.service import WebImageService
 from publisher_v2.web.middleware import tenant_middleware
 from publisher_v2.web.dependencies import get_service, get_request_service
+
+__all__ = [
+    "app",
+    "get_service",  # legacy import path used by tests and older code
+]
 from publisher_v2.config.source import get_config_source
 from publisher_v2.core.exceptions import OrchestratorUnavailableError
 
