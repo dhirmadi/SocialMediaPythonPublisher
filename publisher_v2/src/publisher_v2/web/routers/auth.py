@@ -43,7 +43,7 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
     Returns True if configured, False otherwise.
     """
     if not oauth._registry.get("auth0") and service.config.auth0:
-         configure_oauth(service.config)
+        configure_oauth(service.config)
     return bool(service.config.auth0)
 
 
@@ -102,11 +102,11 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
     Handle the OIDC callback.
     """
     if not ensure_oauth_configured(service):
-         return RedirectResponse(
+        return RedirectResponse(
             url="/?auth_error=auth_not_configured",
             status_code=status.HTTP_303_SEE_OTHER
         )
-        
+
     try:
         # Check for error param from Auth0
         error = request.query_params.get("error")
@@ -126,7 +126,9 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
                 status_code=status.HTTP_303_SEE_OTHER,
             )
 
-        token = await oauth.auth0.authorize_access_token(request, redirect_uri=redirect_uri)
+        # Authlib stores the redirect_uri used in authorize_redirect() in the session.
+        # Passing redirect_uri again here can cause duplicate kwargs in some authlib versions.
+        token = await oauth.auth0.authorize_access_token(request)
         user_info = token.get("userinfo")
         if not user_info:
             # Depending on authlib version/config, userinfo might be inside 'userinfo' key or merged.
@@ -136,8 +138,8 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
         email = user_info.get("email")
         
         if not email:
-             log_json(logger, logging.WARNING, "auth_callback_no_email")
-             return RedirectResponse(
+            log_json(logger, logging.WARNING, "auth_callback_no_email")
+            return RedirectResponse(
                 url="/?auth_error=no_email_provided",
                 status_code=status.HTTP_303_SEE_OTHER
             )
