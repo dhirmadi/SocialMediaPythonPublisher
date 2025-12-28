@@ -781,7 +781,7 @@ def load_application_config(
                 client_id=os.environ["AUTH0_CLIENT_ID"],
                 client_secret=os.environ["AUTH0_CLIENT_SECRET"],
                 audience=os.environ.get("AUTH0_AUDIENCE"),
-                callback_url=os.environ["AUTH0_CALLBACK_URL"],
+                callback_url=os.environ.get("AUTH0_CALLBACK_URL"),
                 admin_emails=os.environ.get("ADMIN_LOGIN_EMAILS") or os.environ["AUTH0_ADMIN_EMAIL_ALLOWLIST"],
             )
         except KeyError as exc:
