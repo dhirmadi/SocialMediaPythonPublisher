@@ -256,7 +256,10 @@ class Auth0Config(BaseModel):
     client_id: str = Field(..., description="Auth0 Client ID")
     client_secret: str = Field(..., description="Auth0 Client Secret")
     audience: Optional[str] = Field(default=None, description="Auth0 API Audience (optional)")
-    callback_url: str = Field(..., description="Full callback URL (e.g. https://app.com/api/auth/callback)")
+    callback_url: Optional[str] = Field(
+        default=None,
+        description="Optional static callback URL fallback (dynamic callback is derived from request Host)",
+    )
     admin_emails: str = Field(..., description="Comma-separated list of allowed emails")
 
     @property

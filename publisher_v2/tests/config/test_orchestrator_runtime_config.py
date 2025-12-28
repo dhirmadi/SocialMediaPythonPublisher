@@ -31,7 +31,6 @@ async def test_parses_schema_v2(monkeypatch: pytest.MonkeyPatch) -> None:
     calls = {"runtime": 0, "resolve": 0}
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
         if request.url.path == "/v1/runtime/by-host" and request.method == "POST":
             calls["runtime"] += 1
             body = json.loads(request.content.decode("utf-8"))

@@ -6,6 +6,7 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Request, Depends, status
 from fastapi.responses import RedirectResponse
 
+from publisher_v2.config.host_utils import normalize_host, validate_host
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.service import WebImageService
 from publisher_v2.web.dependencies import get_request_service
@@ -46,6 +47,32 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
     return bool(service.config.auth0)
 
 
+def get_auth0_callback_url(request: Request) -> str | None:
+    """
+    Compute the Auth0 callback URL from the incoming request host.
+
+    - For localhost/127.0.0.1: preserve scheme + port for local dev.
+    - For non-local hosts: force HTTPS and validate host shape to prevent Host header injection.
+    """
+    hostname = request.url.hostname or ""
+    port = request.url.port
+
+    is_local = hostname in ("localhost", "127.0.0.1")
+    if is_local:
+        scheme = request.url.scheme or "http"
+        netloc = hostname
+        if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
+            netloc = f"{hostname}:{port}"
+        return f"{scheme}://{netloc}/auth/callback"
+
+    host_norm = normalize_host(hostname)
+    if not validate_host(host_norm):
+        return None
+
+    # Force HTTPS for non-local hosts
+    return f"https://{host_norm}/auth/callback"
+
+
 @router.get("/login")
 async def login(request: Request, service: WebImageService = Depends(get_request_service)):
     """
@@ -58,7 +85,13 @@ async def login(request: Request, service: WebImageService = Depends(get_request
             status_code=status.HTTP_303_SEE_OTHER
         )
 
-    redirect_uri = service.config.auth0.callback_url
+    redirect_uri = get_auth0_callback_url(request) or service.config.auth0.callback_url
+    if not redirect_uri:
+        log_json(logger, logging.WARNING, "auth_login_disabled", reason="no_callback_url")
+        return RedirectResponse(
+            url="/?auth_error=auth_not_configured",
+            status_code=status.HTTP_303_SEE_OTHER,
+        )
     log_json(logger, logging.INFO, "auth_login_redirect", redirect_uri=redirect_uri)
     return await oauth.auth0.authorize_redirect(request, redirect_uri)
 
@@ -85,7 +118,15 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
                 status_code=status.HTTP_303_SEE_OTHER
             )
 
-        token = await oauth.auth0.authorize_access_token(request)
+        redirect_uri = get_auth0_callback_url(request) or service.config.auth0.callback_url
+        if not redirect_uri:
+            log_json(logger, logging.WARNING, "auth_callback_no_redirect_uri")
+            return RedirectResponse(
+                url="/?auth_error=auth_not_configured",
+                status_code=status.HTTP_303_SEE_OTHER,
+            )
+
+        token = await oauth.auth0.authorize_access_token(request, redirect_uri=redirect_uri)
         user_info = token.get("userinfo")
         if not user_info:
             # Depending on authlib version/config, userinfo might be inside 'userinfo' key or merged.

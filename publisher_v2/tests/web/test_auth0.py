@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from fastapi.testclient import TestClient
 from publisher_v2.web.app import app
 from publisher_v2.config.schema import Auth0Config
+from publisher_v2.web.routers.auth import get_auth0_callback_url
 from publisher_v2.web.dependencies import get_request_service
 
 @pytest.fixture
@@ -143,3 +144,23 @@ def test_auth0_config_parsing():
         admin_emails=""
     )
     assert cfg_empty.admin_emails_list == []
+
+
+def test_get_auth0_callback_url_localhost_preserves_port():
+    # Build a Request with localhost + explicit port
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/auth/callback",
+        "raw_path": b"/auth/callback",
+        "query_string": b"",
+        "headers": [(b"host", b"localhost:8089")],
+        "client": ("127.0.0.1", 50000),
+        "server": ("localhost", 8089),
+    }
+    req = Request(scope)
+    assert get_auth0_callback_url(req) == "http://localhost:8089/auth/callback"
