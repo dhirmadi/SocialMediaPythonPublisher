@@ -4,11 +4,21 @@ from fastapi.testclient import TestClient
 from publisher_v2.web.app import app
 from publisher_v2.config.schema import Auth0Config
 from publisher_v2.web.dependencies import get_request_service
+from publisher_v2.web.routers.auth import get_auth0_callback_url
 
 @pytest.fixture
 def client():
     # Set required env vars for session middleware
-    with patch.dict("os.environ", {"WEB_SESSION_SECRET": "test-secret", "WEB_DEBUG": "1"}):
+    with patch.dict(
+        "os.environ",
+        {
+            "WEB_SESSION_SECRET": "test-secret",
+            "WEB_DEBUG": "1",
+            # Ensure orchestrator mode is not accidentally enabled from developer env.
+            "ORCHESTRATOR_BASE_URL": "",
+            "ORCHESTRATOR_SERVICE_TOKEN": "",
+        },
+    ):
         from publisher_v2.web.app import app
         with TestClient(app) as c:
             yield c
@@ -52,6 +62,9 @@ async def test_login_redirect(client, mock_service, mock_oauth):
         assert response.status_code == 303
         assert "test.auth0.com" in response.headers["location"]
         mock_oauth.auth0.authorize_redirect.assert_called_once()
+        args, kwargs = mock_oauth.auth0.authorize_redirect.call_args
+        assert kwargs == {}
+        assert args[1] == "https://testserver/auth/callback"
     finally:
         app.dependency_overrides = {}
 
@@ -78,6 +91,9 @@ async def test_callback_success(client, mock_service, mock_oauth):
         assert response.status_code == 303
         assert response.headers["location"] == "/"
         assert "pv2_admin" in response.cookies
+        # Ensure we pass a redirect_uri for consistent token exchange in dynamic mode
+        _, kwargs = mock_oauth.auth0.authorize_access_token.call_args
+        assert kwargs.get("redirect_uri") == "https://testserver/auth/callback"
     finally:
         app.dependency_overrides = {}
 
@@ -143,3 +159,20 @@ def test_auth0_config_parsing():
         admin_emails=""
     )
     assert cfg_empty.admin_emails_list == []
+
+
+@pytest.mark.asyncio
+async def test_get_auth0_callback_url_localhost_preserves_port():
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "scheme": "http",
+        "server": ("localhost", 8000),
+        "path": "/",
+        "query_string": b"",
+        "method": "GET",
+        "headers": [(b"host", b"localhost:8000")],
+    }
+    request = Request(scope)
+    assert get_auth0_callback_url(request) == "http://localhost:8000/auth/callback"
