@@ -28,7 +28,8 @@ async def tenant_middleware(request: Request, call_next):
     """
     Resolve per-request runtime config and attach a WebImageService to request.state.
     """
-    if request.url.path.startswith("/health/"):
+    # Skip all health endpoints (liveness/readiness probes should never require tenant resolution)
+    if request.url.path.startswith("/health"):
         return await call_next(request)
 
     # Only engage multi-tenant orchestration when explicitly configured.

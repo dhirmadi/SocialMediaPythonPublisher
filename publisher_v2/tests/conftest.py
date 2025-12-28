@@ -72,6 +72,12 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
         "SECRET_KEY",
         # Debug flags
         "WEB_DEBUG",
+        # Orchestrator-related (prevent tenant middleware from activating)
+        "ORCHESTRATOR_BASE_URL",
+        "ORCHESTRATOR_SERVICE_TOKEN",
+        "ORCHESTRATOR_SERVICE_TOKEN_PRIMARY",
+        "ORCHESTRATOR_SERVICE_TOKEN_SECONDARY",
+        "CONFIG_SOURCE",
         # Env-first configuration vars (prevent workspace .env from interfering)
         "STORAGE_PATHS",
         "PUBLISHERS",
