@@ -229,7 +229,7 @@ return templates.TemplateResponse(
 
 ### Run All Tests
 ```bash
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 uv run pytest -v
 ```
 

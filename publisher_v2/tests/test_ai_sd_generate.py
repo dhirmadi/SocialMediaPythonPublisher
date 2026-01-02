@@ -1,26 +1,13 @@
 from __future__ import annotations
 
-import asyncio
-import types
 import pytest
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
-from publisher_v2.services.ai import CaptionGeneratorOpenAI, AIService, VisionAnalyzerOpenAI
+from publisher_v2.services.ai import CaptionGeneratorOpenAI, AIService
 
-
-class DummyAnalyzer(VisionAnalyzerOpenAI):
-    def __init__(self) -> None:
-        pass
-
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
-        return ImageAnalysis(
-            description="A serene portrait of a dancer",
-            mood="calm",
-            tags=["portrait", "dancer"],
-            nsfw=False,
-            safety_labels=[],
-        )
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAnalyzer
 
 
 @pytest.mark.asyncio
@@ -34,7 +21,7 @@ async def test_ai_generate_with_sd_pair_parsing(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
-    ai = AIService(analyzer=DummyAnalyzer(), generator=gen)
+    ai = AIService(analyzer=BaseDummyAnalyzer(), generator=gen)
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
     caption, sd_caption = await ai.create_caption_pair("http://tmp", spec)
@@ -56,7 +43,7 @@ async def test_ai_generate_with_sd_from_existing_analysis(monkeypatch: pytest.Mo
 
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
-    analyzer = DummyAnalyzer()
+    analyzer = BaseDummyAnalyzer()
     ai = AIService(analyzer=analyzer, generator=gen)
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)

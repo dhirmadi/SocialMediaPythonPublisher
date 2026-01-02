@@ -10,16 +10,19 @@ from publisher_v2.config.schema import (
     PlatformsConfig,
     CaptionFileConfig,
 )
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec, PublishResult
+from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
-from publisher_v2.services.storage import DropboxStorage
-from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
+
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyStorage, BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher
 
 
-class DummyAnalyzer(VisionAnalyzerOpenAI):
+class MetadataAnalyzer(BaseDummyAnalyzer):
+    """Analyzer returning extended fields for sidecar metadata testing."""
     def __init__(self) -> None:
-        pass
+        # Base extended_fields, but customize to match expected metadata
+        super().__init__()
 
     async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
         return ImageAnalysis(
@@ -35,56 +38,31 @@ class DummyAnalyzer(VisionAnalyzerOpenAI):
         )
 
 
-class DummyGenerator(CaptionGeneratorOpenAI):
+class MetadataGenerator(BaseDummyGenerator):
+    """Generator that supports SD caption with sidecar-relevant output."""
     def __init__(self, cfg: OpenAIConfig) -> None:
-        super().__init__(cfg)
+        super().__init__(
+            caption="normal caption",
+            sd_caption="fine-art figure study, standing, low-key lighting, studio portrait"
+        )
+        self.model = cfg.caption_model
         self.sd_caption_model = "gpt-4o-mini"
 
     async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {
-            "caption": "normal caption",
-            "sd_caption": "fine-art figure study, standing, low-key lighting, studio portrait",
-        }
+        return {"caption": self._caption, "sd_caption": self._sd_caption}
 
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
         return "legacy caption"
 
 
-class DummyStorage(DropboxStorage):
-    def __init__(self, cfg: DropboxConfig) -> None:
-        self.config = cfg
+class SidecarTrackingStorage(BaseDummyStorage):
+    """Storage that captures sidecar text for assertions."""
+    def __init__(self) -> None:
+        super().__init__()
         self.sidecar_text: str | None = None
-
-    async def list_images(self, folder: str):
-        return ["image.jpg"]
-
-    async def download_image(self, folder: str, filename: str) -> bytes:
-        return b"data"
-
-    async def get_temporary_link(self, folder: str, filename: str) -> str:
-        return "http://tmp"
-
-    async def get_file_metadata(self, folder: str, filename: str):
-        return {"id": "id:XYZ", "rev": "123"}
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecar_text = text
-
-    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
-        # no-op
-        pass
-
-
-class DummyPublisher(Publisher):
-    @property
-    def platform_name(self) -> str:
-        return "dummy"
-
-    def is_enabled(self) -> bool:
-        return True
-
-    async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
-        return PublishResult(success=True, platform=self.platform_name)
 
 
 def make_config(extended: bool, artist_alias: str | None = None) -> ApplicationConfig:
@@ -108,9 +86,10 @@ def make_config(extended: bool, artist_alias: str | None = None) -> ApplicationC
 @pytest.mark.parametrize("extended", [False, True])
 async def test_e2e_sidecar_metadata_content(extended: bool, monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_config(extended=extended)
-    storage = DummyStorage(cfg.dropbox)
-    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Use centralized fixtures (QC-001)
+    storage = SidecarTrackingStorage()
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
@@ -140,9 +119,10 @@ async def test_e2e_sidecar_metadata_content(extended: bool, monkeypatch: pytest.
 async def test_e2e_sidecar_with_artist_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that artist_alias from config appears in Phase 1 metadata."""
     cfg = make_config(extended=False, artist_alias="Eoel")
-    storage = DummyStorage(cfg.dropbox)
-    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Use centralized fixtures (QC-001)
+    storage = SidecarTrackingStorage()
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
@@ -161,9 +141,10 @@ async def test_e2e_sidecar_with_artist_alias(monkeypatch: pytest.MonkeyPatch) ->
 async def test_e2e_sidecar_without_artist_alias(monkeypatch: pytest.MonkeyPatch) -> None:
     """Test that when artist_alias is not set, it does not appear in metadata."""
     cfg = make_config(extended=False, artist_alias=None)
-    storage = DummyStorage(cfg.dropbox)
-    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[DummyPublisher()])
+    # Use centralized fixtures (QC-001)
+    storage = SidecarTrackingStorage()
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)

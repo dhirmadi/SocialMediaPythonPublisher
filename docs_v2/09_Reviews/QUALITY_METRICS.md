@@ -275,7 +275,7 @@ Each QC review produces:
 #!/bin/bash
 # quick_quality_check.sh
 
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 
 echo "=== Test Pass Rate ==="
 uv run pytest -q
@@ -297,7 +297,7 @@ uv run flake8 publisher_v2/src/ --count --statistics 2>&1 | tail -3
 #!/bin/bash
 # full_quality_report.sh
 
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 
 echo "Running comprehensive quality analysis..."
 

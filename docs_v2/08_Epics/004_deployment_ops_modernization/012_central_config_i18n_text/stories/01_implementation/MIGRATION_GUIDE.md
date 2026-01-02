@@ -283,7 +283,7 @@ recipient = 12345@upload.fetlife.com
 ### 1. Verify Static Config Loading
 
 ```bash
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 uv run python -c "
 from publisher_v2.config.static_loader import get_static_config
 cfg = get_static_config()
