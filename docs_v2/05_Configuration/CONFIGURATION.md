@@ -1,7 +1,7 @@
 # Configuration — Social Media Publisher V2
 
-Version: 2.7  
-Last Updated: December 23, 2025
+Version: 2.8  
+Last Updated: December 30, 2025
 
 ---
 
@@ -17,6 +17,16 @@ This separation enables:
 - Safe secret management (no accidental commits)
 - Feature flags and deployment customization without code changes
 - AI prompt tuning and internationalization without redeploy
+
+**Default mode (production): Orchestrator-backed configuration**  
+In production, Publisher V2 runs in **orchestrator mode** (Epic 001 / Feature 022):
+
+- The orchestrator is the **source of truth** for per-tenant runtime config (non-secret) and credential references.
+- Publisher retrieves runtime config by host and resolves secrets on-demand via the orchestrator credentials endpoint.
+
+Canonical GUI/validation contract for orchestrator-managed config fields:
+
+- `docs_v2/02_Specifications/ORCHESTRATOR_RUNTIME_CONFIG_SCHEMA_REFERENCE.md`
 
 ---
 
@@ -463,15 +473,15 @@ See [Story 021-07: Heroku Pipeline Migration](../08_Epics/004_deployment_ops_mod
 
 ## 10. Orchestrator-Sourced Runtime Configuration (Epic 001)
 
-This section explains **which configuration must live on the dyno** vs what is expected to be delivered **on demand** by the orchestrator in the upcoming multi-tenant runtime (Epic 001).
+This section explains **which configuration must live on the dyno** vs what is expected to be delivered **on demand** by the orchestrator in the multi-tenant runtime (Epic 001).
 
 ### 10.1 Operating modes (important)
 
-- **Single-tenant (legacy INI)**: dyno env vars + `configfiles/*.ini` (deprecated).
-- **Single-tenant (env-first / Feature 021)**: dyno env vars only (JSON groupings like `PUBLISHERS`, `STORAGE_PATHS`, etc.).
-- **Multi-tenant (orchestrator runtime / Epic 001)**:
+- **Multi-tenant (orchestrator runtime / Epic 001, Feature 022)** (**default production mode**):
   - Dyno env vars contain only **global** settings + service auth (no per-tenant secrets).
   - Per-request, Publisher resolves tenant by host and fetches **runtime config** and **credentials** from the orchestrator.
+- **Single-tenant (env-first / Feature 021)**: dyno env vars only (JSON groupings like `PUBLISHERS`, `STORAGE_PATHS`, etc.). Useful for local/dev and single-tenant deployments.
+- **Single-tenant (legacy INI)**: dyno env vars + `configfiles/*.ini` (deprecated).
 
 ### 10.2 Dyno-required environment variables (global, not per-tenant)
 
@@ -507,17 +517,18 @@ In multi-tenant mode, the web UI still needs a consistent security posture per `
 
 ### 10.3 Orchestrator-delivered runtime config (non-secret)
 
-Publisher expects these values to come from `GET /v1/runtime/by-host?host=<normalized_host>` (cached by TTL):
+Publisher expects these values to come from the orchestrator **runtime config** endpoint (cached by TTL).  
+**Note:** Publisher prefers **POST** for runtime lookup (Feature 022), with **GET fallback** on 405.
 
 - **`features`**: publish/analyze/keep/remove/auto_view toggles
 - **`storage`**: provider + paths + `credentials_ref`
-- **Additionally required for parity with Feature 021** (see Epic 001 “Delta / Change Request”):
-  - publishers (telegram/email/instagram non-secret settings)
-  - email server (smtp host/port/sender; no password)
-  - ai settings (models/prompts; no API key)
-  - captionfile settings
-  - confirmation settings
-  - content settings
+- **Schema v2 (Feature 022)** also includes the env-first “parity” blocks (all **non-secret**):
+  - **`publishers[]`**: publisher configs (e.g., telegram channel id, fetlife recipient, instagram username)
+  - **`email_server`**: SMTP server settings (**no password**, only `password_ref`)
+  - **`ai`**: AI settings (**no API key**, only `credentials_ref`)
+  - **`captionfile`**: caption file settings
+  - **`confirmation`**: confirmation behavior settings
+  - **`content`**: archive/debug/hashtags and related content settings
 
 ### 10.4 Orchestrator-delivered credentials (secrets)
 
@@ -533,6 +544,8 @@ Secrets must never be embedded in runtime config payloads and must never be pers
 
 - Epic 001: `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/001_single-dyno_multi-tenant_domain-based_runtime-config.md`
 - Orchestrator integration guide: `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
+- Feature 022 (schema v2 integration): `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/022_feature.md`
+- Orchestrator GUI validation contract (canonical field reference): `docs_v2/02_Specifications/ORCHESTRATOR_RUNTIME_CONFIG_SCHEMA_REFERENCE.md`
 
 ## See Also
 

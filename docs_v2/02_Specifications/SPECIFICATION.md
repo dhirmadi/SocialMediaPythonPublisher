@@ -12,11 +12,22 @@ This document is the ground truth for implementation. An AI coder can build V2 u
 - Dev tools: black, isort, flake8, mypy, pylint, pytest(+asyncio,+cov), safety, bandit
 
 ## 2. Configuration
-See CONFIGURATION.md for full schema. Validation is mandatory with pydantic v2. Required secrets via `.env`:
-- DROPBOX_APP_KEY, DROPBOX_APP_SECRET, DROPBOX_REFRESH_TOKEN
-- OPENAI_API_KEY (primary)
-- Optional: TELEGRAM_BOT_TOKEN, TELEGRAM_CHANNEL_ID, EMAIL_PASSWORD, INSTA_PASSWORD or Graph API creds
-- Optional SMTP: SMTP_SERVER, SMTP_PORT (defaults: smtp.gmail.com:587)
+See `docs_v2/05_Configuration/CONFIGURATION.md` for the operator-focused guide.
+
+**Default production mode:** orchestrator-backed multi-tenant config (Epic 001 / Feature 022). In this mode:
+
+- Per-tenant runtime config is delivered by the orchestrator runtime endpoint (non-secret).
+- Per-tenant secrets are delivered on-demand via the orchestrator credentials endpoint (secret).
+
+Canonical field-level contract for orchestrator GUI validation:
+
+- `docs_v2/02_Specifications/ORCHESTRATOR_RUNTIME_CONFIG_SCHEMA_REFERENCE.md`
+
+Dyno-required secrets via `.env` (global, not per-tenant):
+
+- `ORCHESTRATOR_BASE_URL`, `ORCHESTRATOR_SERVICE_TOKEN`
+- `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`
+- Web/admin secrets as applicable (see `docs_v2/05_Configuration/CONFIGURATION.md`)
 
 INI example keys:
 - [Dropbox] image_folder="/Folder/Sub"; archive="archive"

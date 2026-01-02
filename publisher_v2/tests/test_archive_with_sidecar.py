@@ -1,24 +1,12 @@
 from __future__ import annotations
 
-from typing import List, Tuple
-
 import pytest
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.services.storage import DropboxStorage
 
-
-class DummyClient:
-    def __init__(self) -> None:
-        self.moves: List[Tuple[str, str]] = []
-        self.created: List[str] = []
-
-    def files_create_folder_v2(self, path: str) -> None:
-        self.created.append(path)
-
-    def files_move_v2(self, src: str, dst: str, autorename: bool = False) -> None:
-        # record moves; ignore not-found for sidecar by simply recording
-        self.moves.append((src, dst))
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyClient
 
 
 @pytest.mark.asyncio
@@ -31,7 +19,8 @@ async def test_archive_moves_image_and_sidecar(monkeypatch: pytest.MonkeyPatch) 
         archive_folder="archive",
     )
     storage = DropboxStorage(cfg)
-    client = DummyClient()
+    # Use centralized fixture (QC-001)
+    client = BaseDummyClient()
     monkeypatch.setattr(storage, "client", client)
 
     await storage.archive_image("/ImagesToday", "image.jpg", "archive")

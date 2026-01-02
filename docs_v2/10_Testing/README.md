@@ -92,7 +92,7 @@ The **current metrics above** are sourced from:
 
 ### Run All Tests
 ```bash
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 uv run pytest -v
 ```
 

@@ -510,7 +510,7 @@ The following test files contain duplicate Dummy implementations that should be 
 
 ```bash
 # Run all tests
-cd /Users/evert/Documents/GitHub/SocialMediaPythonPublisher
+# From the repo root:
 uv run pytest -v
 
 # Run with coverage report

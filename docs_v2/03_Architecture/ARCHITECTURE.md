@@ -73,7 +73,9 @@ Web API (FastAPI):
 - `GET /api/admin/status` → AdminStatusResponse (admin session status)
 - `POST /api/admin/login` → AdminStatusResponse (admin login)
 - `POST /api/admin/logout` → AdminStatusResponse (admin logout)
-- `GET /health` → {"status": "ok"}
+- `GET /health/live` → {"status": "ok"} (liveness)
+- `GET /health/ready` → {"status": "ok"} (readiness; may check orchestrator connectivity when configured)
+- `GET /health` → {"status": "ok"} (legacy/compat)
 
 ## 4. Execution Model
 - Async entrypoint; wrap blocking SDK methods with `asyncio.to_thread`.

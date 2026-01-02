@@ -2,8 +2,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import os
-from pathlib import Path
 
 import pytest
 
@@ -15,68 +13,25 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
 )
-from publisher_v2.services.ai import AIService
-from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.utils.state import _cache_path
 
-
-class DummyStorageDup(DropboxStorage):
-    def __init__(self, content: bytes):
-        self._content = content
-        self.config = DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        )
-
-    async def list_images(self, folder: str):
-        return ["a.jpg", "b.jpg"]
-
-    async def download_image(self, folder: str, filename: str) -> bytes:
-        return self._content
-
-    async def get_temporary_link(self, folder: str, filename: str) -> str:
-        return "https://example.com/tmp/x.jpg"
-
-    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
-        return None
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyStorage, BaseDummyAI, BaseDummyPublisher
 
 
-class DummyAnalyzer2:
-    async def analyze(self, url_or_bytes: str | bytes):
-        from publisher_v2.core.models import ImageAnalysis
-        return ImageAnalysis(
-            description="Test image",
-            mood="neutral",
-            tags=["test"],
-            nsfw=False,
-            safety_labels=[],
-        )
+class DedupTestStorage(BaseDummyStorage):
+    """Storage with configurable content for dedup testing."""
+    def __init__(self, content: bytes) -> None:
+        super().__init__(content=content)
+        self._images = ["a.jpg", "b.jpg"]
 
 
-class DummyGenerator2:
-    async def generate(self, analysis, spec) -> str:
-        return "ok #h"
-
-
-class DummyAI2(AIService):
-    def __init__(self):
-        self._caption = "ok #h"
-        self.analyzer = DummyAnalyzer2()
-        self.generator = DummyGenerator2()
-
-    async def create_caption(self, url_or_bytes: str | bytes, spec):
-        return self._caption
-
-
-class NoopPublisher(Publisher):
-    @property
-    def platform_name(self) -> str:
-        return "noop"
-
-    def is_enabled(self) -> bool:
-        return False
-
-    async def publish(self, image_path: str, caption: str):
+class DisabledPublisher(BaseDummyPublisher):
+    """Publisher that is disabled and should never be called."""
+    def __init__(self) -> None:
+        super().__init__(platform="noop", enabled=False)
+    
+    async def publish(self, image_path: str, caption: str, context=None):
         raise AssertionError("should not publish in debug")
 
 
@@ -100,9 +55,10 @@ async def test_dedup_skips_already_posted(monkeypatch, tmp_path):
         email=None,
         content=ContentConfig(hashtag_string="#h", archive=True, debug=False),
     )
-    storage = DummyStorageDup(content)
-    ai = DummyAI2()
-    orch = WorkflowOrchestrator(cfg, storage, ai, [NoopPublisher()])
+    # Use centralized fixtures (QC-001)
+    storage = DedupTestStorage(content)
+    ai = BaseDummyAI()
+    orch = WorkflowOrchestrator(cfg, storage, ai, [DisabledPublisher()])
     result = await orch.execute()
     assert result.success is False
     assert result.error and "No new images" in result.error

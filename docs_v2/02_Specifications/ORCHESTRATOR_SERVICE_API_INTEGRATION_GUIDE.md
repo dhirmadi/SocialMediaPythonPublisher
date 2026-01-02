@@ -9,9 +9,18 @@ Scope:
 - Service auth rotation + rate limiting — Feature 07
 - Audit logging expectations + safe logging surfaces — Feature 08
 
+Status note:
+
+- Publisher V2 now supports **schema v2 runtime config** and **multi-provider credential resolution** (Feature 022). This guide is the **service API** reference; for the end-to-end Publisher-side integration and mapping to V2 config models, see:
+  - `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/022_feature.md`
+
 Canonical source contract:
 
 - `docs/03_Specifications/09_PublisherV2OrchestratorContractAppendix/README.md` (in `platform-orchestrator`)
+
+Canonical field-level schema reference (for orchestrator GUI validation):
+
+- `docs_v2/02_Specifications/ORCHESTRATOR_RUNTIME_CONFIG_SCHEMA_REFERENCE.md`
 
 ---
 
@@ -19,7 +28,7 @@ Canonical source contract:
 
 The orchestrator has multiple API surfaces. **Publisher must use the service endpoints under `/v1`**:
 
-- Runtime config: `GET /v1/runtime/by-host?host=<host>`
+- Runtime config: `POST /v1/runtime/by-host` (**preferred**) with **GET fallback** on 405
 - Credentials: `POST /v1/credentials/resolve`
 
 Do not use `/api/v1` (that is for the orchestrator’s admin/browser API).
@@ -83,9 +92,10 @@ Tenant extraction:
 
 ### Request
 
-- **Method**: `GET`
+- **Method**: `POST` (**preferred**) with `GET` fallback on 405
 - **Path**: `/v1/runtime/by-host`
-- **Query**: `host=<normalized_host>`
+- **POST body**: `{ "host": "<normalized_host>" }`
+- **GET query** (fallback): `host=<normalized_host>`
 - **Headers**:
   - `Authorization: Bearer <token>`
   - (recommended) `X-Request-Id: <uuid>` for correlation (Publisher-generated)
@@ -129,6 +139,28 @@ Notes:
 - `credentials_ref` is **sensitive-ish metadata**: treat it as a high-value identifier and avoid logging it.
 - `config_version` is **sha256(canonical_json(config))**. Publisher should treat it as **opaque** and use it for caching/invalidations.
 - `ttl_seconds` is a caching hint. Publisher may clamp it to a safe range.
+
+### Response (schema version 2; no secrets)
+
+Schema v2 extends the v1 response by adding additional **non-secret** config blocks that map to Publisher V2’s env-first configuration surface (Feature 021).
+
+Publisher should treat:
+
+- **All secrets** as references (`credentials_ref`, `password_ref`) and resolve them via `/v1/credentials/resolve`
+- Unknown fields as forward-compatible (ignore / tolerate)
+
+Additional `config` blocks in schema v2:
+
+- `publishers[]`
+- `email_server`
+- `ai`
+- `captionfile`
+- `confirmation`
+- `content`
+
+For the detailed v2 field mapping and examples, see:
+
+- `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/stories/02_schema_v2_parsing/022_02_schema-v2-parsing.md`
 
 ### Status codes
 

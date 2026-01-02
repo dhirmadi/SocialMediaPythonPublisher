@@ -9,66 +9,25 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
 )
-from publisher_v2.core.models import ImageAnalysis
+from publisher_v2.core.models import ImageAnalysis, CaptionSpec
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
-from publisher_v2.services.storage import DropboxStorage
-from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.core.models import CaptionSpec, PublishResult
+from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
+
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyStorage, BaseDummyAnalyzer, BaseDummyGenerator
 
 
-class DummyAnalyzer(VisionAnalyzerOpenAI):
+class ExpandedFieldsAnalyzer(BaseDummyAnalyzer):
+    """Analyzer that returns extended fields for expanded analysis tests."""
     def __init__(self) -> None:
-        pass
-
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
-        return ImageAnalysis(
-            description="Fine-art portrait, soft light.",
-            mood="calm",
-            tags=["portrait", "softlight"],
-            nsfw=False,
-            safety_labels=[],
-            subject="single subject, torso",
-            style="fine-art",
-            lighting="soft directional",
-            camera="50mm",
-            clothing_or_accessories="rope harness",
-            aesthetic_terms=["minimalist", "graphic"],
-            pose="upright",
-            composition="center-weighted",
-            background="plain backdrop",
-            color_palette="black and white",
-        )
+        super().__init__(extended_fields=True)
 
 
-class DummyGenerator(CaptionGeneratorOpenAI):
+class FixedCaptionGenerator(BaseDummyGenerator):
+    """Generator that returns a fixed caption."""
     def __init__(self, cfg: OpenAIConfig) -> None:
-        super().__init__(cfg)
-
-    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
-        return "caption"
-
-
-class DummyStorage(DropboxStorage):
-    def __init__(self, cfg: DropboxConfig) -> None:
-        self.config = cfg
-        self.writes = 0
-        self.archives = 0
-
-    async def list_images(self, folder: str):
-        return ["image.jpg"]
-
-    async def download_image(self, folder: str, filename: str) -> bytes:
-        return b"data"
-
-    async def get_temporary_link(self, folder: str, filename: str) -> str:
-        return "http://tmp"
-
-    async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
-        self.writes += 1
-
-    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
-        self.archives += 1
+        super().__init__(caption="caption")
+        self.model = cfg.caption_model
 
 
 def make_config() -> ApplicationConfig:
@@ -90,8 +49,9 @@ def make_config() -> ApplicationConfig:
 @pytest.mark.asyncio
 async def test_e2e_preview_includes_expanded_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     cfg = make_config()
-    storage = DummyStorage(cfg.dropbox)
-    ai = AIService(DummyAnalyzer(), DummyGenerator(cfg.openai))
+    # Use centralized fixtures (QC-001)
+    storage = BaseDummyStorage()
+    ai = AIService(ExpandedFieldsAnalyzer(), FixedCaptionGenerator(cfg.openai))
     orchestrator = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[])
     # Ensure dedup state does not block the test
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
