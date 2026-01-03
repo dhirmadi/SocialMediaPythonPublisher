@@ -260,7 +260,13 @@ class Auth0Config(BaseModel):
         default=None,
         description="Optional static callback URL fallback (dynamic callback is derived from request Host)",
     )
-    admin_emails: str = Field(..., description="Comma-separated list of allowed emails")
+    admin_emails: str = Field(
+        default="",
+        description=(
+            "Comma-separated list of allowed emails. In orchestrator mode, this may be "
+            "overridden per-tenant from runtime config (auth.allowed_emails)."
+        ),
+    )
 
     @property
     def admin_emails_list(self) -> list[str]:

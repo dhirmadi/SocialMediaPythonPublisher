@@ -33,6 +33,7 @@ from publisher_v2.config.schema import (
     ContentConfig,
     CaptionFileConfig,
     FeaturesConfig,
+    Auth0Config,
 )
 from publisher_v2.config.web_env import load_web_and_auth0_from_env
 from publisher_v2.core.exceptions import (
@@ -461,6 +462,7 @@ class OrchestratorConfigSource:
         )
 
         web_cfg, auth0_cfg = load_web_and_auth0_from_env()
+        auth0_cfg = _apply_orchestrator_auth_policy(auth0_cfg, cfg)
         app_cfg = ApplicationConfig(
             dropbox=dropbox_cfg,
             openai=openai_cfg,
@@ -476,6 +478,31 @@ class OrchestratorConfigSource:
         )
         return app_cfg, creds_refs
 
+
+def _apply_orchestrator_auth_policy(auth0_cfg: Auth0Config | None, cfg: OrchestratorConfigV2) -> Auth0Config | None:
+    """
+    In orchestrator mode, tenant runtime config may include an `auth` block. We use it to:
+    - Enable/disable Auth0 login per tenant (`auth.enabled`)
+    - Override the per-tenant admin allowlist (`auth.allowed_emails`)
+
+    Auth0 OAuth client credentials remain global (env-based) in Publisher.
+    """
+    auth = getattr(cfg, "auth", None)
+    if auth is None:
+        # No auth policy provided by orchestrator; keep env behavior.
+        return auth0_cfg
+
+    if not bool(getattr(auth, "enabled", False)):
+        # Explicitly disabled for this tenant.
+        return None
+
+    if auth0_cfg is None:
+        # Tenant wants auth enabled but dyno has no Auth0 app config.
+        raise ConfigurationError("Auth0 must be configured in env when orchestrator auth.enabled=true")
+
+    allowed = [str(e).strip() for e in (getattr(auth, "allowed_emails", None) or []) if str(e).strip()]
+    # Override allowlist (can be empty to effectively deny all).
+    return auth0_cfg.model_copy(update={"admin_emails": ",".join(allowed)})
 
 @lru_cache(maxsize=1)
 def get_config_source() -> ConfigSource:
