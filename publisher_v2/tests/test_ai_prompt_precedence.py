@@ -78,3 +78,34 @@ def test_static_yaml_is_used_as_fallback_when_config_is_defaults(monkeypatch: py
     assert gen.sd_caption_role_prompt == "STATIC_SD_ROLE"
 
 
+def test_sd_prompts_inherit_from_tenant_caption_prompts_when_sd_prompts_null(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    Regression for Issue #50: when tenant provides custom caption prompts but leaves
+    sd_caption_* prompts as null, SD prompts should inherit from tenant prompts
+    (and must not be overwritten by static YAML).
+    """
+    monkeypatch.setattr(
+        "publisher_v2.services.ai.get_static_config",
+        lambda: _static_cfg(
+            caption_system="STATIC_SYSTEM",
+            caption_role="STATIC_ROLE",
+            sd_system="STATIC_SD_SYSTEM",
+            sd_role="STATIC_SD_ROLE",
+        ),
+    )
+
+    cfg = OpenAIConfig(
+        api_key="sk-test",
+        system_prompt="TENANT_SYSTEM",
+        role_prompt="TENANT_ROLE",
+        sd_caption_system_prompt=None,
+        sd_caption_role_prompt=None,
+    )
+    gen = CaptionGeneratorOpenAI(cfg)
+
+    assert gen.sd_caption_system_prompt == "TENANT_SYSTEM"
+    # Role prompt should be inherited (and keep SD role template for JSON/output contract).
+    assert gen.sd_caption_role_prompt.startswith("TENANT_ROLE")
+    assert "STATIC_SD_ROLE" in gen.sd_caption_role_prompt
+
+

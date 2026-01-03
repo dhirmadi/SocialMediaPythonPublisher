@@ -206,7 +206,11 @@ class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
         self.model = config.caption_model  # Use cost-effective caption model
-        # Start with config-provided prompts (or defaults if not provided by orchestrator).
+        default_cfg = OpenAIConfig()
+        tenant_custom_system = config.system_prompt != default_cfg.system_prompt
+        tenant_custom_role = config.role_prompt != default_cfg.role_prompt
+
+        # Start with config-provided prompts (or schema defaults if orchestrator omitted them).
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
         # SD caption settings
@@ -226,17 +230,21 @@ class CaptionGeneratorOpenAI:
         # Static prompt overrides (non-secret, optional). These are defaults for the app,
         # but must NOT override tenant-specific prompts delivered by the orchestrator.
         static_prompts = get_static_config().ai_prompts
-        default_cfg = OpenAIConfig()
 
         # Caption prompts: prefer tenant config when it differs from schema defaults; otherwise use static YAML as fallback.
-        if self.system_prompt == default_cfg.system_prompt and static_prompts.caption.system:
+        if not tenant_custom_system and static_prompts.caption.system:
             self.system_prompt = static_prompts.caption.system
-        if self.role_prompt == default_cfg.role_prompt and static_prompts.caption.role:
+        if not tenant_custom_role and static_prompts.caption.role:
             self.role_prompt = static_prompts.caption.role
 
-        # SD caption prompts: if tenant explicitly provided sd prompts, keep them; otherwise allow static YAML fallback.
+        # SD caption prompts:
+        # - If tenant explicitly provided sd prompts, use them.
+        # - If tenant provided custom caption prompts but no sd prompts, inherit the tenant caption prompts.
+        # - Otherwise, use static YAML sd prompts as fallback.
         if cfg_sd_system:
             self.sd_caption_system_prompt = cfg_sd_system
+        elif tenant_custom_system:
+            self.sd_caption_system_prompt = self.system_prompt
         elif static_prompts.sd_caption.system:
             self.sd_caption_system_prompt = static_prompts.sd_caption.system
         else:
@@ -245,6 +253,13 @@ class CaptionGeneratorOpenAI:
 
         if cfg_sd_role:
             self.sd_caption_role_prompt = cfg_sd_role
+        elif tenant_custom_role:
+            # Preserve the required JSON/output-shape instruction by appending the SD role template.
+            sd_role_template = static_prompts.sd_caption.role or self.sd_caption_role_prompt
+            if sd_role_template and self.role_prompt and self.role_prompt not in sd_role_template:
+                self.sd_caption_role_prompt = f"{self.role_prompt}\n\n{sd_role_template}"
+            else:
+                self.sd_caption_role_prompt = self.role_prompt or sd_role_template
         elif static_prompts.sd_caption.role:
             self.sd_caption_role_prompt = static_prompts.sd_caption.role
         else:
