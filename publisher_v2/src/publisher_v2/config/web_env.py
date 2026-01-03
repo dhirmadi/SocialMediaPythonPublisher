@@ -23,7 +23,9 @@ def load_web_and_auth0_from_env() -> tuple[WebConfig, Optional[Auth0Config]]:
                 client_secret=os.environ["AUTH0_CLIENT_SECRET"],
                 audience=os.environ.get("AUTH0_AUDIENCE"),
                 callback_url=os.environ.get("AUTH0_CALLBACK_URL"),
-                admin_emails=os.environ.get("ADMIN_LOGIN_EMAILS") or os.environ["AUTH0_ADMIN_EMAIL_ALLOWLIST"],
+                admin_emails=os.environ.get("ADMIN_LOGIN_EMAILS")
+                or os.environ.get("AUTH0_ADMIN_EMAIL_ALLOWLIST")
+                or "",
             )
         except KeyError as exc:
             raise ConfigurationError(f"Missing required Auth0 environment variable: {exc}") from exc

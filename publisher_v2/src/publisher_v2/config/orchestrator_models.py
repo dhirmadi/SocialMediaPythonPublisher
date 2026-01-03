@@ -5,6 +5,25 @@ from typing import Any, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
+class OrchestratorAuth(BaseModel):
+    """
+    Tenant-scoped auth/authorization metadata delivered in schema v2 runtime config.
+
+    Notes:
+    - No secrets should ever be included here (no Auth0 client_secret).
+    - Publisher treats this primarily as an authorization allowlist + enable/disable flag.
+    """
+
+    model_config = ConfigDict(extra="allow")
+
+    provider: Optional[str] = None
+    enabled: bool = False
+    domain: Optional[str] = None
+    client_id: Optional[str] = None
+    audience: Optional[str] = None
+    allowed_emails: list[str] = Field(default_factory=list)
+
+
 class OrchestratorFeatures(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -101,6 +120,7 @@ class OrchestratorConfigV1(BaseModel):
 class OrchestratorConfigV2(OrchestratorConfigV1):
     model_config = ConfigDict(extra="allow")
 
+    auth: Optional[OrchestratorAuth] = None
     publishers: list[OrchestratorPublisher] = Field(default_factory=list)
     email_server: Optional[OrchestratorEmailServer] = None
     ai: Optional[OrchestratorAI] = None
