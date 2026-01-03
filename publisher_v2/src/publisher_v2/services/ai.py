@@ -206,29 +206,50 @@ class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
         self.model = config.caption_model  # Use cost-effective caption model
+        # Start with config-provided prompts (or defaults if not provided by orchestrator).
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
         # SD caption settings
         self.sd_caption_enabled = getattr(config, "sd_caption_enabled", True)
         self.sd_caption_single_call_enabled = getattr(config, "sd_caption_single_call_enabled", True)
         self.sd_caption_model = getattr(config, "sd_caption_model", None) or self.model
-        self.sd_caption_system_prompt = getattr(config, "sd_caption_system_prompt", None) or self.system_prompt
-        self.sd_caption_role_prompt = getattr(config, "sd_caption_role_prompt", None) or (
+        cfg_sd_system = getattr(config, "sd_caption_system_prompt", None)
+        cfg_sd_role = getattr(config, "sd_caption_role_prompt", None)
+        self.sd_caption_system_prompt = cfg_sd_system or self.system_prompt
+        self.sd_caption_role_prompt = cfg_sd_role or (
             "Write two outputs for the provided analysis and platform spec: "
             "1) 'caption' for social media, respecting max_length and hashtags if provided; "
             "2) 'sd_caption' optimized for Stable Diffusion prompts (PG-13 fine-art phrasing; include pose, styling/material, lighting, mood). "
             "Respond strictly as JSON with keys caption, sd_caption."
         )
-        # Static prompt overrides (non-secret, optional)
+
+        # Static prompt overrides (non-secret, optional). These are defaults for the app,
+        # but must NOT override tenant-specific prompts delivered by the orchestrator.
         static_prompts = get_static_config().ai_prompts
-        if static_prompts.caption.system:
+        default_cfg = OpenAIConfig()
+
+        # Caption prompts: prefer tenant config when it differs from schema defaults; otherwise use static YAML as fallback.
+        if self.system_prompt == default_cfg.system_prompt and static_prompts.caption.system:
             self.system_prompt = static_prompts.caption.system
-        if static_prompts.caption.role:
+        if self.role_prompt == default_cfg.role_prompt and static_prompts.caption.role:
             self.role_prompt = static_prompts.caption.role
-        if static_prompts.sd_caption.system:
+
+        # SD caption prompts: if tenant explicitly provided sd prompts, keep them; otherwise allow static YAML fallback.
+        if cfg_sd_system:
+            self.sd_caption_system_prompt = cfg_sd_system
+        elif static_prompts.sd_caption.system:
             self.sd_caption_system_prompt = static_prompts.sd_caption.system
-        if static_prompts.sd_caption.role:
+        else:
+            # Keep current (which may reference self.system_prompt).
+            self.sd_caption_system_prompt = self.sd_caption_system_prompt or self.system_prompt
+
+        if cfg_sd_role:
+            self.sd_caption_role_prompt = cfg_sd_role
+        elif static_prompts.sd_caption.role:
             self.sd_caption_role_prompt = static_prompts.sd_caption.role
+        else:
+            # Keep current default.
+            self.sd_caption_role_prompt = self.sd_caption_role_prompt
 
     @retry(
         reraise=True,
