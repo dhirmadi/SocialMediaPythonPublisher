@@ -16,7 +16,7 @@ Users report that when browsing ~1000 images via the "random" feature, images th
 3. **Human perception bias** toward clustering in true randomness
 4. **Birthday paradox** making repeats statistically expected
 
-The publish workflow has deduplication (won't re-publish the same image), but the web browsing flow has no such protection. This report proposes solutions to improve perceived randomness and add auditability.
+The publish workflow **moves published images to an archive folder**, making republishing physically impossible. However, the web browsing flow has no memory of recently-viewed images, causing users to see repeats while curating. This report proposes solutions to improve perceived randomness and add a persistent publication history log for content freshness verification.
 
 ---
 
@@ -63,9 +63,19 @@ for name, ch in candidate_order:
     break
 ```
 
-**Positive:** The workflow tracks published images via SHA256 and Dropbox `content_hash` to prevent re-publishing duplicates.
+**Key behavior:** Once an image is successfully published, the workflow **moves it to the archive folder** (`core/workflow.py:436-440`):
 
-**Gap:** This only tracks **published** images, not **viewed** images. A user browsing the web UI can see the same image repeatedly before publishing.
+```python
+if any_success and self.config.content.archive and not self.config.content.debug:
+    await self.storage.archive_image(
+        self.config.dropbox.image_folder, selected_image, self.config.dropbox.archive_folder
+    )
+    archived = True
+```
+
+This means **republishing the same image is physically impossible** — the file no longer exists in the source folder. The hash tracking (`posted_hashes`, `posted_content_hashes`) serves as a secondary safeguard for edge cases (e.g., if a user re-uploads the same image or archiving fails).
+
+**Gap:** The "non-random" perception issue affects the **web UI browsing flow**, not publishing. A user browsing via `/api/images/random` can see the same image repeatedly before choosing to publish, because viewing does not move or track the image.
 
 ### 2. Dropbox API Ordering Behavior
 
@@ -114,8 +124,9 @@ log_json(
 **Gaps:**
 - No tenant/user identifier in random image logs
 - No session context to correlate sequential views
-- No persistent publication history queryable for audits
-- Workflow timing logs exist but lack aggregation-friendly format
+- No persistent publication history file for auditing what was published
+- Users cannot easily verify "what image with what caption went to which platform and when"
+- Workflow timing logs exist but lack the content details (caption, publisher, hash) needed for audit
 
 ---
 
@@ -221,33 +232,108 @@ selected = secrets.choice(images)
 **Effort:** Low (one-line change)  
 **Impact:** Marginal improvement in true randomness; psychological reassurance
 
-### Solution 3: Publication History Log
+### Solution 3: Publication History Log File
 
-**Concept:** Emit a structured publication event that can be aggregated for audits.
+**Concept:** Maintain a persistent publication history log file in a dedicated `logs/` folder. This provides a human-readable audit trail of all published content, enabling users to verify freshness and review what was posted.
 
-**Log format:**
+**Log location:**
+```
+logs/publication_history.log
+```
+
+**Log format (one JSON line per publication):**
 
 ```json
 {
-  "event": "image_published",
-  "timestamp": "2026-01-12T14:30:00Z",
+  "date": "2026-01-12T14:30:00Z",
+  "image_name": "IMG_0742.jpg",
+  "caption": "A haunting silhouette emerges from morning mist...",
+  "publisher": "fetlife_email",
   "tenant": "alice",
   "host": "alice.shibari.photo",
-  "filename": "IMG_0742.jpg",
-  "sha256": "abc123...",
-  "dropbox_content_hash": "def456...",
-  "correlation_id": "uuid-...",
-  "platforms": ["telegram", "fetlife_email"],
-  "archived": true
+  "sha256": "a1b2c3d4e5f6...",
+  "dropbox_content_hash": "dbx789xyz...",
+  "correlation_id": "uuid-1234-5678",
+  "archived": true,
+  "archive_folder": "/Photos/archive"
 }
 ```
 
-**Benefits:**
-- Queryable via log aggregation (Papertrail, Datadog, etc.)
-- Enables "what was published when" audits
-- Supports freshness analytics (time since last publish per tenant)
+**Log entry fields:**
 
-**Implementation:** Add `log_json()` call after successful publish in `workflow.py`.
+| Field | Description |
+|-------|-------------|
+| `date` | ISO 8601 timestamp of publication |
+| `image_name` | Original filename of the published image |
+| `caption` | The caption text that was posted |
+| `publisher` | Platform used (e.g., `telegram`, `fetlife_email`) |
+| `tenant` | Tenant identifier (orchestrator mode) or `"default"` |
+| `host` | Request host (orchestrator mode) |
+| `sha256` | SHA-256 hash of image content |
+| `dropbox_content_hash` | Dropbox's native content hash |
+| `correlation_id` | Request correlation ID for tracing |
+| `archived` | Whether image was moved to archive |
+| `archive_folder` | Destination archive path |
+
+**Implementation approach:**
+
+```python
+# publisher_v2/utils/publication_log.py
+
+import json
+import os
+from datetime import datetime, timezone
+from pathlib import Path
+
+def _log_path() -> Path:
+    base = os.environ.get("PUBLICATION_LOG_DIR") or "logs"
+    path = Path(base)
+    path.mkdir(parents=True, exist_ok=True)
+    return path / "publication_history.log"
+
+def log_publication(
+    image_name: str,
+    caption: str,
+    publisher: str,
+    sha256: str,
+    *,
+    tenant: str = "default",
+    host: str = "",
+    dropbox_content_hash: str = "",
+    correlation_id: str = "",
+    archived: bool = False,
+    archive_folder: str = "",
+) -> None:
+    """Append a publication record to the history log file."""
+    entry = {
+        "date": datetime.now(timezone.utc).isoformat(),
+        "image_name": image_name,
+        "caption": caption[:500],  # Truncate very long captions
+        "publisher": publisher,
+        "tenant": tenant,
+        "host": host,
+        "sha256": sha256,
+        "dropbox_content_hash": dropbox_content_hash,
+        "correlation_id": correlation_id,
+        "archived": archived,
+        "archive_folder": archive_folder,
+    }
+    with open(_log_path(), "a", encoding="utf-8") as f:
+        f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+```
+
+**Configuration:**
+
+| Env Var | Default | Description |
+|---------|---------|-------------|
+| `PUBLICATION_LOG_DIR` | `logs` | Directory for publication history file |
+
+**Benefits:**
+- **Persistent audit trail** — survives process restarts
+- **Human-readable** — can be viewed with `tail -f logs/publication_history.log`
+- **Machine-parseable** — JSON lines format for analysis scripts
+- **Verifiable freshness** — users can confirm what was published and when
+- **Correlation** — `sha256` links to posted_hashes state; `correlation_id` links to request logs
 
 ### Solution 4: Visual Similarity Avoidance (Future Enhancement)
 
@@ -280,9 +366,11 @@ selected = secrets.choice(images)
 | AC1 | Web UI random selection excludes last N (default 50) images shown in current session/tenant |
 | AC2 | Buffer size and TTL are configurable via env vars |
 | AC3 | `secrets.choice()` is used for cryptographic randomness |
-| AC4 | Publication events are logged with tenant, filename, hash, timestamp |
-| AC5 | Unit tests verify buffer exclusion and edge cases (empty buffer, buffer larger than image count) |
-| AC6 | No regression in existing workflow deduplication |
+| AC4 | Publication history log file (`logs/publication_history.log`) is appended on each successful publish |
+| AC5 | Log entry contains: date, image_name, caption, publisher, tenant, sha256, dropbox_content_hash, archived |
+| AC6 | Log directory is configurable via `PUBLICATION_LOG_DIR` env var |
+| AC7 | Unit tests verify buffer exclusion and edge cases (empty buffer, buffer larger than image count) |
+| AC8 | No regression in existing workflow archive behavior (published images moved to archive folder) |
 
 ---
 
@@ -291,9 +379,11 @@ selected = secrets.choice(images)
 | File | Change |
 |------|--------|
 | `publisher_v2/src/publisher_v2/web/service.py` | Add `RecentlyShownBuffer`, modify `get_random_image()` |
-| `publisher_v2/src/publisher_v2/core/workflow.py` | Add publication audit log, use `secrets` |
-| `publisher_v2/src/publisher_v2/utils/state.py` | (Optional) Add `RecentlyShownBuffer` class |
+| `publisher_v2/src/publisher_v2/core/workflow.py` | Call `log_publication()` after successful publish, use `secrets` |
+| `publisher_v2/src/publisher_v2/utils/publication_log.py` | **New file** — publication history log utility |
+| `publisher_v2/src/publisher_v2/utils/recently_shown.py` | **New file** — `RecentlyShownBuffer` class |
 | `publisher_v2/tests/web/test_random_selection.py` | New test file for buffer behavior |
+| `publisher_v2/tests/utils/test_publication_log.py` | New test file for publication log utility |
 
 ---
 
@@ -301,21 +391,31 @@ selected = secrets.choice(images)
 
 ### Unit Tests
 
+**Recently-Shown Buffer:**
 1. **Buffer exclusion**: Verify recently-shown images are excluded
 2. **Buffer overflow**: Verify oldest entries are evicted at max_size
 3. **Buffer expiry**: Verify entries older than TTL are ignored
 4. **Empty candidates**: Verify fallback when buffer exhausts list
 5. **Cryptographic choice**: Verify `secrets.choice` distribution (statistical test)
 
+**Publication History Log:**
+6. **Log file creation**: Verify `logs/publication_history.log` is created on first publish
+7. **Log entry format**: Verify JSON line contains all required fields (date, image_name, caption, publisher, sha256, etc.)
+8. **Log append**: Verify multiple publishes append to same file (not overwrite)
+9. **Custom log dir**: Verify `PUBLICATION_LOG_DIR` env var is respected
+10. **Caption truncation**: Verify very long captions are truncated in log
+
 ### Integration Tests
 
 1. **Repeated random calls**: Call `/api/images/random` N times, verify no immediate repeats
 2. **Cross-tenant isolation**: Verify buffer is per-tenant in orchestrator mode
+3. **Publish + log**: Verify publish workflow writes to publication history log with correct content
 
 ### Manual Verification
 
 1. User testing with ~100 random views to confirm subjective improvement
-2. Log analysis to verify publication audit events are emitted
+2. Review `logs/publication_history.log` after publishing to verify content freshness and audit trail
+3. Verify log entries correlate with archived images in Dropbox
 
 ---
 
