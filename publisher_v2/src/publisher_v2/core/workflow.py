@@ -25,6 +25,19 @@ from publisher_v2.utils.state import (
 )
 
 
+@dataclasses.dataclass(slots=True)
+class _ImageSelection:
+    """Bundle returned by _select_image to keep execute() focused on workflow steps."""
+
+    image_name: str
+    content: bytes
+    sha256: str
+    content_hash: str
+    dropbox_list_ms: int | None
+    selection_ms: int | None
+    error: str | None = None
+
+
 class WorkflowOrchestrator:
     def __init__(
         self,
@@ -39,6 +52,131 @@ class WorkflowOrchestrator:
         self.publishers = publishers
         self.logger = logging.getLogger("publisher_v2.workflow")
 
+    async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
+        """
+        Select the next image to publish, applying dedup logic.
+
+        Uses Dropbox metadata-based dedup when a real Dropbox client is available,
+        otherwise falls back to the legacy SHA256-only path (test/dummy storages).
+        """
+        image_folder = self.config.dropbox.image_folder
+        use_metadata = (
+            hasattr(self.storage, "list_images_with_hashes") and getattr(self.storage, "client", None) is not None
+        )
+
+        selected_image = ""
+        content = b""
+        selected_hash = ""
+        selected_content_hash = ""
+        dropbox_list_ms: int | None = None
+        selection_ms: int | None = None
+
+        if use_metadata:
+            list_start = now_monotonic()
+            images_with_hashes = await self.storage.list_images_with_hashes(image_folder)
+            dropbox_list_ms = elapsed_ms(list_start)
+            if not images_with_hashes:
+                return _ImageSelection("", b"", "", "", dropbox_list_ms, None, error="No images found")
+
+            selection_start = now_monotonic()
+            posted_hashes = load_posted_hashes()
+            posted_content_hashes = load_posted_content_hashes()
+
+            random.shuffle(images_with_hashes)
+            images = [name for name, _ in images_with_hashes]
+
+            if select_filename:
+                if select_filename not in images:
+                    return _ImageSelection(
+                        "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                        error=f"Selected file not found: {select_filename}",
+                    )
+                selected_image = select_filename
+                for name, ch in images_with_hashes:
+                    if name == select_filename:
+                        selected_content_hash = ch or ""
+                        break
+                content = await self.storage.download_image(image_folder, selected_image)
+                selected_hash = hashlib.sha256(content).hexdigest()
+            else:
+                # Fast-path: skip downloads when all content hashes are known and already posted
+                if posted_content_hashes:
+                    all_known = True
+                    has_unposted = False
+                    for _name, ch in images_with_hashes:
+                        if not ch:
+                            all_known = False
+                            has_unposted = True
+                            break
+                        if ch not in posted_content_hashes:
+                            has_unposted = True
+                            break
+                    if all_known and not has_unposted:
+                        return _ImageSelection(
+                            "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                            error="No new images to post (all duplicates)",
+                        )
+
+                # Prefer candidates whose content_hash is not already posted
+                non_posted = [
+                    (n, ch) for n, ch in images_with_hashes
+                    if ch and posted_content_hashes and ch not in posted_content_hashes
+                ]
+                remainder = [
+                    (n, ch) for n, ch in images_with_hashes
+                    if not (ch and posted_content_hashes and ch not in posted_content_hashes)
+                ]
+
+                for name, ch in non_posted + remainder:
+                    blob = await self.storage.download_image(image_folder, name)
+                    digest = hashlib.sha256(blob).hexdigest()
+                    if digest in posted_hashes:
+                        continue
+                    selected_image = name
+                    content = blob
+                    selected_hash = digest
+                    selected_content_hash = ch or ""
+                    break
+        else:
+            # Legacy path: list_images + SHA256-only dedup
+            list_start = now_monotonic()
+            images = await self.storage.list_images(image_folder)
+            dropbox_list_ms = elapsed_ms(list_start)
+            if not images:
+                return _ImageSelection("", b"", "", "", dropbox_list_ms, None, error="No images found")
+
+            selection_start = now_monotonic()
+            posted_hashes = load_posted_hashes()
+            random.shuffle(images)
+            if select_filename:
+                if select_filename not in images:
+                    return _ImageSelection(
+                        "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                        error=f"Selected file not found: {select_filename}",
+                    )
+                selected_image = select_filename
+                content = await self.storage.download_image(image_folder, selected_image)
+                selected_hash = hashlib.sha256(content).hexdigest()
+            else:
+                for name in images:
+                    blob = await self.storage.download_image(image_folder, name)
+                    digest = hashlib.sha256(blob).hexdigest()
+                    if digest in posted_hashes:
+                        continue
+                    selected_image = name
+                    content = blob
+                    selected_hash = digest
+                    break
+
+        if not selected_image:
+            return _ImageSelection(
+                "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                error="No new images to post (all duplicates)",
+            )
+
+        selection_ms = elapsed_ms(selection_start)
+        return _ImageSelection(selected_image, content, selected_hash, selected_content_hash, dropbox_list_ms, selection_ms)
+
     async def execute(
         self,
         select_filename: str | None = None,
@@ -47,10 +185,8 @@ class WorkflowOrchestrator:
         caption_override: str | None = None,
     ) -> WorkflowResult:
         correlation_id = str(uuid.uuid4())
-        selected_image = ""
         caption = ""
         tmp_path = ""
-        selected_hash = ""
         temp_link = ""
         analysis = None
         spec = None
@@ -61,6 +197,9 @@ class WorkflowOrchestrator:
         sidecar_write_ms: int | None = None
         publish_parallel_ms: int | None = None
         archive_ms: int | None = None
+        selected_image = ""
+        selected_hash = ""
+        selected_content_hash = ""
 
         def _log_timing() -> None:
             log_json(
@@ -82,159 +221,11 @@ class WorkflowOrchestrator:
 
         try:
             # 1. Select image
-            # Prefer Dropbox metadata-based dedup when using a real Dropbox client,
-            # but fall back to the legacy SHA256-only path for dummy storages in tests.
-            use_metadata = (
-                hasattr(self.storage, "list_images_with_hashes") and getattr(self.storage, "client", None) is not None
-            )
+            sel = await self._select_image(select_filename)
+            dropbox_list_images_ms = sel.dropbox_list_ms
+            image_selection_ms = sel.selection_ms
 
-            content = b""
-            selected_content_hash = ""
-
-            if use_metadata:
-                # 1a. Metadata-based selection using Dropbox content_hash
-                list_start = now_monotonic()
-                images_with_hashes = await self.storage.list_images_with_hashes(self.config.dropbox.image_folder)
-                dropbox_list_images_ms = elapsed_ms(list_start)
-                if not images_with_hashes:
-                    _log_timing()
-                    return WorkflowResult(
-                        success=False,
-                        image_name="",
-                        caption="",
-                        publish_results={},
-                        archived=False,
-                        error="No images found",
-                        correlation_id=correlation_id,
-                    )
-
-                selection_start = now_monotonic()
-                posted_hashes = load_posted_hashes()
-                posted_content_hashes = load_posted_content_hashes()
-
-                # Shuffle to preserve existing randomization behavior
-                random.shuffle(images_with_hashes)
-                images = [name for name, _ in images_with_hashes]
-
-                # If user selected a specific filename, trust it regardless of dedup state.
-                if select_filename:
-                    if select_filename not in images:
-                        image_selection_ms = elapsed_ms(selection_start)
-                        _log_timing()
-                        return WorkflowResult(
-                            success=False,
-                            image_name="",
-                            caption="",
-                            publish_results={},
-                            archived=False,
-                            error=f"Selected file not found: {select_filename}",
-                            correlation_id=correlation_id,
-                        )
-                    selected_image = select_filename
-                    # Try to look up its Dropbox content_hash from the listing
-                    for name, ch in images_with_hashes:
-                        if name == select_filename:
-                            selected_content_hash = ch or ""
-                            break
-                    content = await self.storage.download_image(self.config.dropbox.image_folder, selected_image)
-                    selected_hash = hashlib.sha256(content).hexdigest()
-                else:
-                    # Fast-path: when all content_hash values are known and already posted,
-                    # we can conclude there are no new images without downloading.
-                    if posted_content_hashes:
-                        all_known = True
-                        has_unposted_by_metadata = False
-                        for name, ch in images_with_hashes:
-                            if not ch:
-                                all_known = False
-                                has_unposted_by_metadata = True
-                                break
-                            if ch not in posted_content_hashes:
-                                has_unposted_by_metadata = True
-                                break
-                        if all_known and not has_unposted_by_metadata:
-                            image_selection_ms = elapsed_ms(selection_start)
-                            _log_timing()
-                            return WorkflowResult(
-                                success=False,
-                                image_name="",
-                                caption="",
-                                publish_results={},
-                                archived=False,
-                                error="No new images to post (all duplicates)",
-                                correlation_id=correlation_id,
-                            )
-
-                    # Prefer candidates whose Dropbox content_hash is not in posted_content_hashes
-                    non_posted_by_metadata = []
-                    unknown_or_posted_by_metadata = []
-                    for name, ch in images_with_hashes:
-                        if ch and posted_content_hashes and ch not in posted_content_hashes:
-                            non_posted_by_metadata.append((name, ch))
-                        else:
-                            unknown_or_posted_by_metadata.append((name, ch))
-
-                    candidate_order = non_posted_by_metadata + unknown_or_posted_by_metadata
-
-                    for name, ch in candidate_order:
-                        blob = await self.storage.download_image(self.config.dropbox.image_folder, name)
-                        digest = hashlib.sha256(blob).hexdigest()
-                        if digest in posted_hashes:
-                            continue
-                        selected_image = name
-                        content = blob
-                        selected_hash = digest
-                        selected_content_hash = ch or ""
-                        break
-            else:
-                # 1b. Legacy selection using list_images + SHA256-only dedup
-                list_start = now_monotonic()
-                images = await self.storage.list_images(self.config.dropbox.image_folder)
-                dropbox_list_images_ms = elapsed_ms(list_start)
-                if not images:
-                    _log_timing()
-                    return WorkflowResult(
-                        success=False,
-                        image_name="",
-                        caption="",
-                        publish_results={},
-                        archived=False,
-                        error="No images found",
-                        correlation_id=correlation_id,
-                    )
-
-                selection_start = now_monotonic()
-                posted_hashes = load_posted_hashes()
-                random.shuffle(images)
-                if select_filename:
-                    if select_filename not in images:
-                        image_selection_ms = elapsed_ms(selection_start)
-                        _log_timing()
-                        return WorkflowResult(
-                            success=False,
-                            image_name="",
-                            caption="",
-                            publish_results={},
-                            archived=False,
-                            error=f"Selected file not found: {select_filename}",
-                            correlation_id=correlation_id,
-                        )
-                    selected_image = select_filename
-                    content = await self.storage.download_image(self.config.dropbox.image_folder, selected_image)
-                    selected_hash = hashlib.sha256(content).hexdigest()
-                else:
-                    for name in images:
-                        blob = await self.storage.download_image(self.config.dropbox.image_folder, name)
-                        digest = hashlib.sha256(blob).hexdigest()
-                        if digest in posted_hashes:
-                            continue
-                        selected_image = name
-                        content = blob
-                        selected_hash = digest
-                        break
-
-            if not selected_image:
-                image_selection_ms = elapsed_ms(selection_start)
+            if sel.error:
                 _log_timing()
                 return WorkflowResult(
                     success=False,
@@ -242,25 +233,25 @@ class WorkflowOrchestrator:
                     caption="",
                     publish_results={},
                     archived=False,
-                    error="No new images to post (all duplicates)",
+                    error=sel.error,
                     correlation_id=correlation_id,
                 )
+
+            selected_image = sel.image_name
+            selected_hash = sel.sha256
+            selected_content_hash = sel.content_hash
 
             # 2. Save to temp and get temporary link
             suffix = os.path.splitext(selected_image)[1]
             with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
-                tmp.write(content)
+                tmp.write(sel.content)
                 tmp.flush()
                 tmp_path = tmp.name
-            # Secure temp file permissions (0600)
             try:
                 os.chmod(tmp_path, 0o600)
             except Exception:
-                # Best-effort; continue if chmod not supported
                 pass
 
-            if image_selection_ms is None:
-                image_selection_ms = elapsed_ms(selection_start)
             temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
 
             # 3. Analyze image with vision AI (feature-gated)
@@ -358,16 +349,8 @@ class WorkflowOrchestrator:
                             log_prefix="sidecar_upload",
                         )
                     except Exception:
-                        # Error logged inside helper; suppress here to continue workflow
-                        # But we need to capture timing if possible, helper calculates it before raising if we change it?
-                        # I modified helper to log error with duration before raising.
-                        # We just need to ensure sidecar_write_ms is set if possible,
-                        # but if exception raised, we might have lost the return value.
-                        # Actually, let's just calc duration here if we want to be safe,
-                        # OR rely on the log inside helper.
-                        # For the final summary 'workflow_timing', we need 'sidecar_write_ms'.
-                        # If helper raises, we don't get the return value.
-                        # Let's approximate it.
+                        # Error already logged inside helper; suppress to continue workflow.
+                        # sidecar_write_ms will remain None in workflow_timing.
                         pass
             else:
                 log_json(
@@ -396,7 +379,7 @@ class WorkflowOrchestrator:
                         return_exceptions=True,
                     )
                     publish_parallel_ms = elapsed_ms(publish_start)
-                    for pub, res in zip(enabled_publishers, results):
+                    for pub, res in zip(enabled_publishers, results, strict=True):
                         if isinstance(res, Exception):
                             publish_results[pub.platform_name] = PublishResult(
                                 success=False, platform=pub.platform_name, error=str(res)

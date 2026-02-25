@@ -87,11 +87,4 @@ async def generate_and_upload_sidecar(
             correlation_id=correlation_id,
             sidecar_write_ms=duration,
         )
-        # Re-raise so caller knows it failed (or handle per policy?
-        # Existing code caught exceptions and just logged error.
-        # But for 'WebImageService' we returned 'sidecar_written=False'.
-        # For 'WorkflowOrchestrator' we caught and logged, continuing workflow.
-        # So we should probably raise here and let caller decide,
-        # OR suppress and return 0.0?
-        # Better to raise so caller can see the failure.
         raise

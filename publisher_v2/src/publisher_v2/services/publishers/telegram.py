@@ -17,8 +17,8 @@ class TelegramPublisher(Publisher):
         self._enabled = (
             enabled
             and config is not None
-            and bool(getattr(config, "bot_token", None))
-            and bool(getattr(config, "channel_id", None))
+            and bool(config.bot_token)
+            and bool(config.channel_id)
         )
 
     @property

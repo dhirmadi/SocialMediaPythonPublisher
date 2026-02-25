@@ -304,17 +304,7 @@ class WebImageService:
         Return a sorted list of all valid image filenames.
         Uses in-memory caching to avoid hitting Dropbox too frequently.
         """
-        # We reuse _get_cached_images which already caches the raw list from Dropbox.
-        # However, that list might contain non-image files depending on storage implementation.
-        # But DropboxStorage.list_images is already implemented to filter by extension?
-        # Let's check DropboxStorage.list_images implementation or assume it returns all files.
-        # Actually, self._get_cached_images calls self.storage.list_images.
-        # We should ensure we return a sorted list here.
-
         images = await self._get_cached_images()
-        # Filter again just to be safe using utils logic if needed,
-        # but let's assume _get_cached_images returns valid files.
-        # Sort A-Z
         sorted_images = sorted(images)
         return {"filenames": sorted_images, "count": len(sorted_images)}
 

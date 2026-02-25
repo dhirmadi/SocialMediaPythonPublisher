@@ -272,7 +272,7 @@ class TestDeprecationWarnings:
         with mock.patch.dict(os.environ, base_env_vars, clear=True):
             load_application_config(full_ini_file, empty_env_file)
             assert "DEPRECATION" in caplog.text
-            assert "INI-based config is deprecated" in caplog.text
+            assert "INI-based configuration is deprecated" in caplog.text
 
 
 class TestConfigSourceLogging:

@@ -2,6 +2,7 @@ import configparser
 import json
 import logging
 import os
+import warnings
 
 from dotenv import load_dotenv
 
@@ -397,18 +398,19 @@ def log_config_source(
 
 def log_deprecation_warning(ini_sections: list[str]) -> None:
     """
-    Log deprecation warning when INI fallback is used.
+    Emit a formal DeprecationWarning and log when INI fallback is used.
 
-    Args:
-        ini_sections: List of INI sections that triggered fallback.
+    INI-based configuration will be removed in v2.2. Migrate to JSON
+    environment variables (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.).
     """
     if ini_sections:
-        logger.warning(
-            "DEPRECATION: INI-based config is deprecated. "
+        msg = (
+            "INI-based configuration is deprecated and will be removed in v2.2. "
             "Migrate to JSON env vars (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.). "
-            "INI sections used: %s",
-            ini_sections,
+            f"INI sections used: {ini_sections}"
         )
+        warnings.warn(msg, DeprecationWarning, stacklevel=2)
+        logger.warning("DEPRECATION: %s", msg)
 
 
 def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | None = None) -> bool:

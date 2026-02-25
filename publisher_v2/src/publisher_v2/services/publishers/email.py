@@ -20,9 +20,9 @@ class EmailPublisher(Publisher):
         self._enabled = (
             enabled
             and config is not None
-            and bool(getattr(config, "sender", None))
-            and bool(getattr(config, "recipient", None))
-            and bool(getattr(config, "password", None))
+            and bool(config.sender)
+            and bool(config.recipient)
+            and bool(config.password)
         )
 
     @property

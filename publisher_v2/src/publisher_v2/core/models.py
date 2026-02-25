@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -53,7 +51,7 @@ class CaptionSpec:
     max_length: int
 
     @staticmethod
-    def for_config(config: ApplicationConfig) -> CaptionSpec:
+    def for_config(config: "ApplicationConfig") -> "CaptionSpec":
         """Build the appropriate CaptionSpec based on platform configuration."""
         if config.platforms.email_enabled and config.email:
             return CaptionSpec(

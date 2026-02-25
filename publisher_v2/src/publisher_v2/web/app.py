@@ -298,7 +298,7 @@ def verify_view_permissions(
     """
     features = service.config.features
     # Check if public view is allowed
-    if getattr(features, "auto_view_enabled", False):
+    if features.auto_view_enabled:
         return
 
     # Otherwise, strict admin check
@@ -608,7 +608,7 @@ async def api_get_features_config(
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
-        "auto_view_enabled": getattr(features, "auto_view_enabled", False),
+        "auto_view_enabled": features.auto_view_enabled,
         "auth_mode": auth_mode,
     }
 

@@ -547,7 +547,7 @@ class TestLogDeprecationWarning:
         caplog.set_level(logging.WARNING)
         log_deprecation_warning(["Content", "Email", "openAI"])
         assert "DEPRECATION" in caplog.text
-        assert "INI-based config is deprecated" in caplog.text
+        assert "INI-based configuration is deprecated" in caplog.text
         assert "Content" in caplog.text
         assert "Email" in caplog.text
         assert "openAI" in caplog.text

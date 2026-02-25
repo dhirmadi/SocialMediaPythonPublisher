@@ -209,11 +209,11 @@ class CaptionGeneratorOpenAI:
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
         # SD caption settings
-        self.sd_caption_enabled = getattr(config, "sd_caption_enabled", True)
-        self.sd_caption_single_call_enabled = getattr(config, "sd_caption_single_call_enabled", True)
-        self.sd_caption_model = getattr(config, "sd_caption_model", None) or self.model
-        cfg_sd_system = getattr(config, "sd_caption_system_prompt", None)
-        cfg_sd_role = getattr(config, "sd_caption_role_prompt", None)
+        self.sd_caption_enabled = config.sd_caption_enabled
+        self.sd_caption_single_call_enabled = config.sd_caption_single_call_enabled
+        self.sd_caption_model = config.sd_caption_model or self.model
+        cfg_sd_system = config.sd_caption_system_prompt
+        cfg_sd_role = config.sd_caption_role_prompt
         self.sd_caption_system_prompt = cfg_sd_system or self.system_prompt
         self.sd_caption_role_prompt = cfg_sd_role or (
             "Write two outputs for the provided analysis and platform spec: "
@@ -269,7 +269,7 @@ class CaptionGeneratorOpenAI:
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
         try:
             hashtags_clause = ""
-            if getattr(spec, "hashtags", None):
+            if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             prompt = (
                 f"{self.role_prompt} "
@@ -308,7 +308,7 @@ class CaptionGeneratorOpenAI:
         """
         try:
             hashtags_clause = ""
-            if getattr(spec, "hashtags", None):
+            if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             user_prompt = (
                 f"{self.sd_caption_role_prompt} "
