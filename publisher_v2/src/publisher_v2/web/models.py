@@ -34,6 +34,7 @@ class AnalysisResponse(BaseModel):
 
 class PublishRequest(BaseModel):
     platforms: Optional[List[str]] = None
+    caption: Optional[str] = None
 
 
 class PublishResponse(BaseModel):

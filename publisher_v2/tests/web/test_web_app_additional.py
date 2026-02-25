@@ -61,7 +61,7 @@ class _StubWebService:
             sidecar_written=False,
         )
 
-    async def publish_image(self, filename: str, platforms: list[str] | None):
+    async def publish_image(self, filename: str, platforms: list[str] | None, caption_override: str | None = None):
         if self.publish_error:
             raise self.publish_error
         return SimpleNamespace(filename=filename, results={}, archived=False, any_success=False)

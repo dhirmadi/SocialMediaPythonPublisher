@@ -497,12 +497,20 @@ class WebImageService:
             sidecar_written=sidecar_written,
         )
 
-    async def publish_image(self, filename: str, platforms: Optional[List[str]] = None) -> PublishResponse:
+    async def publish_image(
+        self,
+        filename: str,
+        platforms: Optional[List[str]] = None,
+        caption_override: Optional[str] = None,
+    ) -> PublishResponse:
         """
         Publish a specific image by delegating to the existing WorkflowOrchestrator.
 
         Platforms list is currently advisory only; for MVP we respect the
         enabled flags from config and still reuse the orchestrator behaviour.
+
+        When caption_override is provided, the orchestrator skips AI caption
+        generation and uses the caller-supplied text instead.
         """
         if not self.config.features.publish_enabled:
             log_json(
@@ -513,11 +521,14 @@ class WebImageService:
             )
             raise PermissionError("Publish feature is disabled via FEATURE_PUBLISH toggle")
 
-        # The orchestrator will:
-        #   - re-select the filename
-        #   - re-run analysis/caption if needed
-        #   - publish and archive on success
-        # We call it with dry_publish=False and preview_mode=False.
+        if caption_override:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_publish_caption_override",
+                image=filename,
+                override_length=len(caption_override),
+            )
 
         # Resolve optional publisher secrets lazily (telegram/smtp) before publishing.
         await self._ensure_publishers()
@@ -527,6 +538,7 @@ class WebImageService:
             select_filename=filename,
             dry_publish=False,
             preview_mode=False,
+            caption_override=caption_override,
         )
         # Convert results to simple dict form
         results: Dict[str, Dict[str, Any]] = {}

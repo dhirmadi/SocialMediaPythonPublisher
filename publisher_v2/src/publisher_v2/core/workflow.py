@@ -48,7 +48,8 @@ class WorkflowOrchestrator:
         self, 
         select_filename: str | None = None, 
         dry_publish: bool = False,
-        preview_mode: bool = False
+        preview_mode: bool = False,
+        caption_override: str | None = None,
     ) -> WorkflowResult:
         correlation_id = str(uuid.uuid4())
         selected_image = ""
@@ -322,7 +323,18 @@ class WorkflowOrchestrator:
                 )
             caption = ""
             sd_caption = None
-            if self.config.features.analyze_caption_enabled:
+            if caption_override and caption_override.strip():
+                caption = caption_override
+                sd_caption = None
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "caption_override_used",
+                    override_length=len(caption),
+                    ai_skipped=True,
+                    correlation_id=correlation_id,
+                )
+            elif self.config.features.analyze_caption_enabled:
                 if not preview_mode:
                     log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
                 caption_start = now_monotonic()

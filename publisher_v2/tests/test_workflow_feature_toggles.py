@@ -66,18 +66,21 @@ class _StubGenerator:
 
 
 class _StubPublisher(Publisher):
-    def __init__(self) -> None:
+    def __init__(self, name: str = "stub") -> None:
         self.called = False
+        self.received_caption: str | None = None
+        self._name = name
 
     @property
     def platform_name(self) -> str:
-        return "stub"
+        return self._name
 
     def is_enabled(self) -> bool:
         return True
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
         self.called = True
+        self.received_caption = caption
         return PublishResult(success=True, platform=self.platform_name)
 
 
@@ -161,4 +164,73 @@ async def test_workflow_default_toggles_execute_all_steps(monkeypatch: pytest.Mo
     assert storage.sidecar_writes >= 1
     assert publisher.called is True
     assert result.publish_results
+
+
+# --- Caption override tests ---
+
+
+@pytest.mark.asyncio
+async def test_caption_override_skips_ai_and_uses_provided_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+    publisher = _StubPublisher()
+    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
+    cfg.content.debug = False
+
+    result = await orchestrator.execute(caption_override="User approved caption")
+
+    assert generator.calls == 0
+    assert publisher.called is True
+    assert publisher.received_caption is not None
+    assert "User approved caption" in publisher.received_caption
+
+
+@pytest.mark.asyncio
+async def test_caption_override_empty_string_falls_through_to_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+    publisher = _StubPublisher()
+    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
+    cfg.content.debug = False
+
+    await orchestrator.execute(caption_override="")
+
+    assert generator.calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_caption_override_whitespace_only_falls_through_to_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+    publisher = _StubPublisher()
+    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
+    cfg.content.debug = False
+
+    await orchestrator.execute(caption_override="   ")
+
+    assert generator.calls >= 1
+
+
+@pytest.mark.asyncio
+async def test_caption_override_is_sanitized_by_format_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Override with em-dash and hashtag is sanitized for the email platform."""
+    publisher = _StubPublisher(name="email")
+    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
+    cfg.content.debug = False
+    cfg.platforms.email_enabled = True
+
+    await orchestrator.execute(caption_override="Hello #world \u2014 beautiful day")
+
+    assert generator.calls == 0
+    assert publisher.called is True
+    assert publisher.received_caption is not None
+    assert "#world" not in publisher.received_caption
+    assert " - " in publisher.received_caption
+
+
+@pytest.mark.asyncio
+async def test_caption_override_none_preserves_existing_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
+    publisher = _StubPublisher()
+    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
+    cfg.content.debug = False
+
+    result = await orchestrator.execute(caption_override=None)
+
+    assert generator.calls >= 1
+    assert publisher.called is True
+    assert result.caption != ""
 
