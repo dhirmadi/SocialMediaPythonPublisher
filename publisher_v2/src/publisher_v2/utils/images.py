@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 
 from PIL import Image
@@ -24,4 +22,3 @@ async def ensure_max_width_async(image_path: str, max_width: int = 1280) -> str:
     """
 
     return await asyncio.to_thread(ensure_max_width, image_path, max_width)
-

@@ -19,6 +19,3 @@ def test_dropbox_folder_must_start_with_slash():
 def test_openai_key_format_must_start_with_sk():
     with pytest.raises(ValidationError):
         OpenAIConfig(api_key="not-a-key")
-
-
-

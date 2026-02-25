@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import asyncio
 import time
 
@@ -29,5 +27,3 @@ class AsyncRateLimiter:
             if elapsed < self._min_interval:
                 await asyncio.sleep(self._min_interval - elapsed)
             self._last_time = time.monotonic()
-
-

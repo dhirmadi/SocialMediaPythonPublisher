@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.schema import DropboxConfig
-from publisher_v2.services.storage import DropboxStorage
-
 # Use centralized test fixtures from conftest.py (QC-001)
 from conftest import BaseDummyClient
+
+from publisher_v2.config.schema import DropboxConfig
+from publisher_v2.services.storage import DropboxStorage
 
 
 @pytest.mark.asyncio
@@ -30,5 +30,3 @@ async def test_archive_moves_image_and_sidecar(monkeypatch: pytest.MonkeyPatch) 
         ("/ImagesToday/image.txt", "/ImagesToday/archive/image.txt"),
     }
     assert set(client.moves) >= expected_moves
-
-

@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import json
-from typing import Tuple, Dict, Any, Optional
+from typing import Any
 
 
-def parse_sidecar_text(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any]]]:
+def parse_sidecar_text(text: str) -> tuple[str | None, dict[str, Any] | None]:
     """
     Parse a caption sidecar text into (sd_caption, metadata_dict).
 
@@ -36,7 +34,7 @@ def parse_sidecar_text(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any
     if meta_start is None or meta_start >= len(lines):
         return sd_caption, None
 
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     for line in lines[meta_start:]:
         stripped = line.strip()
         if not stripped:
@@ -66,7 +64,7 @@ def parse_sidecar_text(text: str) -> Tuple[Optional[str], Optional[Dict[str, Any
     return sd_caption, meta
 
 
-def rehydrate_sidecar_view(text: str) -> Dict[str, Any]:
+def rehydrate_sidecar_view(text: str) -> dict[str, Any]:
     """
     Construct a lightweight, cache-ready view from raw sidecar text.
 
@@ -80,7 +78,7 @@ def rehydrate_sidecar_view(text: str) -> Dict[str, Any]:
     layer and other callers that do not need a full ImageAnalysis instance.
     """
     sd_caption, metadata = parse_sidecar_text(text)
-    caption: Optional[str] = None
+    caption: str | None = None
     if isinstance(metadata, dict):
         raw_caption = metadata.get("caption")
         if isinstance(raw_caption, str):
@@ -96,5 +94,3 @@ def rehydrate_sidecar_view(text: str) -> Dict[str, Any]:
         "metadata": metadata,
         "has_sidecar": has_sidecar,
     }
-
-

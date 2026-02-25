@@ -20,22 +20,20 @@ FIXTURE INVENTORY (QC-001 Centralization):
 
 from __future__ import annotations
 
-import os
-from typing import Generator, List, Optional, Tuple, Any, Dict
+from collections.abc import Generator
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
 from publisher_v2.config.schema import (
-    DropboxConfig,
-    OpenAIConfig,
     ApplicationConfig,
     ContentConfig,
+    DropboxConfig,
+    OpenAIConfig,
     PlatformsConfig,
-    CaptionFileConfig,
 )
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec, PublishResult
-
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
 
 # ==============================================================================
 # ENVIRONMENT ISOLATION FIXTURES
@@ -46,20 +44,20 @@ from publisher_v2.core.models import ImageAnalysis, CaptionSpec, PublishResult
 def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     """
     Ensure tests don't leak environment variables.
-    
+
     Clears commonly used env vars that could affect test isolation.
     This runs automatically for all tests.
-    
+
     Patches load_dotenv to prevent the workspace .env from being loaded
     during tests (unless an explicit env_path is provided to load_application_config).
     """
     from unittest.mock import patch
-    
+
     # Clear environment variables that might leak between tests
     env_vars_to_clear = [
         # Auth-related
         "WEB_AUTH_TOKEN",
-        "WEB_AUTH_USER", 
+        "WEB_AUTH_USER",
         "WEB_AUTH_PASS",
         "web_admin_pw",
         # Auth0-related
@@ -89,22 +87,22 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     ]
     for var in env_vars_to_clear:
         monkeypatch.delenv(var, raising=False)
-    
+
     # Set minimal required env vars for tests
     monkeypatch.setenv("WEB_DEBUG", "1")  # Enable dev mode for tests
     monkeypatch.setenv("WEB_SESSION_SECRET", "test_secret_key_for_testing_only")
-    
+
     # Patch load_dotenv to be a no-op when called without arguments
     # This prevents the workspace .env from being loaded during tests
     from dotenv import load_dotenv as real_load_dotenv
-    
+
     def noop_load_dotenv(dotenv_path=None, **kwargs):
         """Only load if an explicit path is provided."""
         if dotenv_path:
             return real_load_dotenv(dotenv_path, **kwargs)
         # Don't load workspace .env automatically
         return False
-    
+
     with patch("publisher_v2.config.loader.load_dotenv", noop_load_dotenv):
         yield
 
@@ -243,15 +241,15 @@ def standard_app_config(
 class BaseDummyStorage:
     """
     Base dummy storage class that can be customized per test.
-    
+
     This centralizes the common storage mock pattern found across 8+ test files.
     Subclasses or instances can override specific methods as needed.
     """
-    
+
     def __init__(
         self,
-        config: Optional[DropboxConfig] = None,
-        images: Optional[List[str]] = None,
+        config: DropboxConfig | None = None,
+        images: list[str] | None = None,
         content: bytes = b"\x89PNG\r\n\x1a\n",
     ) -> None:
         self.config = config or DropboxConfig(
@@ -264,12 +262,12 @@ class BaseDummyStorage:
         self._images = images or ["test.jpg"]
         self._content = content
         # Track operations for assertions
-        self.sidecar_text: Optional[str] = None
+        self.sidecar_text: str | None = None
         self.sidecars_written: int = 0
         self.archives: int = 0
-        self.moves: List[Tuple[str, str, str]] = []  # (folder, filename, target)
+        self.moves: list[tuple[str, str, str]] = []  # (folder, filename, target)
 
-    async def list_images(self, folder: str) -> List[str]:
+    async def list_images(self, folder: str) -> list[str]:
         return self._images
 
     async def download_image(self, folder: str, filename: str) -> bytes:
@@ -278,14 +276,14 @@ class BaseDummyStorage:
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return f"https://example.com/tmp/{filename}"
 
-    async def get_file_metadata(self, folder: str, filename: str) -> Dict[str, str]:
+    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
         return {"id": "id:XYZ", "rev": "123"}
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecar_text = text
         self.sidecars_written += 1
 
-    async def download_sidecar_if_exists(self, folder: str, filename: str) -> Optional[bytes]:
+    async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
         return None  # Default: no sidecar
 
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
@@ -315,13 +313,13 @@ def dummy_storage() -> BaseDummyStorage:
 class BaseDummyAnalyzer:
     """
     Base dummy vision analyzer for workflow tests.
-    
+
     Centralizes the DummyAnalyzer pattern found across 7+ test files.
     """
-    
+
     def __init__(
         self,
-        analysis: Optional[ImageAnalysis] = None,
+        analysis: ImageAnalysis | None = None,
         extended_fields: bool = False,
     ) -> None:
         if analysis:
@@ -360,15 +358,15 @@ class BaseDummyAnalyzer:
 class BaseDummyGenerator:
     """
     Base dummy caption generator for workflow tests.
-    
+
     Centralizes the DummyGenerator pattern found across 7+ test files.
     """
-    
+
     def __init__(
         self,
         caption: str = "test caption #tags",
         sd_caption: str = "fine-art portrait, soft light, calm mood",
-        config: Optional[OpenAIConfig] = None,
+        config: OpenAIConfig | None = None,
     ) -> None:
         self._caption = caption
         self._sd_caption = sd_caption
@@ -379,29 +377,27 @@ class BaseDummyGenerator:
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
         return self._caption
 
-    async def generate_with_sd(
-        self, analysis: ImageAnalysis, spec: CaptionSpec
-    ) -> Dict[str, str]:
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
         return {"caption": self._caption, "sd_caption": self._sd_caption}
 
 
 class BaseDummyAI:
     """
     Base dummy AIService for workflow tests.
-    
+
     Centralizes the DummyAI pattern found across 4+ test files.
     """
-    
+
     def __init__(
         self,
-        analyzer: Optional[BaseDummyAnalyzer] = None,
-        generator: Optional[BaseDummyGenerator] = None,
+        analyzer: BaseDummyAnalyzer | None = None,
+        generator: BaseDummyGenerator | None = None,
         caption: str = "hello world #tags",
     ) -> None:
         self._caption = caption
         self.analyzer = analyzer or BaseDummyAnalyzer()
         self.generator = generator or BaseDummyGenerator(caption=caption)
-        
+
         # No-op rate limiter for AIService compatibility
         class _NoopLimiter:
             async def __aenter__(self) -> None:
@@ -415,14 +411,10 @@ class BaseDummyAI:
     async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
         return self._caption
 
-    async def create_caption_pair(
-        self, url_or_bytes: str | bytes, spec: CaptionSpec
-    ) -> Tuple[str, str]:
+    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str]:
         return self._caption, self.generator._sd_caption
 
-    async def create_caption_pair_from_analysis(
-        self, analysis: ImageAnalysis, spec: CaptionSpec
-    ) -> Tuple[str, str]:
+    async def create_caption_pair_from_analysis(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, str]:
         return self._caption, self.generator._sd_caption
 
 
@@ -470,22 +462,22 @@ def dummy_ai() -> BaseDummyAI:
 class BaseDummyPublisher:
     """
     Base dummy publisher for workflow tests.
-    
+
     Centralizes the DummyPublisher pattern found across 5+ test files.
     """
-    
+
     def __init__(
         self,
         platform: str = "dummy",
         enabled: bool = True,
         success: bool = True,
-        error: Optional[str] = None,
+        error: str | None = None,
     ) -> None:
         self._platform = platform
         self._enabled = enabled
         self._success = success
         self._error = error
-        self.publish_calls: List[Tuple[str, str]] = []  # Track (image_path, caption)
+        self.publish_calls: list[tuple[str, str]] = []  # Track (image_path, caption)
 
     @property
     def platform_name(self) -> str:
@@ -494,9 +486,7 @@ class BaseDummyPublisher:
     def is_enabled(self) -> bool:
         return self._enabled
 
-    async def publish(
-        self, image_path: str, caption: str, context: Optional[Dict[str, Any]] = None
-    ) -> PublishResult:
+    async def publish(self, image_path: str, caption: str, context: dict[str, Any] | None = None) -> PublishResult:
         self.publish_calls.append((image_path, caption))
         return PublishResult(
             success=self._success,
@@ -525,27 +515,26 @@ def dummy_publisher() -> BaseDummyPublisher:
 class BaseDummyClient:
     """
     Base dummy Dropbox client for low-level storage tests.
-    
+
     Centralizes the DummyClient pattern found across 4+ test files.
     """
-    
+
     def __init__(self, sidecar_exists: bool = True) -> None:
-        self.created_dirs: List[str] = []
-        self.moves: List[Tuple[str, str]] = []
-        self.uploads: List[Tuple[str, bytes, Any]] = []
-        self.sidecar_bytes: Optional[bytes] = b"sidecar-content"
+        self.created_dirs: list[str] = []
+        self.moves: list[tuple[str, str]] = []
+        self.uploads: list[tuple[str, bytes, Any]] = []
+        self.sidecar_bytes: bytes | None = b"sidecar-content"
         self.sidecar_exists: bool = sidecar_exists
 
     def files_create_folder_v2(self, path: str) -> None:
         self.created_dirs.append(path)
 
-    def files_move_v2(
-        self, from_path: str, to_path: str, autorename: bool = False
-    ) -> None:
+    def files_move_v2(self, from_path: str, to_path: str, autorename: bool = False) -> None:
         from dropbox.exceptions import ApiError
-        
+
         # Simulate sidecar missing by raising ApiError when appropriate.
         if from_path.endswith(".txt") and not self.sidecar_exists:
+
             class _Error:
                 def is_path(self) -> bool:
                     return True
@@ -566,10 +555,11 @@ class BaseDummyClient:
     ) -> None:
         self.uploads.append((path, data, mode))
 
-    def files_download(self, path: str) -> Tuple[None, SimpleNamespace]:
+    def files_download(self, path: str) -> tuple[None, SimpleNamespace]:
         from dropbox.exceptions import ApiError
-        
+
         if not self.sidecar_exists:
+
             class _PathError:
                 def is_not_found(self) -> bool:
                     return True
@@ -608,4 +598,3 @@ def bypass_dedup(monkeypatch: pytest.MonkeyPatch) -> None:
     """Bypass deduplication state for workflow tests."""
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-

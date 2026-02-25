@@ -3,7 +3,7 @@ from __future__ import annotations
 import io
 import sys
 
-from publisher_v2.utils.preview import print_preview_header, print_preview_footer
+from publisher_v2.utils.preview import print_preview_footer, print_preview_header
 
 
 def test_preview_header_uses_default_static_text(monkeypatch) -> None:
@@ -20,5 +20,3 @@ def test_preview_footer_uses_default_static_text(monkeypatch) -> None:
     print_preview_footer()
     out = buf.getvalue()
     assert "PREVIEW MODE - NO ACTIONS TAKEN" in out
-
-

@@ -1,11 +1,9 @@
-from __future__ import annotations
-
 import json
 import logging
-from datetime import datetime, timezone
-from typing import Any, Dict
 import re
 import time
+from datetime import UTC, datetime
+from typing import Any
 
 # Patterns to redact sensitive data from ALL log output
 SENSITIVE_PATTERNS = [
@@ -32,53 +30,53 @@ def sanitize(message: str) -> str:
 class SanitizingFilter(logging.Filter):
     """
     Logging filter that redacts sensitive data from ALL log records.
-    
+
     This filter applies sanitization to:
     - The formatted message (record.msg after % formatting)
     - Any string arguments in record.args
-    
+
     This catches secrets leaked by third-party libraries like httpx/httpcore
     that log HTTP URLs containing tokens.
     """
-    
+
     def filter(self, record: logging.LogRecord) -> bool:
         # Sanitize the message
         if record.msg:
             if isinstance(record.msg, str):
                 record.msg = sanitize(record.msg)
-        
+
         # Sanitize args if they exist
         if record.args:
             if isinstance(record.args, dict):
                 record.args = {k: sanitize(str(v)) if isinstance(v, str) else v for k, v in record.args.items()}
             elif isinstance(record.args, tuple):
                 record.args = tuple(sanitize(str(a)) if isinstance(a, str) else a for a in record.args)
-        
+
         return True  # Always allow the record through (after sanitization)
 
 
 def setup_logging(level: int = logging.INFO) -> None:
     """
     Configure logging with sanitization filter applied to ALL handlers.
-    
+
     This ensures secrets are redacted from:
     - Our application logs
     - Third-party library logs (httpx, httpcore, telegram, etc.)
     """
     formatter = logging.Formatter("%(asctime)s - %(name)s - %(levelname)s - %(message)s")
-    
+
     # Create handler with sanitizing filter
     console = logging.StreamHandler()
     console.setFormatter(formatter)
     console.setLevel(level)
     console.addFilter(SanitizingFilter())  # Redact secrets from ALL output
-    
+
     # Configure root logger
     root = logging.getLogger()
     root.handlers.clear()
     root.setLevel(level)
     root.addHandler(console)
-    
+
     # Reduce verbosity of HTTP client libraries (they log at INFO by default)
     # Even with sanitization, we don't need detailed HTTP logs in production
     logging.getLogger("httpx").setLevel(logging.WARNING)
@@ -87,8 +85,8 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 
 def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) -> None:
-    entry: Dict[str, Any] = {
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+    entry: dict[str, Any] = {
+        "timestamp": datetime.now(UTC).isoformat(),
         "message": sanitize(message),
         **kwargs,
     }
@@ -131,5 +129,3 @@ def log_publisher_publish(
         success=success,
         error=error,
     )
-
-

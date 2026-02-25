@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+
 import pytest
 
 from publisher_v2.config.credential_cache import CredentialCache, SingleFlight
@@ -75,4 +76,3 @@ def test_metrics_hit_miss() -> None:
     assert cache.get("x") == "y"
     assert cache.stats.miss_total >= 1
     assert cache.stats.hit_total >= 1
-

@@ -2,24 +2,25 @@ from __future__ import annotations
 
 import pytest
 
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
+    CaptionFileConfig,
     ContentConfig,
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
-    CaptionFileConfig,
 )
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher
+from publisher_v2.services.ai import AIService
 
 
 class MetadataAnalyzer(BaseDummyAnalyzer):
     """Analyzer returning extended fields for sidecar metadata testing."""
+
     def __init__(self) -> None:
         # Base extended_fields, but customize to match expected metadata
         super().__init__()
@@ -40,10 +41,10 @@ class MetadataAnalyzer(BaseDummyAnalyzer):
 
 class MetadataGenerator(BaseDummyGenerator):
     """Generator that supports SD caption with sidecar-relevant output."""
+
     def __init__(self, cfg: OpenAIConfig) -> None:
         super().__init__(
-            caption="normal caption",
-            sd_caption="fine-art figure study, standing, low-key lighting, studio portrait"
+            caption="normal caption", sd_caption="fine-art figure study, standing, low-key lighting, studio portrait"
         )
         self.model = cfg.caption_model
         self.sd_caption_model = "gpt-4o-mini"
@@ -57,6 +58,7 @@ class MetadataGenerator(BaseDummyGenerator):
 
 class SidecarTrackingStorage(BaseDummyStorage):
     """Storage that captures sidecar text for assertions."""
+
     def __init__(self) -> None:
         super().__init__()
         self.sidecar_text: str | None = None
@@ -157,5 +159,3 @@ async def test_e2e_sidecar_without_artist_alias(monkeypatch: pytest.MonkeyPatch)
     # Other Phase 1 fields should still be present
     assert "# image_file:" in text
     assert "# sha256:" in text
-
-

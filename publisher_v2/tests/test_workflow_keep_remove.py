@@ -2,12 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.schema import ApplicationConfig, DropboxConfig, OpenAIConfig, PlatformsConfig, ContentConfig, FeaturesConfig
+from publisher_v2.config.schema import (
+    ApplicationConfig,
+    ContentConfig,
+    DropboxConfig,
+    FeaturesConfig,
+    OpenAIConfig,
+    PlatformsConfig,
+)
+from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
-from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.core.exceptions import StorageError
 
 
 class _DummyStorage:
@@ -95,5 +101,3 @@ async def test_keep_remove_feature_disabled_raises() -> None:
         await orchestrator.keep_image("image.jpg")
     with pytest.raises(StorageError):
         await orchestrator.remove_image("image.jpg")
-
-

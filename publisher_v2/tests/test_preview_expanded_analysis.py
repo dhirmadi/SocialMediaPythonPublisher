@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import sys
+
 import pytest
 
 from publisher_v2.core.models import ImageAnalysis
@@ -45,8 +46,3 @@ def test_preview_prints_optional_fields(monkeypatch: pytest.MonkeyPatch) -> None
     assert "Composition" in out
     assert "Background" in out
     assert "Palette" in out
-
-
-
-
-

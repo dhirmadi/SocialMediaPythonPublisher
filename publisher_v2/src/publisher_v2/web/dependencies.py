@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from functools import lru_cache
 
 from fastapi import Request
@@ -28,5 +26,3 @@ def get_request_service(request: Request) -> WebImageService:
     if svc is not None:
         return svc
     return get_service()
-
-

@@ -1,22 +1,17 @@
-from __future__ import annotations
-
 import argparse
 import asyncio
+import dataclasses
 import logging
-from datetime import datetime, timezone
-from typing import List
+from datetime import UTC, datetime
 
 from publisher_v2.config.loader import load_application_config
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
-from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.services.publishers.email import EmailPublisher
-from publisher_v2.services.publishers.telegram import TelegramPublisher
-from publisher_v2.services.publishers.instagram import InstagramPublisher
+from publisher_v2.services.publishers import build_publishers
 from publisher_v2.services.storage import DropboxStorage
-from publisher_v2.utils.logging import setup_logging, log_json
 from publisher_v2.utils import preview as preview_utils
-from publisher_v2.utils.captions import format_caption, build_metadata_phase1, build_metadata_phase2
+from publisher_v2.utils.captions import build_metadata_phase1, build_metadata_phase2, format_caption, normalize_tags
+from publisher_v2.utils.logging import log_json, setup_logging
 
 
 def parse_args() -> argparse.Namespace:
@@ -40,13 +35,13 @@ def parse_args() -> argparse.Namespace:
 
 async def main_async() -> int:
     args = parse_args()
-    
+
     # Preview mode uses minimal logging (suppress JSON logs)
     if args.preview:
         setup_logging(logging.WARNING)
     else:
         setup_logging(logging.INFO)
-    
+
     logger = logging.getLogger("publisher_v2")
 
     cfg = load_application_config(args.config, args.env)
@@ -66,11 +61,7 @@ async def main_async() -> int:
         publish_enabled=cfg.features.publish_enabled,
     )
 
-    publishers: List[Publisher] = [
-        TelegramPublisher(cfg.telegram, cfg.platforms.telegram_enabled),
-        EmailPublisher(cfg.email, cfg.platforms.email_enabled),
-        InstagramPublisher(cfg.instagram, cfg.platforms.instagram_enabled),
-    ]
+    publishers = build_publishers(cfg)
 
     # Preview mode: show header
     if args.preview:
@@ -84,20 +75,18 @@ async def main_async() -> int:
         print(f"  Feature - Publish: {'ON' if cfg.features.publish_enabled else 'OFF'}")
 
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
-    
+
     # Execute workflow (preview implies dry_publish)
     result = await orchestrator.execute(
-        select_filename=args.select,
-        dry_publish=args.dry_publish or args.preview,
-        preview_mode=args.preview
+        select_filename=args.select, dry_publish=args.dry_publish or args.preview, preview_mode=args.preview
     )
-    
+
     # Preview mode: show results
     if args.preview:
         if not result.success:
             preview_utils.print_error(result.error or "Unknown error")
             return 1
-        
+
         # Show image details
         preview_utils.print_image_details(
             filename=result.image_name,
@@ -106,17 +95,17 @@ async def main_async() -> int:
             dropbox_url=result.dropbox_url or "unknown",
             is_new=True,
         )
-        
+
         # Show vision analysis (always call to show disabled state)
         preview_utils.print_vision_analysis(
             analysis=result.image_analysis,
             model=analyzer.model,
             feature_enabled=cfg.features.analyze_caption_enabled,
         )
-        
+
         # Show caption
         if result.caption_spec:
-            hashtag_count = result.caption.count('#')
+            hashtag_count = result.caption.count("#")
             preview_utils.print_caption(
                 caption=result.caption,
                 spec=result.caption_spec,
@@ -126,9 +115,7 @@ async def main_async() -> int:
             )
             # Show caption sidecar content (sd_caption + metadata)
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
-                created_iso = (
-                    datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-                )
+                created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
                 db_meta = await storage.get_file_metadata(cfg.dropbox.image_folder, result.image_name)
                 phase1 = build_metadata_phase1(
@@ -145,13 +132,13 @@ async def main_async() -> int:
                 if cfg.captionfile.extended_metadata_enabled:
                     meta.update(build_metadata_phase2(result.image_analysis))
                 preview_utils.print_caption_sidecar_preview(result.image_analysis.sd_caption, meta)
-        
+
         # Show platform preview with formatted captions
         platform_captions = {}
         for pub in publishers:
             if pub.is_enabled():
                 platform_captions[pub.platform_name] = format_caption(pub.platform_name, result.caption)
-        
+
         # Compute email subject preview if email is enabled
         email_subject = None
         email_caption_target = None
@@ -177,21 +164,15 @@ async def main_async() -> int:
             email_subject_mode=email_subject_mode,
             publish_enabled=cfg.features.publish_enabled,
         )
-        
+
         # Show email confirmation details (FetLife email path)
         if cfg.platforms.email_enabled and cfg.email:
             tags_sample = None
             if result.image_analysis:
-                # lightweight normalization to preview tags
-                raw = result.image_analysis.tags or []
-                sample = []
-                for t in raw:
-                    t = t.strip().lower().lstrip("#")
-                    t = "".join(ch if ch.isalnum() or ch == " " else " " for ch in t)
-                    t = " ".join(t.split())
-                    if t and t not in sample:
-                        sample.append(t)
-                tags_sample = sample[: cfg.email.confirmation_tags_count]
+                tags_sample = normalize_tags(
+                    result.image_analysis.tags or [],
+                    cfg.email.confirmation_tags_count,
+                )
             preview_utils.print_email_confirmation_preview(
                 enabled=True,
                 to_sender=cfg.email.confirmation_to_sender,
@@ -199,11 +180,11 @@ async def main_async() -> int:
                 tags_sample=tags_sample,
                 nature=cfg.email.confirmation_tags_nature,
             )
-        
+
         # Show footer
         preview_utils.print_preview_footer()
         return 0
-    
+
     # Normal mode: JSON logging
     log_json(
         logger,
@@ -213,7 +194,7 @@ async def main_async() -> int:
         image=result.image_name,
         archived=result.archived,
         correlation_id=result.correlation_id,
-        results={k: v.__dict__ for k, v in result.publish_results.items()},
+        results={k: dataclasses.asdict(v) for k, v in result.publish_results.items()},
     )
     return 0 if result.success else 1
 
@@ -224,5 +205,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-
-

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
@@ -10,7 +9,8 @@ from PIL import Image
 
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils import images, logging as utils_logging, preview, state
+from publisher_v2.utils import images, preview, state
+from publisher_v2.utils import logging as utils_logging
 
 
 class _StubPublisher(Publisher):
@@ -194,4 +194,3 @@ def test_preview_helpers_cover_branches(capfd: pytest.CaptureFixture[str]) -> No
     assert "PREVIEW MODE" in out
     assert "CURATION ACTION" in out
     assert "EMAIL CONFIRMATION" in out
-

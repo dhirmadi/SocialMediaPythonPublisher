@@ -10,14 +10,7 @@ def test_parse_sidecar_empty() -> None:
 
 
 def test_parse_sidecar_basic_metadata() -> None:
-    content = (
-        "fine-art portrait\n"
-        "\n"
-        "# ---\n"
-        "# image_file: test.jpg\n"
-        "# sha256: abc123\n"
-        "# tags: [\"a\", \"b\"]\n"
-    )
+    content = 'fine-art portrait\n\n# ---\n# image_file: test.jpg\n# sha256: abc123\n# tags: ["a", "b"]\n'
     sd, meta = parse_sidecar_text(content)
     assert sd == "fine-art portrait"
     assert meta is not None
@@ -27,13 +20,7 @@ def test_parse_sidecar_basic_metadata() -> None:
 
 
 def test_rehydrate_sidecar_view_prefers_metadata_caption() -> None:
-    content = (
-        "sd caption only\n"
-        "\n"
-        "# ---\n"
-        "# caption: human caption\n"
-        "# tags: [\"x\"]\n"
-    )
+    content = 'sd caption only\n\n# ---\n# caption: human caption\n# tags: ["x"]\n'
     view = rehydrate_sidecar_view(content)
     assert view["sd_caption"] == "sd caption only"
     assert view["caption"] == "human caption"
@@ -42,12 +29,7 @@ def test_rehydrate_sidecar_view_prefers_metadata_caption() -> None:
 
 
 def test_rehydrate_sidecar_view_falls_back_to_sd_caption() -> None:
-    content = (
-        "sd caption only\n"
-        "\n"
-        "# ---\n"
-        "# image_file: test.jpg\n"
-    )
+    content = "sd caption only\n\n# ---\n# image_file: test.jpg\n"
     view = rehydrate_sidecar_view(content)
     assert view["sd_caption"] == "sd caption only"
     assert view["caption"] == "sd caption only"
@@ -62,15 +44,8 @@ def test_parse_sidecar_without_metadata_header() -> None:
 
 
 def test_parse_sidecar_keeps_invalid_json() -> None:
-    content = (
-        "sd text\n"
-        "\n"
-        "# ---\n"
-        "# tags: [invalid\n"
-        "# caption:   custom caption\n"
-    )
+    content = "sd text\n\n# ---\n# tags: [invalid\n# caption:   custom caption\n"
     sd, meta = parse_sidecar_text(content)
     assert sd == "sd text"
     assert meta is not None
     assert meta["caption"] == "custom caption"
-

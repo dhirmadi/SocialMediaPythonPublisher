@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import sys
+
 import pytest
 
 from publisher_v2.core.models import ImageAnalysis
@@ -22,4 +23,3 @@ def test_preview_prints_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
     print_vision_analysis(analysis, model="gpt-4o")
     out = buf.getvalue()
     assert "SD Caption" in out
-

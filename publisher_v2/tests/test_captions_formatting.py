@@ -17,5 +17,3 @@ def test_telegram_long_caption_allowed():
     base = "B" * 5000
     out = format_caption("telegram", base)
     assert len(out) <= 4096
-
-

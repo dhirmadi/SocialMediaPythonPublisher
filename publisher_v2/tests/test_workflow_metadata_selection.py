@@ -181,10 +181,9 @@ async def test_metadata_sidecar_error_path(monkeypatch: pytest.MonkeyPatch) -> N
     monkeypatch.setattr("publisher_v2.core.workflow.os.chmod", _raise_chmod)
     monkeypatch.setattr("publisher_v2.core.workflow.os.unlink", _raise_unlink)
 
-    orchestrator = _make_orchestrator(storage, [ _SuccessPublisher() ])
+    orchestrator = _make_orchestrator(storage, [_SuccessPublisher()])
     result = await orchestrator.execute()
 
     assert result.success is True
     assert storage.archived is True
     assert save_hashes and save_content
-

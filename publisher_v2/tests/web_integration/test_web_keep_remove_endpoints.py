@@ -59,5 +59,3 @@ def test_keep_remove_endpoint_success_flow(client: TestClient, monkeypatch: pyte
     # Remove
     res = client.post("/api/images/test.jpg/remove")
     assert res.status_code in (200, 404)
-
-

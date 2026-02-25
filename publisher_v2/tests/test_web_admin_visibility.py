@@ -37,5 +37,3 @@ def test_admin_js_contracts_present() -> None:
     assert "function initAdminControls()" in html
     assert "async function fetchAdminStatus()" in html
     assert "function updateAdminState(admin)" in html
-
-

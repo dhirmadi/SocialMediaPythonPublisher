@@ -28,5 +28,3 @@ class AIServiceError(SocialMediaPublisherError):
 
 class PublishingError(SocialMediaPublisherError):
     """Error publishing to platform."""
-
-

@@ -160,9 +160,8 @@ class TestRedactKeys:
     def test_redact_keys_contains_expected_keys(self):
         """REDACT_KEYS contains all expected sensitive key names."""
         expected = {"password", "secret", "token", "refresh_token", "bot_token", "api_key"}
-        assert REDACT_KEYS == expected
+        assert expected == REDACT_KEYS
 
     def test_redact_keys_is_set(self):
         """REDACT_KEYS is a set for O(1) lookup."""
         assert isinstance(REDACT_KEYS, set)
-

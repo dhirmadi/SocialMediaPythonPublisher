@@ -8,9 +8,8 @@ from ALL log output, including third-party library logs.
 from __future__ import annotations
 
 import logging
-import pytest
 
-from publisher_v2.utils.logging import sanitize, SanitizingFilter, setup_logging
+from publisher_v2.utils.logging import SanitizingFilter, sanitize, setup_logging
 
 
 class TestSanitizeFunction:
@@ -115,7 +114,7 @@ class TestSetupLogging:
         """setup_logging should add SanitizingFilter to the root handler."""
         setup_logging(logging.INFO)
         root = logging.getLogger()
-        
+
         # Check that at least one handler has a SanitizingFilter
         has_sanitizing_filter = False
         for handler in root.handlers:
@@ -123,14 +122,13 @@ class TestSetupLogging:
                 if isinstance(filter, SanitizingFilter):
                     has_sanitizing_filter = True
                     break
-        
+
         assert has_sanitizing_filter, "Root logger should have SanitizingFilter attached"
 
     def test_setup_reduces_httpx_verbosity(self):
         """setup_logging should reduce httpx/httpcore log levels."""
         setup_logging(logging.INFO)
-        
+
         assert logging.getLogger("httpx").level >= logging.WARNING
         assert logging.getLogger("httpcore").level >= logging.WARNING
         assert logging.getLogger("telegram").level >= logging.WARNING
-

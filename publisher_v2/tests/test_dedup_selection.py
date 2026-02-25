@@ -5,7 +5,9 @@ import json
 
 import pytest
 
-from publisher_v2.core.workflow import WorkflowOrchestrator
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -13,14 +15,13 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
 )
+from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.utils.state import _cache_path
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAI, BaseDummyPublisher
 
 
 class DedupTestStorage(BaseDummyStorage):
     """Storage with configurable content for dedup testing."""
+
     def __init__(self, content: bytes) -> None:
         super().__init__(content=content)
         self._images = ["a.jpg", "b.jpg"]
@@ -28,9 +29,10 @@ class DedupTestStorage(BaseDummyStorage):
 
 class DisabledPublisher(BaseDummyPublisher):
     """Publisher that is disabled and should never be called."""
+
     def __init__(self) -> None:
         super().__init__(platform="noop", enabled=False)
-    
+
     async def publish(self, image_path: str, caption: str, context=None):
         raise AssertionError("should not publish in debug")
 
@@ -62,5 +64,3 @@ async def test_dedup_skips_already_posted(monkeypatch, tmp_path):
     result = await orch.execute()
     assert result.success is False
     assert result.error and "No new images" in result.error
-
-

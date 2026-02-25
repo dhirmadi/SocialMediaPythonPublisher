@@ -53,4 +53,3 @@ def test_cache_lru_eviction(monkeypatch: pytest.MonkeyPatch) -> None:
     # 'b' should be evicted
     v, fresh = cache.get("b")
     assert v is None and fresh is False
-

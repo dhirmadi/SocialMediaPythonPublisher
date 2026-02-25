@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 import logging
 import os
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
-from publisher_v2.web.app import app
-from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.config.schema import ApplicationConfig, ContentConfig, DropboxConfig, OpenAIConfig, PlatformsConfig
+from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.storage import DropboxStorage
+from publisher_v2.web.app import app
 
 
 class _DummyStorage(DropboxStorage):
@@ -22,7 +22,7 @@ class _DummyStorage(DropboxStorage):
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         )
 
-    async def list_images(self, folder: str) -> List[str]:
+    async def list_images(self, folder: str) -> list[str]:
         return ["test.jpg"]
 
     async def download_image(self, folder: str, filename: str) -> bytes:
@@ -57,6 +57,7 @@ class _DummyAI(AIService):
     def __init__(self) -> None:
         self.analyzer = _DummyAnalyzer()
         self.generator = _DummyGenerator()
+
         # Provide a no-op rate limiter compatible with AIService usage.
         class _NoopLimiter:
             async def __aenter__(self) -> None:  # type: ignore[override]
@@ -96,7 +97,7 @@ async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -
 
     storage = _DummyStorage()
     ai = _DummyAI()
-    publishers: List[Publisher] = [_DummyPublisher()]
+    publishers: list[Publisher] = [_DummyPublisher()]
     orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)
 
     caplog.set_level(logging.INFO, logger="publisher_v2.workflow")
@@ -105,7 +106,7 @@ async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -
 
     records = [r for r in caplog.records if "workflow_timing" in r.getMessage()]
     assert records, "Expected workflow_timing log for CLI run"
-    entry: Dict[str, Any] = json.loads(records[0].getMessage())
+    entry: dict[str, Any] = json.loads(records[0].getMessage())
     assert entry.get("correlation_id")
     assert isinstance(entry.get("dropbox_list_images_ms"), int)
     assert isinstance(entry.get("image_selection_ms"), int)
@@ -132,9 +133,7 @@ def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monk
     assert res.status_code in (200, 403, 404, 503)
 
     records = [
-        r for r in caplog.records 
-        if "web_random_image" in r.getMessage() 
-        or "view_permission_denied" in r.getMessage()
+        r for r in caplog.records if "web_random_image" in r.getMessage() or "view_permission_denied" in r.getMessage()
     ]
     assert records, "Expected web_random_image* or view_permission_denied* log entry"
     entry = json.loads(records[0].getMessage())
@@ -143,5 +142,3 @@ def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monk
     # checking correlation_id is sufficient proof of telemetry.
     if "web_random_image_ms" in entry:
         assert isinstance(entry.get("web_random_image_ms"), int)
-
-

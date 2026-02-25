@@ -18,7 +18,7 @@ This guide is for developers who want to contribute to or modify the Social Medi
 
 ### Prerequisites
 
-- Python 3.9 or higher
+- Python 3.12 or higher
 - Git
 - Virtual environment tool (venv, virtualenv, or conda)
 

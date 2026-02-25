@@ -1,9 +1,6 @@
-from __future__ import annotations
-
 import json
 import os
 from pathlib import Path
-from typing import Dict, Set
 
 
 def _cache_path() -> Path:
@@ -14,7 +11,7 @@ def _cache_path() -> Path:
     return path / "posted.json"
 
 
-def _load_state() -> Dict[str, object]:
+def _load_state() -> dict[str, object]:
     """
     Internal helper to load posted state in a backward-compatible way.
 
@@ -37,7 +34,7 @@ def _load_state() -> Dict[str, object]:
     if isinstance(data, list):
         return {"hashes": [str(x) for x in data]}
     if isinstance(data, dict):
-        state: Dict[str, object] = {}
+        state: dict[str, object] = {}
         hashes = data.get("hashes")
         if isinstance(hashes, list):
             state["hashes"] = [str(x) for x in hashes]
@@ -48,7 +45,7 @@ def _load_state() -> Dict[str, object]:
     return {}
 
 
-def _save_state(state: Dict[str, object]) -> None:
+def _save_state(state: dict[str, object]) -> None:
     fp = _cache_path()
     try:
         fp.write_text(json.dumps(state, sort_keys=True))
@@ -57,7 +54,7 @@ def _save_state(state: Dict[str, object]) -> None:
         pass
 
 
-def load_posted_hashes() -> Set[str]:
+def load_posted_hashes() -> set[str]:
     state = _load_state()
     hashes = state.get("hashes")
     if isinstance(hashes, list):
@@ -77,7 +74,7 @@ def save_posted_hash(hash_value: str) -> None:
     _save_state(state)
 
 
-def load_posted_content_hashes() -> Set[str]:
+def load_posted_content_hashes() -> set[str]:
     state = _load_state()
     content_hashes = state.get("dropbox_content_hashes")
     if isinstance(content_hashes, list):
@@ -97,5 +94,3 @@ def save_posted_content_hash(hash_value: str) -> None:
     content_hashes.append(hash_value)
     state["dropbox_content_hashes"] = sorted(set(str(x) for x in content_hashes))
     _save_state(state)
-
-

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.source import get_config_source, clear_config_source_cache
+from publisher_v2.config.source import clear_config_source_cache, get_config_source
 from publisher_v2.core.exceptions import ConfigurationError
 
 
@@ -54,5 +54,3 @@ def test_factory_raises_when_url_set_but_token_missing(monkeypatch: pytest.Monke
     clear_config_source_cache()
     with pytest.raises(ConfigurationError):
         _ = get_config_source()
-
-

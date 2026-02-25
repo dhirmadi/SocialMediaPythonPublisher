@@ -233,4 +233,3 @@ async def test_caption_override_none_preserves_existing_behavior(monkeypatch: py
     assert generator.calls >= 1
     assert publisher.called is True
     assert result.caption != ""
-

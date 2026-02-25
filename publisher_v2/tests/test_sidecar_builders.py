@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-from publisher_v2.core.models import ImageAnalysis
 from publisher_v2.utils.captions import (
-    build_metadata_phase1,
-    build_metadata_phase2,
     build_caption_sidecar,
+    build_metadata_phase1,
 )
 
 
@@ -44,5 +42,3 @@ def test_build_caption_sidecar_formatting() -> None:
     # Metadata lines are comment-prefixed
     for ln in lines[3:]:
         assert ln.startswith("# ")
-
-

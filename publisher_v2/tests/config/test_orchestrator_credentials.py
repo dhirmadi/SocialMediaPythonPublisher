@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
 import httpx
+import pytest
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
 from publisher_v2.config.source import OrchestratorConfigSource
@@ -41,13 +41,18 @@ async def test_resolve_each_provider(monkeypatch: pytest.MonkeyPatch) -> None:
             body = json.loads(request.content.decode("utf-8"))
             ref = body["credentials_ref"]
             if ref == "oa-ref":
-                return httpx.Response(200, json={"provider": "openai", "version": "v1", "api_key": "sk-test-key-for-testing-purposes-only"})
+                return httpx.Response(
+                    200,
+                    json={"provider": "openai", "version": "v1", "api_key": "sk-test-key-for-testing-purposes-only"},
+                )
             if ref == "tg-ref":
                 return httpx.Response(200, json={"provider": "telegram", "version": "v1", "bot_token": "123:abc"})
             if ref == "smtp-ref":
                 return httpx.Response(200, json={"provider": "smtp", "version": "v1", "password": "pw"})
             if ref == "db-ref":
-                return httpx.Response(200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None})
+                return httpx.Response(
+                    200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None}
+                )
         return httpx.Response(500)
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
@@ -70,12 +75,12 @@ async def test_cache_hit_skips_network(monkeypatch: pytest.MonkeyPatch) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/credentials/resolve":
             calls["resolve"] += 1
-            return httpx.Response(200, json={"provider": "openai", "version": "v1", "api_key": "sk-test-key-for-testing-purposes-only"})
+            return httpx.Response(
+                200, json={"provider": "openai", "version": "v1", "api_key": "sk-test-key-for-testing-purposes-only"}
+            )
         return httpx.Response(500)
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
     _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
     _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
     assert calls["resolve"] == 1
-
-

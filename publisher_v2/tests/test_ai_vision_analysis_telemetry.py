@@ -77,11 +77,7 @@ async def test_vision_analyzer_logs_timing_success(monkeypatch, caplog) -> None:
     analysis = await analyzer.analyze("http://example.com/image.jpg")
     assert isinstance(analysis, ImageAnalysis)
 
-    telemetry_logs = [
-        record
-        for record in caplog.records
-        if "vision_analysis" in getattr(record, "message", "")
-    ]
+    telemetry_logs = [record for record in caplog.records if "vision_analysis" in getattr(record, "message", "")]
     assert telemetry_logs, "expected at least one telemetry log_json entry"
 
     # Parse last telemetry JSON entry
@@ -107,11 +103,7 @@ async def test_vision_analyzer_logs_timing_on_json_error(monkeypatch, caplog) ->
     analysis = await analyzer.analyze("http://example.com/image.jpg")
     assert isinstance(analysis, ImageAnalysis)
 
-    telemetry_logs = [
-        record
-        for record in caplog.records
-        if "vision_analysis" in getattr(record, "message", "")
-    ]
+    telemetry_logs = [record for record in caplog.records if "vision_analysis" in getattr(record, "message", "")]
     assert telemetry_logs, "expected telemetry log_json even on JSON error"
 
     payload = json.loads(telemetry_logs[-1].message)
@@ -119,4 +111,3 @@ async def test_vision_analyzer_logs_timing_on_json_error(monkeypatch, caplog) ->
     assert payload.get("ok") is True  # Fallback still produces an ImageAnalysis
     # json_decode_error should be recorded when fallback was used
     assert payload.get("error_type") in (None, "json_decode_error")
-

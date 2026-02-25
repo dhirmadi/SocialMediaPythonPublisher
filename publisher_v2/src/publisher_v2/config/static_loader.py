@@ -1,10 +1,8 @@
-from __future__ import annotations
-
 import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 import yaml
 from pydantic import BaseModel, Field
@@ -13,33 +11,33 @@ logger = logging.getLogger("publisher_v2.config.static")
 
 
 class AIVisionPrompts(BaseModel):
-    system: Optional[str] = Field(
+    system: str | None = Field(
         default=None,
         description="System prompt for vision analysis",
     )
-    user: Optional[str] = Field(
+    user: str | None = Field(
         default=None,
         description="User instructions for vision analysis",
     )
 
 
 class AICaptionPrompts(BaseModel):
-    system: Optional[str] = Field(
+    system: str | None = Field(
         default=None,
         description="System prompt for caption generation",
     )
-    role: Optional[str] = Field(
+    role: str | None = Field(
         default=None,
         description="Role/user prompt template for caption generation",
     )
 
 
 class AISDCaptionPrompts(BaseModel):
-    system: Optional[str] = Field(
+    system: str | None = Field(
         default=None,
         description="System prompt for SD caption generation",
     )
-    role: Optional[str] = Field(
+    role: str | None = Field(
         default=None,
         description="Role/user prompt template for SD caption generation",
     )
@@ -64,24 +62,24 @@ class AIPromptsConfig(BaseModel):
 
 
 class PlatformLimit(BaseModel):
-    max_caption_length: Optional[int] = Field(
+    max_caption_length: int | None = Field(
         default=None,
         description="Maximum caption length for this platform",
     )
-    max_hashtags: Optional[int] = Field(
+    max_hashtags: int | None = Field(
         default=None,
         description="Maximum number of hashtags for this platform",
     )
-    resize_width_px: Optional[int] = Field(
+    resize_width_px: int | None = Field(
         default=None,
         description="Maximum resize width in pixels for this platform",
     )
     # Email/FetLife-specific settings
-    caption_target: Optional[str] = Field(
+    caption_target: str | None = Field(
         default=None,
         description="Where to place caption: subject | body | both",
     )
-    subject_mode: Optional[str] = Field(
+    subject_mode: str | None = Field(
         default=None,
         description="Subject prefix mode: normal | private | avatar",
     )
@@ -108,7 +106,7 @@ class PlatformLimitsConfig(BaseModel):
 
 
 class PreviewTextConfig(BaseModel):
-    headers: Dict[str, str] = Field(
+    headers: dict[str, str] = Field(
         default_factory=lambda: {
             "preview_mode": "PUBLISHER V2 - PREVIEW MODE",
             "image_selected": "📸 IMAGE SELECTED",
@@ -120,7 +118,7 @@ class PreviewTextConfig(BaseModel):
             "preview_footer": "⚠️  PREVIEW MODE - NO ACTIONS TAKEN",
         }
     )
-    messages: Dict[str, str] = Field(
+    messages: dict[str, str] = Field(
         default_factory=lambda: {
             "no_caption_yet": "No caption yet.",
             "analysis_skipped": "⚠ Analysis skipped (FEATURE_ANALYZE_CAPTION=false)",
@@ -130,7 +128,7 @@ class PreviewTextConfig(BaseModel):
 
 
 class WebUITextConfig(BaseModel):
-    values: Dict[str, Any] = Field(
+    values: dict[str, Any] = Field(
         default_factory=lambda: {
             "title": "Publisher V2 Web",
             "header_title": "Publisher V2 Web",
@@ -182,7 +180,7 @@ class WebLimits(BaseModel):
 
 
 class SMTPLimits(BaseModel):
-    timeout_seconds: Optional[float] = None
+    timeout_seconds: float | None = None
 
 
 class ServiceLimitsConfig(BaseModel):
@@ -200,7 +198,7 @@ class StaticConfig(BaseModel):
     service_limits: ServiceLimitsConfig = ServiceLimitsConfig()
 
 
-def _load_yaml(path: Path) -> Dict[str, Any]:
+def _load_yaml(path: Path) -> dict[str, Any]:
     if not path.exists():
         logger.warning("Static config file missing", extra={"path": str(path)})
         return {}
@@ -261,6 +259,3 @@ def get_static_config() -> StaticConfig:
     This is the primary entry point other modules should use.
     """
     return load_static_config(None)
-
-
-

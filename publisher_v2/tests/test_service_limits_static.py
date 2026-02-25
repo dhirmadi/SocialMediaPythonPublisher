@@ -37,5 +37,3 @@ def test_instagram_publisher_uses_default_delay_range(monkeypatch) -> None:
     limits = pub._limits  # type: ignore[attr-defined]
     assert limits.delay_min_seconds == 1
     assert limits.delay_max_seconds == 3
-
-

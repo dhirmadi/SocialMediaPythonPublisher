@@ -5,6 +5,9 @@ import logging
 
 import pytest
 
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -13,9 +16,6 @@ from publisher_v2.config.schema import (
     PlatformsConfig,
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAI, BaseDummyPublisher
 
 
 @pytest.mark.asyncio
@@ -77,5 +77,3 @@ async def test_orchestrator_emits_timing_log(tmp_path, caplog: pytest.LogCapture
     assert isinstance(entry.get("dropbox_list_images_ms"), int)
     assert isinstance(entry.get("image_selection_ms"), int)
     assert isinstance(entry.get("caption_generation_ms"), int)
-
-

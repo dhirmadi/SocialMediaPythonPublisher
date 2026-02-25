@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -9,16 +12,14 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
 )
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAnalyzer, BaseDummyGenerator
+from publisher_v2.services.ai import AIService
 
 
 class SDCaptionGenerator(BaseDummyGenerator):
     """Generator that supports SD caption generation."""
+
     def __init__(self, cfg: OpenAIConfig) -> None:
         super().__init__(caption="normal caption", sd_caption="fine-art portrait, soft light, calm mood")
         self.model = cfg.caption_model
@@ -32,6 +33,7 @@ class SDCaptionGenerator(BaseDummyGenerator):
 
 class TrackingStorage(BaseDummyStorage):
     """Storage that tracks writes and archives for assertions."""
+
     def __init__(self) -> None:
         super().__init__()
         self.writes = 0
@@ -79,5 +81,3 @@ async def test_workflow_sd_integration_preview_and_live(monkeypatch: pytest.Monk
     result_live = await orchestrator.execute(preview_mode=False)
     assert storage.writes == 1
     assert result_live.success in (True, False)  # Publishing bypassed; success may reflect debug path
-
-

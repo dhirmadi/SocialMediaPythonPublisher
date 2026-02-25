@@ -1,6 +1,6 @@
 ## Social Media Python Publisher — V2
 
-[![Python 3.12](https://img.shields.io/badge/python-3.12-blue.svg)](https://www.python.org/downloads/)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses OpenAI (vision + copy), Dropbox for storage, and pluggable publishers (Email/FetLife, Telegram, Instagram). It’s built with uv, strict config validation, retries/backoff, rate limiting, SHA256 de‑duplication, and a safe Preview Mode.
@@ -39,7 +39,7 @@ Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses Op
 ### 🚀 Quick Start (uv)
 
 #### Prerequisites
-- Python 3.12 (3.9–3.11 supported per `pyproject.toml`)
+- Python 3.12+
 - uv
 
 #### Install

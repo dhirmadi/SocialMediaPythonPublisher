@@ -28,5 +28,3 @@ def test_web_interface_end_to_end() -> None:
     res = client.get("/")
     assert res.status_code == 200
     assert "Publisher V2 Web" in res.text
-
-

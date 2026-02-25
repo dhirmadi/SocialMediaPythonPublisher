@@ -1,33 +1,28 @@
-from __future__ import annotations
-
 import asyncio
+import dataclasses
+import hashlib
 import logging
 import os
+import random
 import tempfile
 import uuid
-import hashlib
-from datetime import datetime, timezone
-from typing import Dict, List, Tuple
 
 from publisher_v2.config.schema import ApplicationConfig
-from publisher_v2.core.exceptions import AIServiceError, PublishingError, StorageError
+from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
-from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.state import (
-    load_posted_hashes,
-    save_posted_hash,
-    load_posted_content_hashes,
-    save_posted_content_hash,
-)
+from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.utils.captions import (
     format_caption,
-    build_metadata_phase1,
-    build_metadata_phase2,
-    build_caption_sidecar,
 )
-from publisher_v2.utils.logging import log_json, now_monotonic, elapsed_ms
+from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic
+from publisher_v2.utils.state import (
+    load_posted_content_hashes,
+    load_posted_hashes,
+    save_posted_content_hash,
+    save_posted_hash,
+)
 
 
 class WorkflowOrchestrator:
@@ -36,7 +31,7 @@ class WorkflowOrchestrator:
         config: ApplicationConfig,
         storage: DropboxStorage,
         ai_service: AIService,
-        publishers: List[Publisher],
+        publishers: list[Publisher],
     ):
         self.config = config
         self.storage = storage
@@ -45,8 +40,8 @@ class WorkflowOrchestrator:
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     async def execute(
-        self, 
-        select_filename: str | None = None, 
+        self,
+        select_filename: str | None = None,
         dry_publish: bool = False,
         preview_mode: bool = False,
         caption_override: str | None = None,
@@ -84,16 +79,14 @@ class WorkflowOrchestrator:
                 preview_mode=preview_mode,
                 dry_publish=dry_publish,
             )
-        
+
         try:
             # 1. Select image
             # Prefer Dropbox metadata-based dedup when using a real Dropbox client,
             # but fall back to the legacy SHA256-only path for dummy storages in tests.
-            use_metadata = hasattr(self.storage, "list_images_with_hashes") and getattr(
-                self.storage, "client", None
-            ) is not None
-
-            import random
+            use_metadata = (
+                hasattr(self.storage, "list_images_with_hashes") and getattr(self.storage, "client", None) is not None
+            )
 
             content = b""
             selected_content_hash = ""
@@ -193,7 +186,6 @@ class WorkflowOrchestrator:
                         selected_hash = digest
                         selected_content_hash = ch or ""
                         break
-                selection_start = selection_start
             else:
                 # 1b. Legacy selection using list_images + SHA256-only dedup
                 list_start = now_monotonic()
@@ -307,20 +299,7 @@ class WorkflowOrchestrator:
                 )
 
             # 4. Generate caption from analysis (feature-gated)
-            if self.config.platforms.email_enabled and self.config.email:
-                spec = CaptionSpec(
-                    platform="fetlife_email",
-                    style="engagement_question",
-                    hashtags="",
-                    max_length=240,
-                )
-            else:
-                spec = CaptionSpec(
-                    platform="generic",
-                    style="minimal_poetic",
-                    hashtags=self.config.content.hashtag_string,
-                    max_length=2200,
-                )
+            spec = CaptionSpec.for_config(self.config)
             caption = ""
             sd_caption = None
             if caption_override and caption_override.strip():
@@ -359,11 +338,13 @@ class WorkflowOrchestrator:
                         correlation_id=correlation_id,
                     )
                 if analysis and sd_caption:
-                    setattr(analysis, "sd_caption", sd_caption)
+                    analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
                 if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
                     from publisher_v2.services.sidecar import generate_and_upload_sidecar
-                    
-                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(self.ai_service.generator, "model", "")
+
+                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(
+                        self.ai_service.generator, "model", ""
+                    )
                     try:
                         sidecar_write_ms = await generate_and_upload_sidecar(
                             storage=self.storage,
@@ -374,13 +355,13 @@ class WorkflowOrchestrator:
                             model_version=str(model_version),
                             sha256=selected_hash,
                             correlation_id=correlation_id,
-                            log_prefix="sidecar_upload"
+                            log_prefix="sidecar_upload",
                         )
                     except Exception:
                         # Error logged inside helper; suppress here to continue workflow
                         # But we need to capture timing if possible, helper calculates it before raising if we change it?
                         # I modified helper to log error with duration before raising.
-                        # We just need to ensure sidecar_write_ms is set if possible, 
+                        # We just need to ensure sidecar_write_ms is set if possible,
                         # but if exception raised, we might have lost the return value.
                         # Actually, let's just calc duration here if we want to be safe,
                         # OR rely on the log inside helper.
@@ -399,7 +380,7 @@ class WorkflowOrchestrator:
 
             # 5. Publish in parallel
             enabled_publishers = [p for p in self.publishers if p.is_enabled()]
-            publish_results: Dict[str, PublishResult] = {}
+            publish_results: dict[str, PublishResult] = {}
             if self.config.features.publish_enabled:
                 if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                     publish_start = now_monotonic()
@@ -443,7 +424,13 @@ class WorkflowOrchestrator:
 
             # 6. Archive if any success and not debug
             archived = False
-            if any_success and self.config.content.archive and not self.config.content.debug and not dry_publish and not preview_mode:
+            if (
+                any_success
+                and self.config.content.archive
+                and not self.config.content.debug
+                and not dry_publish
+                and not preview_mode
+            ):
                 archive_start = now_monotonic()
                 await self.storage.archive_image(
                     self.config.dropbox.image_folder, selected_image, self.config.dropbox.archive_folder
@@ -479,6 +466,7 @@ class WorkflowOrchestrator:
                     os.unlink(tmp_path)
                 except Exception:
                     pass
+
     async def _curate_image(
         self,
         filename: str,

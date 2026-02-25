@@ -1,29 +1,26 @@
-from __future__ import annotations
-
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Generic, Optional, TypeVar
-
+from typing import TypeVar
 
 K = TypeVar("K")
 V = TypeVar("V")
 
 
-@dataclass
+@dataclass(slots=True)
 class CacheStats:
     hit_total: int = 0
     miss_total: int = 0
     stale_serve_total: int = 0
 
 
-@dataclass
-class _Entry(Generic[V]):
+@dataclass(frozen=True, slots=True)
+class _Entry[V]:
     value: V
     expires_at: float
 
 
-class RuntimeConfigCache(Generic[K, V]):
+class RuntimeConfigCache[K, V]:
     """
     In-memory LRU+TTL cache that can optionally serve stale values when upstream
     is unavailable.
@@ -31,10 +28,10 @@ class RuntimeConfigCache(Generic[K, V]):
 
     def __init__(self, *, max_size: int = 1000) -> None:
         self._max_size = max(1, int(max_size))
-        self._data: "OrderedDict[K, _Entry[V]]" = OrderedDict()
+        self._data: OrderedDict[K, _Entry[V]] = OrderedDict()
         self.stats = CacheStats()
 
-    def get(self, key: K) -> tuple[Optional[V], bool]:
+    def get(self, key: K) -> tuple[V | None, bool]:
         """
         Returns (value, is_fresh). If missing returns (None, False).
         If expired, returns (value, False) and keeps the entry for possible stale serving.
@@ -66,5 +63,3 @@ class RuntimeConfigCache(Generic[K, V]):
 
     def mark_stale_served(self) -> None:
         self.stats.stale_serve_total += 1
-
-

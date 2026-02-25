@@ -1,41 +1,43 @@
-from __future__ import annotations
-
 import asyncio
-import hashlib
+import dataclasses
+import json
 import logging
 import os
-import tempfile
+import random
 import time
 import urllib.parse
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 from dotenv import load_dotenv
+from pydantic import ValidationError
 
 # Load .env early so CONFIG_PATH can come from it (for local development).
 # This is idempotent and won't override existing env vars (e.g., on Heroku).
 # Called at module import time to avoid test interference.
 load_dotenv()
 
-from publisher_v2.config.loader import load_application_config
-from publisher_v2.config.source import ConfigSource, RuntimeConfig
-from publisher_v2.config.credentials import OpenAICredentials, TelegramCredentials, SMTPCredentials
-from publisher_v2.core.exceptions import CredentialResolutionError, OrchestratorUnavailableError
-from publisher_v2.config.static_loader import get_static_config
-from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI, NullAIService
-from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.services.publishers.email import EmailPublisher
-from publisher_v2.services.publishers.telegram import TelegramPublisher
-from publisher_v2.services.publishers.instagram import InstagramPublisher
-from publisher_v2.services.storage import DropboxStorage
-from publisher_v2.utils.logging import log_json
-from publisher_v2.utils.captions import (
-    build_metadata_phase1,
-    build_metadata_phase2,
-    build_caption_sidecar,
+from publisher_v2.config.credentials import OpenAICredentials, SMTPCredentials, TelegramCredentials  # noqa: E402
+from publisher_v2.config.loader import load_application_config  # noqa: E402
+from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
+from publisher_v2.config.static_loader import get_static_config  # noqa: E402
+from publisher_v2.core.exceptions import (  # noqa: E402
+    CredentialResolutionError,
+    OrchestratorUnavailableError,
+    TenantNotFoundError,
 )
-from publisher_v2.web.models import ImageResponse, AnalysisResponse, PublishResponse, CurationResponse
-from publisher_v2.web.sidecar_parser import parse_sidecar_text, rehydrate_sidecar_view
+from publisher_v2.core.workflow import WorkflowOrchestrator  # noqa: E402
+from publisher_v2.services.ai import (  # noqa: E402
+    AIService,
+    CaptionGeneratorOpenAI,
+    NullAIService,
+    VisionAnalyzerOpenAI,
+)
+from publisher_v2.services.publishers import build_publishers  # noqa: E402
+from publisher_v2.services.publishers.base import Publisher  # noqa: E402
+from publisher_v2.services.storage import DropboxStorage  # noqa: E402
+from publisher_v2.utils.logging import log_json  # noqa: E402
+from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
+from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 
 
 class WebImageService:
@@ -76,11 +78,7 @@ class WebImageService:
             generator = CaptionGeneratorOpenAI(cfg.openai)
             ai_service = AIService(analyzer, generator)
 
-        publishers: List[Publisher] = [
-            TelegramPublisher(cfg.telegram, cfg.platforms.telegram_enabled),
-            EmailPublisher(cfg.email, cfg.platforms.email_enabled),
-            InstagramPublisher(cfg.instagram, cfg.platforms.instagram_enabled),
-        ]
+        publishers: list[Publisher] = build_publishers(cfg)
 
         self.config = cfg
         self.storage = storage
@@ -100,8 +98,8 @@ class WebImageService:
             self.orchestrator: WorkflowOrchestrator | None = None
         # Short-lived in-memory cache for Dropbox image listings to avoid
         # repeated list_images calls on hot paths (see CR 005-004).
-        self._image_cache: Optional[List[str]] = None
-        self._image_cache_expiry: Optional[float] = None
+        self._image_cache: list[str] | None = None
+        self._image_cache_expiry: float | None = None
         limits = get_static_config().service_limits
         ttl = limits.web.image_cache_ttl_seconds
         env_ttl = os.environ.get("WEB_IMAGE_CACHE_TTL_SECONDS")
@@ -141,14 +139,20 @@ class WebImageService:
             data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
             creds = OpenAICredentials.model_validate(data)
             new_openai = self.config.openai.model_copy(update={"api_key": creds.api_key})
-            # Replace openai config to keep downstream access consistent
             self.config = self.config.model_copy(update={"openai": new_openai})
             analyzer = VisionAnalyzerOpenAI(new_openai)
             generator = CaptionGeneratorOpenAI(new_openai)
             self.ai_service = AIService(analyzer, generator)
             return self.ai_service
-        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
-            # Degrade gracefully: disable AI for this tenant/request.
+        except (CredentialResolutionError, OrchestratorUnavailableError):
+            log_json(self.logger, logging.WARNING, "ai_credential_resolution_failed", host=self._runtime.host)
+            self.config.features.analyze_caption_enabled = False
+            return None
+        except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
+            log_json(
+                self.logger, logging.ERROR, "ai_credential_unexpected_error",
+                host=self._runtime.host, error=str(exc),
+            )
             self.config.features.analyze_caption_enabled = False
             return None
 
@@ -168,7 +172,14 @@ class WebImageService:
             creds = SMTPCredentials.model_validate(data)
             new_email = self.config.email.model_copy(update={"password": creds.password})
             self.config = self.config.model_copy(update={"email": new_email})
-        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
+        except (CredentialResolutionError, OrchestratorUnavailableError):
+            log_json(self.logger, logging.WARNING, "email_credential_resolution_failed", host=self._runtime.host)
+            self.config.platforms.email_enabled = False
+        except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
+            log_json(
+                self.logger, logging.ERROR, "email_credential_unexpected_error",
+                host=self._runtime.host, error=str(exc),
+            )
             self.config.platforms.email_enabled = False
 
     async def _ensure_telegram_publisher(self) -> None:
@@ -187,7 +198,14 @@ class WebImageService:
             creds = TelegramCredentials.model_validate(data)
             new_tg = self.config.telegram.model_copy(update={"bot_token": creds.bot_token})
             self.config = self.config.model_copy(update={"telegram": new_tg})
-        except (CredentialResolutionError, OrchestratorUnavailableError, Exception):
+        except (CredentialResolutionError, OrchestratorUnavailableError):
+            log_json(self.logger, logging.WARNING, "telegram_credential_resolution_failed", host=self._runtime.host)
+            self.config.platforms.telegram_enabled = False
+        except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
+            log_json(
+                self.logger, logging.ERROR, "telegram_credential_unexpected_error",
+                host=self._runtime.host, error=str(exc),
+            )
             self.config.platforms.telegram_enabled = False
 
     async def _ensure_publishers(self) -> None:
@@ -197,12 +215,7 @@ class WebImageService:
         await self._ensure_email_publisher()
         await self._ensure_telegram_publisher()
 
-        # Rebuild publishers list with updated config objects.
-        self.publishers = [
-            TelegramPublisher(self.config.telegram, self.config.platforms.telegram_enabled),
-            EmailPublisher(self.config.email, self.config.platforms.email_enabled),
-            InstagramPublisher(self.config.instagram, self.config.platforms.instagram_enabled),
-        ]
+        self.publishers = build_publishers(self.config)
 
     async def _ensure_orchestrator(self) -> WorkflowOrchestrator:
         if self.orchestrator is not None:
@@ -213,7 +226,7 @@ class WebImageService:
         self.orchestrator = WorkflowOrchestrator(self.config, self.storage, ai_service, self.publishers)  # type: ignore[arg-type]
         return self.orchestrator
 
-    async def _get_cached_images(self) -> List[str]:
+    async def _get_cached_images(self) -> list[str]:
         """
         Return a cached list of images when within TTL, otherwise refresh from Dropbox.
         """
@@ -232,13 +245,11 @@ class WebImageService:
         Shared helper to build an ImageResponse from a filename and temp link.
         Handles sidecar loading and thumbnail URL generation consistently.
         """
-        sidecar_result = await self.storage.download_sidecar_if_exists(
-            self.config.dropbox.image_folder, filename
-        )
+        sidecar_result = await self.storage.download_sidecar_if_exists(self.config.dropbox.image_folder, filename)
 
         caption = None
         sd_caption = None
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: dict[str, Any] | None = None
         has_sidecar = False
 
         if sidecar_result:
@@ -267,7 +278,6 @@ class WebImageService:
         if not images:
             raise FileNotFoundError("No images found")
 
-        import random
         random.shuffle(images)
         selected = images[0]
         folder = self.config.dropbox.image_folder
@@ -286,10 +296,10 @@ class WebImageService:
         except Exception:
             # Propagate or wrap as needed, but storage error usually implies not found/access issue
             raise FileNotFoundError(f"Image {filename} not found")
-            
+
         return await self._build_image_response(filename, temp_link)
 
-    async def list_images(self) -> Dict[str, Any]:
+    async def list_images(self) -> dict[str, Any]:
         """
         Return a sorted list of all valid image filenames.
         Uses in-memory caching to avoid hitting Dropbox too frequently.
@@ -300,9 +310,9 @@ class WebImageService:
         # Let's check DropboxStorage.list_images implementation or assume it returns all files.
         # Actually, self._get_cached_images calls self.storage.list_images.
         # We should ensure we return a sorted list here.
-        
+
         images = await self._get_cached_images()
-        # Filter again just to be safe using utils logic if needed, 
+        # Filter again just to be safe using utils logic if needed,
         # but let's assume _get_cached_images returns valid files.
         # Sort A-Z
         sorted_images = sorted(images)
@@ -338,16 +348,14 @@ class WebImageService:
         return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 
     async def analyze_and_caption(
-        self, filename: str, correlation_id: Optional[str] = None, force_refresh: bool = False
+        self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link
         temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, filename)
 
         # Sidecar-first cache path when not forcing refresh.
         if not force_refresh:
-            blob = await self.storage.download_sidecar_if_exists(
-                self.config.dropbox.image_folder, filename
-            )
+            blob = await self.storage.download_sidecar_if_exists(self.config.dropbox.image_folder, filename)
             if blob:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text)
@@ -422,23 +430,9 @@ class WebImageService:
         )
         analysis = await ai.analyzer.analyze(temp_link)
 
-        # Build spec consistent with orchestrator behaviour
         from publisher_v2.core.models import CaptionSpec
 
-        if self.config.platforms.email_enabled and self.config.email:
-            spec = CaptionSpec(
-                platform="fetlife_email",
-                style="engagement_question",
-                hashtags="",
-                max_length=240,
-            )
-        else:
-            spec = CaptionSpec(
-                platform="generic",
-                style="minimal_poetic",
-                hashtags=self.config.content.hashtag_string,
-                max_length=2200,
-            )
+        spec = CaptionSpec.for_config(self.config)
 
         # Generate caption + sd_caption via centralized AIService helper.
         sd_caption = None
@@ -458,17 +452,14 @@ class WebImageService:
 
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:
-            analysis.sd_caption = sd_caption
+            analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
 
         # Write sidecar (mimic workflow sidecar behaviour)
         sidecar_written = False
         if sd_caption and not self.config.content.debug:
             from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
-            model_version = (
-                getattr(ai.generator, "sd_caption_model", None)
-                or getattr(ai.generator, "model", "")
-            )
+            model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
             try:
                 await generate_and_upload_sidecar(
                     storage=self.storage,
@@ -479,7 +470,7 @@ class WebImageService:
                     model_version=str(model_version),
                     sha256="",  # Optional here
                     correlation_id=correlation_id,
-                    log_prefix="web_sidecar_upload"
+                    log_prefix="web_sidecar_upload",
                 )
                 sidecar_written = True
             except Exception:
@@ -500,8 +491,8 @@ class WebImageService:
     async def publish_image(
         self,
         filename: str,
-        platforms: Optional[List[str]] = None,
-        caption_override: Optional[str] = None,
+        platforms: list[str] | None = None,
+        caption_override: str | None = None,
     ) -> PublishResponse:
         """
         Publish a specific image by delegating to the existing WorkflowOrchestrator.
@@ -541,7 +532,7 @@ class WebImageService:
             caption_override=caption_override,
         )
         # Convert results to simple dict form
-        results: Dict[str, Dict[str, Any]] = {}
+        results: dict[str, dict[str, Any]] = {}
         for name, pr in result.publish_results.items():
             results[name] = {
                 "success": pr.success,
@@ -632,6 +623,3 @@ class WebImageService:
         if tasks:
             log_json(self.logger, logging.INFO, "web_verifying_curation_folders", count=len(tasks))
             await asyncio.gather(*tasks)
-
-
-

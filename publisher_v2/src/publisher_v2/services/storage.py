@@ -1,14 +1,10 @@
-from __future__ import annotations
-
 import asyncio
 import os
-from pathlib import Path
-from typing import List, Tuple, Optional
 
 import dropbox
 from dropbox.exceptions import ApiError
-from dropbox.files import ThumbnailSize, ThumbnailFormat, ThumbnailMode, PathOrLink
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
+from dropbox.files import PathOrLink, ThumbnailFormat, ThumbnailMode, ThumbnailSize
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.core.exceptions import StorageError
@@ -33,6 +29,7 @@ class DropboxStorage:
         Write or overwrite a .txt sidecar beside the image. For 'image.jpg' writes 'image.txt'.
         """
         try:
+
             def _upload() -> None:
                 stem = os.path.splitext(filename)[0]
                 sidecar_name = f"{stem}.txt"
@@ -71,9 +68,11 @@ class DropboxStorage:
         reraise=True,
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(lambda exc: isinstance(exc, ApiError) and not DropboxStorage._is_sidecar_not_found_error(exc)),  # type: ignore[arg-type]
+        retry=retry_if_exception(
+            lambda exc: isinstance(exc, ApiError) and not DropboxStorage._is_sidecar_not_found_error(exc)
+        ),  # type: ignore[arg-type]
     )
-    async def download_sidecar_if_exists(self, folder: str, filename: str) -> Optional[bytes]:
+    async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
         """
         Download the .txt sidecar for the given image if it exists.
 
@@ -83,6 +82,7 @@ class DropboxStorage:
         """
 
         try:
+
             def _download() -> bytes:
                 stem = os.path.splitext(filename)[0]
                 sidecar_name = f"{stem}.txt"
@@ -108,6 +108,7 @@ class DropboxStorage:
         Keys: id, rev. Missing values omitted.
         """
         try:
+
             def _meta() -> dict[str, str]:
                 path = os.path.join(folder, filename)
                 md = self.client.files_get_metadata(path)
@@ -128,17 +129,21 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def list_images(self, folder: str) -> List[str]:
+    async def list_images(self, folder: str) -> list[str]:
         try:
-            def _list() -> List[str]:
+
+            def _list() -> list[str]:
                 path = "" if folder == "/" else folder
                 result = self.client.files_list_folder(path)
-                names: List[str] = []
-                for entry in result.entries:
-                    if isinstance(entry, dropbox.files.FileMetadata):
-                        name = entry.name.lower()
-                        if name.endswith((".jpg", ".jpeg", ".png")):
-                            names.append(entry.name)
+                names: list[str] = []
+                while True:
+                    for entry in result.entries:
+                        if isinstance(entry, dropbox.files.FileMetadata):
+                            if entry.name.lower().endswith((".jpg", ".jpeg", ".png")):
+                                names.append(entry.name)
+                    if not result.has_more:
+                        break
+                    result = self.client.files_list_folder_continue(result.cursor)
                 return names
 
             return await asyncio.to_thread(_list)
@@ -150,7 +155,7 @@ class DropboxStorage:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def list_images_with_hashes(self, folder: str) -> List[Tuple[str, str]]:
+    async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
         """
         Return image filenames and their Dropbox content_hash where available.
 
@@ -158,16 +163,20 @@ class DropboxStorage:
         so that the workflow can perform metadata-based de-duplication.
         """
         try:
-            def _list() -> List[Tuple[str, str]]:
+
+            def _list() -> list[tuple[str, str]]:
                 path = "" if folder == "/" else folder
                 result = self.client.files_list_folder(path)
-                out: List[Tuple[str, str]] = []
-                for entry in result.entries:
-                    if isinstance(entry, dropbox.files.FileMetadata):
-                        name_lower = entry.name.lower()
-                        if name_lower.endswith((".jpg", ".jpeg", ".png")):
-                            ch = getattr(entry, "content_hash", None) or ""
-                            out.append((entry.name, ch))
+                out: list[tuple[str, str]] = []
+                while True:
+                    for entry in result.entries:
+                        if isinstance(entry, dropbox.files.FileMetadata):
+                            if entry.name.lower().endswith((".jpg", ".jpeg", ".png")):
+                                ch = getattr(entry, "content_hash", None) or ""
+                                out.append((entry.name, ch))
+                    if not result.has_more:
+                        break
+                    result = self.client.files_list_folder_continue(result.cursor)
                 return out
 
             return await asyncio.to_thread(_list)
@@ -181,6 +190,7 @@ class DropboxStorage:
     )
     async def download_image(self, folder: str, filename: str) -> bytes:
         try:
+
             def _download() -> bytes:
                 path = os.path.join(folder, filename)
                 _, response = self.client.files_download(path)
@@ -197,6 +207,7 @@ class DropboxStorage:
     )
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         try:
+
             def _link() -> str:
                 path = os.path.join(folder, filename)
                 res = self.client.files_get_temporary_link(path)
@@ -217,6 +228,7 @@ class DropboxStorage:
         Creates it if it does not exist; ignores error if it already exists.
         """
         try:
+
             def _ensure() -> None:
                 try:
                     self.client.files_create_folder_v2(folder_path)
@@ -224,7 +236,7 @@ class DropboxStorage:
                     # Check if error is "path already exists"
                     error = getattr(exc, "error", None)
                     if error and error.is_path() and error.get_path().is_conflict():
-                         pass
+                        pass
                     else:
                         raise
 
@@ -245,6 +257,7 @@ class DropboxStorage:
         curation-style operations (Keep/Remove).
         """
         try:
+
             def _move() -> None:
                 src = os.path.join(folder, filename)
                 dst_dir = os.path.join(folder, target_subfolder)
@@ -311,6 +324,7 @@ class DropboxStorage:
             StorageError: If thumbnail generation fails
         """
         try:
+
             def _get_thumb() -> bytes:
                 path = os.path.join(folder, filename)
                 _, response = self.client.files_get_thumbnail_v2(

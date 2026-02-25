@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -9,16 +12,14 @@ from publisher_v2.config.schema import (
     OpenAIConfig,
     PlatformsConfig,
 )
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher
+from publisher_v2.services.ai import AIService
 
 
 class SDCaptionGenerator(BaseDummyGenerator):
     """Generator that supports SD caption generation."""
+
     def __init__(self, cfg: OpenAIConfig) -> None:
         super().__init__(caption="normal caption", sd_caption="fine-art portrait, soft light, calm mood")
         self.model = cfg.caption_model
@@ -32,6 +33,7 @@ class SDCaptionGenerator(BaseDummyGenerator):
 
 class TrackingStorage(BaseDummyStorage):
     """Storage that tracks sidecars and archives for assertions."""
+
     def __init__(self) -> None:
         super().__init__()
         self.sidecars = 0
@@ -65,12 +67,14 @@ async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch)
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-    
+
     # Preview phase - use centralized fixtures (QC-001)
     cfg_prev = make_config(archive=True)
     storage_prev = TrackingStorage()
     ai_prev = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_prev.openai))
-    orch_prev = WorkflowOrchestrator(config=cfg_prev, storage=storage_prev, ai_service=ai_prev, publishers=[BaseDummyPublisher()])
+    orch_prev = WorkflowOrchestrator(
+        config=cfg_prev, storage=storage_prev, ai_service=ai_prev, publishers=[BaseDummyPublisher()]
+    )
     result_prev = await orch_prev.execute(preview_mode=True)
     assert result_prev.image_analysis is not None
     assert getattr(result_prev.image_analysis, "sd_caption", None)
@@ -80,10 +84,10 @@ async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch)
     cfg_live = make_config(archive=True)
     storage_live = TrackingStorage()
     ai_live = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_live.openai))
-    orch_live = WorkflowOrchestrator(config=cfg_live, storage=storage_live, ai_service=ai_live, publishers=[BaseDummyPublisher()])
+    orch_live = WorkflowOrchestrator(
+        config=cfg_live, storage=storage_live, ai_service=ai_live, publishers=[BaseDummyPublisher()]
+    )
     result_live = await orch_live.execute(preview_mode=False)
     assert storage_live.sidecars == 1
     # With a successful publisher and archive enabled, archive is called
     assert storage_live.archived == 1
-
-

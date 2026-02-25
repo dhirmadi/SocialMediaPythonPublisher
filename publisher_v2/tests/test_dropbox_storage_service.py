@@ -38,7 +38,7 @@ class _FakeDropboxClient:
         return self.metadata_map[path]
 
     def files_list_folder(self, path: str):
-        return SimpleNamespace(entries=self.list_entries)
+        return SimpleNamespace(entries=self.list_entries, has_more=False, cursor="fake_cursor")
 
     def files_get_temporary_link(self, path: str):
         return SimpleNamespace(link=self.temp_links.get(path, f"https://{path}"))
@@ -56,7 +56,9 @@ class _FakeDropboxClient:
 @pytest.fixture
 def storage_fixture(monkeypatch: pytest.MonkeyPatch):
     class _StubMetadata:
-        def __init__(self, name: str, content_hash: str = "", file_id: str | None = None, rev: str | None = None) -> None:
+        def __init__(
+            self, name: str, content_hash: str = "", file_id: str | None = None, rev: str | None = None
+        ) -> None:
             self.name = name
             self.content_hash = content_hash
             self.id = file_id
@@ -161,4 +163,3 @@ async def test_move_and_archive_with_sidecar(storage_fixture) -> None:
 
     await storage.archive_image("/Photos", "image.jpg", "archive")
     assert ("/Photos/image.jpg", "/Photos/archive/image.jpg") in client.move_calls
-

@@ -78,4 +78,3 @@ def test_all_supported_model_prefixes():
         )
         assert config.vision_model == model
         assert config.caption_model == model
-

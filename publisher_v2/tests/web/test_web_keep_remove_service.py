@@ -2,7 +2,14 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.schema import ApplicationConfig, DropboxConfig, OpenAIConfig, PlatformsConfig, ContentConfig, FeaturesConfig
+from publisher_v2.config.schema import (
+    ApplicationConfig,
+    ContentConfig,
+    DropboxConfig,
+    FeaturesConfig,
+    OpenAIConfig,
+    PlatformsConfig,
+)
 from publisher_v2.web.service import WebImageService
 
 
@@ -94,5 +101,3 @@ async def test_web_keep_remove_disabled_raises_permission(web_service_keep_remov
         await svc.keep_image("image.jpg")
     with pytest.raises(PermissionError):
         await svc.remove_image("image.jpg")
-
-

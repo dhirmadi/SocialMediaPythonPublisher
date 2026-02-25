@@ -1,11 +1,7 @@
-from __future__ import annotations
-
 import configparser
 import json
 import logging
 import os
-from pathlib import Path
-from typing import Any, Dict, Optional
 
 from dotenv import load_dotenv
 
@@ -13,17 +9,17 @@ logger = logging.getLogger(__name__)
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
-    ContentConfig,
+    Auth0Config,
     CaptionFileConfig,
+    ContentConfig,
     DropboxConfig,
-    FeaturesConfig,
     EmailConfig,
+    FeaturesConfig,
     InstagramConfig,
     OpenAIConfig,
     PlatformsConfig,
     TelegramConfig,
     WebConfig,
-    Auth0Config,
 )
 from publisher_v2.core.exceptions import ConfigurationError
 
@@ -38,7 +34,7 @@ REDACT_KEYS: set[str] = {
 }
 
 
-def _parse_json_env(var_name: str) -> Optional[dict | list]:
+def _parse_json_env(var_name: str) -> dict | list | None:
     """
     Parse JSON from an environment variable.
 
@@ -55,9 +51,7 @@ def _parse_json_env(var_name: str) -> Optional[dict | list]:
     try:
         return json.loads(value)
     except json.JSONDecodeError as exc:
-        raise ConfigurationError(
-            f"Invalid JSON in {var_name}: {exc.msg} at position {exc.pos}"
-        ) from exc
+        raise ConfigurationError(f"Invalid JSON in {var_name}: {exc.msg} at position {exc.pos}") from exc
 
 
 def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
@@ -74,10 +68,7 @@ def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
     keys_to_redact = redact_keys or REDACT_KEYS
     # Case-insensitive matching
     lower_redact = {k.lower() for k in keys_to_redact}
-    return {
-        k: "***REDACTED***" if k.lower() in lower_redact else v
-        for k, v in cfg.items()
-    }
+    return {k: "***REDACTED***" if k.lower() in lower_redact else v for k, v in cfg.items()}
 
 
 # =============================================================================
@@ -107,9 +98,7 @@ def _load_email_server_from_env() -> dict | None:
     smtp_port = parsed.get("smtp_port", 587)
 
     if not isinstance(smtp_port, int):
-        raise ConfigurationError(
-            f"EMAIL_SERVER.smtp_port must be an integer, got {type(smtp_port).__name__}"
-        )
+        raise ConfigurationError(f"EMAIL_SERVER.smtp_port must be an integer, got {type(smtp_port).__name__}")
 
     return {
         "smtp_server": smtp_server,
@@ -133,9 +122,7 @@ def _resolve_path(base: str, path: str) -> str:
 def _validate_path_no_traversal(path: str, field: str) -> None:
     """Raise ConfigurationError if path contains '..' component."""
     if ".." in path.split("/"):
-        raise ConfigurationError(
-            f"STORAGE_PATHS.{field} contains '..' which is not allowed"
-        )
+        raise ConfigurationError(f"STORAGE_PATHS.{field} contains '..' which is not allowed")
 
 
 def _load_storage_paths_from_env() -> dict | None:
@@ -157,9 +144,7 @@ def _load_storage_paths_from_env() -> dict | None:
     if not root:
         raise ConfigurationError("STORAGE_PATHS missing required field 'root'")
     if not root.startswith("/"):
-        raise ConfigurationError(
-            "STORAGE_PATHS.root must be an absolute path (start with '/')"
-        )
+        raise ConfigurationError("STORAGE_PATHS.root must be an absolute path (start with '/')")
     _validate_path_no_traversal(root, "root")
 
     # Resolve optional paths with defaults
@@ -266,9 +251,7 @@ def _load_publishers_from_env(
     for entry in entries:
         entry_type = entry.get("type")
         if entry_type in seen_types:
-            raise ConfigurationError(
-                f"Duplicate publisher type '{entry_type}' in PUBLISHERS"
-            )
+            raise ConfigurationError(f"Duplicate publisher type '{entry_type}' in PUBLISHERS")
         if entry_type:
             seen_types.add(entry_type)
 
@@ -293,9 +276,7 @@ def _load_publishers_from_env(
                 )
             channel_id = entry.get("channel_id")
             if not channel_id:
-                raise ConfigurationError(
-                    "PUBLISHERS telegram entry missing required field 'channel_id'"
-                )
+                raise ConfigurationError("PUBLISHERS telegram entry missing required field 'channel_id'")
             telegram = TelegramConfig(
                 bot_token=bot_token,
                 channel_id=channel_id,
@@ -305,14 +286,10 @@ def _load_publishers_from_env(
         elif entry_type == "fetlife":
             password = os.environ.get("EMAIL_PASSWORD")
             if not password:
-                raise ConfigurationError(
-                    "EMAIL_PASSWORD required when fetlife publisher is configured in PUBLISHERS"
-                )
+                raise ConfigurationError("EMAIL_PASSWORD required when fetlife publisher is configured in PUBLISHERS")
             recipient = entry.get("recipient")
             if not recipient:
-                raise ConfigurationError(
-                    "PUBLISHERS fetlife entry missing required field 'recipient'"
-                )
+                raise ConfigurationError("PUBLISHERS fetlife entry missing required field 'recipient'")
 
             # Get SMTP settings from EMAIL_SERVER or fallback
             if email_server:
@@ -329,11 +306,18 @@ def _load_publishers_from_env(
             if confirmation_settings:
                 conf_to_sender = confirmation_settings["confirmation_to_sender"]
                 conf_tags_count = confirmation_settings["confirmation_tags_count"]
-                conf_tags_nature = confirmation_settings.get("confirmation_tags_nature") or "short, lowercase, human-friendly topical nouns; no hashtags; no emojis"
+                conf_tags_nature = (
+                    confirmation_settings.get("confirmation_tags_nature")
+                    or "short, lowercase, human-friendly topical nouns; no hashtags; no emojis"
+                )
             else:
                 conf_to_sender = cp.getboolean("Email", "confirmation_to_sender", fallback=True)
                 conf_tags_count = cp.getint("Email", "confirmation_tags_count", fallback=5)
-                conf_tags_nature = cp.get("Email", "confirmation_tags_nature", fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis")
+                conf_tags_nature = cp.get(
+                    "Email",
+                    "confirmation_tags_nature",
+                    fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
+                )
 
             email = EmailConfig(
                 sender=sender,
@@ -352,14 +336,10 @@ def _load_publishers_from_env(
         elif entry_type == "instagram":
             password = os.environ.get("INSTA_PASSWORD")
             if not password:
-                raise ConfigurationError(
-                    "INSTA_PASSWORD required when instagram publisher is configured in PUBLISHERS"
-                )
+                raise ConfigurationError("INSTA_PASSWORD required when instagram publisher is configured in PUBLISHERS")
             username = entry.get("username")
             if not username:
-                raise ConfigurationError(
-                    "PUBLISHERS instagram entry missing required field 'username'"
-                )
+                raise ConfigurationError("PUBLISHERS instagram entry missing required field 'username'")
             instagram = InstagramConfig(
                 username=username,
                 password=password,
@@ -408,8 +388,7 @@ def log_config_source(
     else:
         sections_str = ", ".join(ini_sections_used or [])
         logger.warning(
-            "Config source: ini_fallback (migrate to env vars) | "
-            "INI sections used: [%s] | publishers=%d | storage=%s",
+            "Config source: ini_fallback (migrate to env vars) | INI sections used: [%s] | publishers=%d | storage=%s",
             sections_str,
             publishers_count,
             storage_source,
@@ -452,9 +431,7 @@ def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | N
     raise ConfigurationError(f"Invalid boolean value '{value}' for {name}; expected one of {truthy | falsey}")
 
 
-def load_application_config(
-    config_file_path: str | None = None, env_path: str | None = None
-) -> ApplicationConfig:
+def load_application_config(config_file_path: str | None = None, env_path: str | None = None) -> ApplicationConfig:
     """
     Load and validate application configuration.
 
@@ -484,7 +461,7 @@ def load_application_config(
     env_first_mode = has_storage_paths and has_publishers and has_openai_settings
 
     # Configure parser to handle inline comments (e.g., "value ; comment")
-    cp = configparser.ConfigParser(inline_comment_prefixes=(';', '#'))
+    cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
 
     # Handle INI file loading
     if config_file_path:
@@ -571,7 +548,10 @@ def load_application_config(
             # Use OPENAI_SETTINGS env var
             vision_model = openai_settings["vision_model"]
             caption_model = openai_settings["caption_model"]
-            system_prompt = openai_settings.get("system_prompt") or "You are a senior social media copywriter. Write authentic, concise, platform-aware captions."
+            system_prompt = (
+                openai_settings.get("system_prompt")
+                or "You are a senior social media copywriter. Write authentic, concise, platform-aware captions."
+            )
             role_prompt = openai_settings.get("role_prompt") or "Write a caption for:"
             sd_caption_enabled = openai_settings["sd_caption_enabled"]
             sd_caption_single_call_enabled = openai_settings["sd_caption_single_call_enabled"]
@@ -632,9 +612,7 @@ def load_application_config(
 
         if publishers_json is not None:
             # Use PUBLISHERS env var - derive enabled state from array
-            telegram, instagram, email, platforms = _load_publishers_from_env(
-                publishers_json, email_server, cp
-            )
+            telegram, instagram, email, platforms = _load_publishers_from_env(publishers_json, email_server, cp)
             publishers_source = "PUBLISHERS"
             publishers_count = len(publishers_json)
         else:
@@ -674,11 +652,17 @@ def load_application_config(
                     sender=cp.get("Email", "sender"),
                     recipient=cp.get("Email", "recipient"),
                     password=os.environ["EMAIL_PASSWORD"],
-                    smtp_server=cp.get("Email", "smtp_server", fallback=os.environ.get("SMTP_SERVER", "smtp.gmail.com")),
+                    smtp_server=cp.get(
+                        "Email", "smtp_server", fallback=os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+                    ),
                     smtp_port=cp.getint("Email", "smtp_port", fallback=int(os.environ.get("SMTP_PORT", "587"))),
                     confirmation_to_sender=cp.getboolean("Email", "confirmation_to_sender", fallback=True),
                     confirmation_tags_count=cp.getint("Email", "confirmation_tags_count", fallback=5),
-                    confirmation_tags_nature=cp.get("Email", "confirmation_tags_nature", fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis"),
+                    confirmation_tags_nature=cp.get(
+                        "Email",
+                        "confirmation_tags_nature",
+                        fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
+                    ),
                     caption_target=cp.get("Email", "caption_target", fallback="subject"),
                     subject_mode=cp.get("Email", "subject_mode", fallback="normal"),
                 )
@@ -728,18 +712,12 @@ def load_application_config(
             analyze_caption_enabled=parse_bool_env(
                 os.environ.get("FEATURE_ANALYZE_CAPTION"), True, var_name="FEATURE_ANALYZE_CAPTION"
             ),
-            publish_enabled=parse_bool_env(
-                os.environ.get("FEATURE_PUBLISH"), True, var_name="FEATURE_PUBLISH"
-            ),
-            keep_enabled=parse_bool_env(
-                os.environ.get("FEATURE_KEEP_CURATE"), True, var_name="FEATURE_KEEP_CURATE"
-            ),
+            publish_enabled=parse_bool_env(os.environ.get("FEATURE_PUBLISH"), True, var_name="FEATURE_PUBLISH"),
+            keep_enabled=parse_bool_env(os.environ.get("FEATURE_KEEP_CURATE"), True, var_name="FEATURE_KEEP_CURATE"),
             remove_enabled=parse_bool_env(
                 os.environ.get("FEATURE_REMOVE_CURATE"), True, var_name="FEATURE_REMOVE_CURATE"
             ),
-            auto_view_enabled=parse_bool_env(
-                os.environ.get("AUTO_VIEW"), False, var_name="AUTO_VIEW"
-            ),
+            auto_view_enabled=parse_bool_env(os.environ.get("AUTO_VIEW"), False, var_name="AUTO_VIEW"),
         )
 
     except KeyError as exc:
@@ -802,5 +780,3 @@ def load_application_config(
         web=web_cfg,
         auth0=auth0_cfg,
     )
-
-

@@ -1,20 +1,17 @@
-from __future__ import annotations
-
 import os
-from typing import Optional
 
 from publisher_v2.config.schema import Auth0Config, WebConfig
 from publisher_v2.core.exceptions import ConfigurationError
 
 
-def load_web_and_auth0_from_env() -> tuple[WebConfig, Optional[Auth0Config]]:
+def load_web_and_auth0_from_env() -> tuple[WebConfig, Auth0Config | None]:
     """
     Load web/auth0 config from environment variables without requiring full
     application config (used by orchestrator-backed runtime config).
     """
     web_cfg = WebConfig()
 
-    auth0_cfg: Optional[Auth0Config] = None
+    auth0_cfg: Auth0Config | None = None
     if os.environ.get("AUTH0_DOMAIN") and os.environ.get("AUTH0_CLIENT_ID"):
         try:
             auth0_cfg = Auth0Config(
@@ -31,5 +28,3 @@ def load_web_and_auth0_from_env() -> tuple[WebConfig, Optional[Auth0Config]]:
             raise ConfigurationError(f"Missing required Auth0 environment variable: {exc}") from exc
 
     return web_cfg, auth0_cfg
-
-

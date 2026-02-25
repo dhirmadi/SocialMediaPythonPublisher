@@ -13,7 +13,6 @@ from unittest import mock
 import pytest
 
 from publisher_v2.config.loader import load_application_config
-from publisher_v2.core.exceptions import ConfigurationError
 
 
 @pytest.fixture
@@ -107,6 +106,7 @@ class TestEnvFirstStoragePaths:
     def test_falls_back_to_ini_when_storage_paths_not_set(self, full_ini_file, base_env_vars, caplog, empty_env_file):
         """Falls back to INI when STORAGE_PATHS not set, emits deprecation warning."""
         import logging
+
         caplog.set_level(logging.WARNING)
         with mock.patch.dict(os.environ, base_env_vars, clear=True):
             config = load_application_config(full_ini_file, empty_env_file)
@@ -191,6 +191,7 @@ class TestEnvFirstOpenAI:
     def test_falls_back_to_ini_when_openai_settings_not_set(self, full_ini_file, base_env_vars, caplog, empty_env_file):
         """Falls back to INI when OPENAI_SETTINGS not set, uses INI values."""
         import logging
+
         caplog.set_level(logging.WARNING)
         env = {
             **base_env_vars,
@@ -249,6 +250,7 @@ class TestDeprecationWarnings:
     def test_no_deprecation_when_all_env_vars_set(self, minimal_ini_file, base_env_vars, caplog, empty_env_file):
         """No deprecation warning when all config comes from env vars."""
         import logging
+
         caplog.set_level(logging.WARNING)
         env = {
             **base_env_vars,
@@ -265,6 +267,7 @@ class TestDeprecationWarnings:
     def test_deprecation_emitted_when_ini_used(self, full_ini_file, base_env_vars, caplog, empty_env_file):
         """Deprecation warning emitted when INI sections are used."""
         import logging
+
         caplog.set_level(logging.WARNING)
         with mock.patch.dict(os.environ, base_env_vars, clear=True):
             load_application_config(full_ini_file, empty_env_file)
@@ -278,6 +281,7 @@ class TestConfigSourceLogging:
     def test_logs_env_vars_source(self, minimal_ini_file, base_env_vars, caplog, empty_env_file):
         """Logs 'env_vars' source when all config from env."""
         import logging
+
         caplog.set_level(logging.INFO)
         env = {
             **base_env_vars,
@@ -294,6 +298,7 @@ class TestConfigSourceLogging:
     def test_logs_ini_fallback_source(self, full_ini_file, base_env_vars, caplog, empty_env_file):
         """Logs 'ini_fallback' source when INI is used."""
         import logging
+
         caplog.set_level(logging.WARNING)
         with mock.patch.dict(os.environ, base_env_vars, clear=True):
             load_application_config(full_ini_file, empty_env_file)
@@ -323,4 +328,3 @@ class TestMultiplePublishers:
             assert config.platforms.email_enabled is True
             assert config.telegram is not None
             assert config.email is not None
-

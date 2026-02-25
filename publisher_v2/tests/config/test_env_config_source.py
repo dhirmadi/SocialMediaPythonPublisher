@@ -32,5 +32,3 @@ async def test_standalone_host_allows_matching_host(monkeypatch: pytest.MonkeyPa
     src = EnvConfigSource()
     rc = await src.get_config("ALLOWED.SHIBARI.PHOTO")
     assert rc.host == "allowed.shibari.photo"
-
-

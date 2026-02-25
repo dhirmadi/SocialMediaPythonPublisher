@@ -1,20 +1,17 @@
-from __future__ import annotations
-
 import asyncio
 import os
 import random
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
-from publisher_v2.core.exceptions import OrchestratorUnavailableError, TenantNotFoundError, CredentialResolutionError
-
+from publisher_v2.core.exceptions import CredentialResolutionError, OrchestratorUnavailableError, TenantNotFoundError
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RetryConfig:
     base_delay_ms: int = 250
     max_delay_ms: int = 5000
@@ -39,7 +36,7 @@ class OrchestratorClient:
         self._base_url = base_url.rstrip("/")
         self._token = service_token
         self._prefer_post = prefer_post
-        self._post_supported: Optional[bool] = None
+        self._post_supported: bool | None = None
         self._retry = RetryConfig()
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
 
@@ -120,7 +117,9 @@ class OrchestratorClient:
             raise OrchestratorUnavailableError(f"Orchestrator runtime unavailable: {resp.status_code}")
         raise OrchestratorUnavailableError(f"Unexpected orchestrator runtime response: {resp.status_code}")
 
-    async def resolve_credentials(self, tenant: str, credentials_ref: str, *, request_id: str | None = None) -> dict[str, Any]:
+    async def resolve_credentials(
+        self, tenant: str, credentials_ref: str, *, request_id: str | None = None
+    ) -> dict[str, Any]:
         url = f"{self._base_url}/v1/credentials/resolve"
         headers = self._headers(request_id=request_id, tenant=tenant)
         resp = await self._request_with_retry("POST", url, headers=headers, json={"credentials_ref": credentials_ref})
@@ -138,5 +137,3 @@ class OrchestratorClient:
 
 def prefer_post_default() -> bool:
     return (os.environ.get("ORCHESTRATOR_PREFER_POST") or "true").lower() in ("1", "true", "yes", "on")
-
-

@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 import logging
-from typing import Optional
 
 import telegram
 
@@ -11,12 +8,11 @@ from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.images import ensure_max_width_async
 from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
 
-
 logger = logging.getLogger("publisher_v2.publishers.telegram")
 
 
 class TelegramPublisher(Publisher):
-    def __init__(self, config: Optional[TelegramConfig], enabled: bool):
+    def __init__(self, config: TelegramConfig | None, enabled: bool):
         self._config = config
         self._enabled = (
             enabled
@@ -32,7 +28,7 @@ class TelegramPublisher(Publisher):
     def is_enabled(self) -> bool:
         return self._enabled
 
-    async def publish(self, image_path: str, caption: str, context: Optional[dict] = None) -> PublishResult:
+    async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 
@@ -50,4 +46,3 @@ class TelegramPublisher(Publisher):
         finally:
             # Properly close the bot client to avoid ResourceWarning
             await bot.shutdown()
-
