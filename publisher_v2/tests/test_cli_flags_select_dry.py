@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import pytest
 
+# Use centralized test fixtures from conftest.py (QC-001)
+from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -11,12 +14,10 @@ from publisher_v2.config.schema import (
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator
 
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyStorage, BaseDummyAI, BaseDummyPublisher
-
 
 class SelectableStorage(BaseDummyStorage):
     """Storage with multiple images for selection testing."""
+
     def __init__(self) -> None:
         super().__init__()
         self._images = ["x.jpg", "y.jpg"]
@@ -47,5 +48,3 @@ async def test_select_and_dry_publish_skip_real_publish(monkeypatch):
     assert result.image_name == "y.jpg"
     assert result.archived is False
     assert "dummy" in result.publish_results and result.publish_results["dummy"].success is True
-
-

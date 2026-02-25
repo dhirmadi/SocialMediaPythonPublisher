@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 import re
-
 
 _RE_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
 _RE_HAS_PORT_SUFFIX = re.compile(r":\d+$")
@@ -74,5 +71,3 @@ def extract_tenant(host: str, base_domain: str) -> str:
         remainder = h[: -len(bd) - 1]
         return remainder.split(".", 1)[0]
     return h.split(".", 1)[0]
-
-

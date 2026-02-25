@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -28,7 +28,7 @@ class _DummyStorage(DropboxStorage):
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         )
 
-    async def list_images(self, folder: str) -> List[str]:
+    async def list_images(self, folder: str) -> list[str]:
         return ["test.jpg"]
 
     async def download_image(self, folder: str, filename: str) -> bytes:
@@ -75,7 +75,7 @@ class _DummyAI(AIService):
 
 
 class _SleepingPublisher(Publisher):
-    def __init__(self, name: str, delay: float, spans: Dict[str, List[float]]) -> None:
+    def __init__(self, name: str, delay: float, spans: dict[str, list[float]]) -> None:
         self._name = name
         self._delay = delay
         self._spans = spans
@@ -132,8 +132,8 @@ async def test_publishers_run_concurrently() -> None:
 
     storage = _DummyStorage()
     ai = _DummyAI()
-    spans: Dict[str, List[float]] = {}
-    publishers: List[Publisher] = [
+    spans: dict[str, list[float]] = {}
+    publishers: list[Publisher] = [
         _SleepingPublisher("p1", 0.15, spans),
         _SleepingPublisher("p2", 0.15, spans),
     ]
@@ -151,7 +151,7 @@ async def test_publishers_run_concurrently() -> None:
 
 @pytest.mark.asyncio
 async def test_ensure_max_width_async_delegates_to_sync(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: Dict[str, int] = {"count": 0}
+    calls: dict[str, int] = {"count": 0}
 
     def _fake_ensure_max_width(path: str, max_width: int = 1280) -> str:
         calls["count"] += 1
@@ -174,5 +174,3 @@ async def test_publisher_publish_emits_structured_log(caplog: pytest.LogCaptureF
 
     records = [r for r in caplog.records if "publisher_publish" in r.getMessage()]
     assert records, "Expected at least one publisher_publish log entry"
-
-

@@ -3,8 +3,8 @@ from __future__ import annotations
 import pytest
 from fastapi.testclient import TestClient
 
-from publisher_v2.web.app import app
 from publisher_v2.config.source import clear_config_source_cache
+from publisher_v2.web.app import app
 
 
 def test_health_live_always_ok() -> None:
@@ -43,11 +43,9 @@ def test_health_ready_orchestrator_down(monkeypatch: pytest.MonkeyPatch) -> None
     async def boom() -> None:
         raise OrchestratorUnavailableError("down")
 
-    setattr(src, "check_connectivity", boom)
+    src.check_connectivity = boom
 
     client = TestClient(app)
     r = client.get("/health/ready")
     assert r.status_code == 503
     assert r.json()["status"] == "not_ready"
-
-

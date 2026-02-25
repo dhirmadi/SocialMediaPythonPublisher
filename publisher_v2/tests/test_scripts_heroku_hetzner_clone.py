@@ -9,9 +9,7 @@ import pytest
 def _load_script_module() -> ModuleType:
     root = pathlib.Path(__file__).resolve().parents[2]
     script_path = root / "scripts" / "heroku_hetzner_clone.py"
-    spec = importlib.util.spec_from_file_location(
-        "heroku_hetzner_clone", script_path
-    )
+    spec = importlib.util.spec_from_file_location("heroku_hetzner_clone", script_path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
     # Ensure the module is registered so dataclasses and other decorators
@@ -522,6 +520,7 @@ def test_main_logs_warning_when_servers_log_fails(monkeypatch) -> None:
         "from_env",
         classmethod(lambda cls: FakeHetzner()),
     )
+
     def _raise_append(*_args, **_kwargs):
         raise OSError("fs error")
 
@@ -929,5 +928,3 @@ def test_main_delete_dry_run_and_real(monkeypatch, tmp_path) -> None:  # type: i
     assert "tati" not in servers_path.read_text(encoding="utf-8")
     assert fake_heroku.deleted_apps == ["fetlife-prod-tati"]
     assert fake_hetzner.deleted_records == ["record-id"]
-
-

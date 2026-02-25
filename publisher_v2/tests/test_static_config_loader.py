@@ -4,8 +4,8 @@ from pathlib import Path
 
 from publisher_v2.config.static_loader import (
     StaticConfig,
-    load_static_config,
     get_static_config,
+    load_static_config,
 )
 
 
@@ -25,5 +25,3 @@ def test_static_config_missing_dir_uses_defaults(tmp_path: Path, monkeypatch) ->
     cfg = load_static_config(None)
     assert cfg.platform_limits.generic.max_caption_length == 2200
     assert cfg.service_limits.ai.rate_per_minute == 20
-
-

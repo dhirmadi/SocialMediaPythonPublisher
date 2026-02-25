@@ -1,23 +1,21 @@
-from __future__ import annotations
-
-from typing import Optional, Dict, Any, List
+from typing import Any
 
 from pydantic import BaseModel
 
 
 class ImageListResponse(BaseModel):
-    filenames: List[str]
+    filenames: list[str]
     count: int
 
 
 class ImageResponse(BaseModel):
     filename: str
     temp_url: str
-    thumbnail_url: Optional[str] = None
-    sha256: Optional[str] = None
-    caption: Optional[str] = None
-    sd_caption: Optional[str] = None
-    metadata: Optional[Dict[str, Any]] = None
+    thumbnail_url: str | None = None
+    sha256: str | None = None
+    caption: str | None = None
+    sd_caption: str | None = None
+    metadata: dict[str, Any] | None = None
     has_sidecar: bool
 
 
@@ -25,28 +23,28 @@ class AnalysisResponse(BaseModel):
     filename: str
     description: str
     mood: str
-    tags: List[str]
+    tags: list[str]
     nsfw: bool
     caption: str
-    sd_caption: Optional[str] = None
+    sd_caption: str | None = None
     sidecar_written: bool
 
 
 class PublishRequest(BaseModel):
-    platforms: Optional[List[str]] = None
-    caption: Optional[str] = None
+    platforms: list[str] | None = None
+    caption: str | None = None
 
 
 class PublishResponse(BaseModel):
     filename: str
-    results: Dict[str, Dict[str, Any]]
+    results: dict[str, dict[str, Any]]
     archived: bool
     any_success: bool
 
 
 class ErrorResponse(BaseModel):
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None
 
 
 class AdminLoginRequest(BaseModel):
@@ -55,7 +53,7 @@ class AdminLoginRequest(BaseModel):
 
 class AdminStatusResponse(BaseModel):
     admin: bool
-    error: Optional[str] = None
+    error: str | None = None
 
 
 class CurationResponse(BaseModel):
@@ -63,4 +61,3 @@ class CurationResponse(BaseModel):
     action: str  # "keep" or "remove"
     destination_folder: str
     preview_only: bool = False
-

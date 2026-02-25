@@ -62,11 +62,11 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
             monkeypatch.setenv("web_admin_pw", admin_password)
         else:
             monkeypatch.delenv("web_admin_pw", raising=False)
-            
+
         # Ensure Auth0 is also disabled so is_admin_configured() returns False
         monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
         monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
-        
+
         # Disable secure cookies for test client (HTTP, not HTTPS)
         monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
 
@@ -89,15 +89,13 @@ def test_random_requires_admin_when_auto_view_disabled_and_admin_configured(
     assert res.status_code == 403
 
 
-def test_random_unavailable_when_auto_view_disabled_and_admin_unconfigured(
-    make_client, monkeypatch
-) -> None:
+def test_random_unavailable_when_auto_view_disabled_and_admin_unconfigured(make_client, monkeypatch) -> None:
     # Explicitly patch is_admin_configured to False to avoid env var flakiness
     monkeypatch.setattr("publisher_v2.web.auth.is_admin_configured", lambda: False)
     monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
 
     client = make_client(auto_view=False, admin_password=None)
-    
+
     # With AUTO_VIEW disabled and no admin configured, fail closed with 503.
     res = client.get("/api/images/random")
     assert res.status_code == 503

@@ -79,5 +79,3 @@ def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch) -> None:
 
     res = client.post("/api/images/test.jpg/publish")
     assert res.status_code in (403, 404)
-
-

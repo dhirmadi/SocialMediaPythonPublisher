@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.host_utils import normalize_host, validate_host, extract_tenant
+from publisher_v2.config.host_utils import extract_tenant, normalize_host, validate_host
 
 
 def test_normalize_host_lowercase_strips_port_and_dot() -> None:
@@ -48,5 +48,3 @@ def test_extract_tenant_from_base_domain() -> None:
 
 def test_extract_tenant_fallback_first_label() -> None:
     assert extract_tenant("a.b.example.com", "shibari.photo") == "a"
-
-

@@ -2,21 +2,19 @@ from __future__ import annotations
 
 import io
 import sys
-import pytest
 
+from publisher_v2.core.models import CaptionSpec, PublishResult
+from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.preview import (
-    print_preview_header,
+    print_caption,
+    print_config_summary,
+    print_error,
     print_image_details,
     print_platform_preview,
-    print_email_confirmation_preview,
-    print_config_summary,
     print_preview_footer,
-    print_error,
+    print_preview_header,
     print_vision_analysis,
-    print_caption,
 )
-from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.core.models import PublishResult, CaptionSpec
 
 
 class _PubBase(Publisher):
@@ -147,8 +145,3 @@ def test_print_caption_shows_disabled_state() -> None:
         False,
     )
     assert "Caption generation skipped" in out
-
-
-
-
-

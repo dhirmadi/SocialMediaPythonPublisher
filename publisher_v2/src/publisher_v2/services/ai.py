@@ -1,14 +1,10 @@
-from __future__ import annotations
-
-import asyncio
 import json
 import logging
 import os
 import time
-from typing import Optional
 
 from openai import AsyncOpenAI
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
@@ -16,7 +12,6 @@ from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
-
 
 _DEFAULT_VISION_SYSTEM_PROMPT = (
     "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
@@ -33,9 +28,9 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- tags: array of 10–25 strings, lowercase_snake_case, ordered by relevance\n"
     "- nsfw: boolean (true if nudity, erotic context, or bondage elements)\n"
     "- safety_labels: array of strings ONLY from:\n"
-    "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
-    "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
-    "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
+    '  ["adult_nudity_non_explicit","bondage_or_restraints","suggestive_context",'
+    '"sexual_activity_none","minors_none","violence_none","self_harm_none",'
+    '"public_display_none","consent_unverified","copyright_uncertain"]\n'
     "- subject: string (≤ 10 words)\n"
     "- style: string (fine-art and photographic style)\n"
     "- lighting: string (type, quality, direction)\n"
@@ -64,9 +59,9 @@ _DEFAULT_VISION_USER_PROMPT = (
     "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
     "- nsfw: true if nudity, erotic context, or rope bondage.\n"
     "- safety_labels: choose only from:\n"
-    "  [\"adult_nudity_non_explicit\",\"bondage_or_restraints\",\"suggestive_context\","
-    "\"sexual_activity_none\",\"minors_none\",\"violence_none\",\"self_harm_none\","
-    "\"public_display_none\",\"consent_unverified\",\"copyright_uncertain\"]\n"
+    '  ["adult_nudity_non_explicit","bondage_or_restraints","suggestive_context",'
+    '"sexual_activity_none","minors_none","violence_none","self_harm_none",'
+    '"public_display_none","consent_unverified","copyright_uncertain"]\n'
     "- camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.\n"
     "- lighting: type + quality + direction (e.g., soft sidelight, high-key studio).\n"
     "- color_palette: 3–6 dominant colors (hex preferred).\n"
@@ -85,7 +80,7 @@ class VisionAnalyzerOpenAI:
         self.max_completion_tokens = getattr(config, "vision_max_completion_tokens", 512)
 
     @staticmethod
-    def _opt_str(v: object) -> Optional[str]:
+    def _opt_str(v: object) -> str | None:
         if v is None:
             return None
         s = str(v).strip()
@@ -103,7 +98,7 @@ class VisionAnalyzerOpenAI:
         """
         start = time.perf_counter()
         ok = False
-        error_type: Optional[str] = None
+        error_type: str | None = None
         try:
             if isinstance(url_or_bytes, bytes):
                 # For now we only support URLs; bytes support may be added later via data URLs.
@@ -214,11 +209,11 @@ class CaptionGeneratorOpenAI:
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
         # SD caption settings
-        self.sd_caption_enabled = getattr(config, "sd_caption_enabled", True)
-        self.sd_caption_single_call_enabled = getattr(config, "sd_caption_single_call_enabled", True)
-        self.sd_caption_model = getattr(config, "sd_caption_model", None) or self.model
-        cfg_sd_system = getattr(config, "sd_caption_system_prompt", None)
-        cfg_sd_role = getattr(config, "sd_caption_role_prompt", None)
+        self.sd_caption_enabled = config.sd_caption_enabled
+        self.sd_caption_single_call_enabled = config.sd_caption_single_call_enabled
+        self.sd_caption_model = config.sd_caption_model or self.model
+        cfg_sd_system = config.sd_caption_system_prompt
+        cfg_sd_role = config.sd_caption_role_prompt
         self.sd_caption_system_prompt = cfg_sd_system or self.system_prompt
         self.sd_caption_role_prompt = cfg_sd_role or (
             "Write two outputs for the provided analysis and platform spec: "
@@ -274,7 +269,7 @@ class CaptionGeneratorOpenAI:
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
         try:
             hashtags_clause = ""
-            if getattr(spec, "hashtags", None):
+            if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             prompt = (
                 f"{self.role_prompt} "
@@ -313,7 +308,7 @@ class CaptionGeneratorOpenAI:
         """
         try:
             hashtags_clause = ""
-            if getattr(spec, "hashtags", None):
+            if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             user_prompt = (
                 f"{self.sd_caption_role_prompt} "
@@ -370,7 +365,7 @@ class AIService:
             caption = await self.generator.generate(analysis, spec)
         return caption
 
-    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, Optional[str]]:
+    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str | None]:
         """
         Create (caption, sd_caption). If sd generation is disabled or fails,
         return (caption, None) using legacy caption path.
@@ -381,7 +376,7 @@ class AIService:
 
     async def create_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec
-    ) -> tuple[str, Optional[str]]:
+    ) -> tuple[str, str | None]:
         """
         Create (caption, sd_caption) when an ImageAnalysis is already available.
 
@@ -415,5 +410,3 @@ class NullAIService:
 
     analyzer = None
     generator = None
-
-

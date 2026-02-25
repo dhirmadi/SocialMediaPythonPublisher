@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 
 from publisher_v2.config.loader import load_application_config
@@ -161,5 +159,3 @@ debug = false
     cfg = load_application_config(cfg_path)
     assert cfg.features.keep_enabled is False
     assert cfg.features.remove_enabled is False
-
-

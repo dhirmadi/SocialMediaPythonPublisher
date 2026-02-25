@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import json
 
-import pytest
 import httpx
+import pytest
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
 from publisher_v2.config.source import OrchestratorConfigSource
@@ -22,7 +22,9 @@ def _make_source(transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch
     src = OrchestratorConfigSource()
     # Inject test httpx client
     client = httpx.AsyncClient(transport=transport, base_url="https://orch.test")
-    src._client = OrchestratorClient(base_url="https://orch.test", service_token="svc-token", prefer_post=True, client=client)  # type: ignore[attr-defined]
+    src._client = OrchestratorClient(
+        base_url="https://orch.test", service_token="svc-token", prefer_post=True, client=client
+    )  # type: ignore[attr-defined]
     return src
 
 
@@ -44,13 +46,46 @@ async def test_parses_schema_v2(monkeypatch: pytest.MonkeyPatch) -> None:
                     "config_version": "cfgv2",
                     "ttl_seconds": 600,
                     "config": {
-                        "features": {"publish_enabled": True, "analyze_caption_enabled": True, "keep_enabled": True, "remove_enabled": True, "auto_view_enabled": False},
-                        "storage": {"provider": "dropbox", "credentials_ref": "db-ref", "paths": {"root": "/Photos/xxx/2025"}},
+                        "features": {
+                            "publish_enabled": True,
+                            "analyze_caption_enabled": True,
+                            "keep_enabled": True,
+                            "remove_enabled": True,
+                            "auto_view_enabled": False,
+                        },
+                        "storage": {
+                            "provider": "dropbox",
+                            "credentials_ref": "db-ref",
+                            "paths": {"root": "/Photos/xxx/2025"},
+                        },
                         "publishers": [
-                            {"id": "tg1", "type": "telegram", "enabled": True, "credentials_ref": "tg-ref", "config": {"channel_id": "@chan"}},
-                            {"id": "fl1", "type": "fetlife", "enabled": True, "credentials_ref": None, "config": {"recipient": "123@upload.fetlife.com", "caption_target": "subject", "subject_mode": "normal"}},
+                            {
+                                "id": "tg1",
+                                "type": "telegram",
+                                "enabled": True,
+                                "credentials_ref": "tg-ref",
+                                "config": {"channel_id": "@chan"},
+                            },
+                            {
+                                "id": "fl1",
+                                "type": "fetlife",
+                                "enabled": True,
+                                "credentials_ref": None,
+                                "config": {
+                                    "recipient": "123@upload.fetlife.com",
+                                    "caption_target": "subject",
+                                    "subject_mode": "normal",
+                                },
+                            },
                         ],
-                        "email_server": {"host": "smtp.test", "port": 587, "use_tls": True, "from_email": "bot@test.com", "username": None, "password_ref": "smtp-ref"},
+                        "email_server": {
+                            "host": "smtp.test",
+                            "port": 587,
+                            "use_tls": True,
+                            "from_email": "bot@test.com",
+                            "username": None,
+                            "password_ref": "smtp-ref",
+                        },
                         "ai": {"credentials_ref": "oa-ref", "vision_model": "gpt-4o", "caption_model": "gpt-4o-mini"},
                         "content": {"archive": True, "debug": False, "hashtag_string": "#x"},
                     },
@@ -61,7 +96,9 @@ async def test_parses_schema_v2(monkeypatch: pytest.MonkeyPatch) -> None:
             assert request.headers.get("X-Tenant") == "xxx"
             body = json.loads(request.content.decode("utf-8"))
             assert body["credentials_ref"] == "db-ref"
-            return httpx.Response(200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None})
+            return httpx.Response(
+                200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None}
+            )
         return httpx.Response(500, json={"error": "unexpected"})
 
     transport = httpx.MockTransport(handler)
@@ -95,12 +132,18 @@ async def test_schema_v1_fallback_defaults(monkeypatch: pytest.MonkeyPatch) -> N
                     "ttl_seconds": 600,
                     "config": {
                         "features": {"publish_enabled": True, "analyze_caption_enabled": True},
-                        "storage": {"provider": "dropbox", "credentials_ref": "db-ref", "paths": {"root": "/Photos/xxx"}},
+                        "storage": {
+                            "provider": "dropbox",
+                            "credentials_ref": "db-ref",
+                            "paths": {"root": "/Photos/xxx"},
+                        },
                     },
                 },
             )
         if request.url.path == "/v1/credentials/resolve" and request.method == "POST":
-            return httpx.Response(200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None})
+            return httpx.Response(
+                200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None}
+            )
         return httpx.Response(500)
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
@@ -121,5 +164,3 @@ async def test_tenant_not_found_on_404(monkeypatch: pytest.MonkeyPatch) -> None:
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
     with pytest.raises(TenantNotFoundError):
         await src.get_config("xxx.shibari.photo")
-
-

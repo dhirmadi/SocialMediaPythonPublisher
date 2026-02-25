@@ -256,5 +256,3 @@ async def test_telegram_publisher_handles_errors(monkeypatch: pytest.MonkeyPatch
     result = await publisher.publish(str(image_path), "caption")
     assert result.success is False
     assert bot.shutdown_called is True
-
-

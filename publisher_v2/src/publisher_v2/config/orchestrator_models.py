@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -16,11 +14,11 @@ class OrchestratorAuth(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
-    provider: Optional[str] = None
+    provider: str | None = None
     enabled: bool = False
-    domain: Optional[str] = None
-    client_id: Optional[str] = None
-    audience: Optional[str] = None
+    domain: str | None = None
+    client_id: str | None = None
+    audience: str | None = None
     allowed_emails: list[str] = Field(default_factory=list)
 
 
@@ -38,9 +36,9 @@ class OrchestratorStoragePaths(BaseModel):
     model_config = ConfigDict(extra="allow")
 
     root: str
-    archive: Optional[str] = None
-    keep: Optional[str] = None
-    remove: Optional[str] = None
+    archive: str | None = None
+    keep: str | None = None
+    remove: str | None = None
 
 
 class OrchestratorStorage(BaseModel):
@@ -57,7 +55,7 @@ class OrchestratorPublisher(BaseModel):
     id: str
     type: str
     enabled: bool = True
-    credentials_ref: Optional[str] = None
+    credentials_ref: str | None = None
     config: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -68,46 +66,46 @@ class OrchestratorEmailServer(BaseModel):
     port: int = 587
     use_tls: bool = True
     from_email: str
-    username: Optional[str] = None
-    password_ref: Optional[str] = None
+    username: str | None = None
+    password_ref: str | None = None
 
 
 class OrchestratorAI(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    credentials_ref: Optional[str] = None
-    vision_model: Optional[str] = None
-    caption_model: Optional[str] = None
-    system_prompt: Optional[str] = None
-    role_prompt: Optional[str] = None
-    sd_caption_enabled: Optional[bool] = None
-    sd_caption_single_call_enabled: Optional[bool] = None
-    sd_caption_model: Optional[str] = None
-    sd_caption_system_prompt: Optional[str] = None
-    sd_caption_role_prompt: Optional[str] = None
+    credentials_ref: str | None = None
+    vision_model: str | None = None
+    caption_model: str | None = None
+    system_prompt: str | None = None
+    role_prompt: str | None = None
+    sd_caption_enabled: bool | None = None
+    sd_caption_single_call_enabled: bool | None = None
+    sd_caption_model: str | None = None
+    sd_caption_system_prompt: str | None = None
+    sd_caption_role_prompt: str | None = None
 
 
 class OrchestratorCaptionFile(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    extended_metadata_enabled: Optional[bool] = None
-    artist_alias: Optional[str] = None
+    extended_metadata_enabled: bool | None = None
+    artist_alias: str | None = None
 
 
 class OrchestratorConfirmation(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    confirmation_to_sender: Optional[bool] = None
-    confirmation_tags_count: Optional[int] = None
-    confirmation_tags_nature: Optional[str] = None
+    confirmation_to_sender: bool | None = None
+    confirmation_tags_count: int | None = None
+    confirmation_tags_nature: str | None = None
 
 
 class OrchestratorContent(BaseModel):
     model_config = ConfigDict(extra="allow")
 
-    hashtag_string: Optional[str] = None
-    archive: Optional[bool] = None
-    debug: Optional[bool] = None
+    hashtag_string: str | None = None
+    archive: bool | None = None
+    debug: bool | None = None
 
 
 class OrchestratorConfigV1(BaseModel):
@@ -120,13 +118,13 @@ class OrchestratorConfigV1(BaseModel):
 class OrchestratorConfigV2(OrchestratorConfigV1):
     model_config = ConfigDict(extra="allow")
 
-    auth: Optional[OrchestratorAuth] = None
+    auth: OrchestratorAuth | None = None
     publishers: list[OrchestratorPublisher] = Field(default_factory=list)
-    email_server: Optional[OrchestratorEmailServer] = None
-    ai: Optional[OrchestratorAI] = None
-    captionfile: Optional[OrchestratorCaptionFile] = None
-    confirmation: Optional[OrchestratorConfirmation] = None
-    content: Optional[OrchestratorContent] = None
+    email_server: OrchestratorEmailServer | None = None
+    ai: OrchestratorAI | None = None
+    captionfile: OrchestratorCaptionFile | None = None
+    confirmation: OrchestratorConfirmation | None = None
+    content: OrchestratorContent | None = None
 
 
 class OrchestratorRuntimeResponse(BaseModel):
@@ -138,5 +136,3 @@ class OrchestratorRuntimeResponse(BaseModel):
     config_version: str
     ttl_seconds: int = 600
     config: dict[str, Any]
-
-

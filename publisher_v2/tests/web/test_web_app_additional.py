@@ -7,7 +7,7 @@ from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
-from publisher_v2.web.app import app, _get_correlation_id, get_service
+from publisher_v2.web.app import _get_correlation_id, app
 from publisher_v2.web.dependencies import get_request_service
 
 
@@ -117,7 +117,7 @@ def test_admin_login_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     # (though this endpoint only checks password auth)
     monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
     monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
-    
+
     with TestClient(app) as client:
         resp = client.post("/api/admin/login", json={"password": "pw"})
         assert resp.status_code == 404
@@ -135,7 +135,7 @@ def test_random_image_requires_admin_when_unconfigured(client_factory, monkeypat
     # Patch both auth and app to be sure
     monkeypatch.setattr("publisher_v2.web.auth.is_admin_configured", lambda: False)
     monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
-    
+
     client = client_factory(service)
     resp = client.get("/api/images/random")
     assert resp.status_code == 503
@@ -244,5 +244,3 @@ def test_publishers_config_endpoint(client_factory) -> None:
     assert resp.status_code == 200
     body = resp.json()
     assert body["telegram"] is False  # telegram config missing => False
-
-

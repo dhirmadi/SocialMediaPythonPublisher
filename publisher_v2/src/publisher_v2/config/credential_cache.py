@@ -1,39 +1,37 @@
-from __future__ import annotations
-
 import asyncio
 import time
 from collections import OrderedDict
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Generic, Optional, TypeVar
-
+from typing import Any, TypeVar
 
 K = TypeVar("K")
 V = TypeVar("V")
 
 
-@dataclass
+@dataclass(slots=True)
 class CacheStats:
     hit_total: int = 0
     miss_total: int = 0
 
 
-@dataclass
-class _Entry(Generic[V]):
+@dataclass(frozen=True, slots=True)
+class _Entry[V]:
     value: V
     expires_at: float
 
 
-class CredentialCache(Generic[K, V]):
+class CredentialCache[K, V]:
     """
     In-memory LRU+TTL cache for secrets (process memory only).
     """
 
     def __init__(self, *, max_size: int = 5000) -> None:
         self._max_size = max(1, int(max_size))
-        self._data: "OrderedDict[K, _Entry[V]]" = OrderedDict()
+        self._data: OrderedDict[K, _Entry[V]] = OrderedDict()
         self.stats = CacheStats()
 
-    def get(self, key: K) -> Optional[V]:
+    def get(self, key: K) -> V | None:
         entry = self._data.get(key)
         if entry is None:
             self.stats.miss_total += 1
@@ -80,5 +78,3 @@ class SingleFlight:
             async with self._lock:
                 # Do not cache failures; always remove in-flight entry.
                 self._in_flight.pop(key, None)
-
-

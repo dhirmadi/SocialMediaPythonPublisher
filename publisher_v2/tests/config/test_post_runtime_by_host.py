@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-import pytest
 import httpx
+import pytest
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
 
@@ -24,7 +24,10 @@ async def test_post_preferred_and_405_fallback_cached() -> None:
                     "app_type": "publisher_v2",
                     "config_version": "cv1",
                     "ttl_seconds": 600,
-                    "config": {"features": {"publish_enabled": False}, "storage": {"provider": "dropbox", "credentials_ref": "ref", "paths": {"root": "/Photos"}}},
+                    "config": {
+                        "features": {"publish_enabled": False},
+                        "storage": {"provider": "dropbox", "credentials_ref": "ref", "paths": {"root": "/Photos"}},
+                    },
                 },
             )
         return httpx.Response(500, json={"error": "unexpected"})
@@ -59,7 +62,10 @@ async def test_prefer_post_false_uses_get() -> None:
                     "app_type": "publisher_v2",
                     "config_version": "cv1",
                     "ttl_seconds": 600,
-                    "config": {"features": {"publish_enabled": False}, "storage": {"provider": "dropbox", "credentials_ref": "ref", "paths": {"root": "/Photos"}}},
+                    "config": {
+                        "features": {"publish_enabled": False},
+                        "storage": {"provider": "dropbox", "credentials_ref": "ref", "paths": {"root": "/Photos"}},
+                    },
                 },
             )
         return httpx.Response(500)
@@ -71,5 +77,3 @@ async def test_prefer_post_false_uses_get() -> None:
 
     assert calls["post"] == 0
     assert calls["get"] == 1
-
-

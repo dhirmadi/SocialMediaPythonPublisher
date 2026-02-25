@@ -1,31 +1,28 @@
-from __future__ import annotations
-
 import asyncio
 import logging
 import smtplib
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from typing import Optional
 
 from publisher_v2.config.schema import EmailConfig
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.utils.captions import normalize_tags
 from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
-
 
 logger = logging.getLogger("publisher_v2.publishers.email")
 
 
 class EmailPublisher(Publisher):
-    def __init__(self, config: Optional[EmailConfig], enabled: bool):
+    def __init__(self, config: EmailConfig | None, enabled: bool):
         self._config = config
         self._enabled = (
             enabled
             and config is not None
-            and bool(getattr(config, "sender", None))
-            and bool(getattr(config, "recipient", None))
-            and bool(getattr(config, "password", None))
+            and bool(config.sender)
+            and bool(config.recipient)
+            and bool(config.password)
         )
 
     @property
@@ -35,7 +32,7 @@ class EmailPublisher(Publisher):
     def is_enabled(self) -> bool:
         return self._enabled
 
-    async def publish(self, image_path: str, caption: str, context: Optional[dict] = None) -> PublishResult:
+    async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 
@@ -54,17 +51,6 @@ class EmailPublisher(Publisher):
                     msg.attach(img)
                 return msg
 
-            def _normalize_tags(raw_tags: list[str], desired_count: int) -> list[str]:
-                cleaned = []
-                for t in raw_tags:
-                    t = t.strip().lower().lstrip("#")
-                    # Keep alphanumerics and spaces only; collapse spaces
-                    t = "".join(ch if ch.isalnum() or ch == " " else " " for ch in t)
-                    t = " ".join(t.split())
-                    if t and t not in cleaned:
-                        cleaned.append(t)
-                return cleaned[: max(0, desired_count)]
-
             def _send_emails() -> None:
                 # Connect once, send both emails, then quit
                 server = smtplib.SMTP(self._config.smtp_server, self._config.smtp_port, timeout=30)
@@ -80,10 +66,7 @@ class EmailPublisher(Publisher):
                 prefix = prefix_map.get((self._config.subject_mode or "normal").lower(), "")
 
                 # Determine subject/body placement
-                if self._config.caption_target.lower() == "subject":
-                    service_subject = f"{prefix}{caption}"
-                    service_body = caption
-                elif self._config.caption_target.lower() == "both":
+                if self._config.caption_target.lower() == "subject" or self._config.caption_target.lower() == "both":
                     service_subject = f"{prefix}{caption}"
                     service_body = caption
                 else:  # "body"
@@ -100,7 +83,7 @@ class EmailPublisher(Publisher):
                     analysis_tags = []
                     if context and isinstance(context.get("analysis_tags"), list):
                         analysis_tags = context.get("analysis_tags") or []
-                    tags = _normalize_tags(analysis_tags, self._config.confirmation_tags_count)
+                    tags = normalize_tags(analysis_tags, self._config.confirmation_tags_count)
                     tags_line = (
                         f"Image Tags (FetLife context): {', '.join(tags)}"
                         if tags
@@ -119,4 +102,3 @@ class EmailPublisher(Publisher):
         except Exception as exc:
             log_publisher_publish(logger, self.platform_name, start, success=False, error=str(exc))
             return PublishResult(success=False, platform=self.platform_name, error=str(exc))
-

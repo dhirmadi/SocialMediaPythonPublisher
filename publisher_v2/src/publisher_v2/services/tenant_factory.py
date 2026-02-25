@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
@@ -8,7 +6,7 @@ from publisher_v2.config.source import ConfigSource, RuntimeConfig
 from publisher_v2.web.service import WebImageService
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class _Entry:
     service: WebImageService
     expires_at: float
@@ -26,7 +24,7 @@ class TenantServiceFactory:
     def __init__(self, *, max_size: int = 1000, ttl_seconds: int = 600) -> None:
         self._max_size = max(1, int(max_size))
         self._ttl_seconds = max(1, int(ttl_seconds))
-        self._data: "OrderedDict[str, _Entry]" = OrderedDict()
+        self._data: OrderedDict[str, _Entry] = OrderedDict()
 
     def _effective_ttl(self, runtime: RuntimeConfig) -> int:
         if runtime.ttl_seconds is None:
@@ -53,5 +51,3 @@ class TenantServiceFactory:
             self._data.popitem(last=False)
 
         return svc
-
-

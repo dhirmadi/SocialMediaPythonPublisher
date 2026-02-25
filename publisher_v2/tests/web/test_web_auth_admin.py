@@ -6,8 +6,8 @@ from fastapi.testclient import TestClient
 
 from publisher_v2.web.auth import (
     ADMIN_COOKIE_NAME,
-    verify_admin_password,
     require_admin,
+    verify_admin_password,
 )
 
 
@@ -53,5 +53,3 @@ def test_require_admin_accepts_with_valid_cookie(monkeypatch: pytest.MonkeyPatch
     res = client.get("/protected")
     assert res.status_code == 200
     assert res.json() == {"ok": True}
-
-

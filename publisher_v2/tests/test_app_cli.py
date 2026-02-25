@@ -11,21 +11,19 @@ This module tests:
 
 from __future__ import annotations
 
-import argparse
 import sys
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from publisher_v2.app import parse_args, main_async, main
-from publisher_v2.core.models import ImageAnalysis, CaptionSpec
-
+from publisher_v2.app import main, main_async, parse_args
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 
 # ---------------------------------------------------------------------------
 # Fixtures for mocking configuration and services
 # ---------------------------------------------------------------------------
+
 
 @pytest.fixture
 def mock_config():
@@ -137,7 +135,7 @@ def mock_failed_result():
 def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
     """
     Set up all the service mocks needed for main_async tests.
-    
+
     Returns a dict with references to the mocks for assertions.
     """
     mocks = {
@@ -150,14 +148,14 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
         "instagram": MagicMock(),
         "orchestrator": MagicMock(),
     }
-    
+
     # Set model attribute on generator for preview mode
     mocks["generator"].model = "gpt-4o"
     mocks["analyzer"].model = "gpt-4o"
-    
+
     # Set storage get_file_metadata for preview mode
     mocks["storage"].get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
-    
+
     # Set is_enabled for publishers
     mocks["telegram"].is_enabled.return_value = False
     mocks["telegram"].platform_name = "telegram"
@@ -165,23 +163,25 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
     mocks["email"].platform_name = "email"
     mocks["instagram"].is_enabled.return_value = False
     mocks["instagram"].platform_name = "instagram"
-    
+
     monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
     monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mocks["storage"])
     monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: mocks["analyzer"])
     monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mocks["generator"])
     monkeypatch.setattr("publisher_v2.app.AIService", lambda analyzer, generator: mocks["ai_service"])
-    monkeypatch.setattr("publisher_v2.app.TelegramPublisher", lambda cfg, enabled: mocks["telegram"])
-    monkeypatch.setattr("publisher_v2.app.EmailPublisher", lambda cfg, enabled: mocks["email"])
-    monkeypatch.setattr("publisher_v2.app.InstagramPublisher", lambda cfg, enabled: mocks["instagram"])
+    monkeypatch.setattr(
+        "publisher_v2.app.build_publishers",
+        lambda cfg: [mocks["telegram"], mocks["email"], mocks["instagram"]],
+    )
     monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mocks["orchestrator"])
-    
+
     return mocks
 
 
 # ---------------------------------------------------------------------------
 # Tests for parse_args()
 # ---------------------------------------------------------------------------
+
 
 class TestParseArgs:
     """Tests for CLI argument parsing."""
@@ -236,15 +236,22 @@ class TestParseArgs:
 
     def test_parse_args_all_options(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Parsing with all options combined."""
-        monkeypatch.setattr(sys, "argv", [
-            "app.py",
-            "--config", "test.ini",
-            "--env", ".env",
-            "--debug",
-            "--select", "specific.jpg",
-            "--dry-publish",
-            "--preview",
-        ])
+        monkeypatch.setattr(
+            sys,
+            "argv",
+            [
+                "app.py",
+                "--config",
+                "test.ini",
+                "--env",
+                ".env",
+                "--debug",
+                "--select",
+                "specific.jpg",
+                "--dry-publish",
+                "--preview",
+            ],
+        )
         args = parse_args()
         assert args.config == "test.ini"
         assert args.env == ".env"
@@ -257,6 +264,7 @@ class TestParseArgs:
 # ---------------------------------------------------------------------------
 # Tests for main_async() - Normal mode
 # ---------------------------------------------------------------------------
+
 
 class TestMainAsyncNormalMode:
     """Tests for main_async() in normal (non-preview) mode."""
@@ -271,7 +279,7 @@ class TestMainAsyncNormalMode:
         """Successful execution returns exit code 0."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini"])
         mock_services["orchestrator"].execute = AsyncMock(return_value=mock_workflow_result)
-        
+
         exit_code = await main_async()
         assert exit_code == 0
 
@@ -285,7 +293,7 @@ class TestMainAsyncNormalMode:
         """Failed execution returns exit code 1."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini"])
         mock_services["orchestrator"].execute = AsyncMock(return_value=mock_failed_result)
-        
+
         exit_code = await main_async()
         assert exit_code == 1
 
@@ -298,28 +306,26 @@ class TestMainAsyncNormalMode:
     ) -> None:
         """--debug flag sets config.content.debug to True."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--debug"])
-        
+
         captured_config = None
-        
+
         def capture_config(config, storage, ai, publishers):
             nonlocal captured_config
             captured_config = config
             mock = MagicMock()
             mock.execute = AsyncMock(return_value=mock_workflow_result)
             return mock
-        
+
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
         monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.TelegramPublisher", lambda c, e: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.EmailPublisher", lambda c, e: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.InstagramPublisher", lambda c, e: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", capture_config)
-        
+
         await main_async()
-        
+
         assert captured_config.content.debug is True
 
     @pytest.mark.asyncio
@@ -331,12 +337,12 @@ class TestMainAsyncNormalMode:
     ) -> None:
         """--select option is passed to orchestrator.execute()."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--select", "specific.jpg"])
-        
+
         mock_execute = AsyncMock(return_value=mock_workflow_result)
         mock_services["orchestrator"].execute = mock_execute
-        
+
         await main_async()
-        
+
         mock_execute.assert_called_once()
         call_kwargs = mock_execute.call_args.kwargs
         assert call_kwargs["select_filename"] == "specific.jpg"
@@ -350,12 +356,12 @@ class TestMainAsyncNormalMode:
     ) -> None:
         """--dry-publish flag is passed to orchestrator.execute()."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--dry-publish"])
-        
+
         mock_execute = AsyncMock(return_value=mock_workflow_result)
         mock_services["orchestrator"].execute = mock_execute
-        
+
         await main_async()
-        
+
         call_kwargs = mock_execute.call_args.kwargs
         assert call_kwargs["dry_publish"] is True
 
@@ -363,6 +369,7 @@ class TestMainAsyncNormalMode:
 # ---------------------------------------------------------------------------
 # Tests for main_async() - Preview mode
 # ---------------------------------------------------------------------------
+
 
 class TestMainAsyncPreviewMode:
     """Tests for main_async() in preview mode."""
@@ -377,7 +384,7 @@ class TestMainAsyncPreviewMode:
         """Preview mode with successful result returns 0."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--preview"])
         mock_services["orchestrator"].execute = AsyncMock(return_value=mock_workflow_result)
-        
+
         # Mock preview utilities to avoid output
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_config_summary", lambda **k: None)
@@ -386,7 +393,7 @@ class TestMainAsyncPreviewMode:
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_caption", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_platform_preview", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_footer", lambda: None)
-        
+
         exit_code = await main_async()
         assert exit_code == 0
 
@@ -400,12 +407,12 @@ class TestMainAsyncPreviewMode:
         """Preview mode with failed result returns 1."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--preview"])
         mock_services["orchestrator"].execute = AsyncMock(return_value=mock_failed_result)
-        
+
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_config_summary", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_error", lambda e: None)
-        
+
         exit_code = await main_async()
         assert exit_code == 1
 
@@ -418,10 +425,10 @@ class TestMainAsyncPreviewMode:
     ) -> None:
         """Preview mode implies dry_publish=True."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--preview"])
-        
+
         mock_execute = AsyncMock(return_value=mock_workflow_result)
         mock_services["orchestrator"].execute = mock_execute
-        
+
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_config_summary", lambda **k: None)
@@ -430,9 +437,9 @@ class TestMainAsyncPreviewMode:
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_caption", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_platform_preview", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_footer", lambda: None)
-        
+
         await main_async()
-        
+
         call_kwargs = mock_execute.call_args.kwargs
         assert call_kwargs["dry_publish"] is True
         assert call_kwargs["preview_mode"] is True
@@ -442,68 +449,47 @@ class TestMainAsyncPreviewMode:
 # Tests for main_async() - Publisher initialization
 # ---------------------------------------------------------------------------
 
+
 class TestPublisherInitialization:
     """Tests for publisher initialization based on config."""
 
     @pytest.mark.asyncio
-    async def test_publishers_created_with_config(
+    async def test_build_publishers_called_with_config(
         self,
         monkeypatch: pytest.MonkeyPatch,
         mock_config,
         mock_workflow_result,
     ) -> None:
-        """Publishers are created with correct config and enabled status."""
+        """build_publishers factory is called with the application config."""
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini"])
-        
-        telegram_calls = []
-        email_calls = []
-        instagram_calls = []
-        
-        def track_telegram(*args):
-            telegram_calls.append(args)
-            return MagicMock()
-        
-        def track_email(*args):
-            email_calls.append(args)
-            return MagicMock()
-        
-        def track_instagram(*args):
-            instagram_calls.append(args)
-            return MagicMock()
-        
+
+        factory_calls = []
+
+        def track_build_publishers(cfg):
+            factory_calls.append(cfg)
+            return []
+
         mock_orchestrator = MagicMock()
         mock_orchestrator.execute = AsyncMock(return_value=mock_workflow_result)
-        
+
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
         monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.TelegramPublisher", track_telegram)
-        monkeypatch.setattr("publisher_v2.app.EmailPublisher", track_email)
-        monkeypatch.setattr("publisher_v2.app.InstagramPublisher", track_instagram)
+        monkeypatch.setattr("publisher_v2.app.build_publishers", track_build_publishers)
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
-        
+
         await main_async()
-        
-        # Check Telegram publisher was created
-        assert len(telegram_calls) == 1
-        assert telegram_calls[0][0] is None  # telegram config is None
-        assert telegram_calls[0][1] is False  # telegram_enabled is False
-        
-        # Check Email publisher was created
-        assert len(email_calls) == 1
-        assert email_calls[0][1] is False  # email_enabled is False
-        
-        # Check Instagram publisher was created
-        assert len(instagram_calls) == 1
-        assert instagram_calls[0][0] is None  # instagram config is None
-        assert instagram_calls[0][1] is False  # instagram_enabled is False
+
+        assert len(factory_calls) == 1
+        assert factory_calls[0] is mock_config
 
 
 # ---------------------------------------------------------------------------
 # Tests for main() - Sync entrypoint
 # ---------------------------------------------------------------------------
+
 
 class TestMainSync:
     """Tests for the synchronous main() entrypoint."""
@@ -513,14 +499,15 @@ class TestMainSync:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """main() raises SystemExit with code 0 on success."""
+
         async def mock_main_async():
             return 0
-        
+
         monkeypatch.setattr("publisher_v2.app.main_async", mock_main_async)
-        
+
         with pytest.raises(SystemExit) as exc_info:
             main()
-        
+
         assert exc_info.value.code == 0
 
     def test_main_raises_system_exit_on_failure(
@@ -528,20 +515,22 @@ class TestMainSync:
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """main() raises SystemExit with code 1 on failure."""
+
         async def mock_main_async():
             return 1
-        
+
         monkeypatch.setattr("publisher_v2.app.main_async", mock_main_async)
-        
+
         with pytest.raises(SystemExit) as exc_info:
             main()
-        
+
         assert exc_info.value.code == 1
 
 
 # ---------------------------------------------------------------------------
 # Tests for email preview path
 # ---------------------------------------------------------------------------
+
 
 class TestEmailPreviewPath:
     """Tests for email confirmation preview in preview mode."""
@@ -556,45 +545,45 @@ class TestEmailPreviewPath:
         """Preview mode shows email confirmation preview when email is enabled."""
         # Enable email
         mock_config.platforms.email_enabled = True
-        
+
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--preview"])
-        
+
         mock_execute = AsyncMock(return_value=mock_workflow_result)
         mock_orchestrator = MagicMock()
         mock_orchestrator.execute = mock_execute
-        
+
         mock_storage = MagicMock()
         mock_storage.get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
-        
+
         email_preview_called = []
-        
+
         def track_email_preview(**kwargs):
             email_preview_called.append(kwargs)
-        
+
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
         monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
-        
-        # Create mock publishers with is_enabled returning proper values
+
         mock_telegram = MagicMock()
         mock_telegram.is_enabled.return_value = False
         mock_telegram.platform_name = "telegram"
-        
+
         mock_email_pub = MagicMock()
         mock_email_pub.is_enabled.return_value = True
         mock_email_pub.platform_name = "email"
-        
+
         mock_instagram = MagicMock()
         mock_instagram.is_enabled.return_value = False
         mock_instagram.platform_name = "instagram"
-        
-        monkeypatch.setattr("publisher_v2.app.TelegramPublisher", lambda *a: mock_telegram)
-        monkeypatch.setattr("publisher_v2.app.EmailPublisher", lambda *a: mock_email_pub)
-        monkeypatch.setattr("publisher_v2.app.InstagramPublisher", lambda *a: mock_instagram)
+
+        monkeypatch.setattr(
+            "publisher_v2.app.build_publishers",
+            lambda cfg: [mock_telegram, mock_email_pub, mock_instagram],
+        )
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
-        
+
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_config_summary", lambda **k: None)
@@ -604,9 +593,9 @@ class TestEmailPreviewPath:
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_platform_preview", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_email_confirmation_preview", track_email_preview)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_footer", lambda: None)
-        
+
         await main_async()
-        
+
         # Verify email confirmation preview was called
         assert len(email_preview_called) == 1
         assert email_preview_called[0]["enabled"] is True
@@ -615,6 +604,7 @@ class TestEmailPreviewPath:
 # ---------------------------------------------------------------------------
 # Tests for SD caption preview path
 # ---------------------------------------------------------------------------
+
 
 class TestSDCaptionPreviewPath:
     """Tests for SD caption sidecar preview in preview mode."""
@@ -636,7 +626,7 @@ class TestSDCaptionPreviewPath:
         )
         # Add sd_caption attribute dynamically
         object.__setattr__(mock_analysis, "sd_caption", "beautiful photograph, natural lighting")
-        
+
         mock_result = SimpleNamespace(
             success=True,
             image_name="test.jpg",
@@ -656,34 +646,32 @@ class TestSDCaptionPreviewPath:
             publish_results={},
             error=None,
         )
-        
+
         monkeypatch.setattr(sys, "argv", ["app.py", "--config", "test.ini", "--preview"])
-        
+
         mock_execute = AsyncMock(return_value=mock_result)
         mock_orchestrator = MagicMock()
         mock_orchestrator.execute = mock_execute
-        
+
         mock_storage = MagicMock()
         mock_storage.get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
-        
+
         mock_generator = MagicMock()
         mock_generator.model = "gpt-4o"
-        
+
         sidecar_preview_called = []
-        
+
         def track_sidecar_preview(sd_caption, metadata):
             sidecar_preview_called.append((sd_caption, metadata))
-        
+
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
         monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mock_generator)
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.TelegramPublisher", lambda c, e: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.EmailPublisher", lambda c, e: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.InstagramPublisher", lambda c, e: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
-        
+
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_config_summary", lambda **k: None)
@@ -693,10 +681,9 @@ class TestSDCaptionPreviewPath:
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_caption_sidecar_preview", track_sidecar_preview)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_platform_preview", lambda **k: None)
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_footer", lambda: None)
-        
+
         await main_async()
-        
+
         # Verify sidecar preview was called with sd_caption
         assert len(sidecar_preview_called) == 1
         assert sidecar_preview_called[0][0] == "beautiful photograph, natural lighting"
-

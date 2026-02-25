@@ -1,7 +1,4 @@
-from __future__ import annotations
-
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional
 
 
 class DropboxConfig(BaseModel):
@@ -29,8 +26,8 @@ class DropboxConfig(BaseModel):
 
 class OpenAIConfig(BaseModel):
     # In orchestrator mode, api_key may be resolved lazily; loader still requires it.
-    api_key: Optional[str] = Field(default=None, description="OpenAI API key")
-    
+    api_key: str | None = Field(default=None, description="OpenAI API key")
+
     # Separate models for optimal quality/cost balance
     vision_model: str = Field(
         default="gpt-4o",
@@ -49,25 +46,25 @@ class OpenAIConfig(BaseModel):
         default=True,
         description="Prefer single caption-model call returning {caption, sd_caption}",
     )
-    sd_caption_model: Optional[str] = Field(
+    sd_caption_model: str | None = Field(
         default=None,
         description="Optional override model for SD caption single-call generation",
     )
-    sd_caption_system_prompt: Optional[str] = Field(
+    sd_caption_system_prompt: str | None = Field(
         default=None,
         description="Optional system prompt override for SD caption generation",
     )
-    sd_caption_role_prompt: Optional[str] = Field(
+    sd_caption_role_prompt: str | None = Field(
         default=None,
         description="Optional role/user prompt override for SD caption generation",
     )
-    
+
     # Deprecated: kept for backward compatibility
-    model: Optional[str] = Field(
+    model: str | None = Field(
         default=None,
         description="(Deprecated) Single model for both tasks. Use vision_model and caption_model instead.",
     )
-    
+
     system_prompt: str = Field(
         default="You are a senior social media copywriter. Write authentic, concise, platform-aware captions.",
         description="System prompt used for caption generation",
@@ -76,13 +73,13 @@ class OpenAIConfig(BaseModel):
 
     @field_validator("api_key")
     @classmethod
-    def validate_api_key(cls, v: Optional[str]) -> Optional[str]:
+    def validate_api_key(cls, v: str | None) -> str | None:
         if v is None:
             return v
         if not v.startswith("sk-"):
             raise ValueError("Invalid OpenAI API key format")
         return v
-    
+
     @field_validator("vision_model", "caption_model")
     @classmethod
     def validate_model_names(cls, v: str) -> str:
@@ -91,7 +88,7 @@ class OpenAIConfig(BaseModel):
         if not any(v.startswith(prefix) for prefix in valid_prefixes):
             raise ValueError(f"Model '{v}' does not appear to be a valid OpenAI model")
         return v
-    
+
     def model_post_init(self, __context) -> None:
         """Handle legacy 'model' field for backward compatibility"""
         # This method is called after __init__ but validation has already happened
@@ -107,7 +104,7 @@ class PlatformsConfig(BaseModel):
 
 class TelegramConfig(BaseModel):
     # In orchestrator mode, bot_token may be resolved lazily; env-loader still requires it.
-    bot_token: Optional[str] = Field(default=None, description="Telegram bot token")
+    bot_token: str | None = Field(default=None, description="Telegram bot token")
     channel_id: str = Field(..., description="Telegram channel/chat id")
 
 
@@ -121,7 +118,7 @@ class EmailConfig(BaseModel):
     sender: str = Field(..., description="Sender email address")
     recipient: str = Field(..., description="Recipient email address")
     # In orchestrator mode, password may be resolved lazily; env-loader still requires it.
-    password: Optional[str] = Field(default=None, description="Email (app) password")
+    password: str | None = Field(default=None, description="Email (app) password")
     smtp_server: str = Field(default="smtp.gmail.com")
     smtp_port: int = Field(default=587)
     # Confirmation email back to sender after service email is sent
@@ -173,11 +170,12 @@ class CaptionFileConfig(BaseModel):
     - extended_metadata_enabled controls Phase 2 contextual metadata output.
     Phase 1 identity/version metadata is always included when sd_caption exists.
     """
+
     extended_metadata_enabled: bool = Field(
         default=False,
         description="Enable Phase 2 extended contextual metadata (pose, lighting, materials, art_style, tags, moderation)",
     )
-    artist_alias: Optional[str] = Field(
+    artist_alias: str | None = Field(
         default=None,
         description="Artist/photographer alias to include in caption file metadata",
     )
@@ -229,15 +227,15 @@ class WebConfig(BaseModel):
         default=True,
         description="Require authentication for mutating web API actions",
     )
-    auth_token: Optional[str] = Field(
+    auth_token: str | None = Field(
         default=None,
         description="Optional bearer token for API auth",
     )
-    auth_user: Optional[str] = Field(
+    auth_user: str | None = Field(
         default=None,
         description="Optional basic auth username for API auth",
     )
-    auth_pass: Optional[str] = Field(
+    auth_pass: str | None = Field(
         default=None,
         description="Optional basic auth password for API auth",
     )
@@ -252,11 +250,12 @@ class Auth0Config(BaseModel):
     Configuration for Auth0 OIDC integration.
     Loaded primarily from AUTH0_* environment variables.
     """
+
     domain: str = Field(..., description="Auth0 domain (e.g. tenant.auth0.com)")
     client_id: str = Field(..., description="Auth0 Client ID")
     client_secret: str = Field(..., description="Auth0 Client Secret")
-    audience: Optional[str] = Field(default=None, description="Auth0 API Audience (optional)")
-    callback_url: Optional[str] = Field(
+    audience: str | None = Field(default=None, description="Auth0 API Audience (optional)")
+    callback_url: str | None = Field(
         default=None,
         description="Optional static callback URL fallback (dynamic callback is derived from request Host)",
     )
@@ -281,13 +280,10 @@ class ApplicationConfig(BaseModel):
     openai: OpenAIConfig
     platforms: PlatformsConfig
     features: FeaturesConfig = FeaturesConfig()
-    telegram: Optional[TelegramConfig] = None
-    instagram: Optional[InstagramConfig] = None
-    email: Optional[EmailConfig] = None
+    telegram: TelegramConfig | None = None
+    instagram: InstagramConfig | None = None
+    email: EmailConfig | None = None
     content: ContentConfig
     captionfile: CaptionFileConfig = CaptionFileConfig()
     web: WebConfig = WebConfig()
-    auth0: Optional[Auth0Config] = None
-
-
-
+    auth0: Auth0Config | None = None

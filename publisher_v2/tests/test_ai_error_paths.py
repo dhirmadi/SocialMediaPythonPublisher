@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
-from publisher_v2.services.ai import VisionAnalyzerOpenAI, CaptionGeneratorOpenAI
+from publisher_v2.services.ai import CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 
 
 class _Msg:
@@ -45,7 +46,9 @@ class _ClientWithCompletions:
 
 @pytest.mark.asyncio
 async def test_analyzer_fallback_non_json(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsBadJSON()))
+    monkeypatch.setattr(
+        "publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsBadJSON())
+    )
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     analyzer = VisionAnalyzerOpenAI(cfg)
     out = await analyzer.analyze("http://tmp-url")
@@ -69,7 +72,9 @@ async def test_analyzer_rejects_bytes_input(monkeypatch: pytest.MonkeyPatch) -> 
 @pytest.mark.asyncio
 async def test_caption_generate_enforces_length(monkeypatch: pytest.MonkeyPatch) -> None:
     long_text = "x" * 500
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsCaption(long_text)))
+    monkeypatch.setattr(
+        "publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsCaption(long_text))
+    )
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
@@ -88,11 +93,8 @@ async def test_generate_with_sd_parses_json(monkeypatch: pytest.MonkeyPatch) -> 
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
-    out = await gen.generate_with_sd(ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), spec)
+    out = await gen.generate_with_sd(
+        ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), spec
+    )
     assert out["caption"] == "short"
     assert out["sd_caption"] == "sd prompt"
-
-
-
-
-

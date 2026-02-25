@@ -1,6 +1,4 @@
-from __future__ import annotations
-
-from typing import Literal, Optional, Union
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
@@ -11,7 +9,7 @@ class DropboxCredentials(BaseModel):
     provider: Literal["dropbox"]
     version: str
     refresh_token: str
-    expires_at: Optional[str] = None
+    expires_at: str | None = None
 
 
 class OpenAICredentials(BaseModel):
@@ -38,6 +36,4 @@ class SMTPCredentials(BaseModel):
     password: str
 
 
-CredentialPayload = Union[DropboxCredentials, OpenAICredentials, TelegramCredentials, SMTPCredentials]
-
-
+CredentialPayload = DropboxCredentials | OpenAICredentials | TelegramCredentials | SMTPCredentials

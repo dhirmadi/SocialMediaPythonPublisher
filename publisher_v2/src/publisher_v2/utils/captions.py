@@ -1,12 +1,24 @@
-from __future__ import annotations
-
 import json
 import re
-from typing import Any, Dict
+from typing import Any
 
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import ImageAnalysis
 
+
+def normalize_tags(raw: list[str], max_count: int) -> list[str]:
+    """
+    Clean and deduplicate tag strings: strip whitespace, lowercase,
+    remove leading '#', collapse non-alphanum chars, and limit count.
+    """
+    cleaned: list[str] = []
+    for t in raw:
+        t = t.strip().lower().lstrip("#")
+        t = "".join(ch if ch.isalnum() or ch == " " else " " for ch in t)
+        t = " ".join(t.split())
+        if t and t not in cleaned:
+            cleaned.append(t)
+    return cleaned[: max(0, max_count)]
 
 _MAX_LEN = {
     "instagram": 2200,
@@ -33,8 +45,10 @@ def _limit_instagram_hashtags(text: str, max_hashtags: int) -> str:
         return text
     # Keep the first N, remove extras
     keep = set(hashtags[:max_hashtags])
+
     def repl(m):
         return m.group(0) if m.group(0) in keep else ""
+
     text = re.sub(r"#\w+", repl, text)
     # Normalize spaces
     return re.sub(r"\s{2,}", " ", text).strip()
@@ -98,11 +112,11 @@ def build_metadata_phase1(
     dropbox_file_id: str | None,
     dropbox_rev: str | None,
     artist_alias: str | None = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Build Phase 1 identity/version metadata. Omit missing fields.
     """
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     if image_file:
         meta["image_file"] = image_file
     if dropbox_file_id:
@@ -122,11 +136,11 @@ def build_metadata_phase1(
     return meta
 
 
-def build_metadata_phase2(analysis: ImageAnalysis) -> Dict[str, Any]:
+def build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, Any]:
     """
     Build Phase 2 contextual metadata from analysis. Omit missing/empty fields.
     """
-    meta: Dict[str, Any] = {}
+    meta: dict[str, Any] = {}
     # Core contextual fields
     if getattr(analysis, "subject", None):
         meta["subject"] = analysis.subject
@@ -160,7 +174,7 @@ def build_metadata_phase2(analysis: ImageAnalysis) -> Dict[str, Any]:
     return meta
 
 
-def build_caption_sidecar(sd_caption: str, metadata: Dict[str, Any]) -> str:
+def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     """
     Compose the sidecar file content:
     - First line: sd_caption
@@ -182,4 +196,3 @@ def build_caption_sidecar(sd_caption: str, metadata: Dict[str, Any]) -> str:
         lines.append(f"# {key}: {rendered}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
-

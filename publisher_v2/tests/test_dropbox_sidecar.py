@@ -2,11 +2,11 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.schema import DropboxConfig
-from publisher_v2.services.storage import DropboxStorage
-
 # Use centralized test fixtures from conftest.py (QC-001)
 from conftest import BaseDummyClient
+
+from publisher_v2.config.schema import DropboxConfig
+from publisher_v2.services.storage import DropboxStorage
 
 
 @pytest.mark.asyncio
@@ -66,4 +66,3 @@ async def test_download_sidecar_if_exists_returns_none_on_not_found(monkeypatch:
 
     blob = await storage.download_sidecar_if_exists("/ImagesToday", "image.jpg")
     assert blob is None
-

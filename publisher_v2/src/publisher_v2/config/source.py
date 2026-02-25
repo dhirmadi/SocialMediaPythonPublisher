@@ -1,50 +1,48 @@
-from __future__ import annotations
-
 import os
 import uuid
 from dataclasses import dataclass
 from functools import lru_cache
 from typing import Any, Protocol, cast
 
-from publisher_v2.config.host_utils import normalize_host, validate_host, extract_tenant
+from publisher_v2.config.credential_cache import CredentialCache, SingleFlight
+from publisher_v2.config.credentials import (
+    CredentialPayload,
+    DropboxCredentials,
+    OpenAICredentials,
+    SMTPCredentials,
+    TelegramCredentials,
+)
+from publisher_v2.config.host_utils import extract_tenant, normalize_host, validate_host
 from publisher_v2.config.loader import load_application_config
 from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_post_default
 from publisher_v2.config.orchestrator_models import (
-    OrchestratorRuntimeResponse,
     OrchestratorConfigV1,
     OrchestratorConfigV2,
+    OrchestratorRuntimeResponse,
 )
 from publisher_v2.config.runtime_cache import RuntimeConfigCache
-from publisher_v2.config.credential_cache import CredentialCache, SingleFlight
-from publisher_v2.config.credentials import (
-    DropboxCredentials,
-    OpenAICredentials,
-    TelegramCredentials,
-    SMTPCredentials,
-    CredentialPayload,
-)
 from publisher_v2.config.schema import (
     ApplicationConfig,
+    Auth0Config,
+    CaptionFileConfig,
+    ContentConfig,
     DropboxConfig,
+    EmailConfig,
+    FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
     TelegramConfig,
-    EmailConfig,
-    ContentConfig,
-    CaptionFileConfig,
-    FeaturesConfig,
-    Auth0Config,
 )
 from publisher_v2.config.web_env import load_web_and_auth0_from_env
 from publisher_v2.core.exceptions import (
     ConfigurationError,
-    TenantNotFoundError,
-    OrchestratorUnavailableError,
     CredentialResolutionError,
+    OrchestratorUnavailableError,
+    TenantNotFoundError,
 )
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, slots=True)
 class RuntimeConfig:
     """
     Per-request runtime configuration context.
@@ -391,26 +389,21 @@ class OrchestratorConfigSource:
                     recipient = str(p.config.get("recipient") or "").strip()
                     if recipient and cfg.email_server.from_email:
                         email_enabled = True
+                        conf = cfg.confirmation
                         email_cfg = EmailConfig(
                             sender=cfg.email_server.from_email,
                             recipient=recipient,
                             password=None,
                             smtp_server=cfg.email_server.host,
                             smtp_port=int(cfg.email_server.port),
-                            confirmation_to_sender=bool(getattr(cfg.confirmation, "confirmation_to_sender", True))
-                            if cfg.confirmation is not None
+                            confirmation_to_sender=bool(conf.confirmation_to_sender)
+                            if conf is not None and conf.confirmation_to_sender is not None
                             else True,
-                            confirmation_tags_count=int(getattr(cfg.confirmation, "confirmation_tags_count", 5))
-                            if cfg.confirmation is not None and getattr(cfg.confirmation, "confirmation_tags_count", None) is not None
+                            confirmation_tags_count=int(conf.confirmation_tags_count)
+                            if conf is not None and conf.confirmation_tags_count is not None
                             else 5,
-                            confirmation_tags_nature=str(
-                                getattr(
-                                    cfg.confirmation,
-                                    "confirmation_tags_nature",
-                                    "short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
-                                )
-                            )
-                            if cfg.confirmation is not None
+                            confirmation_tags_nature=str(conf.confirmation_tags_nature)
+                            if conf is not None and conf.confirmation_tags_nature is not None
                             else "short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
                             caption_target=str(p.config.get("caption_target") or "subject"),
                             subject_mode=str(p.config.get("subject_mode") or "normal"),
@@ -448,17 +441,19 @@ class OrchestratorConfigSource:
         else:
             features.analyze_caption_enabled = False
 
+        cf = cfg.captionfile
         captionfile = CaptionFileConfig(
-            extended_metadata_enabled=bool(getattr(cfg.captionfile, "extended_metadata_enabled", False))
-            if cfg.captionfile is not None and getattr(cfg.captionfile, "extended_metadata_enabled", None) is not None
+            extended_metadata_enabled=bool(cf.extended_metadata_enabled)
+            if cf and cf.extended_metadata_enabled is not None
             else False,
-            artist_alias=getattr(cfg.captionfile, "artist_alias", None) if cfg.captionfile is not None else None,
+            artist_alias=cf.artist_alias if cf else None,
         )
 
+        ct = cfg.content
         content = ContentConfig(
-            hashtag_string=getattr(cfg.content, "hashtag_string", "") if cfg.content is not None else "",
-            archive=bool(getattr(cfg.content, "archive", True)) if cfg.content is not None else True,
-            debug=bool(getattr(cfg.content, "debug", False)) if cfg.content is not None else False,
+            hashtag_string=ct.hashtag_string or "" if ct else "",
+            archive=bool(ct.archive) if ct and ct.archive is not None else True,
+            debug=bool(ct.debug) if ct and ct.debug is not None else False,
         )
 
         web_cfg, auth0_cfg = load_web_and_auth0_from_env()
@@ -504,6 +499,7 @@ def _apply_orchestrator_auth_policy(auth0_cfg: Auth0Config | None, cfg: Orchestr
     # Override allowlist (can be empty to effectively deny all).
     return auth0_cfg.model_copy(update={"admin_emails": ",".join(allowed)})
 
+
 @lru_cache(maxsize=1)
 def get_config_source() -> ConfigSource:
     """
@@ -526,5 +522,3 @@ def get_config_source() -> ConfigSource:
 def clear_config_source_cache() -> None:
     """Test helper."""
     get_config_source.cache_clear()
-
-

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+
 import pytest
 
 from publisher_v2.config.schema import OpenAIConfig
@@ -73,8 +74,3 @@ async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) 
     assert "center-weighted" in (result.composition or "")
     assert "studio" in (result.background or "")
     assert "black" in (result.color_palette or "")
-
-
-
-
-

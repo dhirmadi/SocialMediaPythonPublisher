@@ -1,14 +1,12 @@
 from __future__ import annotations
 
-from typing import Optional
-
 import pytest
-
-from publisher_v2.config.schema import DropboxConfig
-from publisher_v2.services.storage import DropboxStorage
 
 # Use centralized test fixtures from conftest.py (QC-001)
 from conftest import BaseDummyClient
+
+from publisher_v2.config.schema import DropboxConfig
+from publisher_v2.services.storage import DropboxStorage
 
 
 @pytest.mark.asyncio
@@ -64,7 +62,7 @@ async def test_archive_image_delegates_to_move_image_with_sidecars(monkeypatch: 
     )
     storage = DropboxStorage(cfg)
 
-    called: dict[str, Optional[tuple[str, str, str]]] = {"args": None}
+    called: dict[str, tuple[str, str, str] | None] = {"args": None}
 
     async def _fake_move(folder: str, filename: str, target: str) -> None:
         called["args"] = (folder, filename, target)
@@ -74,5 +72,3 @@ async def test_archive_image_delegates_to_move_image_with_sidecars(monkeypatch: 
     await storage.archive_image("/ImagesToday", "image.jpg", "archive")
 
     assert called["args"] == ("/ImagesToday", "image.jpg", "archive")
-
-

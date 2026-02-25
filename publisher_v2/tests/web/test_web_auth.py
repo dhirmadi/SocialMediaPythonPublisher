@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import base64
-from typing import Dict
 
 import pytest
 from fastapi import FastAPI
@@ -10,7 +9,7 @@ from fastapi.testclient import TestClient
 from publisher_v2.web.auth import require_auth
 
 
-def _make_app(env: Dict[str, str]) -> TestClient:
+def _make_app(env: dict[str, str]) -> TestClient:
     app = FastAPI()
 
     @app.get("/protected")
@@ -60,6 +59,3 @@ def test_require_auth_disabled_without_env(monkeypatch: pytest.MonkeyPatch) -> N
     res = client.get("/protected")
     # When auth is disabled, endpoint should allow access
     assert res.status_code == 200
-
-
-

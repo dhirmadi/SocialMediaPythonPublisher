@@ -1,47 +1,45 @@
-from __future__ import annotations
-
 import logging
 import os
 import uuid
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from enum import Enum
-from functools import lru_cache
-from typing import Optional, Any, AsyncIterator
+from enum import StrEnum
+from typing import Any
 
-from fastapi import FastAPI, Depends, HTTPException, Request, status, Query
+from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
 from publisher_v2.config.static_loader import get_static_config
-from publisher_v2.utils.logging import setup_logging, log_json, now_monotonic, elapsed_ms
+from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic, setup_logging
 from publisher_v2.web.auth import (
-    require_auth,
-    require_admin,
-    is_admin_configured,
-    get_admin_password,
-    verify_admin_password,
-    set_admin_cookie,
     clear_admin_cookie,
-    is_admin_request,
+    get_admin_password,
     get_auth_mode,
+    is_admin_configured,
+    is_admin_request,
+    require_admin,
+    require_auth,
+    set_admin_cookie,
+    verify_admin_password,
 )
-from publisher_v2.web.routers import auth as auth_router
+from publisher_v2.web.dependencies import get_request_service, get_service
+from publisher_v2.web.middleware import tenant_middleware
 from publisher_v2.web.models import (
-    ImageResponse,
-    ImageListResponse,
-    AnalysisResponse,
-    PublishResponse,
-    PublishRequest,
-    ErrorResponse,
     AdminLoginRequest,
     AdminStatusResponse,
+    AnalysisResponse,
     CurationResponse,
+    ErrorResponse,
+    ImageListResponse,
+    ImageResponse,
+    PublishRequest,
+    PublishResponse,
 )
+from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.service import WebImageService
-from publisher_v2.web.middleware import tenant_middleware
-from publisher_v2.web.dependencies import get_service, get_request_service
 
 __all__ = [
     "app",
@@ -51,13 +49,11 @@ from publisher_v2.config.source import get_config_source
 from publisher_v2.core.exceptions import OrchestratorUnavailableError
 
 
-
-
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """
     Lifespan context manager for FastAPI app startup and shutdown events.
-    
+
     This replaces the deprecated @app.on_event("startup") decorator.
     """
     # Startup logic
@@ -65,16 +61,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
         level = logging.DEBUG
     setup_logging(level)
-    
+
     _logger = logging.getLogger("publisher_v2.web")
     log_json(_logger, logging.INFO, "web_server_start")
 
     # Auth0 is configured lazily on first auth route call.
     # Avoid forcing a full ApplicationConfig load here because orchestrator mode
     # may not have standalone secrets configured at process start.
-    
+
     yield
-    
+
     # Shutdown logic (if needed in future)
 
 
@@ -90,7 +86,7 @@ def _get_correlation_id(request: Request) -> str:
     return str(uuid.uuid4())
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class RequestTelemetry:
     correlation_id: str
     start_time: float
@@ -107,6 +103,53 @@ async def get_request_telemetry(request: Request) -> RequestTelemetry:
     # Expose on request.state so deeper layers can opt-in if needed.
     request.state.correlation_id = correlation_id
     return RequestTelemetry(correlation_id=correlation_id, start_time=start_time)
+
+
+async def endpoint_telemetry(
+    event_name: str,
+    response: Response,
+    telemetry: RequestTelemetry,
+    **extra_log_kwargs: Any,
+) -> None:
+    """Log success telemetry and set the correlation header on the response."""
+    ms = elapsed_ms(telemetry.start_time)
+    response.headers["X-Correlation-ID"] = telemetry.correlation_id
+    log_json(
+        logger,
+        logging.INFO,
+        event_name,
+        correlation_id=telemetry.correlation_id,
+        **{f"{event_name}_ms": ms},
+        **extra_log_kwargs,
+    )
+
+
+def raise_for_service_error(exc: Exception, event_name: str, response: Response, telemetry: RequestTelemetry) -> None:
+    """
+    Map service-layer exceptions to HTTP responses, with error telemetry.
+
+    Handles FileNotFoundError -> 404, PermissionError -> 403,
+    'not found' in message -> 404, and everything else -> 500.
+    """
+    if isinstance(exc, FileNotFoundError):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+    if isinstance(exc, PermissionError):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+    msg = str(exc)
+    if "not found" in msg.lower() or "path/not_found" in msg.lower():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+
+    ms = elapsed_ms(telemetry.start_time)
+    response.headers["X-Correlation-ID"] = telemetry.correlation_id
+    log_json(
+        logger,
+        logging.ERROR,
+        f"{event_name}_error",
+        error=str(exc),
+        correlation_id=telemetry.correlation_id,
+        **{f"{event_name}_ms": ms},
+    )
+    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
 
 
 # Templates (server-rendered HTML with a small bit of JS)
@@ -247,7 +290,7 @@ def verify_view_permissions(
 ) -> None:
     """
     Enforce permission policy for viewing images (list, details, random, thumbnails).
-    
+
     Policy:
       - If FEATURE_AUTO_VIEW=true (default for local/dev), allow public access.
       - If FEATURE_AUTO_VIEW=false (default for prod/cloud), require Admin mode.
@@ -255,7 +298,7 @@ def verify_view_permissions(
     """
     features = service.config.features
     # Check if public view is allowed
-    if getattr(features, "auto_view_enabled", False):
+    if features.auto_view_enabled:
         return
 
     # Otherwise, strict admin check
@@ -265,18 +308,18 @@ def verify_view_permissions(
         # Admin required but not available -> Service Unavailable
         # Log telemetry if available
         if telemetry:
-             log_json(
+            log_json(
                 logger,
                 logging.WARNING,
                 "view_permission_denied_admin_unconfigured",
                 correlation_id=telemetry.correlation_id,
-                path=request.url.path
+                path=request.url.path,
             )
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Image viewing requires admin mode but admin is not configured",
         )
-    
+
     try:
         require_admin(request)
     except HTTPException:
@@ -287,7 +330,7 @@ def verify_view_permissions(
                 logging.WARNING,
                 "view_permission_denied_admin_required",
                 correlation_id=telemetry.correlation_id,
-                path=request.url.path
+                path=request.url.path,
             )
         raise
 
@@ -321,34 +364,12 @@ async def api_get_random_image(
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
-    # Permissions checked by dependency
     try:
         img = await service.get_random_image()
-        web_random_image_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.INFO,
-            "web_random_image",
-            filename=img.filename,
-            correlation_id=telemetry.correlation_id,
-            web_random_image_ms=web_random_image_ms,
-        )
+        await endpoint_telemetry("web_random_image", response, telemetry, filename=img.filename)
         return img
-    except FileNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No images found")
     except Exception as exc:
-        web_random_image_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_random_image_error",
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_random_image_ms=web_random_image_ms,
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_random_image", response, telemetry)
 
 
 @app.get(
@@ -364,14 +385,12 @@ async def api_get_image_details(
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> ImageResponse:
-    # Permissions checked by dependency
     try:
-        return await service.get_image_details(filename)
-    except FileNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
+        result = await service.get_image_details(filename)
+        await endpoint_telemetry("web_get_image", response, telemetry, filename=filename)
+        return result
     except Exception as exc:
-        log_json(logger, logging.ERROR, "web_get_image_error", error=str(exc))
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_get_image", response, telemetry)
 
 
 @app.post(
@@ -396,33 +415,10 @@ async def api_analyze_image(
             correlation_id=telemetry.correlation_id,
             force_refresh=force_refresh,
         )
-        web_analyze_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.INFO,
-            "web_analyze_complete",
-            filename=filename,
-            correlation_id=telemetry.correlation_id,
-            web_analyze_ms=web_analyze_ms,
-        )
+        await endpoint_telemetry("web_analyze", response, telemetry, filename=filename)
         return resp
     except Exception as exc:
-        msg = str(exc)
-        if "not found" in msg.lower():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-        web_analyze_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_analyze_error",
-            filename=filename,
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_analyze_ms=web_analyze_ms,
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_analyze", response, telemetry)
 
 
 @app.post(
@@ -434,7 +430,7 @@ async def api_publish_image(
     filename: str,
     request: Request,
     response: Response,
-    body: Optional[PublishRequest] = None,
+    body: PublishRequest | None = None,
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> PublishResponse:
@@ -446,43 +442,13 @@ async def api_publish_image(
     caption_override = raw_caption.strip() if raw_caption and raw_caption.strip() else None
     try:
         resp = await service.publish_image(filename, platforms, caption_override=caption_override)
-        web_publish_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.INFO,
-            "web_publish_complete",
-            filename=filename,
-            any_success=resp.any_success,
-            archived=resp.archived,
-            correlation_id=telemetry.correlation_id,
-            web_publish_ms=web_publish_ms,
+        await endpoint_telemetry(
+            "web_publish", response, telemetry,
+            filename=filename, any_success=resp.any_success, archived=resp.archived,
         )
-        if not resp.any_success:
-            # Still 200, but caller can inspect per-platform errors
-            return resp
         return resp
     except Exception as exc:
-        msg = str(exc)
-        if "not found" in msg.lower():
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-        if isinstance(exc, PermissionError):
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=str(exc),
-            )
-        web_publish_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_publish_error",
-            filename=filename,
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_publish_ms=web_publish_ms,
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_publish", response, telemetry)
 
 
 @app.post(
@@ -506,38 +472,13 @@ async def api_keep_image(
         require_admin(request)
     try:
         resp = await service.keep_image(filename)
-        web_keep_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.INFO,
-            "web_keep_complete",
-            filename=filename,
-            destination_folder=resp.destination_folder,
-            correlation_id=telemetry.correlation_id,
-            web_keep_ms=web_keep_ms,
+        await endpoint_telemetry(
+            "web_keep", response, telemetry,
+            filename=filename, destination_folder=resp.destination_folder,
         )
         return resp
-    except FileNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        )
     except Exception as exc:
-        web_keep_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_keep_error",
-            filename=filename,
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_keep_ms=web_keep_ms,
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_keep", response, telemetry)
 
 
 @app.post(
@@ -561,42 +502,18 @@ async def api_remove_image(
         require_admin(request)
     try:
         resp = await service.remove_image(filename)
-        web_remove_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.INFO,
-            "web_remove_complete",
-            filename=filename,
-            destination_folder=resp.destination_folder,
-            correlation_id=telemetry.correlation_id,
-            web_remove_ms=web_remove_ms,
+        await endpoint_telemetry(
+            "web_remove", response, telemetry,
+            filename=filename, destination_folder=resp.destination_folder,
         )
         return resp
-    except FileNotFoundError:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
-    except PermissionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(exc),
-        )
     except Exception as exc:
-        web_remove_ms = elapsed_ms(telemetry.start_time)
-        response.headers["X-Correlation-ID"] = telemetry.correlation_id
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_remove_error",
-            filename=filename,
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_remove_ms=web_remove_ms,
-        )
-        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+        raise_for_service_error(exc, "web_remove", response, telemetry)
 
 
-class ThumbnailSizeParam(str, Enum):
+class ThumbnailSizeParam(StrEnum):
     """Valid thumbnail size options."""
+
     w256h256 = "w256h256"
     w480h320 = "w480h320"
     w640h480 = "w640h480"
@@ -615,6 +532,7 @@ class ThumbnailSizeParam(str, Enum):
 async def api_get_thumbnail(
     filename: str,
     request: Request,
+    response: Response,
     size: ThumbnailSizeParam = ThumbnailSizeParam.w960h640,
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
@@ -634,22 +552,13 @@ async def api_get_thumbnail(
     - w1024h768: High-quality preview (1024×768)
     """
     # Permissions checked by dependency
-    
+
     try:
         thumb_bytes = await service.get_thumbnail(filename, size=size.value)
-
-        web_thumbnail_ms = elapsed_ms(telemetry.start_time)
-        log_json(
-            logger,
-            logging.INFO,
-            "web_thumbnail_served",
-            filename=filename,
-            size=size.value,
-            bytes_served=len(thumb_bytes),
-            correlation_id=telemetry.correlation_id,
-            web_thumbnail_ms=web_thumbnail_ms,
+        await endpoint_telemetry(
+            "web_thumbnail", response, telemetry,
+            filename=filename, size=size.value, bytes_served=len(thumb_bytes),
         )
-
         return Response(
             content=thumb_bytes,
             media_type="image/jpeg",
@@ -659,36 +568,14 @@ async def api_get_thumbnail(
             },
         )
     except Exception as exc:
-        msg = str(exc)
-        if "not found" in msg.lower() or "path/not_found" in msg.lower():
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Image not found",
-            )
-
-        web_thumbnail_ms = elapsed_ms(telemetry.start_time)
-        log_json(
-            logger,
-            logging.ERROR,
-            "web_thumbnail_error",
-            filename=filename,
-            error=str(exc),
-            correlation_id=telemetry.correlation_id,
-            web_thumbnail_ms=web_thumbnail_ms,
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Failed to generate thumbnail",
-        )
+        raise_for_service_error(exc, "web_thumbnail", response, telemetry)
 
 
 @app.get("/api/config/publishers")
-async def api_get_publishers_config(
-    service: WebImageService = Depends(get_request_service)
-) -> dict[str, bool]:
+async def api_get_publishers_config(service: WebImageService = Depends(get_request_service)) -> dict[str, bool]:
     """
     Return enablement state for all configured publishers.
-    
+
     Returns a dict mapping publisher names to enabled state.
     No authentication required (non-sensitive configuration flags).
     """
@@ -712,7 +599,7 @@ async def api_get_features_config(
     in config.loader.
     """
     features = service.config.features
-    
+
     # Determine auth mode
     auth_mode = get_auth_mode()
 
@@ -721,7 +608,7 @@ async def api_get_features_config(
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
-        "auto_view_enabled": getattr(features, "auto_view_enabled", False),
+        "auto_view_enabled": features.auto_view_enabled,
         "auth_mode": auth_mode,
     }
 

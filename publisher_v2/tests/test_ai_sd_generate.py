@@ -2,12 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from publisher_v2.config.schema import OpenAIConfig
-from publisher_v2.core.models import CaptionSpec, ImageAnalysis
-from publisher_v2.services.ai import CaptionGeneratorOpenAI, AIService
-
 # Use centralized test fixtures from conftest.py (QC-001)
 from conftest import BaseDummyAnalyzer
+
+from publisher_v2.config.schema import OpenAIConfig
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
+from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
 
 
 @pytest.mark.asyncio
@@ -53,5 +53,3 @@ async def test_ai_generate_with_sd_from_existing_analysis(monkeypatch: pytest.Mo
 
     assert caption == "from-analysis"
     assert sd_caption == "from-analysis-sd"
-
-

@@ -43,7 +43,7 @@ We pledge to make participation in our project a harassment-free experience for 
 ### Prerequisites
 
 Before contributing, make sure you have:
-- Python 3.7 or higher installed
+- Python 3.12 or higher installed
 - Git installed and configured
 - A GitHub account
 - Familiarity with the project (read the [Documentation](DOCUMENTATION.md))
@@ -98,8 +98,8 @@ What you expected to happen.
 
 **Environment:**
 - OS: [e.g. macOS 12.0]
-- Python version: [e.g. 3.9.7]
-- Package versions: (output of `pip freeze`)
+- Python version: [e.g. 3.12.8]
+- Package versions: (output of `uv pip list`)
 
 **Additional context**
 Any other relevant information.

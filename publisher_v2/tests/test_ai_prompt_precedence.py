@@ -3,8 +3,8 @@ import pytest
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import (
     AICaptionPrompts,
-    AISDCaptionPrompts,
     AIPromptsConfig,
+    AISDCaptionPrompts,
     StaticConfig,
 )
 from publisher_v2.services.ai import CaptionGeneratorOpenAI
@@ -107,5 +107,3 @@ def test_sd_prompts_inherit_from_tenant_caption_prompts_when_sd_prompts_null(mon
     # Role prompt should be inherited (and keep SD role template for JSON/output contract).
     assert gen.sd_caption_role_prompt.startswith("TENANT_ROLE")
     assert "STATIC_SD_ROLE" in gen.sd_caption_role_prompt
-
-

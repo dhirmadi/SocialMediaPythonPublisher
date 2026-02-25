@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import logging
 from functools import lru_cache
 
@@ -7,8 +5,9 @@ from fastapi import Request
 from fastapi.responses import JSONResponse
 
 from publisher_v2.config.source import get_config_source
-from publisher_v2.core.exceptions import TenantNotFoundError, OrchestratorUnavailableError
+from publisher_v2.core.exceptions import OrchestratorUnavailableError, TenantNotFoundError
 from publisher_v2.services.tenant_factory import TenantServiceFactory
+
 logger = logging.getLogger("publisher_v2.web")
 
 
@@ -20,8 +19,6 @@ def _tenant_service_factory() -> TenantServiceFactory:
     max_size = int(os.environ.get("TENANT_SERVICE_CACHE_MAX_SIZE") or "1000")
     ttl = int(os.environ.get("TENANT_SERVICE_TTL_SECONDS") or "600")
     return TenantServiceFactory(max_size=max_size, ttl_seconds=ttl)
-
-
 
 
 async def tenant_middleware(request: Request, call_next):
@@ -55,5 +52,3 @@ async def tenant_middleware(request: Request, call_next):
         return JSONResponse({"error": "Service unavailable"}, status_code=503)
 
     return await call_next(request)
-
-

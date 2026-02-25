@@ -26,5 +26,3 @@ def test_web_index_responsive_img_styles_mobile() -> None:
     assert ".image-container img" in html
     assert "max-width: 100%;" in html
     assert "height: auto;" in html
-
-

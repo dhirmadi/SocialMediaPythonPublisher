@@ -1,16 +1,14 @@
-from __future__ import annotations
-
 import base64
 import hmac
-import os
 import logging
-from typing import Optional
+import os
 
-from fastapi import Request, HTTPException, Response, status
+from fastapi import HTTPException, Request, Response, status
 
 logger = logging.getLogger("publisher_v2.web.auth")
 
-def _get_env(name: str) -> Optional[str]:
+
+def _get_env(name: str) -> str | None:
     value = os.environ.get(name)
     if value is None or not str(value).strip():
         return None
@@ -79,7 +77,7 @@ async def require_auth(request: Request) -> None:
 ADMIN_COOKIE_NAME = "pv2_admin"
 
 
-def get_admin_password() -> Optional[str]:
+def get_admin_password() -> str | None:
     """
     Read the admin password from environment (web_admin_pw).
 
@@ -96,11 +94,11 @@ def is_admin_configured() -> bool:
     # Legacy password check
     if get_admin_password() is not None:
         return True
-    
+
     # Auth0 check (MVP: check for domain env var, mirroring config loader)
     if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
         return True
-        
+
     return False
 
 
@@ -139,7 +137,7 @@ def _admin_cookie_ttl_seconds() -> int:
     return max(60, min(value, 3600))
 
 
-def set_admin_cookie(response: Response, expires_in_seconds: Optional[int] = None) -> None:
+def set_admin_cookie(response: Response, expires_in_seconds: int | None = None) -> None:
     """
     Set the admin-mode cookie on the response.
     """

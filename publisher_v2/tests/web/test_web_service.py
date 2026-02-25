@@ -1,7 +1,6 @@
 from __future__ import annotations
 
-import asyncio
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 
@@ -21,7 +20,7 @@ class _DummyStorage:
         self.sidecar_content: bytes | None = None
         self.list_images_calls = 0
 
-    async def list_images(self, folder: str) -> List[str]:
+    async def list_images(self, folder: str) -> list[str]:
         self.list_images_calls += 1
         return list(self.images)
 
@@ -39,7 +38,7 @@ class _DummyStorage:
             return self.sidecar_content
         return None
 
-    async def get_file_metadata(self, folder: str, filename: str) -> Dict[str, str]:
+    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
         return {"id": "file-id", "rev": "file-rev"}
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
@@ -62,7 +61,7 @@ class _DummyAIService:
     class _DummyGenerator:
         sd_caption_model = "dummy-model"
 
-        async def generate_with_sd(self, analysis: Any, spec: Any) -> Dict[str, str]:
+        async def generate_with_sd(self, analysis: Any, spec: Any) -> dict[str, str]:
             return {"caption": "caption", "sd_caption": "sd-caption"}
 
         async def generate(self, analysis: Any, spec: Any) -> str:
@@ -83,8 +82,14 @@ class _DummyAIService:
 
 
 class _DummyOrchestrator:
-    async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False, caption_override: str | None = None):
-        from publisher_v2.core.models import WorkflowResult, PublishResult
+    async def execute(
+        self,
+        select_filename: str | None = None,
+        dry_publish: bool = False,
+        preview_mode: bool = False,
+        caption_override: str | None = None,
+    ):
+        from publisher_v2.core.models import PublishResult, WorkflowResult
 
         return WorkflowResult(
             success=True,
@@ -146,12 +151,7 @@ async def test_get_random_image_returns_basic_fields(web_service: WebImageServic
 async def test_get_random_image_uses_sidecar_view_when_present(web_service: WebImageService) -> None:
     storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
     # Pre-populate a sidecar with both sd_caption and metadata caption
-    sidecar_text = (
-        "sd caption\n"
-        "\n"
-        "# ---\n"
-        "# caption: human caption\n"
-    )
+    sidecar_text = "sd caption\n\n# ---\n# caption: human caption\n"
     storage.sidecar_content = sidecar_text.encode("utf-8")
 
     img = await web_service.get_random_image()
@@ -219,4 +219,3 @@ async def test_publish_image_raises_permission_when_feature_disabled(web_service
 
     with pytest.raises(PermissionError):
         await web_service.publish_image("test.jpg")
-

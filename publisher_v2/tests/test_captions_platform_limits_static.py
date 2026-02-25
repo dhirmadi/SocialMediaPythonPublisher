@@ -19,5 +19,3 @@ def test_format_caption_email_sanitizes_and_limits() -> None:
     assert "#" not in out
     assert " - " in out or "-" in out
     assert "“" not in out and "”" not in out
-
-

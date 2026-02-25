@@ -35,7 +35,7 @@ Steps to reproduce the behavior:
 ## Environment
 
 - **OS**: [e.g. macOS 13.0, Ubuntu 22.04, Windows 11]
-- **Python Version**: [e.g. 3.9.7]
+- **Python Version**: [e.g. 3.12.8]
 - **Project Version/Commit**: [e.g. v1.0.0 or commit hash]
 - **Installation Method**: [e.g. pip, git clone]
 
