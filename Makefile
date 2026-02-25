@@ -15,8 +15,8 @@ help:
 	@echo "  make export-reqs-dev Export requirements-dev.txt (incl. dev) from Poetry"
 	@echo ""
 	@echo "Code Quality:"
-	@echo "  make format          Format code with black and isort"
-	@echo "  make lint            Run linters (flake8, pylint)"
+	@echo "  make format          Format code and fix lint issues (ruff)"
+	@echo "  make lint            Run linter (ruff check)"
 	@echo "  make type-check      Run type checker (mypy)"
 	@echo "  make test            Run tests with coverage"
 	@echo "  make check           Run all quality checks"
@@ -73,17 +73,15 @@ export-reqs-dev:
 
 # Code Quality
 format:
-	@echo "Formatting code with black..."
-	uv run black . --line-length 120
-	@echo "Sorting imports with isort..."
-	uv run isort . --profile black --line-length 120
-	@echo "✅ Code formatted"
+	@echo "Formatting code with ruff..."
+	uv run ruff format .
+	@echo "Fixing lint issues with ruff..."
+	uv run ruff check --fix .
+	@echo "✅ Code formatted and lint-fixed"
 
 lint:
-	@echo "Running flake8..."
-	uv run flake8 . --max-line-length=120 --extend-ignore=E203,E501 --exclude=venv,env,.venv,.git,__pycache__
-	@echo "Running pylint..."
-	uv run pylint py_rotator_daily.py py_db_auth.py --max-line-length=120 || true
+	@echo "Running ruff check..."
+	uv run ruff check .
 	@echo "✅ Linting complete"
 
 type-check:
