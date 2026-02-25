@@ -230,6 +230,42 @@
       gap: 0.5rem;
       margin-top: 0.75rem;
     }
+    #caption-text {
+      width: 100%;
+      background: #111827;
+      color: #e5e7eb;
+      border: 1px solid #374151;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+      font-family: inherit;
+      font-size: 0.9rem;
+      resize: vertical;
+      min-height: 4rem;
+    }
+    #caption-text:focus {
+      outline: none;
+      border-color: #38bdf8;
+    }
+    #caption-text[readonly] {
+      opacity: 0.6;
+      cursor: default;
+    }
+    .caption-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.35rem;
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+    .caption-meta .char-count.over-limit {
+      color: #ef4444;
+      font-weight: 600;
+    }
+    .caption-meta .edited-badge {
+      color: #facc15;
+      font-weight: 500;
+    }
   </style>
 </head>
 <body>
@@ -281,7 +317,13 @@
 
     <div class="panel" id="panel-caption">
       <h2>{{ web_ui_text.panels.caption_title or "Caption" }}</h2>
-      <div id="caption-text">{{ web_ui_text.placeholders.caption_empty or "No caption yet." }}</div>
+      <textarea id="caption-text" rows="4"
+        placeholder="{{ web_ui_text.placeholders.caption_empty or 'No caption yet.' }}"
+        readonly></textarea>
+      <div class="caption-meta">
+        <span id="caption-edited" class="edited-badge hidden">(edited)</span>
+        <span id="caption-char-count" class="char-count"></span>
+      </div>
     </div>
 
     <div class="panel admin-only hidden" id="panel-admin">
@@ -612,10 +654,37 @@
       detailsEl.innerHTML = html || "";
     }
 
+    let originalCaption = "";
+
     function setCaption(text) {
       const fallback = TEXT.placeholders?.caption_empty || "No caption yet.";
-      captionEl.textContent = text || fallback;
+      captionEl.value = text || fallback;
+      captionEl.readOnly = !text;
+      originalCaption = text || "";
+      updateCaptionMeta();
     }
+
+    function updateCaptionMeta() {
+      const len = captionEl.value.trim().length;
+      const maxLen = 240;
+      const countEl = document.getElementById("caption-char-count");
+      const editedEl = document.getElementById("caption-edited");
+      if (countEl) {
+        if (!originalCaption) {
+          countEl.textContent = "";
+          countEl.classList.remove("over-limit");
+        } else {
+          countEl.textContent = `${len} / ${maxLen}`;
+          countEl.classList.toggle("over-limit", len > maxLen);
+        }
+      }
+      if (editedEl) {
+        const isEdited = captionEl.value !== originalCaption && originalCaption !== "";
+        editedEl.classList.toggle("hidden", !isEdited);
+      }
+    }
+
+    captionEl.addEventListener("input", updateCaptionMeta);
 
     function showImagePlaceholder(message) {
       if (imgEl) {
@@ -899,6 +968,55 @@
       }
     }
 
+    function showPublishConfirm(caption, isPlaceholder) {
+      return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.className = "modal";
+        const dialog = document.createElement("div");
+        dialog.className = "modal-dialog";
+
+        const heading = document.createElement("h2");
+        heading.textContent = isPlaceholder
+          ? "Publish without a reviewed caption?"
+          : "Publish with this caption?";
+
+        const preview = document.createElement("p");
+        if (isPlaceholder) {
+          preview.style.color = "#9ca3af";
+          preview.textContent = "AI will generate a new caption at publish time.";
+        } else {
+          preview.style.whiteSpace = "pre-wrap";
+          preview.style.wordBreak = "break-word";
+          preview.style.maxHeight = "8rem";
+          preview.style.overflowY = "auto";
+          preview.textContent = caption.length > 300
+            ? caption.substring(0, 300) + "..."
+            : caption;
+        }
+
+        const footer = document.createElement("div");
+        footer.className = "modal-footer";
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "secondary";
+        cancelBtn.textContent = "Cancel";
+        const publishBtn = document.createElement("button");
+        publishBtn.textContent = "Confirm & Publish";
+        footer.appendChild(cancelBtn);
+        footer.appendChild(publishBtn);
+
+        dialog.appendChild(heading);
+        dialog.appendChild(preview);
+        dialog.appendChild(footer);
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        const cleanup = (val) => { overlay.remove(); resolve(val); };
+        cancelBtn.addEventListener("click", () => cleanup(false));
+        publishBtn.addEventListener("click", () => cleanup(true));
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
+      });
+    }
+
     async function apiPublish() {
       if (!currentFilename) {
         setActivity("No image selected.");
@@ -908,13 +1026,23 @@
         setActivity("Admin mode required to publish.");
         return;
       }
-      setActivity("Publishing image…");
+
+      const caption = captionEl.value.trim();
+      const isPlaceholder = captionEl.readOnly || !caption;
+
+      const confirmed = await showPublishConfirm(caption, isPlaceholder);
+      if (!confirmed) {
+        setActivity("Publish cancelled.");
+        return;
+      }
+
+      setActivity("Publishing image\u2026");
       disableButtons(true);
       try {
         const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/publish`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({})
+          body: JSON.stringify({ caption: isPlaceholder ? null : caption })
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

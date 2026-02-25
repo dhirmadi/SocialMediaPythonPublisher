@@ -83,7 +83,7 @@ class _DummyAIService:
 
 
 class _DummyOrchestrator:
-    async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False):
+    async def execute(self, select_filename: str | None = None, dry_publish: bool = False, preview_mode: bool = False, caption_override: str | None = None):
         from publisher_v2.core.models import WorkflowResult, PublishResult
 
         return WorkflowResult(

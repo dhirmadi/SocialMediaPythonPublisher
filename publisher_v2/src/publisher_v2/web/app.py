@@ -442,8 +442,10 @@ async def api_publish_image(
     if is_admin_configured():
         require_admin(request)
     platforms = body.platforms if body else None
+    raw_caption = body.caption if body else None
+    caption_override = raw_caption.strip() if raw_caption and raw_caption.strip() else None
     try:
-        resp = await service.publish_image(filename, platforms)
+        resp = await service.publish_image(filename, platforms, caption_override=caption_override)
         web_publish_ms = elapsed_ms(telemetry.start_time)
         response.headers["X-Correlation-ID"] = telemetry.correlation_id
         log_json(
