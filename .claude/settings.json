@@ -1,0 +1,27 @@
+{
+  "env": {
+    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
+    "CLAUDE_CODE_TEAMMATE_MODE": "tmux"
+  },
+  "permissions": {
+    "allow": [
+      "Bash(uv sync*)",
+      "Bash(uv run ruff*)",
+      "Bash(uv run mypy*)",
+      "Bash(uv run pytest*)",
+      "Bash(uv run python -m py_compile*)",
+      "Bash(make format)",
+      "Bash(make lint)",
+      "Bash(make type-check)",
+      "Bash(make test)",
+      "Bash(make check)",
+      "Bash(make status)"
+    ],
+    "deny": [
+      "Bash(rm -rf /)",
+      "Bash(git push --force*)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard*)"
+    ]
+  }
+}

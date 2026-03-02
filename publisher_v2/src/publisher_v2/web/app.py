@@ -511,6 +511,36 @@ async def api_remove_image(
         raise_for_service_error(exc, "web_remove", response, telemetry)
 
 
+@app.post(
+    "/api/images/{filename}/delete",
+    response_model=CurationResponse,
+    responses={
+        404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        403: {"model": ErrorResponse},
+    },
+)
+async def api_delete_image(
+    filename: str,
+    request: Request,
+    response: Response,
+    service: WebImageService = Depends(get_request_service),
+    telemetry: RequestTelemetry = Depends(get_request_telemetry),
+) -> CurationResponse:
+    await require_auth(request)
+    if is_admin_configured():
+        require_admin(request)
+    try:
+        resp = await service.delete_image(filename)
+        await endpoint_telemetry(
+            "web_delete", response, telemetry,
+            filename=filename, destination_folder=resp.destination_folder,
+        )
+        return resp
+    except Exception as exc:
+        raise_for_service_error(exc, "web_delete", response, telemetry)
+
+
 class ThumbnailSizeParam(StrEnum):
     """Valid thumbnail size options."""
 
@@ -608,6 +638,7 @@ async def api_get_features_config(
         "publish_enabled": features.publish_enabled,
         "keep_enabled": features.keep_enabled,
         "remove_enabled": features.remove_enabled,
+        "delete_enabled": features.delete_enabled,
         "auto_view_enabled": features.auto_view_enabled,
         "auth_mode": auth_mode,
     }

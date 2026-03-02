@@ -594,6 +594,34 @@ class WebImageService:
             preview_only=False,
         )
 
+    async def delete_image(self, filename: str) -> CurationResponse:
+        """
+        Permanently delete the specified image from storage.
+
+        This is a destructive operation and cannot be undone.
+        """
+        if not self.config.features.delete_enabled:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_feature_delete_disabled",
+                image=filename,
+            )
+            raise PermissionError("Delete feature is disabled via FEATURE_DELETE toggle")
+
+        await self.orchestrator.delete_image(
+            filename,
+            preview_mode=False,
+            dry_run=False,
+        )
+
+        return CurationResponse(
+            filename=filename,
+            action="delete",
+            destination_folder="",  # No destination - permanently deleted
+            preview_only=False,
+        )
+
     async def verify_curation_folders(self) -> None:
         """
         Proactively ensure that configured Keep/Remove folders exist in Dropbox.

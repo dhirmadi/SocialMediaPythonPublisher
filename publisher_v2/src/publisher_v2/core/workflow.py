@@ -551,3 +551,28 @@ class WorkflowOrchestrator:
             preview_mode=preview_mode,
             dry_run=dry_run,
         )
+
+    async def delete_image(
+        self,
+        filename: str,
+        *,
+        preview_mode: bool = False,
+        dry_run: bool = False,
+    ) -> None:
+        """
+        Permanently delete an image (and its sidecars) from storage.
+
+        This is a destructive operation and cannot be undone.
+        """
+        if not self.config.features.delete_enabled:
+            raise StorageError("Delete feature is disabled via FEATURE_DELETE toggle")
+
+        if preview_mode or dry_run:
+            self.logger.info(f"[DRY RUN] Would delete image: {filename}")
+            return
+
+        self.logger.info(f"Deleting image permanently: {filename}")
+        await self.storage.delete_file_with_sidecar(
+            self.config.dropbox.image_folder,
+            filename,
+        )

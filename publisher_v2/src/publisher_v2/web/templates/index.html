@@ -201,6 +201,13 @@
     .admin-only {
       /* marker class; actual visibility controlled via .hidden */
     }
+    .danger {
+      background-color: #dc3545;
+      color: white;
+    }
+    .danger:hover:not(:disabled) {
+      background-color: #c82333;
+    }
     /* Simple modal styles */
     .modal {
       position: fixed;
@@ -312,6 +319,9 @@
         <button id="btn-remove" class="secondary">
           {{ web_ui_text.buttons.remove or "Remove" }}
         </button>
+        <button id="btn-delete" class="secondary danger">
+          {{ web_ui_text.buttons.delete or "Delete" }}
+        </button>
       </div>
     </div>
 
@@ -383,6 +393,7 @@
     const btnPublish = document.getElementById("btn-publish");
     const btnKeep = document.getElementById("btn-keep");
     const btnRemove = document.getElementById("btn-remove");
+    const btnDelete = document.getElementById("btn-delete");
     const btnAdmin = document.getElementById("btn-admin");
     const btnAdminLogout = document.getElementById("btn-admin-logout");
     const adminControls = document.getElementById("admin-controls");
@@ -415,6 +426,7 @@
       publish_enabled: true,
       keep_enabled: true,
       remove_enabled: true,
+      delete_enabled: false,
       auto_view_enabled: false,
       auth_mode: "none",
     };
@@ -790,6 +802,15 @@
       if (btnPublish) {
         btnPublish.disabled = disabled || !isAdmin || !featureConfig.publish_enabled;
       }
+      if (btnKeep) {
+        btnKeep.disabled = disabled || !isAdmin || !featureConfig.keep_enabled;
+      }
+      if (btnRemove) {
+        btnRemove.disabled = disabled || !isAdmin || !featureConfig.remove_enabled;
+      }
+      if (btnDelete) {
+        btnDelete.disabled = disabled || !isAdmin || !featureConfig.delete_enabled;
+      }
     }
 
     async function fetchFeatureConfig() {
@@ -802,6 +823,7 @@
             publish_enabled: true,
             keep_enabled: true,
             remove_enabled: true,
+            delete_enabled: false,
             auto_view_enabled: false,
             auth_mode: "none",
           };
@@ -812,6 +834,7 @@
           publish_enabled: data.publish_enabled ?? true,
           keep_enabled: data.keep_enabled ?? true,
           remove_enabled: data.remove_enabled ?? true,
+          delete_enabled: data.delete_enabled ?? false,
           auto_view_enabled: data.auto_view_enabled ?? false,
           auth_mode: data.auth_mode ?? "none",
         };
@@ -822,6 +845,7 @@
           publish_enabled: true,
           keep_enabled: true,
           remove_enabled: true,
+          delete_enabled: false,
           auto_view_enabled: false,
           auth_mode: "none",
         };
@@ -887,6 +911,11 @@
         const shouldShowRemove = featureConfig.remove_enabled;
         btnRemove.classList.toggle("hidden", !shouldShowRemove);
         btnRemove.disabled = !isAdmin || !shouldShowRemove;
+      }
+      if (btnDelete) {
+        const shouldShowDelete = featureConfig.delete_enabled;
+        btnDelete.classList.toggle("hidden", !shouldShowDelete);
+        btnDelete.disabled = !isAdmin || !shouldShowDelete;
       }
       // When AUTO_VIEW is disabled and user is not admin, replace the image
       // area with a clear login-required message instead of a broken image.
@@ -1196,6 +1225,68 @@
       }
     }
 
+    async function apiDelete() {
+      if (!currentFilename) {
+        setActivity("No image selected.");
+        return;
+      }
+      if (!isAdmin) {
+        setActivity("Admin mode required to delete.");
+        return;
+      }
+
+      // CONFIRMATION DIALOG - CRITICAL FOR SAFETY
+      const confirmed = confirm(
+        `⚠️ WARNING: This will PERMANENTLY DELETE the image from Dropbox.\n\n` +
+        `File: ${currentFilename}\n\n` +
+        `This action CANNOT be undone.\n\n` +
+        `Are you absolutely sure?`
+      );
+
+      if (!confirmed) {
+        return;  // User cancelled
+      }
+
+      setActivity("Deleting image permanently…");
+      disableButtons(true);
+      try {
+        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/delete`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 403) {
+            updateAdminState(false);
+            throw new Error("Admin session expired or delete disabled, please log in again.");
+          }
+          throw new Error(err.detail || err.error || "Failed to delete image");
+        }
+        const data = await res.json();
+        setActivity(`Permanently deleted: ${data.filename}`);
+
+        // Sync client state
+        removeFromReviewList(currentFilename);
+
+        // After a successful delete, advance to the next image.
+        if (currentMode === "review") {
+             if (reviewList.length === 0) {
+                 showImagePlaceholder("No images left.");
+                 return;
+             }
+             await loadReviewImage(reviewIndex);
+        } else {
+             await apiGetRandom();
+        }
+      } catch (e) {
+        console.error(e);
+        const msg = e.message || "Error deleting image.";
+        setActivity(msg);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
     async function handleAdminLogin() {
       const password = passwordInput.value;
       if (!password) {
@@ -1363,6 +1454,9 @@
       }
       if (btnRemove) {
         btnRemove.addEventListener("click", apiRemove);
+      }
+      if (btnDelete) {
+        btnDelete.addEventListener("click", apiDelete);
       }
       initAdminControls();
       initGestures();

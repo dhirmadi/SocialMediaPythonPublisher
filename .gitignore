@@ -271,10 +271,18 @@ safety-report.*
 .idea/
 
 # ----------------------------------------------------------------------------
+# Claude Code configuration
+# ----------------------------------------------------------------------------
+# Track shared config (CLAUDE.md, settings.json, rules/, commands/)
+!.claude/
+!.claude/**
+.claude/settings.local.json
+CLAUDE.local.md
+
+# ----------------------------------------------------------------------------
 # OS and local scripts
 # ----------------------------------------------------------------------------
 .DS_Store
 runfet.sh
 .cursorrules
-runfet.sh
 scripts/servers.txt

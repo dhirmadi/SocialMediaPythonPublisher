@@ -283,6 +283,37 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
+        """
+        Permanently delete an image and its .txt sidecar (if present) from Dropbox.
+
+        This is a destructive operation and cannot be undone.
+        """
+        try:
+
+            def _delete() -> None:
+                # Delete main image file
+                path = os.path.join(folder, filename)
+                self.client.files_delete_v2(path)
+
+                # Attempt to delete sidecar if present
+                sidecar_name = f"{os.path.splitext(filename)[0]}.txt"
+                sidecar_path = os.path.join(folder, sidecar_name)
+                try:
+                    self.client.files_delete_v2(sidecar_path)
+                except ApiError:
+                    # Sidecar may not exist; ignore
+                    pass
+
+            await asyncio.to_thread(_delete)
+        except ApiError as exc:
+            raise StorageError(f"Failed to delete {filename}: {exc}") from exc
+
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         """
         Archive an image (and its sidecar) into the configured archive folder.

@@ -198,6 +198,10 @@ class FeaturesConfig(BaseModel):
         default=True,
         description="Enable Remove curation action in web/CLI flows",
     )
+    delete_enabled: bool = Field(
+        default=False,
+        description="Enable permanent delete button in image review workflow (admin only)",
+    )
     auto_view_enabled: bool = Field(
         default=False,
         description="Allow random images to be viewed without admin login in the web UI",
