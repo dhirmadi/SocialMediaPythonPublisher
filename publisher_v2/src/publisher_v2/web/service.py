@@ -562,7 +562,8 @@ class WebImageService:
             )
             raise PermissionError("Keep feature is disabled via FEATURE_KEEP_CURATE toggle")
 
-        await self.orchestrator.keep_image(
+        orchestrator = await self._ensure_orchestrator()
+        await orchestrator.keep_image(
             filename,
             preview_mode=False,
             dry_run=False,
@@ -589,7 +590,8 @@ class WebImageService:
             )
             raise PermissionError("Remove feature is disabled via FEATURE_REMOVE_CURATE toggle")
 
-        await self.orchestrator.remove_image(
+        orchestrator = await self._ensure_orchestrator()
+        await orchestrator.remove_image(
             filename,
             preview_mode=False,
             dry_run=False,
@@ -618,7 +620,8 @@ class WebImageService:
             )
             raise PermissionError("Delete feature is disabled via FEATURE_DELETE toggle")
 
-        await self.orchestrator.delete_image(
+        orchestrator = await self._ensure_orchestrator()
+        await orchestrator.delete_image(
             filename,
             preview_mode=False,
             dry_run=False,
