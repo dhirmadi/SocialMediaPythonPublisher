@@ -20,6 +20,7 @@ def normalize_tags(raw: list[str], max_count: int) -> list[str]:
             cleaned.append(t)
     return cleaned[: max(0, max_count)]
 
+
 _MAX_LEN = {
     "instagram": 2200,
     "telegram": 4096,

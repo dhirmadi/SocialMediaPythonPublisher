@@ -443,8 +443,12 @@ async def api_publish_image(
     try:
         resp = await service.publish_image(filename, platforms, caption_override=caption_override)
         await endpoint_telemetry(
-            "web_publish", response, telemetry,
-            filename=filename, any_success=resp.any_success, archived=resp.archived,
+            "web_publish",
+            response,
+            telemetry,
+            filename=filename,
+            any_success=resp.any_success,
+            archived=resp.archived,
         )
         return resp
     except Exception as exc:
@@ -473,8 +477,11 @@ async def api_keep_image(
     try:
         resp = await service.keep_image(filename)
         await endpoint_telemetry(
-            "web_keep", response, telemetry,
-            filename=filename, destination_folder=resp.destination_folder,
+            "web_keep",
+            response,
+            telemetry,
+            filename=filename,
+            destination_folder=resp.destination_folder,
         )
         return resp
     except Exception as exc:
@@ -503,8 +510,11 @@ async def api_remove_image(
     try:
         resp = await service.remove_image(filename)
         await endpoint_telemetry(
-            "web_remove", response, telemetry,
-            filename=filename, destination_folder=resp.destination_folder,
+            "web_remove",
+            response,
+            telemetry,
+            filename=filename,
+            destination_folder=resp.destination_folder,
         )
         return resp
     except Exception as exc:
@@ -533,8 +543,11 @@ async def api_delete_image(
     try:
         resp = await service.delete_image(filename)
         await endpoint_telemetry(
-            "web_delete", response, telemetry,
-            filename=filename, destination_folder=resp.destination_folder,
+            "web_delete",
+            response,
+            telemetry,
+            filename=filename,
+            destination_folder=resp.destination_folder,
         )
         return resp
     except Exception as exc:
@@ -586,8 +599,12 @@ async def api_get_thumbnail(
     try:
         thumb_bytes = await service.get_thumbnail(filename, size=size.value)
         await endpoint_telemetry(
-            "web_thumbnail", response, telemetry,
-            filename=filename, size=size.value, bytes_served=len(thumb_bytes),
+            "web_thumbnail",
+            response,
+            telemetry,
+            filename=filename,
+            size=size.value,
+            bytes_served=len(thumb_bytes),
         )
         return Response(
             content=thumb_bytes,

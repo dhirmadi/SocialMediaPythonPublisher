@@ -150,8 +150,11 @@ class WebImageService:
             return None
         except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
             log_json(
-                self.logger, logging.ERROR, "ai_credential_unexpected_error",
-                host=self._runtime.host, error=str(exc),
+                self.logger,
+                logging.ERROR,
+                "ai_credential_unexpected_error",
+                host=self._runtime.host,
+                error=str(exc),
             )
             self.config.features.analyze_caption_enabled = False
             return None
@@ -177,8 +180,11 @@ class WebImageService:
             self.config.platforms.email_enabled = False
         except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
             log_json(
-                self.logger, logging.ERROR, "email_credential_unexpected_error",
-                host=self._runtime.host, error=str(exc),
+                self.logger,
+                logging.ERROR,
+                "email_credential_unexpected_error",
+                host=self._runtime.host,
+                error=str(exc),
             )
             self.config.platforms.email_enabled = False
 
@@ -203,8 +209,11 @@ class WebImageService:
             self.config.platforms.telegram_enabled = False
         except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
             log_json(
-                self.logger, logging.ERROR, "telegram_credential_unexpected_error",
-                host=self._runtime.host, error=str(exc),
+                self.logger,
+                logging.ERROR,
+                "telegram_credential_unexpected_error",
+                host=self._runtime.host,
+                error=str(exc),
             )
             self.config.platforms.telegram_enabled = False
 

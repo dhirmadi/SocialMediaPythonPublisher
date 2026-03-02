@@ -14,12 +14,7 @@ logger = logging.getLogger("publisher_v2.publishers.telegram")
 class TelegramPublisher(Publisher):
     def __init__(self, config: TelegramConfig | None, enabled: bool):
         self._config = config
-        self._enabled = (
-            enabled
-            and config is not None
-            and bool(config.bot_token)
-            and bool(config.channel_id)
-        )
+        self._enabled = enabled and config is not None and bool(config.bot_token) and bool(config.channel_id)
 
     @property
     def platform_name(self) -> str:

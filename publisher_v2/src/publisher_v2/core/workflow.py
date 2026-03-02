@@ -88,7 +88,12 @@ class WorkflowOrchestrator:
             if select_filename:
                 if select_filename not in images:
                     return _ImageSelection(
-                        "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                        "",
+                        b"",
+                        "",
+                        "",
+                        dropbox_list_ms,
+                        elapsed_ms(selection_start),
                         error=f"Selected file not found: {select_filename}",
                     )
                 selected_image = select_filename
@@ -113,17 +118,24 @@ class WorkflowOrchestrator:
                             break
                     if all_known and not has_unposted:
                         return _ImageSelection(
-                            "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                            "",
+                            b"",
+                            "",
+                            "",
+                            dropbox_list_ms,
+                            elapsed_ms(selection_start),
                             error="No new images to post (all duplicates)",
                         )
 
                 # Prefer candidates whose content_hash is not already posted
                 non_posted = [
-                    (n, ch) for n, ch in images_with_hashes
+                    (n, ch)
+                    for n, ch in images_with_hashes
                     if ch and posted_content_hashes and ch not in posted_content_hashes
                 ]
                 remainder = [
-                    (n, ch) for n, ch in images_with_hashes
+                    (n, ch)
+                    for n, ch in images_with_hashes
                     if not (ch and posted_content_hashes and ch not in posted_content_hashes)
                 ]
 
@@ -151,7 +163,12 @@ class WorkflowOrchestrator:
             if select_filename:
                 if select_filename not in images:
                     return _ImageSelection(
-                        "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                        "",
+                        b"",
+                        "",
+                        "",
+                        dropbox_list_ms,
+                        elapsed_ms(selection_start),
                         error=f"Selected file not found: {select_filename}",
                     )
                 selected_image = select_filename
@@ -170,12 +187,19 @@ class WorkflowOrchestrator:
 
         if not selected_image:
             return _ImageSelection(
-                "", b"", "", "", dropbox_list_ms, elapsed_ms(selection_start),
+                "",
+                b"",
+                "",
+                "",
+                dropbox_list_ms,
+                elapsed_ms(selection_start),
                 error="No new images to post (all duplicates)",
             )
 
         selection_ms = elapsed_ms(selection_start)
-        return _ImageSelection(selected_image, content, selected_hash, selected_content_hash, dropbox_list_ms, selection_ms)
+        return _ImageSelection(
+            selected_image, content, selected_hash, selected_content_hash, dropbox_list_ms, selection_ms
+        )
 
     async def execute(
         self,

@@ -18,11 +18,7 @@ class EmailPublisher(Publisher):
     def __init__(self, config: EmailConfig | None, enabled: bool):
         self._config = config
         self._enabled = (
-            enabled
-            and config is not None
-            and bool(config.sender)
-            and bool(config.recipient)
-            and bool(config.password)
+            enabled and config is not None and bool(config.sender) and bool(config.recipient) and bool(config.password)
         )
 
     @property

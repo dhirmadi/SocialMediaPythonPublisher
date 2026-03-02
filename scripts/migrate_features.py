@@ -1,6 +1,4 @@
-import os
 import shutil
-import glob
 from pathlib import Path
 
 BASE_DIR = Path("docs_v2/08_Epics")
@@ -29,12 +27,15 @@ FEATURES = {
     "017": "multi_platform_publishing",
 }
 
+
 def normalize_name(name):
     return name.replace("-", "_").replace(" ", "_").lower()
+
 
 def ensure_dir(path):
     if not path.exists():
         path.mkdir(parents=True)
+
 
 def move_file(src, dst):
     if src.exists():
@@ -44,15 +45,16 @@ def move_file(src, dst):
     else:
         print(f"Source not found: {src}")
 
+
 def main():
     # 1. Create Feature Dirs
     for fid, fname in FEATURES.items():
         feature_dir = BASE_DIR / f"{fid}_{fname}"
         ensure_dir(feature_dir)
-        
+
         stories_dir = feature_dir / "stories"
         ensure_dir(stories_dir)
-        
+
         cr_dir = feature_dir / "change_requests"
         ensure_dir(cr_dir)
 
@@ -60,23 +62,23 @@ def main():
         # Try finding the file with hyphenated name
         req_name = fname.replace("_", "-")
         # Handle exceptions in naming
-        if fid == "001": req_name = "captionfile"
-        
+        if fid == "001":
+            req_name = "captionfile"
+
         # Glob for the request file since names vary slightly
         req_files = list(REQUESTS_DIR.glob(f"{fid}_*.md"))
         if req_files:
             move_file(req_files[0], feature_dir / "README.md")
-        
+
         # 3. Move Design -> DESIGN.md
         design_files = list(DESIGNS_DIR.glob(f"{fid}_*_design.md"))
         if design_files:
             move_file(design_files[0], feature_dir / "DESIGN.md")
-            
+
         # 4. Move Plans -> stories/01_implementation/plan.yaml
         # Check both plan dirs
-        plan_files = list(PLANS_DIR.glob(f"{fid}_*_plan.yaml")) + \
-                     list(PLANS_DIR_TYPO.glob(f"{fid}_*_plan.yaml"))
-        
+        plan_files = list(PLANS_DIR.glob(f"{fid}_*_plan.yaml")) + list(PLANS_DIR_TYPO.glob(f"{fid}_*_plan.yaml"))
+
         if plan_files:
             story_dir = stories_dir / "01_implementation"
             ensure_dir(story_dir)
@@ -97,14 +99,14 @@ def main():
             # Actually, `08_04_ChangeRequests/005` contains many files.
             # I'll just move the contents of `08_04_ChangeRequests/FID` to `feature_dir/change_requests/`
             for item in src_cr_subdir.iterdir():
-                 dest = cr_dir / item.name
-                 if item.is_dir():
-                     if dest.exists():
-                         shutil.rmtree(dest) # Overwrite logic if needed, but safe to assume clean
-                     shutil.copytree(item, dest)
-                     shutil.rmtree(item)
-                 else:
-                     shutil.move(str(item), str(dest))
+                dest = cr_dir / item.name
+                if item.is_dir():
+                    if dest.exists():
+                        shutil.rmtree(dest)  # Overwrite logic if needed, but safe to assume clean
+                    shutil.copytree(item, dest)
+                    shutil.rmtree(item)
+                else:
+                    shutil.move(str(item), str(dest))
             # Remove empty source dir
             src_cr_subdir.rmdir()
 
@@ -130,9 +132,9 @@ def main():
         dest = BASE_DIR / "005_web_interface_mvp" / "stories" / "01_implementation" / "IMPLEMENTATION.md"
         ensure_dir(dest.parent)
         move_file(impl_005, dest)
-    
+
     print("Migration complete.")
+
 
 if __name__ == "__main__":
     main()
-
