@@ -228,6 +228,7 @@ class WebImageService:
 
     async def _ensure_orchestrator(self) -> WorkflowOrchestrator:
         if self.orchestrator is not None:
+            self.orchestrator.publishers = self.publishers
             return self.orchestrator
 
         ai = await self._ensure_ai_service()
