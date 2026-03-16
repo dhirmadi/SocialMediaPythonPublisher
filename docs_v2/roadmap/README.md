@@ -35,6 +35,16 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-021 | Config | [Config Env Consolidation](archive/PUB-021_config-env-consolidation.md) | INF | L | PUB-012 | Done |
 | **Multi-Tenant Orchestrator (Shipped)** ||||||
 | PUB-022 | Foundation | [Orchestrator Schema V2 Integration](archive/PUB-022_orchestrator-schema-v2.md) | INF | XL | PUB-021 | Done |
+| **Managed Storage** ||||||
+| PUB-023 | Foundation | [Storage Protocol Extraction](PUB-023_storage-protocol-extraction.md) | P1 | S | PUB-015 | Not Started |
+| PUB-024 | Storage | [Managed Storage Adapter](PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Not Started |
+| **AI-Powered Content** ||||||
+| PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |
+| PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |
+| PUB-028 | AI | [Smart Hashtag Generation](PUB-028_smart-hashtag-generation.md) | P2 | S | PUB-025 | Not Started |
+| PUB-029 | AI | [Brand Voice Matching](PUB-029_brand-voice-matching.md) | P2 | S–M | PUB-025 | Not Started |
+| **New Platforms** ||||||
+| PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | — | Not Started |
 
 ## Priority Definitions
 
