@@ -13,4 +13,4 @@ paths:
 - Server is source of truth: `/api/admin/status` and 401/403 must clear admin state client-side.
 - Mobile-first: no horizontal scrolling on 320–768px widths.
 - Preserve dark-red admin theme; keep contrast accessible.
-- Preserve endpoint contracts documented in `docs_v2/03_Architecture/ARCHITECTURE.md` and `docs_v2/08_Features/`.
+- Preserve endpoint contracts documented in `docs_v2/03_Architecture/ARCHITECTURE.md`.

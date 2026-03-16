@@ -8,7 +8,7 @@ Review the current changes in the working tree:
 1. Run `git diff --stat` to identify changed files.
 2. Run `git diff` to see the full diff.
 3. For each changed file, check:
-   - **Spec compliance**: does the implementation match the relevant spec in `docs_v2/08_Epics/` or `docs_v2/08_Features/`?
+   - **Spec compliance**: does the implementation match the relevant spec in `docs_v2/roadmap/` (e.g. `PUB-NNN_slug.md`)?
    - **TDD**: do new behaviors have corresponding tests? Were tests written/updated alongside code?
    - **Test integrity**: were any existing tests modified? If so, verify the test change is justified by a spec change — not just adjusted to pass.
    - Ruff lint compliance (run `uv run ruff check` on changed files)

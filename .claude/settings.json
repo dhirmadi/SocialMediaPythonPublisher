@@ -15,7 +15,17 @@
       "Bash(make type-check)",
       "Bash(make test)",
       "Bash(make check)",
-      "Bash(make status)"
+      "Bash(make status)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git branch*)",
+      "Bash(git checkout*)",
+      "Bash(git switch*)",
+      "Bash(git stash*)",
+      "Bash(git show*)"
     ],
     "deny": [
       "Bash(rm -rf /)",
