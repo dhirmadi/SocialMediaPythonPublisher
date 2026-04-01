@@ -278,7 +278,8 @@ class HerokuClient:
         resp = self.session.get(url, timeout=30)
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to fetch app '{app_name}': {resp.status_code} {resp.text}")
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def get_pipeline_by_name(self, pipeline_name: str) -> dict[str, Any]:
         """Get pipeline info by name."""
@@ -286,7 +287,7 @@ class HerokuClient:
         resp = self.session.get(url, timeout=30)
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to list pipelines: {resp.status_code} {resp.text}")
-        pipelines = resp.json()
+        pipelines: list[dict[str, Any]] = resp.json()
         for pipeline in pipelines:
             if pipeline.get("name") == pipeline_name:
                 return pipeline
@@ -298,7 +299,8 @@ class HerokuClient:
         resp = self.session.post(url, json={"name": new_name}, timeout=30)
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to create Heroku app '{new_name}': {resp.status_code} {resp.text}")
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def add_app_to_pipeline(self, app_id: str, pipeline_id: str, stage: str = "production") -> dict[str, Any]:
         """Add an app to a pipeline at a specific stage."""
@@ -307,7 +309,8 @@ class HerokuClient:
         resp = self.session.post(url, json=payload, timeout=30)
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to add app to pipeline: {resp.status_code} {resp.text}")
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def enable_acm(self, app_name: str) -> dict[str, Any]:
         """Enable Automated Certificate Management (ACM) for an app."""
@@ -315,7 +318,8 @@ class HerokuClient:
         resp = self.session.post(url, json={}, timeout=30)
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to enable ACM for app '{app_name}': {resp.status_code} {resp.text}")
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def promote_release(
         self,
@@ -349,7 +353,8 @@ class HerokuClient:
             raise HerokuError(
                 f"Failed to promote from '{source_app}' to '{target_app}': {resp.status_code} {resp.text}"
             )
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def get_config_vars(self, app_name: str) -> dict[str, str]:
         url = f"{HEROKU_API_BASE}/apps/{app_name}/config-vars"
@@ -357,7 +362,8 @@ class HerokuClient:
         if resp.status_code >= 400:
             raise HerokuError(f"Failed to fetch config vars for app '{app_name}': {resp.status_code} {resp.text}")
         # Heroku returns a JSON object mapping names to values.
-        return resp.json()
+        result: dict[str, str] = resp.json()
+        return result
 
     def set_config_vars(self, app_name: str, config: dict[str, str]) -> None:
         url = f"{HEROKU_API_BASE}/apps/{app_name}/config-vars"
@@ -372,7 +378,8 @@ class HerokuClient:
         if resp.status_code >= 400:
             # SNI endpoints might not exist yet, return empty list
             return []
-        return resp.json()
+        result: list[dict[str, Any]] = resp.json()
+        return result
 
     def create_domain(self, app_name: str, hostname: str) -> dict[str, Any]:
         """
@@ -394,7 +401,8 @@ class HerokuClient:
             raise HerokuError(
                 f"Failed to create domain '{hostname}' for app '{app_name}': {resp.status_code} {resp.text}"
             )
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def delete_app(self, app_name: str) -> None:
         """Delete a Heroku app by name."""
@@ -432,7 +440,8 @@ class HetznerDNSClient:
         zones = data.get("zones") or []
         if not zones:
             raise HetznerDNSError(f"No Hetzner DNS zone found for '{name}'.")
-        return zones[0]
+        result: dict[str, Any] = zones[0]
+        return result
 
     def find_record(self, *, zone_id: str, name: str, rtype: str = "CNAME") -> dict[str, Any] | None:
         url = f"{HETZNER_API_BASE}/records"
@@ -457,7 +466,8 @@ class HetznerDNSClient:
             raise HetznerDNSError(
                 f"Failed to create CNAME record '{name}' in zone '{zone_id}': {resp.status_code} {resp.text}"
             )
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def update_record(self, record_id: str, *, name: str, target: str, ttl: int = 300) -> dict[str, Any]:
         url = f"{HETZNER_API_BASE}/records/{record_id}"
@@ -472,7 +482,8 @@ class HetznerDNSClient:
             raise HetznerDNSError(
                 f"Failed to update CNAME record '{record_id}' ('{name}'): {resp.status_code} {resp.text}"
             )
-        return resp.json()
+        result: dict[str, Any] = resp.json()
+        return result
 
     def ensure_cname(self, *, zone_id: str, name: str, target: str, overwrite: bool = True) -> dict[str, Any]:
         existing = self.find_record(zone_id=zone_id, name=name, rtype="CNAME")
@@ -624,7 +635,11 @@ def main(argv: list[str] | None = None) -> int:
         _print(f"\n[1b/7] Adding app to '{args.pipeline}' pipeline...")
         pipeline = heroku.get_pipeline_by_name(args.pipeline)
         pipeline_id = pipeline.get("id")
-        coupling = heroku.add_app_to_pipeline(app_id, pipeline_id, args.pipeline_stage)
+        if not isinstance(app_id, str):
+            raise HerokuError(f"Expected app_id to be str, got {type(app_id)}")
+        if not isinstance(pipeline_id, str):
+            raise HerokuError(f"Expected pipeline_id to be str, got {type(pipeline_id)}")
+        heroku.add_app_to_pipeline(app_id, pipeline_id, args.pipeline_stage)
         _print(f"  -> Added to pipeline '{args.pipeline}' at stage '{args.pipeline_stage}'")
 
         _print("\n[2/7] Copying and updating config vars from source app...")
@@ -672,7 +687,7 @@ def main(argv: list[str] | None = None) -> int:
         _print(f"  -> {admin_action} web_admin_pw from --password")
 
         _print("\n[3/7] Enabling Automated Certificate Management (ACM)...")
-        acm_info = heroku.enable_acm(new_app_name)
+        heroku.enable_acm(new_app_name)
         _print(f"  -> ACM enabled for {new_app_name}")
 
         _print("\n[4/7] Creating Heroku custom domain...")
@@ -682,10 +697,7 @@ def main(argv: list[str] | None = None) -> int:
             raise HerokuError(f"Heroku domain response did not include a DNS target: {domain!r}")
         # For DNS zone files and Hetzner records, use a fully-qualified
         # domain name with a trailing dot to avoid relative expansions.
-        if not dns_target.endswith("."):
-            dns_target_dns = dns_target + "."
-        else:
-            dns_target_dns = dns_target
+        dns_target_dns = dns_target + "." if not dns_target.endswith(".") else dns_target
 
         _print(f"  -> Domain created: {hostname}")
         _print(f"  -> DNS target:     {dns_target_dns}")

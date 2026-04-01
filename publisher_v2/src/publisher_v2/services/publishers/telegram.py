@@ -27,11 +27,14 @@ class TelegramPublisher(Publisher):
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 
-        bot = telegram.Bot(token=self._config.bot_token)
+        token = self._config.bot_token
+        if not token:
+            return PublishResult(success=False, platform=self.platform_name, error="bot_token not configured")
+        bot = telegram.Bot(token=token)
         start = now_monotonic()
         try:
             processed_path = await ensure_max_width_async(image_path, max_width=1280)
-            with open(processed_path, "rb") as f:
+            with open(processed_path, "rb") as f:  # noqa: ASYNC230 — file handle needed by async send_photo
                 message = await bot.send_photo(chat_id=self._config.channel_id, photo=f, caption=caption)
             log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name, post_id=str(message.message_id))

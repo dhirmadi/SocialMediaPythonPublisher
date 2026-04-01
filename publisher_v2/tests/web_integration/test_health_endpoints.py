@@ -43,7 +43,7 @@ def test_health_ready_orchestrator_down(monkeypatch: pytest.MonkeyPatch) -> None
     async def boom() -> None:
         raise OrchestratorUnavailableError("down")
 
-    src.check_connectivity = boom
+    src.check_connectivity = boom  # type: ignore[attr-defined]
 
     client = TestClient(app)
     r = client.get("/health/ready")

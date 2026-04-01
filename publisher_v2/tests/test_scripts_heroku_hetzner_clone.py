@@ -476,7 +476,7 @@ def test_main_logs_warning_when_servers_log_fails(monkeypatch) -> None:
 
     class FakeHeroku:
         def __init__(self) -> None:
-            self.created_apps = []
+            self.created_apps: list[str] = []
 
         def create_app(self, new_name: str):
             self.created_apps.append(new_name)
@@ -724,14 +724,14 @@ def test_main_create_happy_path_uses_clients(monkeypatch) -> None:  # type: igno
 
     class FakeHerokuClient:
         def __init__(self) -> None:
-            self.created_apps = []
-            self.pipelines = {}
-            self.couplings = []
-            self.config_get = {}
-            self.config_set = {}
-            self.acm_enabled = []
-            self.domains = []
-            self.promotions = []
+            self.created_apps: list[str] = []
+            self.pipelines: dict[str, dict[str, str]] = {}
+            self.couplings: list[tuple[str, str, str]] = []
+            self.config_get: dict[str, bool] = {}
+            self.config_set: dict[str, Any] = {}
+            self.acm_enabled: list[str] = []
+            self.domains: list[tuple[str, str]] = []
+            self.promotions: list[tuple[str, str, str]] = []
 
         # from_env will return this instance directly
         def create_app(self, new_name: str):
@@ -777,8 +777,8 @@ def test_main_create_happy_path_uses_clients(monkeypatch) -> None:  # type: igno
 
     class FakeHetznerClient:
         def __init__(self) -> None:
-            self.zones = {}
-            self.cnames = []
+            self.zones: dict[str, dict[str, str]] = {}
+            self.cnames: list[tuple[str, str, str, bool]] = []
 
         def get_zone_by_name(self, name: str):
             self.zones[name] = {"id": "zone-id", "name": name}
@@ -862,7 +862,7 @@ def test_main_delete_dry_run_and_real(monkeypatch, tmp_path) -> None:  # type: i
     # Patch Path used in the script to resolve to our tmp scripts dir
     original_path_cls = module.Path  # type: ignore[attr-defined]
 
-    class _TmpPathFactory(type(original_path_cls)):  # type: ignore[type-arg]
+    class _TmpPathFactory(type(original_path_cls)):  # type: ignore[misc]
         def __new__(cls, *args, **kwargs):
             # Ignore the provided __file__ and always construct paths under tmp scripts dir
             return original_path_cls(scripts_dir / args[0])  # type: ignore[call-arg]
@@ -877,15 +877,15 @@ def test_main_delete_dry_run_and_real(monkeypatch, tmp_path) -> None:  # type: i
     # Fake clients to avoid real API calls
     class FakeHerokuClient:
         def __init__(self) -> None:
-            self.deleted_apps = []
+            self.deleted_apps: list[str] = []
 
         def delete_app(self, app_name: str) -> None:
             self.deleted_apps.append(app_name)
 
     class FakeHetznerClient:
         def __init__(self) -> None:
-            self.zones = {}
-            self.deleted_records = []
+            self.zones: dict[str, dict[str, str]] = {}
+            self.deleted_records: list[str] = []
 
         def get_zone_by_name(self, name: str):
             self.zones[name] = {"id": "zone-id", "name": name}

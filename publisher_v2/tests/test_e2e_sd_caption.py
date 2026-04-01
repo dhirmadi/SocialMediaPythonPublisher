@@ -71,9 +71,12 @@ async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch)
     # Preview phase - use centralized fixtures (QC-001)
     cfg_prev = make_config(archive=True)
     storage_prev = TrackingStorage()
-    ai_prev = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_prev.openai))
+    ai_prev = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_prev.openai))  # type: ignore[arg-type]
     orch_prev = WorkflowOrchestrator(
-        config=cfg_prev, storage=storage_prev, ai_service=ai_prev, publishers=[BaseDummyPublisher()]
+        config=cfg_prev,
+        storage=storage_prev,  # type: ignore[arg-type]
+        ai_service=ai_prev,
+        publishers=[BaseDummyPublisher()],  # type: ignore[arg-type, list-item]
     )
     result_prev = await orch_prev.execute(preview_mode=True)
     assert result_prev.image_analysis is not None
@@ -83,11 +86,14 @@ async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch)
     # Live phase - use centralized fixtures (QC-001)
     cfg_live = make_config(archive=True)
     storage_live = TrackingStorage()
-    ai_live = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_live.openai))
+    ai_live = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_live.openai))  # type: ignore[arg-type]
     orch_live = WorkflowOrchestrator(
-        config=cfg_live, storage=storage_live, ai_service=ai_live, publishers=[BaseDummyPublisher()]
+        config=cfg_live,
+        storage=storage_live,  # type: ignore[arg-type]
+        ai_service=ai_live,
+        publishers=[BaseDummyPublisher()],  # type: ignore[arg-type, list-item]
     )
-    result_live = await orch_live.execute(preview_mode=False)
+    await orch_live.execute(preview_mode=False)
     assert storage_live.sidecars == 1
     # With a successful publisher and archive enabled, archive is called
     assert storage_live.archived == 1

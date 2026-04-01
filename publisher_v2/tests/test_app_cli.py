@@ -326,6 +326,7 @@ class TestMainAsyncNormalMode:
 
         await main_async()
 
+        assert captured_config is not None
         assert captured_config.content.debug is True
 
     @pytest.mark.asyncio

@@ -110,7 +110,8 @@ class OrchestratorClient:
 
     def _handle_runtime_response(self, resp: httpx.Response) -> dict[str, Any]:
         if resp.status_code == 200:
-            return resp.json()
+            result: dict[str, Any] = resp.json()
+            return result
         if resp.status_code == 404:
             raise TenantNotFoundError("Tenant not found")
         if resp.status_code in RETRYABLE_STATUS:
@@ -125,7 +126,8 @@ class OrchestratorClient:
         resp = await self._request_with_retry("POST", url, headers=headers, json={"credentials_ref": credentials_ref})
 
         if resp.status_code == 200:
-            return resp.json()
+            result: dict[str, Any] = resp.json()
+            return result
         if resp.status_code == 404:
             raise CredentialResolutionError("Credentials not found or not authorized")
         if resp.status_code == 403:

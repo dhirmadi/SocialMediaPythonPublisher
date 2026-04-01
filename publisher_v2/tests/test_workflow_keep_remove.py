@@ -26,8 +26,8 @@ class _DummyStorage:
 
 class _DummyAI(AIService):
     def __init__(self) -> None:  # pragma: no cover - not used for curation
-        self.analyzer = None
-        self.generator = None
+        self.analyzer = None  # type: ignore[assignment]
+        self.generator = None  # type: ignore[assignment]
 
 
 class _DummyPublisher(Publisher):
@@ -57,7 +57,7 @@ def _base_config() -> ApplicationConfig:
 async def test_keep_image_calls_storage_with_configured_folder() -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.keep_image("image.jpg", preview_mode=False, dry_run=False)
 
@@ -68,7 +68,7 @@ async def test_keep_image_calls_storage_with_configured_folder() -> None:
 async def test_remove_image_calls_storage_with_configured_folder() -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.remove_image("image.jpg", preview_mode=False, dry_run=False)
 
@@ -79,7 +79,7 @@ async def test_remove_image_calls_storage_with_configured_folder() -> None:
 async def test_keep_remove_preview_mode_uses_preview_helper(capsys) -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.keep_image("image.jpg", preview_mode=True, dry_run=False)
     captured = capsys.readouterr().out
@@ -95,7 +95,7 @@ async def test_keep_remove_feature_disabled_raises() -> None:
     cfg.features.keep_enabled = False
     cfg.features.remove_enabled = False
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     with pytest.raises(StorageError):
         await orchestrator.keep_image("image.jpg")

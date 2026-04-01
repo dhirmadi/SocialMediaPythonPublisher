@@ -108,7 +108,7 @@ def _build_config() -> ApplicationConfig:
 def _make_orchestrator(storage: _MetadataStorage, publishers: list[Publisher] | None = None) -> WorkflowOrchestrator:
     cfg = _build_config()
     ai_service = _StubAI()  # type: ignore[arg-type]
-    return WorkflowOrchestrator(cfg, storage, ai_service, publishers or [])
+    return WorkflowOrchestrator(cfg, storage, ai_service, publishers or [])  # type: ignore[arg-type]
 
 
 @pytest.mark.asyncio

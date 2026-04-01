@@ -29,8 +29,13 @@ class EmailPublisher(Publisher):
         return self._enabled
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
-        if not self._enabled or not self._config:
+        config = self._config
+        if not self._enabled or not config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
+
+        password = config.password
+        if password is None:
+            return PublishResult(success=False, platform=self.platform_name, error="Password not configured")
 
         start = now_monotonic()
         try:
@@ -38,7 +43,7 @@ class EmailPublisher(Publisher):
             def _build_message(to_addr: str, subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
                 msg["Subject"] = subject
-                msg["From"] = self._config.sender
+                msg["From"] = config.sender
                 msg["To"] = to_addr
                 msg.attach(MIMEText(body))
                 with open(image_path, "rb") as f:
@@ -49,9 +54,9 @@ class EmailPublisher(Publisher):
 
             def _send_emails() -> None:
                 # Connect once, send both emails, then quit
-                server = smtplib.SMTP(self._config.smtp_server, self._config.smtp_port, timeout=30)
+                server = smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=30)
                 server.starttls()
-                server.login(self._config.sender, self._config.password)
+                server.login(config.sender, password)
 
                 # Subject prefix per FetLife instructions
                 prefix_map = {
@@ -59,10 +64,10 @@ class EmailPublisher(Publisher):
                     "private": "Private: ",
                     "avatar": "Avatar: ",
                 }
-                prefix = prefix_map.get((self._config.subject_mode or "normal").lower(), "")
+                prefix = prefix_map.get((config.subject_mode or "normal").lower(), "")
 
                 # Determine subject/body placement
-                if self._config.caption_target.lower() == "subject" or self._config.caption_target.lower() == "both":
+                if config.caption_target.lower() == "subject" or config.caption_target.lower() == "both":
                     service_subject = f"{prefix}{caption}"
                     service_body = caption
                 else:  # "body"
@@ -71,15 +76,15 @@ class EmailPublisher(Publisher):
                     service_body = caption
 
                 # Send to service (FetLife upload address)
-                service_msg = _build_message(self._config.recipient, service_subject, service_body)
-                server.sendmail(self._config.sender, [self._config.recipient], service_msg.as_string())
+                service_msg = _build_message(config.recipient, service_subject, service_body)
+                server.sendmail(config.sender, [config.recipient], service_msg.as_string())
 
                 # Optional confirmation back to sender
-                if self._config.confirmation_to_sender:
-                    analysis_tags = []
+                if config.confirmation_to_sender:
+                    analysis_tags: list = []
                     if context and isinstance(context.get("analysis_tags"), list):
                         analysis_tags = context.get("analysis_tags") or []
-                    tags = normalize_tags(analysis_tags, self._config.confirmation_tags_count)
+                    tags = normalize_tags(analysis_tags, config.confirmation_tags_count)
                     tags_line = (
                         f"Image Tags (FetLife context): {', '.join(tags)}"
                         if tags
@@ -87,8 +92,8 @@ class EmailPublisher(Publisher):
                     )
                     confirm_body = f"{service_body}\n\n---\n{tags_line}"
                     confirm_subject = service_subject
-                    confirm_msg = _build_message(self._config.sender, confirm_subject, confirm_body)
-                    server.sendmail(self._config.sender, [self._config.sender], confirm_msg.as_string())
+                    confirm_msg = _build_message(config.sender, confirm_subject, confirm_body)
+                    server.sendmail(config.sender, [config.sender], confirm_msg.as_string())
 
                 server.quit()
 

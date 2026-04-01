@@ -110,7 +110,7 @@ def process_change_requests(feature_dir):
 
         try:
             story_num = int(prefix) + 1
-        except:
+        except Exception:
             story_num = 99
 
         story_folder_name = f"{story_num:02d}_{clean_name}"

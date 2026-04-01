@@ -27,7 +27,6 @@ def print_image_details(
     already_posted: bool = False,
 ) -> None:
     """Print image selection details"""
-    cfg = get_static_config().preview_text
     print("\n📸 IMAGE SELECTED")
     print("─" * 70)
     print(f"  File:        {filename}")

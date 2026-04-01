@@ -41,9 +41,8 @@ class SanitizingFilter(logging.Filter):
 
     def filter(self, record: logging.LogRecord) -> bool:
         # Sanitize the message
-        if record.msg:
-            if isinstance(record.msg, str):
-                record.msg = sanitize(record.msg)
+        if record.msg and isinstance(record.msg, str):
+            record.msg = sanitize(record.msg)
 
         # Sanitize args if they exist
         if record.args:

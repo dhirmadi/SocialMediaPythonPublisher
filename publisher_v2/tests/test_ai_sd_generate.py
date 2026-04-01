@@ -21,7 +21,7 @@ async def test_ai_generate_with_sd_pair_parsing(monkeypatch: pytest.MonkeyPatch)
 
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
-    ai = AIService(analyzer=BaseDummyAnalyzer(), generator=gen)
+    ai = AIService(analyzer=BaseDummyAnalyzer(), generator=gen)  # type: ignore[arg-type]
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
     caption, sd_caption = await ai.create_caption_pair("http://tmp", spec)
@@ -44,7 +44,7 @@ async def test_ai_generate_with_sd_from_existing_analysis(monkeypatch: pytest.Mo
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
     analyzer = BaseDummyAnalyzer()
-    ai = AIService(analyzer=analyzer, generator=gen)
+    ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
     analysis = await analyzer.analyze("http://tmp")

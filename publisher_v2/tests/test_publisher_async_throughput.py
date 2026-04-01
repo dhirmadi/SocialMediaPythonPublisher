@@ -61,8 +61,8 @@ class _DummyGenerator:
 
 class _DummyAI(AIService):
     def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()
-        self.generator = _DummyGenerator()
+        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
+        self.generator = _DummyGenerator()  # type: ignore[assignment]
 
         class _NoopLimiter:
             async def __aenter__(self) -> None:  # type: ignore[override]
@@ -71,11 +71,11 @@ class _DummyAI(AIService):
             async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[override]
                 return False
 
-        self._rate_limiter = _NoopLimiter()
+        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _SleepingPublisher(Publisher):
-    def __init__(self, name: str, delay: float, spans: dict[str, list[float]]) -> None:
+    def __init__(self, name: str, delay: float, spans: dict[str, list[tuple[float, float]]]) -> None:
         self._name = name
         self._delay = delay
         self._spans = spans
@@ -132,7 +132,7 @@ async def test_publishers_run_concurrently() -> None:
 
     storage = _DummyStorage()
     ai = _DummyAI()
-    spans: dict[str, list[float]] = {}
+    spans: dict[str, list[tuple[float, float]]] = {}
     publishers: list[Publisher] = [
         _SleepingPublisher("p1", 0.15, spans),
         _SleepingPublisher("p2", 0.15, spans),

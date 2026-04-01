@@ -383,32 +383,31 @@ class OrchestratorConfigSource:
                     telegram_cfg = TelegramConfig(bot_token=None, channel_id=channel_id)
                     if p.credentials_ref:
                         creds_refs["telegram"] = p.credentials_ref
-            if p.type == "fetlife" and not email_cfg:
-                # FetLife uses shared email_server.password_ref
-                if cfg.email_server and cfg.email_server.password_ref:
-                    recipient = str(p.config.get("recipient") or "").strip()
-                    if recipient and cfg.email_server.from_email:
-                        email_enabled = True
-                        conf = cfg.confirmation
-                        email_cfg = EmailConfig(
-                            sender=cfg.email_server.from_email,
-                            recipient=recipient,
-                            password=None,
-                            smtp_server=cfg.email_server.host,
-                            smtp_port=int(cfg.email_server.port),
-                            confirmation_to_sender=bool(conf.confirmation_to_sender)
-                            if conf is not None and conf.confirmation_to_sender is not None
-                            else True,
-                            confirmation_tags_count=int(conf.confirmation_tags_count)
-                            if conf is not None and conf.confirmation_tags_count is not None
-                            else 5,
-                            confirmation_tags_nature=str(conf.confirmation_tags_nature)
-                            if conf is not None and conf.confirmation_tags_nature is not None
-                            else "short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
-                            caption_target=str(p.config.get("caption_target") or "subject"),
-                            subject_mode=str(p.config.get("subject_mode") or "normal"),
-                        )
-                        creds_refs["smtp"] = cfg.email_server.password_ref
+            # FetLife uses shared email_server.password_ref
+            if p.type == "fetlife" and not email_cfg and cfg.email_server and cfg.email_server.password_ref:
+                recipient = str(p.config.get("recipient") or "").strip()
+                if recipient and cfg.email_server.from_email:
+                    email_enabled = True
+                    conf = cfg.confirmation
+                    email_cfg = EmailConfig(
+                        sender=cfg.email_server.from_email,
+                        recipient=recipient,
+                        password=None,
+                        smtp_server=cfg.email_server.host,
+                        smtp_port=int(cfg.email_server.port),
+                        confirmation_to_sender=bool(conf.confirmation_to_sender)
+                        if conf is not None and conf.confirmation_to_sender is not None
+                        else True,
+                        confirmation_tags_count=int(conf.confirmation_tags_count)
+                        if conf is not None and conf.confirmation_tags_count is not None
+                        else 5,
+                        confirmation_tags_nature=str(conf.confirmation_tags_nature)
+                        if conf is not None and conf.confirmation_tags_nature is not None
+                        else "short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
+                        caption_target=str(p.config.get("caption_target") or "subject"),
+                        subject_mode=str(p.config.get("subject_mode") or "normal"),
+                    )
+                    creds_refs["smtp"] = cfg.email_server.password_ref
 
         platforms = PlatformsConfig(
             telegram_enabled=telegram_enabled,

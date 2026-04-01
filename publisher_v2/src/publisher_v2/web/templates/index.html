@@ -237,6 +237,107 @@
       gap: 0.5rem;
       margin-top: 0.75rem;
     }
+    /* Browse modal */
+    .browse-modal .modal-dialog {
+      max-width: min(95vw, 960px);
+      max-height: 90vh;
+      overflow-y: auto;
+    }
+    .browse-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 0.75rem;
+    }
+    .browse-header h2 {
+      margin: 0;
+      flex: 1;
+    }
+    .browse-header .count-badge {
+      font-size: 0.8rem;
+      color: #9ca3af;
+    }
+    .browse-header .close-btn {
+      flex: 0 0 auto;
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 1.3rem;
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      line-height: 1;
+    }
+    .browse-header .close-btn:hover {
+      color: #e5e7eb;
+    }
+    .browse-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 8px;
+    }
+    .browse-grid-item {
+      aspect-ratio: 1;
+      overflow: hidden;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      background: #111827;
+      position: relative;
+      border: 2px solid transparent;
+      transition: border-color 0.15s, transform 0.15s;
+    }
+    .browse-grid-item:hover {
+      border-color: #38bdf8;
+      transform: scale(1.03);
+    }
+    .browse-grid-item.current {
+      border-color: #38bdf8;
+    }
+    .browse-grid-item img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    .browse-grid-item img.loaded {
+      opacity: 1;
+    }
+    .browse-grid-item .thumb-name {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      padding: 2px 4px;
+      font-size: 0.65rem;
+      color: #e5e7eb;
+      background: rgba(0, 0, 0, 0.6);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .browse-pagination {
+      display: flex;
+      justify-content: center;
+      gap: 4px;
+      margin-top: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .browse-pagination button {
+      flex: 0 0 auto;
+      min-width: 2rem;
+      padding: 0.35rem 0.5rem;
+      font-size: 0.8rem;
+      border-radius: 0.375rem;
+    }
+    .browse-pagination button.active {
+      background: #38bdf8;
+      color: #0f172a;
+    }
+    @media (max-width: 640px) {
+      .browse-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
     #caption-text {
       width: 100%;
       background: #111827;
@@ -306,6 +407,9 @@
     </div>
 
     <div class="controls">
+      <button id="btn-browse" class="secondary hidden">
+        {{ web_ui_text.buttons.browse or "Browse" }}
+      </button>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
           {{ web_ui_text.buttons.analyze or "Analyze & caption" }}
@@ -409,6 +513,7 @@
     const loginError = document.getElementById("login-error");
 
     const btnPrev = document.getElementById("btn-prev");
+    const btnBrowse = document.getElementById("btn-browse");
 
     const imageContainer = document.querySelector(".image-container");
     const positionIndicator = document.getElementById("position-indicator");
@@ -419,6 +524,11 @@
     let reviewList = [];
     let reviewIndex = -1;
     let currentMode = "publish"; // Set automatically based on config
+
+    let browseImageList = null;
+    let browseListTimestamp = 0;
+    const BROWSE_CACHE_TTL = 30000;
+    const BROWSE_PAGE_SIZE = 30;
 
     let isAdmin = false;
     let featureConfig = {
@@ -796,6 +906,7 @@
     function disableButtons(disabled) {
       const nextShouldBeDisabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       btnNext.disabled = nextShouldBeDisabled;
+      if (btnBrowse) btnBrowse.disabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       if (btnAnalyze) {
         btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
       }
@@ -917,6 +1028,9 @@
         btnDelete.classList.toggle("hidden", !shouldShowDelete);
         btnDelete.disabled = !isAdmin || !shouldShowDelete;
       }
+      if (btnBrowse) {
+        btnBrowse.classList.toggle("hidden", !isAdmin && !featureConfig.auto_view_enabled);
+      }
       // When AUTO_VIEW is disabled and user is not admin, replace the image
       // area with a clear login-required message instead of a broken image.
       if (!isAdmin && !featureConfig.auto_view_enabled) {
@@ -992,6 +1106,192 @@
         console.error(e);
         const msg = e.message || "Error analyzing image.";
         setActivity(msg);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    function getPaginationRange(current, total) {
+      if (total <= 7) return Array.from({ length: total }, (_, i) => i);
+      const pages = [];
+      pages.push(0);
+      if (current > 2) pages.push("...");
+      for (let i = Math.max(1, current - 1); i <= Math.min(total - 2, current + 1); i++) {
+        pages.push(i);
+      }
+      if (current < total - 3) pages.push("...");
+      pages.push(total - 1);
+      return pages;
+    }
+
+    function showBrowseModal(filenames) {
+      return new Promise((resolve) => {
+        const totalPages = Math.ceil(filenames.length / BROWSE_PAGE_SIZE);
+        let currentPage = 0;
+
+        // Start on page containing current image
+        if (currentFilename) {
+          const idx = filenames.indexOf(currentFilename);
+          if (idx !== -1) currentPage = Math.floor(idx / BROWSE_PAGE_SIZE);
+        }
+
+        const overlay = document.createElement("div");
+        overlay.className = "modal browse-modal";
+        const dialog = document.createElement("div");
+        dialog.className = "modal-dialog";
+
+        // Header
+        const header = document.createElement("div");
+        header.className = "browse-header";
+        const title = document.createElement("h2");
+        title.textContent = TEXT.browse_dialog?.title || "Browse images";
+        const countBadge = document.createElement("span");
+        countBadge.className = "count-badge";
+        countBadge.textContent = `${filenames.length} images`;
+        const closeBtn = document.createElement("button");
+        closeBtn.className = "close-btn";
+        closeBtn.innerHTML = "&times;";
+        closeBtn.type = "button";
+        header.appendChild(title);
+        header.appendChild(countBadge);
+        header.appendChild(closeBtn);
+
+        const grid = document.createElement("div");
+        grid.className = "browse-grid";
+
+        const pagination = document.createElement("div");
+        pagination.className = "browse-pagination";
+
+        dialog.appendChild(header);
+        dialog.appendChild(grid);
+        dialog.appendChild(pagination);
+        overlay.appendChild(dialog);
+
+        function renderPage(pageIndex) {
+          currentPage = pageIndex;
+          grid.innerHTML = "";
+          const start = pageIndex * BROWSE_PAGE_SIZE;
+          const end = Math.min(start + BROWSE_PAGE_SIZE, filenames.length);
+          for (let i = start; i < end; i++) {
+            const fname = filenames[i];
+            const item = document.createElement("div");
+            item.className = "browse-grid-item";
+            if (fname === currentFilename) item.classList.add("current");
+
+            const img = document.createElement("img");
+            img.loading = "lazy";
+            img.alt = fname;
+            img.src = `/api/images/${encodeURIComponent(fname)}/thumbnail?size=w256h256`;
+            img.addEventListener("load", () => img.classList.add("loaded"));
+
+            const nameLabel = document.createElement("div");
+            nameLabel.className = "thumb-name";
+            nameLabel.textContent = fname;
+            nameLabel.title = fname;
+
+            item.appendChild(img);
+            item.appendChild(nameLabel);
+            item.addEventListener("click", () => cleanup(fname));
+            grid.appendChild(item);
+          }
+          renderPagination();
+        }
+
+        function renderPagination() {
+          pagination.innerHTML = "";
+          if (totalPages <= 1) return;
+
+          const prevBtn = document.createElement("button");
+          prevBtn.className = "secondary";
+          prevBtn.textContent = "<";
+          prevBtn.disabled = currentPage === 0;
+          prevBtn.addEventListener("click", () => renderPage(currentPage - 1));
+          pagination.appendChild(prevBtn);
+
+          const range = getPaginationRange(currentPage, totalPages);
+          for (const p of range) {
+            if (p === "...") {
+              const ellipsis = document.createElement("span");
+              ellipsis.textContent = "...";
+              ellipsis.style.padding = "0.35rem 0.25rem";
+              ellipsis.style.color = "#9ca3af";
+              pagination.appendChild(ellipsis);
+            } else {
+              const btn = document.createElement("button");
+              btn.className = p === currentPage ? "active" : "secondary";
+              btn.textContent = p + 1;
+              btn.addEventListener("click", () => renderPage(p));
+              pagination.appendChild(btn);
+            }
+          }
+
+          const nextBtn = document.createElement("button");
+          nextBtn.className = "secondary";
+          nextBtn.textContent = ">";
+          nextBtn.disabled = currentPage === totalPages - 1;
+          nextBtn.addEventListener("click", () => renderPage(currentPage + 1));
+          pagination.appendChild(nextBtn);
+        }
+
+        function cleanup(val) {
+          document.removeEventListener("keydown", onKey);
+          overlay.remove();
+          resolve(val);
+        }
+
+        function onKey(e) {
+          if (e.key === "Escape") cleanup(null);
+          if (e.key === "ArrowLeft" && currentPage > 0) renderPage(currentPage - 1);
+          if (e.key === "ArrowRight" && currentPage < totalPages - 1) renderPage(currentPage + 1);
+        }
+
+        closeBtn.addEventListener("click", () => cleanup(null));
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
+        document.addEventListener("keydown", onKey);
+
+        document.body.appendChild(overlay);
+        renderPage(currentPage);
+      });
+    }
+
+    async function handleBrowse() {
+      const now = Date.now();
+      if (!browseImageList || (now - browseListTimestamp) > BROWSE_CACHE_TTL) {
+        try {
+          const res = await fetch("/api/images/list");
+          if (!res.ok) throw new Error("Failed to fetch image list");
+          const data = await res.json();
+          browseImageList = data.filenames || [];
+          browseListTimestamp = now;
+        } catch (e) {
+          console.error(e);
+          showToast("Failed to load image list.", "error");
+          return;
+        }
+      }
+      if (browseImageList.length === 0) {
+        showToast(TEXT.browse_dialog?.empty || "No images found.");
+        return;
+      }
+      const selected = await showBrowseModal(browseImageList);
+      if (!selected) return;
+      try {
+        disableButtons(true);
+        setActivity(`Loading ${selected}...`);
+        const res = await fetch(`/api/images/${encodeURIComponent(selected)}`);
+        if (!res.ok) throw new Error("Failed to load image");
+        const data = await res.json();
+        applyImageData(data);
+        if (currentMode === "review" && reviewList.length > 0) {
+          const idx = reviewList.indexOf(selected);
+          if (idx !== -1) {
+            reviewIndex = idx;
+            updatePositionIndicator();
+          }
+        }
+      } catch (e) {
+        console.error(e);
+        setActivity("Error loading selected image.");
       } finally {
         disableButtons(false);
       }
@@ -1111,8 +1411,10 @@
     }
 
     function removeFromReviewList(filename) {
+      browseImageList = null; // Invalidate browse cache on curation
+
       if (currentMode !== "review") return;
-      
+
       const idx = reviewList.indexOf(filename);
       if (idx !== -1) {
         reviewList.splice(idx, 1);
@@ -1451,6 +1753,7 @@
     function initLayout() {
       btnNext.addEventListener("click", handleNext);
       btnPrev.addEventListener("click", handlePrev);
+      if (btnBrowse) btnBrowse.addEventListener("click", handleBrowse);
       
       if (btnFullSize) {
         btnFullSize.addEventListener("click", handleFullSize);

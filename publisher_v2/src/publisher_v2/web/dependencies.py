@@ -22,7 +22,7 @@ def get_request_service(request: Request) -> WebImageService:
     - In orchestrator mode, tenant_middleware attaches request.state.web_service.
     - Otherwise, fall back to the standalone singleton get_service().
     """
-    svc = getattr(request.state, "web_service", None)
+    svc: WebImageService | None = getattr(request.state, "web_service", None)
     if svc is not None:
         return svc
     return get_service()

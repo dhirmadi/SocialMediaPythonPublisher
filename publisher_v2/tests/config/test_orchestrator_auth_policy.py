@@ -9,6 +9,7 @@ from publisher_v2.config.orchestrator_models import (
 )
 from publisher_v2.config.schema import Auth0Config
 from publisher_v2.config.source import _apply_orchestrator_auth_policy
+from publisher_v2.core.exceptions import ConfigurationError
 
 
 def _base_cfg_v2(*, auth: OrchestratorAuth | None) -> OrchestratorConfigV2:
@@ -53,5 +54,5 @@ def test_orchestrator_auth_enabled_overrides_admin_allowlist() -> None:
 
 def test_orchestrator_auth_enabled_requires_env_auth0() -> None:
     cfg = _base_cfg_v2(auth=OrchestratorAuth(enabled=True, allowed_emails=["a@example.com"]))
-    with pytest.raises(Exception):
+    with pytest.raises(ConfigurationError, match="Auth0 must be configured"):
         _apply_orchestrator_auth_policy(None, cfg)

@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import dataclasses
 import hashlib
 import logging
@@ -8,7 +9,7 @@ import tempfile
 import uuid
 
 from publisher_v2.config.schema import ApplicationConfig
-from publisher_v2.core.exceptions import StorageError
+from publisher_v2.core.exceptions import AIServiceError, StorageError
 from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
@@ -271,10 +272,8 @@ class WorkflowOrchestrator:
                 tmp.write(sel.content)
                 tmp.flush()
                 tmp_path = tmp.name
-            try:
+            with contextlib.suppress(Exception):
                 os.chmod(tmp_path, 0o600)
-            except Exception:
-                pass
 
             temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
 
@@ -329,6 +328,8 @@ class WorkflowOrchestrator:
                     correlation_id=correlation_id,
                 )
             elif self.config.features.analyze_caption_enabled:
+                if analysis is None:
+                    raise AIServiceError("Vision analysis is None but caption generation is enabled")
                 if not preview_mode:
                     log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
                 caption_start = now_monotonic()
@@ -360,22 +361,22 @@ class WorkflowOrchestrator:
                     model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(
                         self.ai_service.generator, "model", ""
                     )
-                    try:
-                        sidecar_write_ms = await generate_and_upload_sidecar(
-                            storage=self.storage,
-                            config=self.config,
-                            filename=selected_image,
-                            analysis=analysis,
-                            sd_caption=sd_caption,
-                            model_version=str(model_version),
-                            sha256=selected_hash,
-                            correlation_id=correlation_id,
-                            log_prefix="sidecar_upload",
+                    # Error already logged inside helper; suppress to continue workflow.
+                    # sidecar_write_ms will remain None in workflow_timing on failure.
+                    with contextlib.suppress(Exception):
+                        sidecar_write_ms = int(
+                            await generate_and_upload_sidecar(
+                                storage=self.storage,
+                                config=self.config,
+                                filename=selected_image,
+                                analysis=analysis,  # analysis is guaranteed non-None by the guard above
+                                sd_caption=sd_caption,
+                                model_version=str(model_version),
+                                sha256=selected_hash,
+                                correlation_id=correlation_id,
+                                log_prefix="sidecar_upload",
+                            )
                         )
-                    except Exception:
-                        # Error already logged inside helper; suppress to continue workflow.
-                        # sidecar_write_ms will remain None in workflow_timing.
-                        pass
             else:
                 log_json(
                     self.logger,
@@ -404,7 +405,7 @@ class WorkflowOrchestrator:
                     )
                     publish_parallel_ms = elapsed_ms(publish_start)
                     for pub, res in zip(enabled_publishers, results, strict=True):
-                        if isinstance(res, Exception):
+                        if isinstance(res, BaseException):
                             publish_results[pub.platform_name] = PublishResult(
                                 success=False, platform=pub.platform_name, error=str(res)
                             )
@@ -468,11 +469,9 @@ class WorkflowOrchestrator:
                 image_folder=self.config.dropbox.image_folder if preview_mode else None,
             )
         finally:
-            if tmp_path and os.path.exists(tmp_path):
-                try:
+            if tmp_path and os.path.exists(tmp_path):  # noqa: ASYNC240 — fast local FS check in finally cleanup
+                with contextlib.suppress(Exception):
                     os.unlink(tmp_path)
-                except Exception:
-                    pass
 
     async def _curate_image(
         self,

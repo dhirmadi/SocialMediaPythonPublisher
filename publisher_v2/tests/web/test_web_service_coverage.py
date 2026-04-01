@@ -148,7 +148,7 @@ class TestGetImageDetailsExceptionHandling:
             service = WebImageService()
 
             # Mock storage to raise an error
-            service.storage.get_temporary_link = AsyncMock(side_effect=Exception("Storage error"))
+            service.storage.get_temporary_link = AsyncMock(side_effect=Exception("Storage error"))  # type: ignore[method-assign]
 
             with pytest.raises(FileNotFoundError, match="not found"):
                 await service.get_image_details("nonexistent.jpg")
@@ -175,7 +175,7 @@ class TestGetThumbnailSizeMapping:
             service = WebImageService()
 
             # Mock storage get_thumbnail
-            service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")
+            service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")  # type: ignore[method-assign]
 
             # Test different size mappings
             for size_str in ["w256h256", "w480h320", "w640h480", "w960h640", "w1024h768"]:
@@ -202,7 +202,7 @@ class TestGetThumbnailSizeMapping:
             service = WebImageService()
 
             # Mock storage get_thumbnail
-            service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")
+            service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")  # type: ignore[method-assign]
 
             # Test unknown size
             result = await service.get_thumbnail("test.jpg", size="unknown_size")
@@ -235,8 +235,8 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
             service = WebImageService()
 
             # Mock storage methods
-            service.storage.get_temporary_link = AsyncMock(return_value="http://temp")
-            service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)
+            service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
+            service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
             # Mock AI service - pair fails, fallback succeeds
             analysis = ImageAnalysis(
@@ -246,9 +246,9 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
                 nsfw=False,
                 safety_labels=[],
             )
-            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)
-            service.ai_service.create_caption_pair_from_analysis = AsyncMock(side_effect=Exception("SD caption failed"))
-            service.ai_service.create_caption = AsyncMock(return_value="fallback caption")
+            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)  # type: ignore[method-assign, union-attr]
+            service.ai_service.create_caption_pair_from_analysis = AsyncMock(side_effect=Exception("SD caption failed"))  # type: ignore[method-assign, union-attr]
+            service.ai_service.create_caption = AsyncMock(return_value="fallback caption")  # type: ignore[method-assign, union-attr]
 
             result = await service.analyze_and_caption("test.jpg")
 
@@ -278,8 +278,8 @@ class TestAnalyzeAndCaptionSidecarWriteException:
             service = WebImageService()
 
             # Mock storage methods
-            service.storage.get_temporary_link = AsyncMock(return_value="http://temp")
-            service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)
+            service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
+            service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)  # type: ignore[method-assign]
 
             # Mock AI service
             analysis = ImageAnalysis(
@@ -289,8 +289,8 @@ class TestAnalyzeAndCaptionSidecarWriteException:
                 nsfw=False,
                 safety_labels=[],
             )
-            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)
-            service.ai_service.create_caption_pair_from_analysis = AsyncMock(return_value=("caption", "sd_caption"))
+            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)  # type: ignore[method-assign, union-attr]
+            service.ai_service.create_caption_pair_from_analysis = AsyncMock(return_value=("caption", "sd_caption"))  # type: ignore[method-assign, union-attr]
 
             # Mock sidecar generation to fail - the import is inside the method
             with patch("publisher_v2.services.sidecar.generate_and_upload_sidecar") as mock_sidecar:
@@ -325,7 +325,7 @@ class TestListImages:
             service = WebImageService()
 
             # Mock storage to return unsorted list
-            service.storage.list_images = AsyncMock(return_value=["zebra.jpg", "apple.jpg", "mango.jpg"])
+            service.storage.list_images = AsyncMock(return_value=["zebra.jpg", "apple.jpg", "mango.jpg"])  # type: ignore[method-assign]
 
             result = await service.list_images()
 

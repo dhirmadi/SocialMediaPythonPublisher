@@ -157,13 +157,13 @@ async def test_ensure_orchestrator_syncs_publisher_list(monkeypatch: pytest.Monk
     svc.orchestrator = WorkflowOrchestrator(
         svc.config,
         svc.storage,
-        svc.ai_service,
+        svc.ai_service,  # type: ignore[arg-type]
         list(svc.publishers),  # type: ignore[arg-type]
     )
     stale_orchestrator = svc.orchestrator
 
     # Now simulate what _ensure_publishers does: resolve the password and rebuild
-    new_email = svc.config.email.model_copy(update={"password": "resolved-password"})
+    new_email = svc.config.email.model_copy(update={"password": "resolved-password"})  # type: ignore[union-attr]
     svc.config = svc.config.model_copy(update={"email": new_email})
     from publisher_v2.services.publishers import build_publishers
 

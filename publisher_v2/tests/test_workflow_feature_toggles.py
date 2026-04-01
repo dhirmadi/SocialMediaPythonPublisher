@@ -121,7 +121,7 @@ def _make_orchestrator(monkeypatch: pytest.MonkeyPatch, publishers: list[Publish
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda _h: None)
 
-    orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, pubs)
+    orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, pubs)  # type: ignore[arg-type]
     return orchestrator, cfg, storage, analyzer, generator, pubs
 
 
@@ -175,7 +175,7 @@ async def test_caption_override_skips_ai_and_uses_provided_caption(monkeypatch: 
     orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
     cfg.content.debug = False
 
-    result = await orchestrator.execute(caption_override="User approved caption")
+    await orchestrator.execute(caption_override="User approved caption")
 
     assert generator.calls == 0
     assert publisher.called is True

@@ -75,22 +75,28 @@ class TestLoadEmailServerFromEnv:
     def test_raises_when_sender_missing(self):
         """Raises ConfigurationError when sender is missing."""
         env_value = '{"smtp_server": "mail.custom.com"}'
-        with mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="missing required field 'sender'"):
-                _load_email_server_from_env()
+        with (
+            mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="missing required field 'sender'"),
+        ):
+            _load_email_server_from_env()
 
     def test_raises_when_smtp_port_not_integer(self):
         """Raises ConfigurationError when smtp_port is not an integer."""
         env_value = '{"sender": "bot@example.com", "smtp_port": "not-a-number"}'
-        with mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="smtp_port must be an integer"):
-                _load_email_server_from_env()
+        with (
+            mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="smtp_port must be an integer"),
+        ):
+            _load_email_server_from_env()
 
     def test_raises_on_invalid_json(self):
         """Raises ConfigurationError on invalid JSON."""
-        with mock.patch.dict(os.environ, {"EMAIL_SERVER": "{not valid json}"}, clear=True):
-            with pytest.raises(ConfigurationError, match="Invalid JSON in EMAIL_SERVER"):
-                _load_email_server_from_env()
+        with (
+            mock.patch.dict(os.environ, {"EMAIL_SERVER": "{not valid json}"}, clear=True),
+            pytest.raises(ConfigurationError, match="Invalid JSON in EMAIL_SERVER"),
+        ):
+            _load_email_server_from_env()
 
 
 # =============================================================================
@@ -175,30 +181,38 @@ class TestLoadStoragePathsFromEnv:
     def test_raises_when_root_missing(self):
         """Raises ConfigurationError when root is missing."""
         env_value = '{"archive": "sent"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="missing required field 'root'"):
-                _load_storage_paths_from_env()
+        with (
+            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="missing required field 'root'"),
+        ):
+            _load_storage_paths_from_env()
 
     def test_raises_when_root_not_absolute(self):
         """Raises ConfigurationError when root is not absolute."""
         env_value = '{"root": "relative/path"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="must be an absolute path"):
-                _load_storage_paths_from_env()
+        with (
+            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="must be an absolute path"),
+        ):
+            _load_storage_paths_from_env()
 
     def test_raises_when_root_has_traversal(self):
         """Raises ConfigurationError when root contains '..'."""
         env_value = '{"root": "/Dropbox/../etc"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="contains '..' which is not allowed"):
-                _load_storage_paths_from_env()
+        with (
+            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="contains '..' which is not allowed"),
+        ):
+            _load_storage_paths_from_env()
 
     def test_raises_when_archive_has_traversal(self):
         """Raises ConfigurationError when archive contains '..'."""
         env_value = '{"root": "/Dropbox", "archive": "../etc"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            with pytest.raises(ConfigurationError, match="contains '..' which is not allowed"):
-                _load_storage_paths_from_env()
+        with (
+            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
+            pytest.raises(ConfigurationError, match="contains '..' which is not allowed"),
+        ):
+            _load_storage_paths_from_env()
 
 
 # =============================================================================
@@ -358,16 +372,20 @@ class TestLoadPublishersFromEnv:
     def test_telegram_missing_bot_token_raises(self, mock_configparser):
         """Raises ConfigurationError when TELEGRAM_BOT_TOKEN is missing."""
         entries = [{"type": "telegram", "channel_id": "@test_channel"}]
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN required"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN required"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_telegram_missing_channel_id_raises(self, mock_configparser):
         """Raises ConfigurationError when channel_id is missing."""
         entries = [{"type": "telegram"}]
-        with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test"}, clear=True):
-            with pytest.raises(ConfigurationError, match="missing required field 'channel_id'"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test"}, clear=True),
+            pytest.raises(ConfigurationError, match="missing required field 'channel_id'"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_fetlife_publisher_with_email_server(self, mock_configparser):
         """Parses FetLife publisher using EMAIL_SERVER settings."""
@@ -396,16 +414,20 @@ class TestLoadPublishersFromEnv:
     def test_fetlife_missing_password_raises(self, mock_configparser):
         """Raises ConfigurationError when EMAIL_PASSWORD is missing."""
         entries = [{"type": "fetlife", "recipient": "user@fetlife.com"}]
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigurationError, match="EMAIL_PASSWORD required"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ConfigurationError, match="EMAIL_PASSWORD required"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_fetlife_missing_recipient_raises(self, mock_configparser):
         """Raises ConfigurationError when recipient is missing."""
         entries = [{"type": "fetlife"}]
-        with mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=True):
-            with pytest.raises(ConfigurationError, match="missing required field 'recipient'"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=True),
+            pytest.raises(ConfigurationError, match="missing required field 'recipient'"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_instagram_publisher(self, mock_configparser):
         """Parses Instagram publisher from PUBLISHERS."""
@@ -420,16 +442,20 @@ class TestLoadPublishersFromEnv:
     def test_instagram_missing_password_raises(self, mock_configparser):
         """Raises ConfigurationError when INSTA_PASSWORD is missing."""
         entries = [{"type": "instagram", "username": "photo_account"}]
-        with mock.patch.dict(os.environ, {}, clear=True):
-            with pytest.raises(ConfigurationError, match="INSTA_PASSWORD required"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {}, clear=True),
+            pytest.raises(ConfigurationError, match="INSTA_PASSWORD required"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_instagram_missing_username_raises(self, mock_configparser):
         """Raises ConfigurationError when username is missing."""
         entries = [{"type": "instagram"}]
-        with mock.patch.dict(os.environ, {"INSTA_PASSWORD": "secret"}, clear=True):
-            with pytest.raises(ConfigurationError, match="missing required field 'username'"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {"INSTA_PASSWORD": "secret"}, clear=True),
+            pytest.raises(ConfigurationError, match="missing required field 'username'"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_multiple_publishers(self, mock_configparser):
         """Parses multiple publishers correctly."""
@@ -457,9 +483,11 @@ class TestLoadPublishersFromEnv:
             {"type": "telegram", "channel_id": "@channel1"},
             {"type": "telegram", "channel_id": "@channel2"},
         ]
-        with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "token"}, clear=True):
-            with pytest.raises(ConfigurationError, match="Duplicate publisher type 'telegram'"):
-                _load_publishers_from_env(entries, None, mock_configparser)
+        with (
+            mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "token"}, clear=True),
+            pytest.raises(ConfigurationError, match="Duplicate publisher type 'telegram'"),
+        ):
+            _load_publishers_from_env(entries, None, mock_configparser)
 
     def test_unknown_publisher_type_logs_warning(self, mock_configparser, caplog):
         """Unknown publisher types are skipped with a warning."""

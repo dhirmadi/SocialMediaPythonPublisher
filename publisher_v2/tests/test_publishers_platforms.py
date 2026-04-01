@@ -15,7 +15,7 @@ from publisher_v2.services.publishers.telegram import TelegramPublisher
 class _DummySMTP:
     def __init__(self, *_args, **_kwargs) -> None:
         self.starttls_called = False
-        self.login_args = None
+        self.login_args: tuple[str, str] | None = None
         self.sent_messages: list[tuple[str, tuple[str, ...], str]] = []
         self.closed = False
         self.fail = False
@@ -198,7 +198,7 @@ async def test_instagram_publisher_disabled_without_config() -> None:
 
 class _FakeTelegramBot:
     def __init__(self, *_args, **_kwargs) -> None:
-        self.sent = None
+        self.sent: tuple[str, str] | None = None
         self.shutdown_called = False
         self.fail = False
 

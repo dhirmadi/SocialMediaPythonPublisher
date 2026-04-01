@@ -190,10 +190,7 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     for key, value in metadata.items():
         if value is None:
             continue
-        if isinstance(value, list):
-            rendered = json.dumps(value, ensure_ascii=False)
-        else:
-            rendered = str(value)
+        rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, list) else str(value)
         lines.append(f"# {key}: {rendered}")
     lines.append("")  # trailing newline
     return "\n".join(lines)

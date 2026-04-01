@@ -88,7 +88,7 @@ def test_thumbnail_endpoint_accepts_size_parameter(client_with_mock):
     async def capturing_get_thumbnail(filename: str, size: str = "w960h640") -> bytes:
         nonlocal received_size
         received_size = size
-        return await original_get_thumbnail(filename, size)
+        return await original_get_thumbnail(filename, size)  # type: ignore[no-any-return]
 
     mock_service.get_thumbnail = capturing_get_thumbnail
 
@@ -180,7 +180,7 @@ def test_thumbnail_endpoint_url_encodes_filename(client_with_mock):
     async def capturing_get_thumbnail(filename: str, size: str = "w960h640") -> bytes:
         nonlocal received_filename
         received_filename = filename
-        return await original_get_thumbnail(filename, size)
+        return await original_get_thumbnail(filename, size)  # type: ignore[no-any-return]
 
     mock_service.get_thumbnail = capturing_get_thumbnail
 

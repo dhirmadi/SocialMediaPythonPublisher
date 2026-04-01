@@ -4,6 +4,12 @@ import os
 import time
 
 from openai import AsyncOpenAI
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
+)
 from tenacity import retry, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import OpenAIConfig
@@ -108,26 +114,24 @@ class VisionAnalyzerOpenAI:
             system_prompt = static_cfg.vision.system or _DEFAULT_VISION_SYSTEM_PROMPT
             user_prompt = static_cfg.vision.user or _DEFAULT_VISION_USER_PROMPT
 
-            user_content = [
-                {
-                    "type": "image_url",
-                    "image_url": {"url": url_or_bytes},
-                },
-                {
-                    "type": "text",
-                    "text": user_prompt,
-                },
+            user_content: list[ChatCompletionContentPartImageParam | ChatCompletionContentPartTextParam] = [
+                ChatCompletionContentPartImageParam(
+                    type="image_url",
+                    image_url={"url": url_or_bytes},
+                ),
+                ChatCompletionContentPartTextParam(
+                    type="text",
+                    text=user_prompt,
+                ),
+            ]
+            messages: list[ChatCompletionSystemMessageParam | ChatCompletionUserMessageParam] = [
+                ChatCompletionSystemMessageParam(role="system", content=system_prompt),
+                ChatCompletionUserMessageParam(role="user", content=user_content),
             ]
             try:
                 resp = await self.client.chat.completions.create(
                     model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": system_prompt,
-                        },
-                        {"role": "user", "content": user_content},
-                    ],
+                    messages=messages,
                     response_format={"type": "json_object"},
                     temperature=0.4,
                     max_tokens=self.max_completion_tokens,
@@ -136,13 +140,7 @@ class VisionAnalyzerOpenAI:
                 # Fall back for older or test double clients that do not accept max_tokens.
                 resp = await self.client.chat.completions.create(
                     model=self.model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": system_prompt,
-                        },
-                        {"role": "user", "content": user_content},
-                    ],
+                    messages=messages,
                     response_format={"type": "json_object"},
                     temperature=0.4,
                 )
@@ -391,8 +389,7 @@ class AIService:
                 async with self._rate_limiter:
                     pair = await self.generator.generate_with_sd(analysis, spec)
                 return pair.get("caption", ""), pair.get("sd_caption") or None
-            except Exception:
-                # Fallback to legacy below
+            except Exception:  # noqa: S110 — intentional fallback to legacy caption-only path below
                 pass
         # Legacy fallback
         async with self._rate_limiter:

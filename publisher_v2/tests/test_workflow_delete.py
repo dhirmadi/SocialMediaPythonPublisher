@@ -25,8 +25,8 @@ class _DummyStorage:
 
 class _DummyAI(AIService):
     def __init__(self) -> None:
-        self.analyzer = None
-        self.generator = None
+        self.analyzer = None  # type: ignore[assignment]
+        self.generator = None  # type: ignore[assignment]
 
 
 def _base_config(*, delete_enabled: bool = True) -> ApplicationConfig:
@@ -51,7 +51,7 @@ def _base_config(*, delete_enabled: bool = True) -> ApplicationConfig:
 async def test_delete_image_calls_storage() -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.delete_image("image.jpg", preview_mode=False, dry_run=False)
 
@@ -62,7 +62,7 @@ async def test_delete_image_calls_storage() -> None:
 async def test_delete_image_preview_mode_does_not_call_storage() -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.delete_image("image.jpg", preview_mode=True, dry_run=False)
 
@@ -73,7 +73,7 @@ async def test_delete_image_preview_mode_does_not_call_storage() -> None:
 async def test_delete_image_dry_run_does_not_call_storage() -> None:
     cfg = _base_config()
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     await orchestrator.delete_image("image.jpg", preview_mode=False, dry_run=True)
 
@@ -84,7 +84,7 @@ async def test_delete_image_dry_run_does_not_call_storage() -> None:
 async def test_delete_image_feature_disabled_raises() -> None:
     cfg = _base_config(delete_enabled=False)
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])
+    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
     with pytest.raises(StorageError, match="Delete feature is disabled"):
         await orchestrator.delete_image("image.jpg")

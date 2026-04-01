@@ -3,6 +3,7 @@ header_title: "Publisher V2 Web"
 
 buttons:
   next: "Next image"
+  browse: "Browse"
   admin: "Admin"
   logout: "Logout"
   analyze: "Analyze & caption"
@@ -28,6 +29,10 @@ status:
 placeholders:
   image_empty: "No image loaded yet."
   caption_empty: "No caption yet."
+
+browse_dialog:
+  title: "Browse images"
+  empty: "No images found."
 
 admin_dialog:
   title: "Admin login"

@@ -231,10 +231,7 @@ def load_static_config(base_dir: str | None = None) -> StaticConfig:
         root = Path(base_dir)
     else:
         env_dir = os.environ.get("PV2_STATIC_CONFIG_DIR")
-        if env_dir:
-            root = Path(env_dir)
-        else:
-            root = Path(__file__).with_name("static")
+        root = Path(env_dir) if env_dir else Path(__file__).with_name("static")
 
     ai_data = _load_yaml(root / "ai_prompts.yaml")
     platform_data = _load_yaml(root / "platform_limits.yaml")

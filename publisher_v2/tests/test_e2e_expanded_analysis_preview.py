@@ -52,8 +52,8 @@ async def test_e2e_preview_includes_expanded_fields(monkeypatch: pytest.MonkeyPa
     cfg = make_config()
     # Use centralized fixtures (QC-001)
     storage = BaseDummyStorage()
-    ai = AIService(ExpandedFieldsAnalyzer(), FixedCaptionGenerator(cfg.openai))
-    orchestrator = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[])
+    ai = AIService(ExpandedFieldsAnalyzer(), FixedCaptionGenerator(cfg.openai))  # type: ignore[arg-type]
+    orchestrator = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[])  # type: ignore[arg-type]
     # Ensure dedup state does not block the test
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)

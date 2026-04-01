@@ -1,5 +1,7 @@
 import asyncio
+import contextlib
 import os
+from typing import cast
 
 import dropbox
 from dropbox.exceptions import ApiError
@@ -88,7 +90,7 @@ class DropboxStorage:
                 sidecar_name = f"{stem}.txt"
                 path = os.path.join(folder, sidecar_name)
                 _, response = self.client.files_download(path)
-                return response.content
+                return cast(bytes, response.content)
 
             return await asyncio.to_thread(_download)
         except ApiError as exc:
@@ -138,9 +140,10 @@ class DropboxStorage:
                 names: list[str] = []
                 while True:
                     for entry in result.entries:
-                        if isinstance(entry, dropbox.files.FileMetadata):
-                            if entry.name.lower().endswith((".jpg", ".jpeg", ".png")):
-                                names.append(entry.name)
+                        if isinstance(entry, dropbox.files.FileMetadata) and entry.name.lower().endswith(
+                            (".jpg", ".jpeg", ".png")
+                        ):
+                            names.append(entry.name)
                     if not result.has_more:
                         break
                     result = self.client.files_list_folder_continue(result.cursor)
@@ -170,10 +173,11 @@ class DropboxStorage:
                 out: list[tuple[str, str]] = []
                 while True:
                     for entry in result.entries:
-                        if isinstance(entry, dropbox.files.FileMetadata):
-                            if entry.name.lower().endswith((".jpg", ".jpeg", ".png")):
-                                ch = getattr(entry, "content_hash", None) or ""
-                                out.append((entry.name, ch))
+                        if isinstance(entry, dropbox.files.FileMetadata) and entry.name.lower().endswith(
+                            (".jpg", ".jpeg", ".png")
+                        ):
+                            ch = getattr(entry, "content_hash", None) or ""
+                            out.append((entry.name, ch))
                     if not result.has_more:
                         break
                     result = self.client.files_list_folder_continue(result.cursor)
@@ -194,7 +198,7 @@ class DropboxStorage:
             def _download() -> bytes:
                 path = os.path.join(folder, filename)
                 _, response = self.client.files_download(path)
-                return response.content
+                return cast(bytes, response.content)
 
             return await asyncio.to_thread(_download)
         except ApiError as exc:
@@ -211,7 +215,7 @@ class DropboxStorage:
             def _link() -> str:
                 path = os.path.join(folder, filename)
                 res = self.client.files_get_temporary_link(path)
-                return res.link
+                return cast(str, res.link)
 
             return await asyncio.to_thread(_link)
         except ApiError as exc:
@@ -262,22 +266,16 @@ class DropboxStorage:
                 src = os.path.join(folder, filename)
                 dst_dir = os.path.join(folder, target_subfolder)
                 # Ensure destination folder exists
-                try:
+                with contextlib.suppress(ApiError):
                     self.client.files_create_folder_v2(dst_dir)
-                except ApiError:
-                    # Already exists or cannot create; ignore if exists
-                    pass
                 dst = os.path.join(dst_dir, filename)
                 self.client.files_move_v2(src, dst, autorename=True)
                 # Attempt to move sidecar if present
                 sidecar_name = f"{os.path.splitext(filename)[0]}.txt"
                 sidecar_src = os.path.join(folder, sidecar_name)
                 sidecar_dst = os.path.join(dst_dir, sidecar_name)
-                try:
+                with contextlib.suppress(ApiError):
                     self.client.files_move_v2(sidecar_src, sidecar_dst, autorename=True)
-                except ApiError:
-                    # Sidecar may not exist; ignore
-                    pass
 
             await asyncio.to_thread(_move)
         except ApiError as exc:
@@ -304,11 +302,8 @@ class DropboxStorage:
                 # Attempt to delete sidecar if present
                 sidecar_name = f"{os.path.splitext(filename)[0]}.txt"
                 sidecar_path = os.path.join(folder, sidecar_name)
-                try:
+                with contextlib.suppress(ApiError):
                     self.client.files_delete_v2(sidecar_path)
-                except ApiError:
-                    # Sidecar may not exist; ignore
-                    pass
 
             await asyncio.to_thread(_delete)
         except ApiError as exc:
@@ -364,7 +359,7 @@ class DropboxStorage:
                     format=format,
                     mode=ThumbnailMode.fitone_bestfit,
                 )
-                return response.content
+                return cast(bytes, response.content)
 
             return await asyncio.to_thread(_get_thumb)
         except ApiError as exc:

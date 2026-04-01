@@ -62,7 +62,7 @@ async def require_auth(request: Request) -> None:
         try:
             decoded = base64.b64decode(b64).decode("utf-8")
         except Exception:
-            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized") from None
         if ":" not in decoded:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
         user, pwd = decoded.split(":", 1)
@@ -96,10 +96,7 @@ def is_admin_configured() -> bool:
         return True
 
     # Auth0 check (MVP: check for domain env var, mirroring config loader)
-    if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
-        return True
-
-    return False
+    return bool(_get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"))
 
 
 def get_auth_mode() -> str:

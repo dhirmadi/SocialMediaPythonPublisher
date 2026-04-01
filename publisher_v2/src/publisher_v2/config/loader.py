@@ -1,12 +1,13 @@
+from __future__ import annotations
+
 import configparser
 import json
 import logging
 import os
 import warnings
+from typing import Any
 
 from dotenv import load_dotenv
-
-logger = logging.getLogger(__name__)
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
@@ -23,6 +24,8 @@ from publisher_v2.config.schema import (
     WebConfig,
 )
 from publisher_v2.core.exceptions import ConfigurationError
+
+logger = logging.getLogger(__name__)
 
 # Keys to redact when logging configuration (case-insensitive matching)
 REDACT_KEYS: set[str] = {
@@ -50,7 +53,8 @@ def _parse_json_env(var_name: str) -> dict | list | None:
     if not value or not value.strip():
         return None
     try:
-        return json.loads(value)
+        result: dict[Any, Any] | list[Any] = json.loads(value)
+        return result
     except json.JSONDecodeError as exc:
         raise ConfigurationError(f"Invalid JSON in {var_name}: {exc.msg} at position {exc.pos}") from exc
 
@@ -91,6 +95,8 @@ def _load_email_server_from_env() -> dict | None:
     parsed = _parse_json_env("EMAIL_SERVER")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("EMAIL_SERVER must be a JSON object")
 
     if "sender" not in parsed:
         raise ConfigurationError("EMAIL_SERVER missing required field 'sender'")
@@ -140,6 +146,8 @@ def _load_storage_paths_from_env() -> dict | None:
     parsed = _parse_json_env("STORAGE_PATHS")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("STORAGE_PATHS must be a JSON object")
 
     root = parsed.get("root")
     if not root:
@@ -175,6 +183,8 @@ def _load_openai_settings_from_env() -> dict | None:
     parsed = _parse_json_env("OPENAI_SETTINGS")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("OPENAI_SETTINGS must be a JSON object")
     return {
         "vision_model": parsed.get("vision_model", "gpt-4o"),
         "caption_model": parsed.get("caption_model", "gpt-4o-mini"),
@@ -193,6 +203,8 @@ def _load_captionfile_settings_from_env() -> dict | None:
     parsed = _parse_json_env("CAPTIONFILE_SETTINGS")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("CAPTIONFILE_SETTINGS must be a JSON object")
     return {
         "extended_metadata_enabled": parsed.get("extended_metadata_enabled", False),
         "artist_alias": parsed.get("artist_alias"),
@@ -204,6 +216,8 @@ def _load_confirmation_settings_from_env() -> dict | None:
     parsed = _parse_json_env("CONFIRMATION_SETTINGS")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("CONFIRMATION_SETTINGS must be a JSON object")
     return {
         "confirmation_to_sender": parsed.get("confirmation_to_sender", True),
         "confirmation_tags_count": parsed.get("confirmation_tags_count", 5),
@@ -216,6 +230,8 @@ def _load_content_settings_from_env() -> dict | None:
     parsed = _parse_json_env("CONTENT_SETTINGS")
     if parsed is None:
         return None
+    if not isinstance(parsed, dict):
+        raise ConfigurationError("CONTENT_SETTINGS must be a JSON object")
     return {
         "hashtag_string": parsed.get("hashtag_string", ""),
         "archive": parsed.get("archive", True),
@@ -508,8 +524,8 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                     folder_remove = "reject"
 
             # Environment overrides (lowercase, as requested for V2)
-            env_keep = os.environ.get("folder_keep")
-            env_remove = os.environ.get("folder_remove")
+            env_keep = os.environ.get("folder_keep")  # noqa: SIM112
+            env_remove = os.environ.get("folder_remove")  # noqa: SIM112
             if env_keep is not None and env_keep.strip():
                 folder_keep = env_keep.strip()
             if env_remove is not None and env_remove.strip():
@@ -614,13 +630,13 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
 
         if publishers_json is not None:
             # Use PUBLISHERS env var - derive enabled state from array
+            if not isinstance(publishers_json, list):
+                raise ConfigurationError("PUBLISHERS must be a JSON array")
             telegram, instagram, email, platforms = _load_publishers_from_env(publishers_json, email_server, cp)
-            publishers_source = "PUBLISHERS"
             publishers_count = len(publishers_json)
         else:
             # Fallback to INI [Content] toggles
             ini_sections_used.append("Content")
-            publishers_source = "INI"
             publishers_count = 0
 
             platforms = PlatformsConfig(

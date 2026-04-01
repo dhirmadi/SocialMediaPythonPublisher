@@ -90,13 +90,13 @@ async def test_e2e_sidecar_metadata_content(extended: bool, monkeypatch: pytest.
     cfg = make_config(extended=extended)
     # Use centralized fixtures (QC-001)
     storage = SidecarTrackingStorage()
-    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))  # type: ignore[arg-type]
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])  # type: ignore[arg-type, list-item]
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
 
-    result = await orch.execute(preview_mode=False)
+    await orch.execute(preview_mode=False)
     assert storage.sidecar_text is not None
     text = storage.sidecar_text or ""
     # First line is the caption
@@ -123,13 +123,13 @@ async def test_e2e_sidecar_with_artist_alias(monkeypatch: pytest.MonkeyPatch) ->
     cfg = make_config(extended=False, artist_alias="Eoel")
     # Use centralized fixtures (QC-001)
     storage = SidecarTrackingStorage()
-    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))  # type: ignore[arg-type]
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])  # type: ignore[arg-type, list-item]
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
 
-    result = await orch.execute(preview_mode=False)
+    await orch.execute(preview_mode=False)
     assert storage.sidecar_text is not None
     text = storage.sidecar_text or ""
     # Verify artist_alias is present in metadata
@@ -145,13 +145,13 @@ async def test_e2e_sidecar_without_artist_alias(monkeypatch: pytest.MonkeyPatch)
     cfg = make_config(extended=False, artist_alias=None)
     # Use centralized fixtures (QC-001)
     storage = SidecarTrackingStorage()
-    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))
-    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])
+    ai = AIService(MetadataAnalyzer(), MetadataGenerator(cfg.openai))  # type: ignore[arg-type]
+    orch = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[BaseDummyPublisher()])  # type: ignore[arg-type, list-item]
     # Bypass dedup state
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
 
-    result = await orch.execute(preview_mode=False)
+    await orch.execute(preview_mode=False)
     assert storage.sidecar_text is not None
     text = storage.sidecar_text or ""
     # Verify artist_alias is NOT present

@@ -34,6 +34,8 @@ dev = [
     "pre-commit>=3.6.0",
     "safety>=3.2.0",
     "pytest-asyncio>=0.23.0",
+    "types-pyyaml>=6.0.12.20250915",
+    "types-requests>=2.33.0.20260327",
 ]
 
 [build-system]
@@ -62,6 +64,10 @@ select = [
     "ASYNC", # flake8-async
 ]
 ignore = ["E501", "B008", "S104", "S105", "S311"]
+
+[tool.ruff.lint.per-file-ignores]
+"publisher_v2/tests/**/*.py" = ["S101", "S106"]  # assert and hardcoded passwords expected in tests
+"scripts/**/*.py" = ["S106"]  # hardcoded passwords in script fixtures
 
 [tool.ruff.lint.isort]
 known-first-party = ["publisher_v2"]

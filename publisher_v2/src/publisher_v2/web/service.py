@@ -93,9 +93,9 @@ class WebImageService:
                 generator = CaptionGeneratorOpenAI(cfg.openai)
                 ai_service = AIService(analyzer, generator)
                 self.ai_service = ai_service
-            self.orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
+            self.orchestrator: WorkflowOrchestrator | None = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
         else:
-            self.orchestrator: WorkflowOrchestrator | None = None
+            self.orchestrator = None
         # Short-lived in-memory cache for Dropbox image listings to avoid
         # repeated list_images calls on hot paths (see CR 005-004).
         self._image_cache: list[str] | None = None
@@ -125,7 +125,7 @@ class WebImageService:
     async def _ensure_ai_service(self) -> AIService | None:
         if self.ai_service is not None:
             return self.ai_service
-        if not self._is_orchestrated():
+        if not self._is_orchestrated() or self._runtime is None or self._config_source is None:
             return None
         if not self.config.features.analyze_caption_enabled:
             return None
@@ -137,7 +137,7 @@ class WebImageService:
             return None
 
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            data = await self._config_source.get_credentials(self._runtime.host, ref)
             creds = OpenAICredentials.model_validate(data)
             new_openai = self.config.openai.model_copy(update={"api_key": creds.api_key})
             self.config = self.config.model_copy(update={"openai": new_openai})
@@ -161,7 +161,7 @@ class WebImageService:
             return None
 
     async def _ensure_email_publisher(self) -> None:
-        if not self._is_orchestrated():
+        if not self._is_orchestrated() or self._runtime is None or self._config_source is None:
             return
         if not self.config.platforms.email_enabled or not self.config.email:
             return
@@ -172,7 +172,7 @@ class WebImageService:
             self.config.platforms.email_enabled = False
             return
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            data = await self._config_source.get_credentials(self._runtime.host, ref)
             creds = SMTPCredentials.model_validate(data)
             new_email = self.config.email.model_copy(update={"password": creds.password})
             self.config = self.config.model_copy(update={"email": new_email})
@@ -190,7 +190,7 @@ class WebImageService:
             self.config.platforms.email_enabled = False
 
     async def _ensure_telegram_publisher(self) -> None:
-        if not self._is_orchestrated():
+        if not self._is_orchestrated() or self._runtime is None or self._config_source is None:
             return
         if not self.config.platforms.telegram_enabled or not self.config.telegram:
             return
@@ -201,7 +201,7 @@ class WebImageService:
             self.config.platforms.telegram_enabled = False
             return
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)  # type: ignore[union-attr]
+            data = await self._config_source.get_credentials(self._runtime.host, ref)
             creds = TelegramCredentials.model_validate(data)
             new_tg = self.config.telegram.model_copy(update={"bot_token": creds.bot_token})
             self.config = self.config.model_copy(update={"telegram": new_tg})
@@ -242,9 +242,8 @@ class WebImageService:
         Return a cached list of images when within TTL, otherwise refresh from Dropbox.
         """
         now = time.monotonic()
-        if self._image_cache is not None and self._image_cache_expiry is not None:
-            if now < self._image_cache_expiry:
-                return list(self._image_cache)
+        if self._image_cache is not None and self._image_cache_expiry is not None and now < self._image_cache_expiry:
+            return list(self._image_cache)
         images = await self.storage.list_images(self.config.dropbox.image_folder)
         # Cache even empty lists so we don't hammer Dropbox on empty folders.
         self._image_cache = list(images)
@@ -313,7 +312,7 @@ class WebImageService:
             temp_link = await self.storage.get_temporary_link(folder, filename)
         except Exception:
             # Propagate or wrap as needed, but storage error usually implies not found/access issue
-            raise FileNotFoundError(f"Image {filename} not found")
+            raise FileNotFoundError(f"Image {filename} not found") from None
 
         return await self._build_image_response(filename, temp_link)
 
@@ -481,8 +480,7 @@ class WebImageService:
                     log_prefix="web_sidecar_upload",
                 )
                 sidecar_written = True
-            except Exception:
-                # Error already logged in helper
+            except Exception:  # noqa: S110 — error already logged in helper
                 pass
 
         return AnalysisResponse(

@@ -59,12 +59,6 @@ def main():
         ensure_dir(cr_dir)
 
         # 2. Move Feature Request -> README.md
-        # Try finding the file with hyphenated name
-        req_name = fname.replace("_", "-")
-        # Handle exceptions in naming
-        if fid == "001":
-            req_name = "captionfile"
-
         # Glob for the request file since names vary slightly
         req_files = list(REQUESTS_DIR.glob(f"{fid}_*.md"))
         if req_files:

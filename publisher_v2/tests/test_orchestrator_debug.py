@@ -63,7 +63,7 @@ async def test_orchestrator_emits_timing_log(tmp_path, caplog: pytest.LogCapture
     storage = BaseDummyStorage()
     ai = BaseDummyAI()
     publishers = [BaseDummyPublisher()]
-    orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)
+    orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)  # type: ignore[arg-type]
 
     caplog.set_level(logging.INFO, logger="publisher_v2.workflow")
 

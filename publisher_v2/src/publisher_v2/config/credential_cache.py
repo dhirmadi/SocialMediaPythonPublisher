@@ -69,7 +69,7 @@ class SingleFlight:
             existing = self._in_flight.get(key)
             if existing is not None:
                 return await existing
-            task = asyncio.create_task(fn())
+            task: asyncio.Task[Any] = asyncio.create_task(fn())  # type: ignore[arg-type]
             self._in_flight[key] = task
 
         try:

@@ -26,7 +26,7 @@ def _make_source(transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch
     async def _no_sleep(_ms: int) -> None:
         return None
 
-    orch._sleep = _no_sleep  # type: ignore[method-assign]
+    orch._sleep = _no_sleep  # type: ignore[assignment, method-assign]
     src._client = orch  # type: ignore[attr-defined]
     return src
 

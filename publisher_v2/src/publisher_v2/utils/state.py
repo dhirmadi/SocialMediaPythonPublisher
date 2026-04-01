@@ -1,3 +1,4 @@
+import contextlib
 import json
 import os
 from pathlib import Path
@@ -47,11 +48,8 @@ def _load_state() -> dict[str, object]:
 
 def _save_state(state: dict[str, object]) -> None:
     fp = _cache_path()
-    try:
+    with contextlib.suppress(Exception):
         fp.write_text(json.dumps(state, sort_keys=True))
-    except Exception:
-        # Best-effort; ignore failures
-        pass
 
 
 def load_posted_hashes() -> set[str]:

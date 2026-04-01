@@ -131,7 +131,8 @@ async def main_async() -> int:
                 meta = dict(phase1)
                 if cfg.captionfile.extended_metadata_enabled:
                     meta.update(build_metadata_phase2(result.image_analysis))
-                preview_utils.print_caption_sidecar_preview(result.image_analysis.sd_caption, meta)
+                sd_caption_text = result.image_analysis.sd_caption or ""
+                preview_utils.print_caption_sidecar_preview(sd_caption_text, meta)
 
         # Show platform preview with formatted captions
         platform_captions = {}

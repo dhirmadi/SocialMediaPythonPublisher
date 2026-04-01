@@ -128,9 +128,9 @@ def web_service(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
 
     # Instantiate service, then override heavy collaborators with fakes
     svc = WebImageService()
-    svc.storage = _DummyStorage()
-    svc.ai_service = _DummyAIService()
-    svc.orchestrator = _DummyOrchestrator()
+    svc.storage = _DummyStorage()  # type: ignore[assignment]
+    svc.ai_service = _DummyAIService()  # type: ignore[assignment]
+    svc.orchestrator = _DummyOrchestrator()  # type: ignore[assignment]
     return svc
 
 

@@ -55,8 +55,8 @@ class _DummyGenerator:
 
 class _DummyAI(AIService):
     def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()
-        self.generator = _DummyGenerator()
+        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
+        self.generator = _DummyGenerator()  # type: ignore[assignment]
 
         # Provide a no-op rate limiter compatible with AIService usage.
         class _NoopLimiter:
@@ -66,7 +66,7 @@ class _DummyAI(AIService):
             async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[override]
                 return False
 
-        self._rate_limiter = _NoopLimiter()
+        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _DummyPublisher(Publisher):
@@ -77,7 +77,7 @@ class _DummyPublisher(Publisher):
     def is_enabled(self) -> bool:
         return False
 
-    async def publish(self, image_path: str, caption: str) -> Any:
+    async def publish(self, image_path: str, caption: str) -> Any:  # type: ignore[override]
         return None
 
 

@@ -63,9 +63,9 @@ async def test_workflow_sd_integration_preview_and_live(monkeypatch: pytest.Monk
     cfg = make_config()
     # Use centralized fixtures (QC-001)
     storage = TrackingStorage()
-    ai = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg.openai))
+    ai = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg.openai))  # type: ignore[arg-type]
     cgf = cfg
-    orchestrator = WorkflowOrchestrator(config=cgf, storage=storage, ai_service=ai, publishers=[])
+    orchestrator = WorkflowOrchestrator(config=cgf, storage=storage, ai_service=ai, publishers=[])  # type: ignore[arg-type]
     # Ensure dedup state does not block the test
     monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)

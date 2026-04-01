@@ -67,7 +67,7 @@ async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) 
     assert result.subject is not None
     assert result.style == "fine-art editorial"
     assert result.lighting == "soft directional"
-    assert result.camera.startswith("50mm")
+    assert result.camera.startswith("50mm")  # type: ignore[union-attr]
     assert result.clothing_or_accessories == "rope harness"
     assert result.aesthetic_terms == ["minimalist", "graphic"]
     assert result.pose == "upright stance"

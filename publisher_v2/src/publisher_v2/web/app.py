@@ -5,7 +5,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import Any
+from typing import Any, NoReturn
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, Response
@@ -124,7 +124,9 @@ async def endpoint_telemetry(
     )
 
 
-def raise_for_service_error(exc: Exception, event_name: str, response: Response, telemetry: RequestTelemetry) -> None:
+def raise_for_service_error(
+    exc: Exception, event_name: str, response: Response, telemetry: RequestTelemetry
+) -> NoReturn:
     """
     Map service-layer exceptions to HTTP responses, with error telemetry.
 

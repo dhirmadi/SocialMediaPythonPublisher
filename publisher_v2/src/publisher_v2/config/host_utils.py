@@ -54,10 +54,7 @@ def validate_host(host: str) -> bool:
         return False
     if "::" in h:
         return False
-    if _RE_PLAUSIBLE_IPV6.match(h) and ":" in h:
-        return False
-
-    return True
+    return not (_RE_PLAUSIBLE_IPV6.match(h) and ":" in h)
 
 
 def extract_tenant(host: str, base_domain: str) -> str:

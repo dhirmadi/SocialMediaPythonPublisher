@@ -173,7 +173,7 @@ def test_preview_helpers_cover_branches(capfd: pytest.CaptureFixture[str]) -> No
     preview.print_caption("", spec, "gpt-4o-mini", 0, feature_enabled=False)
     preview.print_caption("short caption text", spec, "gpt-4o-mini", 2)
     preview.print_platform_preview(
-        pubs,
+        pubs,  # type: ignore[arg-type]
         caption="Default caption for all",
         platform_captions={"instagram": "Caption with #hashtags " + "#tag" * 40},
         email_subject="Subject line for email",

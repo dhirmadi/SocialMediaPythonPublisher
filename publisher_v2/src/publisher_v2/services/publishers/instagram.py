@@ -30,6 +30,7 @@ class InstagramPublisher(Publisher):
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 
+        config = self._config  # bind to local for type narrowing
         start = now_monotonic()
         try:
             processed_path = await ensure_max_width_async(image_path, max_width=1080)
@@ -42,13 +43,13 @@ class InstagramPublisher(Publisher):
                 ]
                 # Try session-based login first
                 try:
-                    client.load_settings(self._config.session_file)
-                    client.login(self._config.username, self._config.password)
+                    client.load_settings(config.session_file)
+                    client.login(config.username, config.password)
                     client.get_timeline_feed()
                 except Exception:
                     # Fallback to fresh login and persist new session
-                    client.login(self._config.username, self._config.password)
-                    client.dump_settings(self._config.session_file)
+                    client.login(config.username, config.password)
+                    client.dump_settings(config.session_file)
                 media = client.photo_upload(processed_path, caption)
                 return str(media.id) if hasattr(media, "id") else ""
 

@@ -80,7 +80,10 @@ async def login(request: Request, service: WebImageService = Depends(get_request
         log_json(logger, logging.WARNING, "auth_login_disabled", reason="no_config")
         return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
 
-    redirect_uri = get_auth0_callback_url(request) or service.config.auth0.callback_url
+    auth0_config = service.config.auth0
+    if auth0_config is None:
+        return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
+    redirect_uri = get_auth0_callback_url(request) or auth0_config.callback_url
     if not redirect_uri:
         log_json(logger, logging.WARNING, "auth_login_disabled", reason="no_callback_url")
         return RedirectResponse(
@@ -99,6 +102,10 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
     if not ensure_oauth_configured(service):
         return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
 
+    auth0_config = service.config.auth0
+    if auth0_config is None:
+        return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
+
     try:
         # Check for error param from Auth0
         error = request.query_params.get("error")
@@ -107,7 +114,7 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
             log_json(logger, logging.WARNING, "auth_callback_error", error=error, desc=error_desc)
             return RedirectResponse(url=f"/?auth_error={error}", status_code=status.HTTP_303_SEE_OTHER)
 
-        redirect_uri = get_auth0_callback_url(request) or service.config.auth0.callback_url
+        redirect_uri = get_auth0_callback_url(request) or auth0_config.callback_url
         if not redirect_uri:
             log_json(logger, logging.WARNING, "auth_callback_no_redirect_uri")
             return RedirectResponse(
@@ -132,7 +139,7 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
 
         # Check allowlist (case-insensitive)
         email_lower = email.lower()
-        allowed_emails = [e.lower() for e in service.config.auth0.admin_emails_list]
+        allowed_emails = [e.lower() for e in auth0_config.admin_emails_list]
 
         if email_lower not in allowed_emails:
             log_json(logger, logging.WARNING, "auth_access_denied", email=email)
