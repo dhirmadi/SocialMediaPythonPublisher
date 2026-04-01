@@ -112,6 +112,7 @@ class WebImageService:
                 # Ignore invalid override; keep config/default TTL.
                 pass
         self._image_cache_ttl_seconds: float = ttl
+        self._recently_shown: list[str] = []
 
     def _is_orchestrated(self) -> bool:
         return self._runtime is not None and self._config_source is not None
@@ -288,10 +289,17 @@ class WebImageService:
         if not images:
             raise FileNotFoundError("No images found")
 
-        random.shuffle(images)
-        selected = images[0]
-        folder = self.config.dropbox.image_folder
+        # Exclude recently-shown images for shuffle-without-replacement behavior
+        candidates = [img for img in images if img not in self._recently_shown]
+        if not candidates:
+            # Full cycle complete — reset and use all images
+            self._recently_shown.clear()
+            candidates = list(images)
 
+        selected = random.choice(candidates)
+        self._recently_shown.append(selected)
+
+        folder = self.config.dropbox.image_folder
         temp_link = await self.storage.get_temporary_link(folder, selected)
         return await self._build_image_response(selected, temp_link)
 

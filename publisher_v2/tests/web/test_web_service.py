@@ -219,3 +219,98 @@ async def test_publish_image_raises_permission_when_feature_disabled(web_service
 
     with pytest.raises(PermissionError):
         await web_service.publish_image("test.jpg")
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_no_immediate_repeat(web_service: WebImageService) -> None:
+    """All N images should appear exactly once before any repeat (full-cycle shuffle)."""
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.images = ["a.jpg", "b.jpg", "c.jpg", "d.jpg", "e.jpg"]
+
+    seen = []
+    for _ in range(5):
+        img = await web_service.get_random_image()
+        seen.append(img.filename)
+
+    # Every image shown exactly once in the first full cycle
+    assert sorted(seen) == sorted(storage.images)
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_resets_after_full_cycle(web_service: WebImageService) -> None:
+    """After showing all N images, the cycle resets and the second cycle is also repeat-free."""
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.images = ["a.jpg", "b.jpg", "c.jpg"]
+
+    # First full cycle
+    first_cycle = []
+    for _ in range(3):
+        img = await web_service.get_random_image()
+        first_cycle.append(img.filename)
+    assert sorted(first_cycle) == sorted(storage.images)
+
+    # Second full cycle — also no repeats within this cycle
+    second_cycle = []
+    for _ in range(3):
+        img = await web_service.get_random_image()
+        second_cycle.append(img.filename)
+    assert sorted(second_cycle) == sorted(storage.images)
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_single_image_no_error(web_service: WebImageService) -> None:
+    """With only 1 image, calling twice should work without error."""
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.images = ["only.jpg"]
+
+    img1 = await web_service.get_random_image()
+    img2 = await web_service.get_random_image()
+
+    assert img1.filename == "only.jpg"
+    assert img2.filename == "only.jpg"
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_new_image_appears_mid_cycle(web_service: WebImageService) -> None:
+    """An image added to the catalog mid-cycle appears as a candidate immediately."""
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.images = ["a.jpg", "b.jpg"]
+    # Bypass the image cache so catalog changes are visible immediately
+    web_service._image_cache = None
+
+    # Show one image from the original catalog
+    img1 = await web_service.get_random_image()
+    shown = img1.filename
+
+    # Add a new image mid-cycle
+    storage.images = ["a.jpg", "b.jpg", "new.jpg"]
+    web_service._image_cache = None
+
+    # Collect the remaining picks until the cycle resets
+    remaining = []
+    for _ in range(2):
+        img = await web_service.get_random_image()
+        remaining.append(img.filename)
+
+    # The new image and the unshown original should both appear
+    expected_remaining = sorted(set(storage.images) - {shown})
+    assert sorted(remaining) == expected_remaining
+
+
+@pytest.mark.asyncio
+async def test_get_random_image_removed_image_mid_cycle(web_service: WebImageService) -> None:
+    """An image removed from the catalog mid-cycle does not cause errors."""
+    storage: _DummyStorage = web_service.storage  # type: ignore[assignment]
+    storage.images = ["a.jpg", "b.jpg", "c.jpg"]
+    web_service._image_cache = None
+
+    # Show one image
+    await web_service.get_random_image()
+
+    # Remove an image mid-cycle
+    storage.images = ["a.jpg", "b.jpg"]
+    web_service._image_cache = None
+
+    # Should not crash; returns one of the remaining catalog images
+    img = await web_service.get_random_image()
+    assert img.filename in storage.images
