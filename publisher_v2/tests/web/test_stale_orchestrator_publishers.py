@@ -155,7 +155,10 @@ async def test_ensure_orchestrator_syncs_publisher_list(monkeypatch: pytest.Monk
 
     # Simulate delete_image creating and caching the orchestrator with disabled publishers
     svc.orchestrator = WorkflowOrchestrator(
-        svc.config, svc.storage, svc.ai_service, list(svc.publishers)  # type: ignore[arg-type]
+        svc.config,
+        svc.storage,
+        svc.ai_service,
+        list(svc.publishers),  # type: ignore[arg-type]
     )
     stale_orchestrator = svc.orchestrator
 
@@ -179,9 +182,7 @@ async def test_ensure_orchestrator_syncs_publisher_list(monkeypatch: pytest.Monk
     # The orchestrator's publishers must be the updated list
     orch_email_pubs = [p for p in orchestrator.publishers if p.platform_name == "email"]
     assert len(orch_email_pubs) == 1
-    assert orch_email_pubs[0].is_enabled(), (
-        "Orchestrator must use the updated publisher list after _ensure_publishers"
-    )
+    assert orch_email_pubs[0].is_enabled(), "Orchestrator must use the updated publisher list after _ensure_publishers"
 
 
 @pytest.mark.asyncio
