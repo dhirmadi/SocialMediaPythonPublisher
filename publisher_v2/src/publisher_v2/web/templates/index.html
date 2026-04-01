@@ -1083,10 +1083,22 @@
         }
         const data = await res.json();
         const results = JSON.stringify(data.results || {}, null, 2);
-        setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
+          // Advance to next image — the next load will replace details with new image metadata
+          removeFromReviewList(currentFilename);
+          if (currentMode === "review") {
+            if (reviewList.length === 0) {
+              showImagePlaceholder("No images left.");
+              return;
+            }
+            await loadReviewImage(reviewIndex);
+          } else {
+            await apiGetRandom();
+          }
         } else {
+          // No platform succeeded — stay on the image so the user can investigate
+          setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
           setActivity("Publish completed but no platforms reported success; see details.");
         }
       } catch (e) {
