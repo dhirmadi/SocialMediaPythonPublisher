@@ -45,7 +45,7 @@ class EmailPublisher(Publisher):
                 msg["Subject"] = subject
                 msg["From"] = config.sender
                 msg["To"] = to_addr
-                msg.attach(MIMEText(body))
+                msg.attach(MIMEText(body, "plain", "utf-8"))
                 with open(image_path, "rb") as f:
                     img = MIMEImage(f.read())
                     img.add_header("Content-Disposition", "attachment", filename=image_path.split("/")[-1])
