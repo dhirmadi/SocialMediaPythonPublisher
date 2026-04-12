@@ -37,7 +37,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-022 | Foundation | [Orchestrator Schema V2 Integration](archive/PUB-022_orchestrator-schema-v2.md) | INF | XL | PUB-021 | Done |
 | **Managed Storage** ||||||
 | PUB-023 | Foundation | [Storage Protocol Extraction](archive/PUB-023_storage-protocol-extraction.md) | P1 | S | PUB-015 | Done |
-| PUB-024 | Storage | [Managed Storage Adapter](PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Not Started |
+| PUB-024 | Storage | [Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Done |
 | PUB-031 | Storage / Web UI | [Managed Storage Migration & Admin Library](PUB-031_managed-storage-migration-admin-library.md) | P1 | L | PUB-023, PUB-024 | Not Started |
 | **AI-Powered Content** ||||||
 | PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |

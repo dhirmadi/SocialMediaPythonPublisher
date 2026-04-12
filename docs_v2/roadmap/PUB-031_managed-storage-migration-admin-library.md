@@ -92,7 +92,7 @@ Orchestrator staging/production can expose instances with **`storage.provider: "
 ## Related
 
 - [PUB-023: Storage Protocol Extraction](PUB-023_storage-protocol-extraction.md)
-- [PUB-024: Managed Storage Adapter](PUB-024_managed-storage-adapter.md)
+- [PUB-024: Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md)
 - [PUB-022: Orchestrator Schema V2 Integration](archive/PUB-022_orchestrator-schema-v2.md)
 - Platform Orchestrator: runtime projection + `ManagedStorageCredentialsResponse` (contract owner for credential JSON)
 

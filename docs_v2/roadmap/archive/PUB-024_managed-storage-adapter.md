@@ -6,7 +6,7 @@
 | **Category** | Storage |
 | **Priority** | P1 |
 | **Effort** | M |
-| **Status** | Not Started |
+| **Status** | Done |
 | **Dependencies** | PUB-023 |
 
 ## Problem

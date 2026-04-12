@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-024: Managed Storage Adapter
+- **`ManagedStorage`** adapter (`services/managed_storage.py`) implementing `StorageProtocol` for S3-compatible backends (Cloudflare R2, AWS S3, MinIO)
+- All 14 protocol methods: `list_images`, `download_image`, `get_temporary_link` (pre-signed URLs), `get_thumbnail` (Pillow + LRU cache), `archive_image`, `move_image_with_sidecars`, `delete_file_with_sidecar`, `write_sidecar_text`, `download_sidecar_if_exists`, `get_file_metadata`, `list_images_with_hashes`, `supports_content_hashing`, `ensure_folder_exists` (no-op)
+- All S3 operations wrapped in `asyncio.to_thread` with exponential backoff retry on transient errors
+- **`StoragePathConfig`** — provider-agnostic path model replacing all 26 `config.dropbox.*` path accesses with `config.storage_paths.*`
+- **`ManagedStorageConfig`** and **`ManagedStorageCredentials`** models for R2/S3 credential handling
+- **Storage factory** (`create_storage()`) dispatching `DropboxStorage` or `ManagedStorage` based on config
+- `ApplicationConfig.dropbox` now optional (`DropboxConfig | None`); model validator enforces exactly one provider
+- `OrchestratorConfigSource` branches on `storage.provider` — managed tenants resolve R2 credentials, Dropbox tenants work identically
+- Standalone mode supports `STORAGE_PROVIDER=managed` with `R2_*` env vars
+- `SanitizingFilter` updated to redact R2/S3 credential keys in logs
+- `boto3` + `boto3-stubs` added as dependencies; `Pillow` already present
+- 508 tests passing, including dedicated suites for managed storage, config, and storage factory
+
 ### Added - PUB-023: Storage Protocol Extraction
 - **`StorageProtocol`** formal interface (`typing.Protocol`) in `services/storage_protocol.py` defining all 14 storage methods consumed by workflow, web service, and sidecar utilities
 - **Protocol-level thumbnail types** (`ThumbnailSize`, `ThumbnailFormat` as `StrEnum`) replacing Dropbox SDK enums in the public interface
