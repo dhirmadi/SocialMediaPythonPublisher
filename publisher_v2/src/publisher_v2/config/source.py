@@ -268,11 +268,19 @@ class OrchestratorConfigSource:
             return
 
     def _resolve_path(self, root: str, value: str | None, default_suffix: str) -> str:
+        """Join ``root`` with a relative segment, or accept an already-rooted S3 key prefix.
+
+        Orchestrator commonly sends full bucket-relative paths for ``archive``/``keep``/``remove``
+        (e.g. ``tenant/root/archive``). Those must not be prefixed with ``root`` again.
+        """
+        r = root.strip().rstrip("/")
         if value is None or not str(value).strip():
-            candidate = f"{root.rstrip('/')}/{default_suffix.lstrip('/')}"
+            candidate = f"{r}/{default_suffix.lstrip('/')}"
         else:
             s = str(value).strip()
-            candidate = s if s.startswith("/") else f"{root.rstrip('/')}/{s.lstrip('/')}"
+            candidate = (
+                s if s.startswith("/") or (r and (s == r or s.startswith(f"{r}/"))) else f"{r}/{s.lstrip('/')}"
+            )
         if ".." in candidate.split("/"):
             raise ConfigurationError("Storage path contains '..' which is not allowed")
         return candidate
