@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-031: Managed Storage Migration & Admin Library
+- **Migration CLI** (`publisher_v2/tools/migrate_storage.py`) — standalone async tool for copying images + sidecars from Dropbox to managed storage (Cloudflare R2)
+- Supports `--dry-run`, `--limit N`, `--resume` (idempotent skip on existing keys), structured JSON progress logging
+- Preserves subfolder structure (`archive/`, `keep/`, `remove/`) during migration
+- Per-file error handling with summary at exit; no secrets in log output
+- **Admin Library API** (`web/routers/library.py`) — 4 endpoints for managed storage file management:
+  - `GET /api/library/objects` — paginated object listing with folder filter
+  - `POST /api/library/upload` — multipart upload with MIME (`image/jpeg`, `image/png`) and size (20 MB) validation
+  - `DELETE /api/library/objects/{filename}` — delete image + sidecar
+  - `POST /api/library/objects/{filename}/move` — move between logical folders
+- All library endpoints gated behind `require_auth` + `require_admin`; upload rate-limited to 10/min per session
+- Returns 404 for Dropbox-only instances (library is managed-storage-only)
+- **Admin Library UI** — library panel in admin section with upload, delete, move controls; paginated object list with folder filter; confirmation dialogs; mobile-responsive
+- **Feature flag**: `FeaturesConfig.library_enabled` auto-enabled for managed instances, overridable via `FEATURE_LIBRARY` env var
+- `/api/config/features` extended with `library_enabled`
+- `python-multipart` dependency added for file upload handling
+- Architecture docs updated with library endpoints and migration CLI reference
+- 554 tests passing including migration, library API, feature flag, and UI test suites
+
 ### Added - PUB-024: Managed Storage Adapter
 - **`ManagedStorage`** adapter (`services/managed_storage.py`) implementing `StorageProtocol` for S3-compatible backends (Cloudflare R2, AWS S3, MinIO)
 - All 14 protocol methods: `list_images`, `download_image`, `get_temporary_link` (pre-signed URLs), `get_thumbnail` (Pillow + LRU cache), `archive_image`, `move_image_with_sidecars`, `delete_file_with_sidecar`, `write_sidecar_text`, `download_sidecar_if_exists`, `get_file_metadata`, `list_images_with_hashes`, `supports_content_hashing`, `ensure_folder_exists` (no-op)

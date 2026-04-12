@@ -6,7 +6,7 @@
 | **Category** | Storage / Web UI |
 | **Priority** | P1 |
 | **Effort** | L |
-| **Status** | Not Started |
+| **Status** | Done |
 | **Dependencies** | PUB-023 (Done), PUB-024 (Done) |
 
 ## Problem
