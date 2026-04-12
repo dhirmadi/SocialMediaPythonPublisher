@@ -159,42 +159,57 @@ def _check_rate_limit(request: Request) -> None:
 async def _list_objects_from_storage(
     service: WebImageService, prefix: str, cursor: str | None, limit: int
 ) -> dict[str, Any]:
-    """List objects from managed storage with size/metadata."""
+    """List objects from managed storage with size/metadata.
+
+    Uses S3 ``Delimiter='/'`` so only **immediate** child objects under ``prefix``
+    are returned (same semantics as :meth:`ManagedStorage.list_images`). Without
+    this, keys under ``{root}/archive/`` would also match ``{root}/`` and appear
+    incorrectly as files in the library "root" view.
+    """
     # Library endpoints only run for ManagedStorage (guarded by _check_library_available)
     storage: Any = service.storage
     bucket = storage._bucket
+    _image_suffixes = (".jpg", ".jpeg", ".png")
 
     def _list() -> dict[str, Any]:
-        paginator = storage.client.get_paginator("list_objects_v2")
-        params: dict[str, Any] = {"Bucket": bucket, "Prefix": prefix, "MaxKeys": limit}
-        if cursor:
-            params["StartAfter"] = cursor
-
         objects: list[dict[str, Any]] = []
-        next_cursor: str | None = None
+        continuation: str | None = cursor
+        page_cap = min(max(limit, 1), 200)
 
-        for page in paginator.paginate(**params):
-            for obj in page.get("Contents", []):
+        for _ in range(100):
+            if len(objects) >= limit:
+                break
+            kwargs: dict[str, Any] = {
+                "Bucket": bucket,
+                "Prefix": prefix,
+                "Delimiter": "/",
+                "MaxKeys": page_cap,
+            }
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = storage.client.list_objects_v2(**kwargs)
+            for obj in resp.get("Contents", []):
+                key: str = obj["Key"]
+                fname = key.rsplit("/", 1)[-1] if "/" in key else key
+                if not fname.lower().endswith(_image_suffixes):
+                    continue
                 objects.append(
                     {
-                        "key": obj["Key"].rsplit("/", 1)[-1] if "/" in obj["Key"] else obj["Key"],
+                        "key": fname,
                         "size": obj.get("Size", 0),
                         "last_modified": str(obj.get("LastModified", "")),
                     }
                 )
-            # Only get first page up to limit
-            if len(objects) >= limit:
-                objects = objects[:limit]
-                if page.get("Contents"):
-                    last = page["Contents"][-1]
-                    next_cursor = last["Key"]
-                break
+                if len(objects) >= limit:
+                    next_cursor: str | None = resp.get("NextContinuationToken") if resp.get("IsTruncated") else None
+                    return {"objects": objects[:limit], "cursor": next_cursor}
+            if not resp.get("IsTruncated"):
+                return {"objects": objects, "cursor": None}
+            continuation = resp.get("NextContinuationToken")
+            if not continuation:
+                return {"objects": objects, "cursor": None}
 
-        if len(objects) == limit and next_cursor is None:
-            # Check if there might be more
-            next_cursor = objects[-1]["key"] if objects else None
-
-        return {"objects": objects, "cursor": next_cursor}
+        return {"objects": objects[:limit], "cursor": None}
 
     return await asyncio.to_thread(_list)
 

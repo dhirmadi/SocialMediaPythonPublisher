@@ -160,6 +160,54 @@ class TestListObjects:
         assert data["cursor"] == "next-page-token"
 
 
+class TestListObjectsFromStorageImpl:
+    """Managed library list uses Delimiter=/ so nested keys do not appear as root files."""
+
+    async def test_list_uses_delimiter_and_returns_basename_keys(self) -> None:
+        from publisher_v2.web.routers.library import _list_objects_from_storage
+
+        service = MagicMock()
+        service.storage._bucket = "bkt"
+        service.storage.client.list_objects_v2.return_value = {
+            "Contents": [{"Key": "tenant/root/a.jpg", "Size": 10, "LastModified": "2026-01-01"}],
+            "IsTruncated": False,
+        }
+        result = await _list_objects_from_storage(service, "tenant/root/", None, 50)
+        assert result == {
+            "objects": [{"key": "a.jpg", "size": 10, "last_modified": "2026-01-01"}],
+            "cursor": None,
+        }
+        service.storage.client.list_objects_v2.assert_called_once_with(
+            Bucket="bkt", Prefix="tenant/root/", Delimiter="/", MaxKeys=50
+        )
+
+    async def test_list_skips_sidecar_txt(self) -> None:
+        from publisher_v2.web.routers.library import _list_objects_from_storage
+
+        service = MagicMock()
+        service.storage._bucket = "bkt"
+        service.storage.client.list_objects_v2.return_value = {
+            "Contents": [
+                {"Key": "tenant/root/a.jpg", "Size": 10, "LastModified": "t"},
+                {"Key": "tenant/root/a.txt", "Size": 2, "LastModified": "t"},
+            ],
+            "IsTruncated": False,
+        }
+        result = await _list_objects_from_storage(service, "tenant/root/", None, 50)
+        assert len(result["objects"]) == 1
+        assert result["objects"][0]["key"] == "a.jpg"
+
+    async def test_list_passes_continuation_token(self) -> None:
+        from publisher_v2.web.routers.library import _list_objects_from_storage
+
+        service = MagicMock()
+        service.storage._bucket = "bkt"
+        service.storage.client.list_objects_v2.return_value = {"Contents": [], "IsTruncated": False}
+        await _list_objects_from_storage(service, "p/", "next-token", 10)
+        kwargs = service.storage.client.list_objects_v2.call_args.kwargs
+        assert kwargs["ContinuationToken"] == "next-token"
+
+
 # ---------------------------------------------------------------------------
 # AC10: POST /api/library/upload
 # ---------------------------------------------------------------------------
