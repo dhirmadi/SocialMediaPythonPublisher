@@ -183,7 +183,7 @@ Add `Pillow` to project dependencies for server-side thumbnail generation: `uv a
 
 ## Related
 
-- [PUB-023: Storage Protocol Extraction](PUB-023_storage-protocol-extraction.md) — prerequisite; defines the protocol this adapter implements
+- [PUB-023: Storage Protocol Extraction](archive/PUB-023_storage-protocol-extraction.md) — prerequisite (Done); defines the protocol this adapter implements
 - [PUB-031: Managed Storage Migration & Admin Library](PUB-031_managed-storage-migration-admin-library.md) — migration + admin library
 - [PUB-015: Cloud Storage Adapter (Dropbox)](archive/PUB-015_cloud-storage-dropbox.md) — the existing adapter
 - Orchestrator issue #95 (closed) — orchestrator-side managed storage support

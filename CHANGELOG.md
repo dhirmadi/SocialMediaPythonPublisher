@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-023: Storage Protocol Extraction
+- **`StorageProtocol`** formal interface (`typing.Protocol`) in `services/storage_protocol.py` defining all 14 storage methods consumed by workflow, web service, and sidecar utilities
+- **Protocol-level thumbnail types** (`ThumbnailSize`, `ThumbnailFormat` as `StrEnum`) replacing Dropbox SDK enums in the public interface
+- **`supports_content_hashing()`** capability method replacing fragile `hasattr`/`getattr` duck-typing in workflow image selection
+- All consumers (`WorkflowOrchestrator`, `WebImageService`, `generate_and_upload_sidecar`) now type-hint `StorageProtocol` instead of `DropboxStorage`
+- `BaseDummyStorage` and test dummies updated to implement the protocol
+- Pure refactor — zero behavior change; unblocks PUB-024 (Managed Storage Adapter)
+
 ### Added - Feature 022: Orchestrator Schema V2 Integration
 - **ConfigSource abstraction** to support env-first standalone mode and orchestrator-backed multi-tenant mode
 - **Host normalization/validation** and tenant extraction utilities
