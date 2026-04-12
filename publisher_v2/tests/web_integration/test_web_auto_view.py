@@ -12,6 +12,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 
 
@@ -32,6 +33,7 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
                 refresh_token="r",
                 image_folder="/Photos",
             ),
+            storage_paths=StoragePathConfig(image_folder="/Photos"),
             openai=OpenAIConfig(api_key="sk-test"),
             platforms=PlatformsConfig(
                 telegram_enabled=False,

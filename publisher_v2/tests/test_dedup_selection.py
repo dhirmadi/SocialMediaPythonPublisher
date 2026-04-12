@@ -14,6 +14,7 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.utils.state import _cache_path
@@ -50,6 +51,7 @@ async def test_dedup_skips_already_posted(monkeypatch, tmp_path):
         dropbox=DropboxConfig(
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
         telegram=None,

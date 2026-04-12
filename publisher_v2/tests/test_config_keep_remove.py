@@ -64,6 +64,7 @@ debug = false
     monkeypatch.setenv("folder_remove", "remove_env")
 
     cfg = load_application_config(cfg_path)
+    assert cfg.dropbox is not None
     assert cfg.dropbox.folder_keep == "approve_env"
     assert cfg.dropbox.folder_remove == "remove_env"
 
@@ -85,6 +86,7 @@ debug = false
     cfg_path = _write_ini(tmp_path, ini)
 
     cfg = load_application_config(cfg_path)
+    assert cfg.dropbox is not None
     # Legacy folder_reject should populate folder_remove when explicit remove not set.
     assert cfg.dropbox.folder_remove == "reject_folder"
 

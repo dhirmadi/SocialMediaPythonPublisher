@@ -10,6 +10,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -39,6 +40,7 @@ def service(mock_storage):
 
     config = ApplicationConfig(
         dropbox=dropbox_config,
+        storage_paths=StoragePathConfig(image_folder="/photos", folder_keep="keep", folder_remove="remove"),
         openai=openai_config,
         platforms=platforms_config,
         content=content_config,
@@ -75,8 +77,8 @@ async def test_verify_curation_folders_skips_disabled_features(service, mock_sto
 
 @pytest.mark.asyncio
 async def test_verify_curation_folders_skips_unconfigured_folders(service, mock_storage):
-    service.config.dropbox.folder_keep = None
-    service.config.dropbox.folder_remove = None
+    service.config.storage_paths.folder_keep = None
+    service.config.storage_paths.folder_remove = None
 
     await service.verify_curation_folders()
 

@@ -9,6 +9,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -41,6 +42,7 @@ def web_service_keep_remove(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
             folder_keep="keep",
             folder_remove="remove",
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos", folder_keep="keep", folder_remove="remove"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(),
         features=FeaturesConfig(),

@@ -14,6 +14,7 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator
 
@@ -24,6 +25,7 @@ async def test_orchestrator_debug_mode_skips_publish_and_no_archive(tmp_path):
         dropbox=DropboxConfig(
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
         telegram=None,
@@ -52,6 +54,7 @@ async def test_orchestrator_emits_timing_log(tmp_path, caplog: pytest.LogCapture
         dropbox=DropboxConfig(
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
         telegram=None,

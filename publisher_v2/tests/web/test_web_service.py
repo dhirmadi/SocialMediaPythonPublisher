@@ -10,6 +10,7 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -114,6 +115,7 @@ def web_service(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
         dropbox=DropboxConfig(
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
         telegram=None,

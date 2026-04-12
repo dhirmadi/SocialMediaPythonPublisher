@@ -23,6 +23,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -108,6 +109,7 @@ def _make_config(*, email_password: str | None = None) -> ApplicationConfig:
             folder_keep="keep",
             folder_remove="remove",
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=True),
         features=FeaturesConfig(

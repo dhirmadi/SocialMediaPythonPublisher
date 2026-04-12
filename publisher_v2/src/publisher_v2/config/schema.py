@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DropboxConfig(BaseModel):
@@ -22,6 +22,25 @@ class DropboxConfig(BaseModel):
         if not v.startswith("/"):
             raise ValueError("Dropbox folder path must start with /")
         return v
+
+
+class StoragePathConfig(BaseModel):
+    """Provider-agnostic storage paths. Works for both Dropbox and managed storage."""
+
+    image_folder: str = Field(..., description="Root path for images")
+    archive_folder: str = Field(default="archive", description="Archive path")
+    folder_keep: str | None = Field(default="keep", description="Keep subfolder")
+    folder_remove: str | None = Field(default="reject", description="Remove subfolder")
+
+
+class ManagedStorageConfig(BaseModel):
+    """S3-compatible managed storage configuration (Cloudflare R2, AWS S3, MinIO)."""
+
+    access_key_id: str = Field(..., description="S3 access key ID")
+    secret_access_key: str = Field(..., description="S3 secret access key")
+    endpoint_url: str = Field(..., description="S3-compatible endpoint URL")
+    bucket: str = Field(..., description="S3 bucket name")
+    region: str = Field(default="auto", description="S3 region")
 
 
 class OpenAIConfig(BaseModel):
@@ -280,7 +299,9 @@ class Auth0Config(BaseModel):
 
 
 class ApplicationConfig(BaseModel):
-    dropbox: DropboxConfig
+    dropbox: DropboxConfig | None = None
+    managed: ManagedStorageConfig | None = None
+    storage_paths: StoragePathConfig
     openai: OpenAIConfig
     platforms: PlatformsConfig
     features: FeaturesConfig = FeaturesConfig()
@@ -291,3 +312,11 @@ class ApplicationConfig(BaseModel):
     captionfile: CaptionFileConfig = CaptionFileConfig()
     web: WebConfig = WebConfig()
     auth0: Auth0Config | None = None
+
+    @model_validator(mode="after")
+    def validate_storage_provider(self) -> "ApplicationConfig":
+        if self.dropbox is None and self.managed is None:
+            raise ValueError("Exactly one storage provider must be set: dropbox or managed")
+        if self.dropbox is not None and self.managed is not None:
+            raise ValueError("Only one storage provider can be set: dropbox or managed (not both)")
+        return self

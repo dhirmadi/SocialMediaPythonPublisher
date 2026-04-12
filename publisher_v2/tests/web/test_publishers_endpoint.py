@@ -17,6 +17,7 @@ def test_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         DropboxConfig,
         OpenAIConfig,
         PlatformsConfig,
+        StoragePathConfig,
         TelegramConfig,
     )
 
@@ -25,6 +26,7 @@ def test_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     # Create minimal config with Telegram enabled and default feature flags.
     cfg = ApplicationConfig(
         dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=True, email_enabled=False, instagram_enabled=False),
         telegram=TelegramConfig(bot_token="token", channel_id="123"),

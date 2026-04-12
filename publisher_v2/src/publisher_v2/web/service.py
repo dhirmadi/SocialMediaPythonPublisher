@@ -34,7 +34,7 @@ from publisher_v2.services.ai import (  # noqa: E402
 )
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
-from publisher_v2.services.storage import DropboxStorage  # noqa: E402
+from publisher_v2.services.storage_factory import create_storage  # noqa: E402
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
@@ -70,7 +70,7 @@ class WebImageService:
         else:
             cfg = runtime.config
 
-        storage: StorageProtocol = DropboxStorage(cfg.dropbox)
+        storage: StorageProtocol = create_storage(cfg)
 
         # AI may be resolved lazily in orchestrator mode (cfg.openai.api_key may be None)
         ai_service: AIService | None = None
@@ -245,7 +245,7 @@ class WebImageService:
         now = time.monotonic()
         if self._image_cache is not None and self._image_cache_expiry is not None and now < self._image_cache_expiry:
             return list(self._image_cache)
-        images = await self.storage.list_images(self.config.dropbox.image_folder)
+        images = await self.storage.list_images(self.config.storage_paths.image_folder)
         # Cache even empty lists so we don't hammer Dropbox on empty folders.
         self._image_cache = list(images)
         self._image_cache_expiry = now + self._image_cache_ttl_seconds
@@ -256,7 +256,7 @@ class WebImageService:
         Shared helper to build an ImageResponse from a filename and temp link.
         Handles sidecar loading and thumbnail URL generation consistently.
         """
-        sidecar_result = await self.storage.download_sidecar_if_exists(self.config.dropbox.image_folder, filename)
+        sidecar_result = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
 
         caption = None
         sd_caption = None
@@ -299,7 +299,7 @@ class WebImageService:
         selected = random.choice(candidates)
         self._recently_shown.append(selected)
 
-        folder = self.config.dropbox.image_folder
+        folder = self.config.storage_paths.image_folder
         temp_link = await self.storage.get_temporary_link(folder, selected)
         return await self._build_image_response(selected, temp_link)
 
@@ -307,7 +307,7 @@ class WebImageService:
         """
         Fetch details for a specific image by filename.
         """
-        folder = self.config.dropbox.image_folder
+        folder = self.config.storage_paths.image_folder
         # Check existence via temp link (will raise if not found)
         try:
             temp_link = await self.storage.get_temporary_link(folder, filename)
@@ -350,18 +350,18 @@ class WebImageService:
         }
         thumb_size = size_map.get(size, ThumbnailSize.W960H640)
 
-        folder = self.config.dropbox.image_folder
+        folder = self.config.storage_paths.image_folder
         return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 
     async def analyze_and_caption(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link
-        temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, filename)
+        temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, filename)
 
         # Sidecar-first cache path when not forcing refresh.
         if not force_refresh:
-            blob = await self.storage.download_sidecar_if_exists(self.config.dropbox.image_folder, filename)
+            blob = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
             if blob:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text)
@@ -575,7 +575,7 @@ class WebImageService:
             dry_run=False,
         )
 
-        dest = self.config.dropbox.folder_keep or ""
+        dest = self.config.storage_paths.folder_keep or ""
         return CurationResponse(
             filename=filename,
             action="keep",
@@ -603,7 +603,7 @@ class WebImageService:
             dry_run=False,
         )
 
-        dest = self.config.dropbox.folder_remove or ""
+        dest = self.config.storage_paths.folder_remove or ""
         return CurationResponse(
             filename=filename,
             action="remove",
@@ -646,14 +646,14 @@ class WebImageService:
         Safe to call repeatedly (idempotent).
         """
         tasks = []
-        image_folder = self.config.dropbox.image_folder.rstrip("/")
+        image_folder = self.config.storage_paths.image_folder.rstrip("/")
 
-        if self.config.features.keep_enabled and self.config.dropbox.folder_keep:
-            keep_path = f"{image_folder}/{self.config.dropbox.folder_keep}"
+        if self.config.features.keep_enabled and self.config.storage_paths.folder_keep:
+            keep_path = f"{image_folder}/{self.config.storage_paths.folder_keep}"
             tasks.append(self.storage.ensure_folder_exists(keep_path))
 
-        if self.config.features.remove_enabled and self.config.dropbox.folder_remove:
-            remove_path = f"{image_folder}/{self.config.dropbox.folder_remove}"
+        if self.config.features.remove_enabled and self.config.storage_paths.folder_remove:
+            remove_path = f"{image_folder}/{self.config.storage_paths.folder_remove}"
             tasks.append(self.storage.ensure_folder_exists(remove_path))
 
         if tasks:

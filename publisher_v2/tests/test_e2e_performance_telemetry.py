@@ -9,7 +9,14 @@ import pytest
 from conftest import BaseDummyStorage
 from fastapi.testclient import TestClient
 
-from publisher_v2.config.schema import ApplicationConfig, ContentConfig, DropboxConfig, OpenAIConfig, PlatformsConfig
+from publisher_v2.config.schema import (
+    ApplicationConfig,
+    ContentConfig,
+    DropboxConfig,
+    OpenAIConfig,
+    PlatformsConfig,
+    StoragePathConfig,
+)
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
@@ -72,6 +79,7 @@ async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -
         dropbox=DropboxConfig(
             app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
         telegram=None,

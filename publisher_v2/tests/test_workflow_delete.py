@@ -9,6 +9,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -40,6 +41,7 @@ def _base_config(*, delete_enabled: bool = True) -> ApplicationConfig:
             folder_keep="keep",
             folder_remove="remove",
         ),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=OpenAIConfig(api_key="sk-test"),
         platforms=PlatformsConfig(),
         features=FeaturesConfig(delete_enabled=delete_enabled),

@@ -8,6 +8,7 @@ from publisher_v2.config.credential_cache import CredentialCache, SingleFlight
 from publisher_v2.config.credentials import (
     CredentialPayload,
     DropboxCredentials,
+    ManagedStorageCredentials,
     OpenAICredentials,
     SMTPCredentials,
     TelegramCredentials,
@@ -29,8 +30,10 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     EmailConfig,
     FeaturesConfig,
+    ManagedStorageConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
     TelegramConfig,
 )
 from publisher_v2.config.web_env import load_web_and_auth0_from_env
@@ -125,10 +128,6 @@ class OrchestratorConfigSource:
             raise ConfigurationError("ORCHESTRATOR_BASE_URL must be set for orchestrator config source")
         if not self.token:
             raise ConfigurationError("ORCHESTRATOR_SERVICE_TOKEN must be set when ORCHESTRATOR_BASE_URL is set")
-
-        # Dropbox OAuth app is still global in Publisher
-        if not os.environ.get("DROPBOX_APP_KEY") or not os.environ.get("DROPBOX_APP_SECRET"):
-            raise ConfigurationError("DROPBOX_APP_KEY and DROPBOX_APP_SECRET must be set in orchestrator mode")
 
         max_runtime = int(os.environ.get("RUNTIME_CONFIG_CACHE_MAX_SIZE") or "1000")
         self._runtime_cache: RuntimeConfigCache[str, RuntimeConfig] = RuntimeConfigCache(max_size=max_runtime)
@@ -225,6 +224,8 @@ class OrchestratorConfigSource:
                 return TelegramCredentials.model_validate(data)
             if provider == "smtp":
                 return SMTPCredentials.model_validate(data)
+            if provider == "managed":
+                return ManagedStorageCredentials.model_validate(data)
             raise CredentialResolutionError(f"Unsupported provider: {provider}")
 
         # Single-flight key should not include version (unknown until resolved)
@@ -287,7 +288,7 @@ class OrchestratorConfigSource:
         features.analyze_caption_enabled = False
 
         storage = cfg.storage
-        if storage.provider != "dropbox":
+        if storage.provider not in ("dropbox", "managed"):
             raise ConfigurationError(f"Unsupported storage provider: {storage.provider}")
 
         root = storage.paths.root
@@ -295,21 +296,36 @@ class OrchestratorConfigSource:
         keep = self._resolve_path(root, storage.paths.keep, "keep")
         remove = self._resolve_path(root, storage.paths.remove, "reject")
 
-        # Eager: resolve Dropbox refresh token
-        creds_refs: dict[str, str] = {"storage": storage.credentials_ref}
-        data = await self.get_credentials(host, storage.credentials_ref)
-        db_creds = DropboxCredentials.model_validate(data)
-        refresh_token = db_creds.refresh_token
-
-        dropbox_cfg = DropboxConfig(
-            app_key=os.environ["DROPBOX_APP_KEY"],
-            app_secret=os.environ["DROPBOX_APP_SECRET"],
-            refresh_token=refresh_token,
-            image_folder=root,
-            archive_folder=archive,
-            folder_keep=keep,
-            folder_remove=remove,
+        storage_paths = StoragePathConfig(
+            image_folder=root, archive_folder=archive, folder_keep=keep, folder_remove=remove
         )
+
+        creds_refs: dict[str, str] = {"storage": storage.credentials_ref}
+        dropbox_cfg: DropboxConfig | None = None
+        managed_cfg: ManagedStorageConfig | None = None
+
+        if storage.provider == "managed":
+            data = await self.get_credentials(host, storage.credentials_ref)
+            ms_creds = ManagedStorageCredentials.model_validate(data)
+            managed_cfg = ManagedStorageConfig(
+                access_key_id=ms_creds.access_key_id,
+                secret_access_key=ms_creds.secret_access_key,
+                endpoint_url=ms_creds.endpoint_url,
+                bucket=ms_creds.bucket,
+                region=ms_creds.region,
+            )
+        else:
+            data = await self.get_credentials(host, storage.credentials_ref)
+            db_creds = DropboxCredentials.model_validate(data)
+            dropbox_cfg = DropboxConfig(
+                app_key=os.environ["DROPBOX_APP_KEY"],
+                app_secret=os.environ["DROPBOX_APP_SECRET"],
+                refresh_token=db_creds.refresh_token,
+                image_folder=root,
+                archive_folder=archive,
+                folder_keep=keep,
+                folder_remove=remove,
+            )
 
         # OpenAI config exists but has no api_key in v1 fallback
         openai_cfg = OpenAIConfig()
@@ -321,6 +337,8 @@ class OrchestratorConfigSource:
 
         app_cfg = ApplicationConfig(
             dropbox=dropbox_cfg,
+            managed=managed_cfg,
+            storage_paths=storage_paths,
             openai=openai_cfg,
             platforms=platforms,
             features=features,
@@ -344,7 +362,7 @@ class OrchestratorConfigSource:
         features = FeaturesConfig(**cfg.features.model_dump())
 
         storage = cfg.storage
-        if storage.provider != "dropbox":
+        if storage.provider not in ("dropbox", "managed"):
             raise ConfigurationError(f"Unsupported storage provider: {storage.provider}")
 
         root = storage.paths.root
@@ -352,20 +370,36 @@ class OrchestratorConfigSource:
         keep = self._resolve_path(root, storage.paths.keep, "keep")
         remove = self._resolve_path(root, storage.paths.remove, "reject")
 
-        creds_refs: dict[str, str] = {"storage": storage.credentials_ref}
-        data = await self.get_credentials(host, storage.credentials_ref)
-        db_creds = DropboxCredentials.model_validate(data)
-        refresh_token = db_creds.refresh_token
-
-        dropbox_cfg = DropboxConfig(
-            app_key=os.environ["DROPBOX_APP_KEY"],
-            app_secret=os.environ["DROPBOX_APP_SECRET"],
-            refresh_token=refresh_token,
-            image_folder=root,
-            archive_folder=archive,
-            folder_keep=keep,
-            folder_remove=remove,
+        storage_paths = StoragePathConfig(
+            image_folder=root, archive_folder=archive, folder_keep=keep, folder_remove=remove
         )
+
+        creds_refs: dict[str, str] = {"storage": storage.credentials_ref}
+        dropbox_cfg: DropboxConfig | None = None
+        managed_cfg: ManagedStorageConfig | None = None
+
+        if storage.provider == "managed":
+            data = await self.get_credentials(host, storage.credentials_ref)
+            ms_creds = ManagedStorageCredentials.model_validate(data)
+            managed_cfg = ManagedStorageConfig(
+                access_key_id=ms_creds.access_key_id,
+                secret_access_key=ms_creds.secret_access_key,
+                endpoint_url=ms_creds.endpoint_url,
+                bucket=ms_creds.bucket,
+                region=ms_creds.region,
+            )
+        else:
+            data = await self.get_credentials(host, storage.credentials_ref)
+            db_creds = DropboxCredentials.model_validate(data)
+            dropbox_cfg = DropboxConfig(
+                app_key=os.environ["DROPBOX_APP_KEY"],
+                app_secret=os.environ["DROPBOX_APP_SECRET"],
+                refresh_token=db_creds.refresh_token,
+                image_folder=root,
+                archive_folder=archive,
+                folder_keep=keep,
+                folder_remove=remove,
+            )
 
         # Publishers: only enabled entries should be considered
         enabled_pubs = [p for p in cfg.publishers if p.enabled]
@@ -459,6 +493,8 @@ class OrchestratorConfigSource:
         auth0_cfg = _apply_orchestrator_auth_policy(auth0_cfg, cfg)
         app_cfg = ApplicationConfig(
             dropbox=dropbox_cfg,
+            managed=managed_cfg,
+            storage_paths=storage_paths,
             openai=openai_cfg,
             platforms=platforms,
             features=features,

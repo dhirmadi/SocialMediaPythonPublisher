@@ -8,7 +8,7 @@ from publisher_v2.config.loader import load_application_config
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 from publisher_v2.services.publishers import build_publishers
-from publisher_v2.services.storage import DropboxStorage
+from publisher_v2.services.storage_factory import create_storage
 from publisher_v2.utils import preview as preview_utils
 from publisher_v2.utils.captions import build_metadata_phase1, build_metadata_phase2, format_caption, normalize_tags
 from publisher_v2.utils.logging import log_json, setup_logging
@@ -48,7 +48,7 @@ async def main_async() -> int:
     if args.debug:
         cfg.content.debug = True
 
-    storage = DropboxStorage(cfg.dropbox)
+    storage = create_storage(cfg)
     analyzer = VisionAnalyzerOpenAI(cfg.openai)
     generator = CaptionGeneratorOpenAI(cfg.openai)
     ai_service = AIService(analyzer, generator)
@@ -90,7 +90,7 @@ async def main_async() -> int:
         # Show image details
         preview_utils.print_image_details(
             filename=result.image_name,
-            folder=result.image_folder or cfg.dropbox.image_folder,
+            folder=result.image_folder or cfg.storage_paths.image_folder,
             sha256=result.sha256 or "unknown",
             dropbox_url=result.dropbox_url or "unknown",
             is_new=True,
@@ -117,7 +117,7 @@ async def main_async() -> int:
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
                 created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
-                db_meta = await storage.get_file_metadata(cfg.dropbox.image_folder, result.image_name)
+                db_meta = await storage.get_file_metadata(cfg.storage_paths.image_folder, result.image_name)
                 phase1 = build_metadata_phase1(
                     image_file=result.image_name,
                     sha256=result.sha256 or "",

@@ -11,6 +11,7 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -59,7 +60,13 @@ def make_config(archive: bool) -> ApplicationConfig:
     )
     platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
     content = ContentConfig(hashtag_string="", archive=archive, debug=False)
-    return ApplicationConfig(dropbox=drop, openai=openai, platforms=platforms, content=content)
+    return ApplicationConfig(
+        dropbox=drop,
+        storage_paths=StoragePathConfig(image_folder="/ImagesToday"),
+        openai=openai,
+        platforms=platforms,
+        content=content,
+    )
 
 
 @pytest.mark.asyncio

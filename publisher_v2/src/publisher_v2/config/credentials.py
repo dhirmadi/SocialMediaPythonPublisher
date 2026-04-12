@@ -36,4 +36,18 @@ class SMTPCredentials(BaseModel):
     password: str
 
 
-CredentialPayload = DropboxCredentials | OpenAICredentials | TelegramCredentials | SMTPCredentials
+class ManagedStorageCredentials(BaseModel):
+    model_config = ConfigDict(extra="allow")
+
+    provider: Literal["managed"]
+    version: str
+    access_key_id: str
+    secret_access_key: str
+    endpoint_url: str
+    bucket: str
+    region: str = "auto"
+
+
+CredentialPayload = (
+    DropboxCredentials | OpenAICredentials | TelegramCredentials | SMTPCredentials | ManagedStorageCredentials
+)

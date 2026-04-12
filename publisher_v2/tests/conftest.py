@@ -32,6 +32,7 @@ from publisher_v2.config.schema import (
     DropboxConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
 
@@ -220,6 +221,7 @@ def standard_app_config(
     """Standard ApplicationConfig for workflow tests."""
     return ApplicationConfig(
         dropbox=standard_dropbox_config,
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=standard_openai_config,
         platforms=PlatformsConfig(
             telegram_enabled=False,

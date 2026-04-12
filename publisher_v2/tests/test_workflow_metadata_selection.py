@@ -12,6 +12,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -100,6 +101,7 @@ def _build_config() -> ApplicationConfig:
     captionfile = CaptionFileConfig(extended_metadata_enabled=False, artist_alias="artist")
     return ApplicationConfig(
         dropbox=drop,
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=openai,
         platforms=platforms,
         features=features,

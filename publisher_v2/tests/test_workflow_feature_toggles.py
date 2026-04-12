@@ -9,6 +9,7 @@ from publisher_v2.config.schema import (
     FeaturesConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
 )
 from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -101,6 +102,7 @@ def _make_config() -> ApplicationConfig:
     features = FeaturesConfig()
     return ApplicationConfig(
         dropbox=drop,
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
         openai=openai,
         platforms=platforms,
         features=features,
@@ -113,6 +115,7 @@ def _make_config() -> ApplicationConfig:
 
 def _make_orchestrator(monkeypatch: pytest.MonkeyPatch, publishers: list[Publisher] | None = None):
     cfg = _make_config()
+    assert cfg.dropbox is not None
     storage = _StubStorage(cfg.dropbox)
     analyzer = _StubAnalyzer()
     generator = _StubGenerator()

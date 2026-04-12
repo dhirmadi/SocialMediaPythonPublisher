@@ -18,8 +18,10 @@ from publisher_v2.config.schema import (
     EmailConfig,
     FeaturesConfig,
     InstagramConfig,
+    ManagedStorageConfig,
     OpenAIConfig,
     PlatformsConfig,
+    StoragePathConfig,
     TelegramConfig,
     WebConfig,
 )
@@ -548,10 +550,30 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             folder_keep = _validate_subfolder(folder_keep, "[Dropbox].folder_keep")
             folder_remove = _validate_subfolder(folder_remove, "[Dropbox].folder_remove")
 
-        dropbox = DropboxConfig(
-            app_key=os.environ["DROPBOX_APP_KEY"],
-            app_secret=os.environ["DROPBOX_APP_SECRET"],
-            refresh_token=os.environ["DROPBOX_REFRESH_TOKEN"],
+        storage_provider = (os.environ.get("STORAGE_PROVIDER") or "dropbox").strip().lower()
+        dropbox: DropboxConfig | None = None
+        managed: ManagedStorageConfig | None = None
+
+        if storage_provider == "managed":
+            managed = ManagedStorageConfig(
+                access_key_id=os.environ["R2_ACCESS_KEY_ID"],
+                secret_access_key=os.environ["R2_SECRET_ACCESS_KEY"],
+                endpoint_url=os.environ["R2_ENDPOINT_URL"],
+                bucket=os.environ["R2_BUCKET_NAME"],
+                region=os.environ.get("R2_REGION", "auto"),
+            )
+        else:
+            dropbox = DropboxConfig(
+                app_key=os.environ["DROPBOX_APP_KEY"],
+                app_secret=os.environ["DROPBOX_APP_SECRET"],
+                refresh_token=os.environ["DROPBOX_REFRESH_TOKEN"],
+                image_folder=image_folder,
+                archive_folder=archive_folder,
+                folder_keep=folder_keep,
+                folder_remove=folder_remove,
+            )
+
+        storage_path_cfg = StoragePathConfig(
             image_folder=image_folder,
             archive_folder=archive_folder,
             folder_keep=folder_keep,
@@ -787,6 +809,8 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
 
     return ApplicationConfig(
         dropbox=dropbox,
+        managed=managed,
+        storage_paths=storage_path_cfg,
         openai=openai_cfg,
         platforms=platforms,
         features=features_cfg,

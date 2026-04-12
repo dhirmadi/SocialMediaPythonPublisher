@@ -60,7 +60,7 @@ class WorkflowOrchestrator:
         Uses Dropbox metadata-based dedup when a real Dropbox client is available,
         otherwise falls back to the legacy SHA256-only path (test/dummy storages).
         """
-        image_folder = self.config.dropbox.image_folder
+        image_folder = self.config.storage_paths.image_folder
         use_metadata = self.storage.supports_content_hashing()
 
         selected_image = ""
@@ -273,7 +273,7 @@ class WorkflowOrchestrator:
             with contextlib.suppress(Exception):
                 os.chmod(tmp_path, 0o600)
 
-            temp_link = await self.storage.get_temporary_link(self.config.dropbox.image_folder, selected_image)
+            temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, selected_image)
 
             # 3. Analyze image with vision AI (feature-gated)
             if self.config.features.analyze_caption_enabled:
@@ -439,7 +439,7 @@ class WorkflowOrchestrator:
             ):
                 archive_start = now_monotonic()
                 await self.storage.archive_image(
-                    self.config.dropbox.image_folder, selected_image, self.config.dropbox.archive_folder
+                    self.config.storage_paths.image_folder, selected_image, self.config.storage_paths.archive_folder
                 )
                 archive_ms = elapsed_ms(archive_start)
                 archived = True
@@ -464,7 +464,7 @@ class WorkflowOrchestrator:
                 caption_spec=spec if preview_mode else None,
                 dropbox_url=temp_link if preview_mode else None,
                 sha256=selected_hash if preview_mode else None,
-                image_folder=self.config.dropbox.image_folder if preview_mode else None,
+                image_folder=self.config.storage_paths.image_folder if preview_mode else None,
             )
         finally:
             if tmp_path and os.path.exists(tmp_path):  # noqa: ASYNC240 — fast local FS check in finally cleanup
@@ -489,7 +489,7 @@ class WorkflowOrchestrator:
         if not target_subfolder:
             raise StorageError(f"Cannot {action} image {filename!r}: target subfolder is not configured")
 
-        source_folder = self.config.dropbox.image_folder
+        source_folder = self.config.storage_paths.image_folder
 
         if preview_mode or dry_run:
             # Non-destructive path: print preview-only description.
@@ -547,7 +547,7 @@ class WorkflowOrchestrator:
             raise StorageError("Keep feature is disabled via FEATURE_KEEP_CURATE toggle")
         await self._curate_image(
             filename=filename,
-            target_subfolder=self.config.dropbox.folder_keep,
+            target_subfolder=self.config.storage_paths.folder_keep,
             action="keep",
             preview_mode=preview_mode,
             dry_run=dry_run,
@@ -567,7 +567,7 @@ class WorkflowOrchestrator:
             raise StorageError("Remove feature is disabled via FEATURE_REMOVE_CURATE toggle")
         await self._curate_image(
             filename=filename,
-            target_subfolder=self.config.dropbox.folder_remove,
+            target_subfolder=self.config.storage_paths.folder_remove,
             action="remove",
             preview_mode=preview_mode,
             dry_run=dry_run,
@@ -594,6 +594,6 @@ class WorkflowOrchestrator:
 
         self.logger.info(f"Deleting image permanently: {filename}")
         await self.storage.delete_file_with_sidecar(
-            self.config.dropbox.image_folder,
+            self.config.storage_paths.image_folder,
             filename,
         )

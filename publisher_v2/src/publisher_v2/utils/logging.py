@@ -16,6 +16,12 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"api\.telegram\.org/bot[^/\s]+"), "api.telegram.org/bot[REDACTED]"),
     # Dropbox tokens (start with sl.)
     (re.compile(r"sl\.[A-Za-z0-9_-]{100,}"), "[DROPBOX_TOKEN_REDACTED]"),
+    # S3/R2 access key IDs (typically 16-128 alphanumeric chars)
+    (re.compile(r"(?:access_key_id[\"':\s=]+)[A-Za-z0-9]{16,}"), "[S3_ACCESS_KEY_REDACTED]"),
+    # S3/R2 secret access keys (long alphanumeric)
+    (re.compile(r"(?:secret_access_key[\"':\s=]+)[A-Za-z0-9+/=]{20,}"), "[S3_SECRET_KEY_REDACTED]"),
+    # R2/S3 endpoint URLs (may contain account IDs)
+    (re.compile(r"https://[a-f0-9]{32}\.r2\.cloudflarestorage\.com"), "[R2_ENDPOINT_REDACTED]"),
 ]
 
 

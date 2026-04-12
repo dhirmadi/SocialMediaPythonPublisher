@@ -107,6 +107,7 @@ async def test_parses_schema_v2(monkeypatch: pytest.MonkeyPatch) -> None:
     rc = await src.get_config("xxx.shibari.photo")
     assert rc.tenant == "xxx"
     assert rc.schema_version == 2
+    assert rc.config.dropbox is not None
     assert rc.config.dropbox.image_folder == "/Photos/xxx/2025"
     assert rc.config.platforms.telegram_enabled is True
     assert rc.config.platforms.email_enabled is True

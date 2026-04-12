@@ -37,7 +37,7 @@ async def generate_and_upload_sidecar(
         created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
         # 1. Get file metadata from Dropbox for ID/Rev linkage
-        db_meta = await storage.get_file_metadata(config.dropbox.image_folder, filename)
+        db_meta = await storage.get_file_metadata(config.storage_paths.image_folder, filename)
 
         # 2. Build metadata
         phase1 = build_metadata_phase1(
@@ -62,7 +62,7 @@ async def generate_and_upload_sidecar(
         # 4. Upload
         log_json(logger, logging.INFO, f"{log_prefix}_start", image=filename, correlation_id=correlation_id)
 
-        await storage.write_sidecar_text(config.dropbox.image_folder, filename, content)
+        await storage.write_sidecar_text(config.storage_paths.image_folder, filename, content)
 
         duration = elapsed_ms(start_time)
 

@@ -69,8 +69,16 @@ def mock_config():
         confirmation_tags_count=5,
         confirmation_tags_nature="neutral",
     )
+    storage_paths = SimpleNamespace(
+        image_folder="/Photos",
+        archive_folder="/Archive",
+        folder_keep="keep",
+        folder_remove="reject",
+    )
     return SimpleNamespace(
         dropbox=dropbox,
+        managed=None,
+        storage_paths=storage_paths,
         openai=openai,
         platforms=platforms,
         features=features,
@@ -165,7 +173,7 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
     mocks["instagram"].platform_name = "instagram"
 
     monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
-    monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mocks["storage"])
+    monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: mocks["storage"])
     monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: mocks["analyzer"])
     monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mocks["generator"])
     monkeypatch.setattr("publisher_v2.app.AIService", lambda analyzer, generator: mocks["ai_service"])
@@ -317,7 +325,7 @@ class TestMainAsyncNormalMode:
             return mock
 
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
-        monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
@@ -474,7 +482,7 @@ class TestPublisherInitialization:
         mock_orchestrator.execute = AsyncMock(return_value=mock_workflow_result)
 
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
-        monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
@@ -562,7 +570,7 @@ class TestEmailPreviewPath:
             email_preview_called.append(kwargs)
 
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
-        monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mock_storage)
+        monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
@@ -666,7 +674,7 @@ class TestSDCaptionPreviewPath:
             sidecar_preview_called.append((sd_caption, metadata))
 
         monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
-        monkeypatch.setattr("publisher_v2.app.DropboxStorage", lambda cfg: mock_storage)
+        monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mock_generator)
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
