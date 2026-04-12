@@ -62,6 +62,23 @@ class TestListImages:
         result = await storage.list_images("tenant/images")
         assert result == ["photo.jpg", "photo.png"]
 
+    async def test_excludes_nested_subprefix_objects(self, storage, mock_s3_client) -> None:
+        """Archive/keep/remove keys share a prefix with root; list only immediate children."""
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {
+                "Contents": [
+                    {"Key": "tenant/images/a.jpg"},
+                    {"Key": "tenant/images/archive/a.jpg"},
+                    {"Key": "tenant/images/archive/old.jpg"},
+                ]
+            }
+        ]
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images("tenant/images")
+        assert result == ["a.jpg"]
+
 
 # AC3: download_image
 class TestDownloadImage:

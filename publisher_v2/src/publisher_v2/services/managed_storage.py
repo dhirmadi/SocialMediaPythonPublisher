@@ -70,6 +70,22 @@ class ManagedStorage:
         stem = os.path.splitext(filename)[0]
         return self._key(folder, f"{stem}.txt")
 
+    @staticmethod
+    def _is_immediate_child_object_key(folder: str, key: str) -> bool:
+        """True if key is a direct object under folder (not in a nested sub-prefix).
+
+        Matches Dropbox ``list_folder`` semantics: only files in the given folder,
+        excluding keys like ``{folder}/archive/photo.jpg`` whose basename would
+        collide with ``{folder}/photo.jpg`` in a flat filename list.
+        """
+        prefix = f"{folder.strip('/')}/"
+        if not key.startswith(prefix):
+            return False
+        relative = key[len(prefix) :]
+        if not relative or relative.endswith("/"):
+            return False
+        return "/" not in relative
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
@@ -86,7 +102,9 @@ class ManagedStorage:
                 for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
-                        fname = key.rsplit("/", 1)[-1] if "/" in key else key
+                        if not ManagedStorage._is_immediate_child_object_key(folder, key):
+                            continue
+                        fname = key.rsplit("/", 1)[-1]
                         if fname.lower().endswith(_IMAGE_EXTENSIONS):
                             names.append(fname)
                 return names
@@ -111,7 +129,9 @@ class ManagedStorage:
                 for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
-                        fname = key.rsplit("/", 1)[-1] if "/" in key else key
+                        if not ManagedStorage._is_immediate_child_object_key(folder, key):
+                            continue
+                        fname = key.rsplit("/", 1)[-1]
                         if fname.lower().endswith(_IMAGE_EXTENSIONS):
                             etag = (obj.get("ETag") or "").strip('"')
                             out.append((fname, etag))

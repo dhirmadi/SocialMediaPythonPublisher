@@ -484,7 +484,7 @@
         </select>
         <label class="library-upload-btn" style="display:inline-block;padding:0.4rem 0.75rem;background:linear-gradient(135deg,#06b6d4,#10b981);color:#020617;border-radius:0.5rem;cursor:pointer;font-size:0.85rem;font-weight:600;">
           Upload
-          <input type="file" id="library-upload-input" accept="image/jpeg,image/png" style="display:none;" />
+          <input type="file" id="library-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
         </label>
         <button id="library-refresh-btn" class="secondary" style="padding:0.4rem 0.75rem;font-size:0.85rem;">Refresh</button>
       </div>
@@ -1961,8 +1961,14 @@
             if (xhr.status >= 200 && xhr.status < 300) {
               resolve(JSON.parse(xhr.responseText));
             } else {
-              const err = JSON.parse(xhr.responseText || "{}");
-              reject(new Error(err.detail || `Upload failed (${xhr.status})`));
+              let detail = `Upload failed (${xhr.status})`;
+              try {
+                const err = JSON.parse(xhr.responseText || "{}");
+                if (err.detail) detail = err.detail;
+              } catch (_) {
+                if (xhr.responseText && xhr.responseText.length < 200) detail = xhr.responseText.trim();
+              }
+              reject(new Error(detail));
             }
           };
           xhr.onerror = () => reject(new Error("Upload failed"));
@@ -2020,10 +2026,15 @@
       if (!panelLibrary) return;
       libraryFolderFilter.addEventListener("change", () => libraryFetchObjects(false));
       libraryRefreshBtn.addEventListener("click", () => libraryFetchObjects(false));
-      libraryUploadInput.addEventListener("change", (e) => {
-        if (e.target.files && e.target.files[0]) {
-          libraryUpload(e.target.files[0]);
-          e.target.value = "";
+      libraryUploadInput.addEventListener("change", async (e) => {
+        const files = e.target.files ? Array.from(e.target.files) : [];
+        e.target.value = "";
+        if (!files.length) return;
+        for (let i = 0; i < files.length; i++) {
+          if (files.length > 1) {
+            libraryUploadStatus.textContent = `Uploading file ${i + 1} of ${files.length}...`;
+          }
+          await libraryUpload(files[i]);
         }
       });
       libraryLoadMore.addEventListener("click", () => libraryFetchObjects(true));

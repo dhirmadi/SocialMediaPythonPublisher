@@ -447,6 +447,21 @@ class WorkflowOrchestrator:
                     save_posted_hash(selected_hash)
                 if selected_content_hash:
                     save_posted_content_hash(selected_content_hash)
+            elif any_success and not preview_mode and not dry_publish:
+                if not self.config.content.archive:
+                    skip_reason = "content.archive=false"
+                elif self.config.content.debug:
+                    skip_reason = "content.debug=true"
+                else:
+                    skip_reason = "archive_preconditions_unmet"
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "workflow_archive_skipped",
+                    correlation_id=correlation_id,
+                    image=selected_image,
+                    reason=skip_reason,
+                )
 
             # Final summary timing log for the workflow
             image_selection_ms = image_selection_ms or 0
