@@ -6,33 +6,18 @@ import os
 from typing import Any
 
 import pytest
+from conftest import BaseDummyStorage
 from fastapi.testclient import TestClient
 
 from publisher_v2.config.schema import ApplicationConfig, ContentConfig, DropboxConfig, OpenAIConfig, PlatformsConfig
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.services.storage import DropboxStorage
 from publisher_v2.web.app import app
 
 
-class _DummyStorage(DropboxStorage):
-    def __init__(self) -> None:
-        self.config = DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        )
-
-    async def list_images(self, folder: str) -> list[str]:
-        return ["test.jpg"]
-
-    async def download_image(self, folder: str, filename: str) -> bytes:
-        return b"\x89PNG\r\n\x1a\n"
-
-    async def get_temporary_link(self, folder: str, filename: str) -> str:
-        return "https://example.com/tmp/test.jpg"
-
-    async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
-        return None
+class _DummyStorage(BaseDummyStorage):
+    pass
 
 
 class _DummyAnalyzer:

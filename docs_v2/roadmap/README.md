@@ -38,6 +38,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **Managed Storage** ||||||
 | PUB-023 | Foundation | [Storage Protocol Extraction](PUB-023_storage-protocol-extraction.md) | P1 | S | PUB-015 | Not Started |
 | PUB-024 | Storage | [Managed Storage Adapter](PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Not Started |
+| PUB-031 | Storage / Web UI | [Managed Storage Migration & Admin Library](PUB-031_managed-storage-migration-admin-library.md) | P1 | L | PUB-023, PUB-024 | Not Started |
 | **AI-Powered Content** ||||||
 | PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |
 | PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |

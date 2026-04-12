@@ -3,7 +3,7 @@ from datetime import UTC, datetime
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.core.models import ImageAnalysis
-from publisher_v2.services.storage import DropboxStorage
+from publisher_v2.services.storage_protocol import StorageProtocol
 from publisher_v2.utils.captions import (
     build_caption_sidecar,
     build_metadata_phase1,
@@ -15,7 +15,7 @@ logger = logging.getLogger("publisher_v2.services.sidecar")
 
 
 async def generate_and_upload_sidecar(
-    storage: DropboxStorage,
+    storage: StorageProtocol,
     config: ApplicationConfig,
     filename: str,
     analysis: ImageAnalysis,

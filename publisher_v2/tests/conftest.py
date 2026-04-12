@@ -292,6 +292,27 @@ class BaseDummyStorage:
     async def move_image_with_sidecars(self, folder: str, filename: str, target: str) -> None:
         self.moves.append((folder, filename, target))
 
+    async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
+        pass
+
+    async def ensure_folder_exists(self, folder_path: str) -> None:
+        pass
+
+    async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
+        return [(name, "") for name in self._images]
+
+    async def get_thumbnail(
+        self,
+        folder: str,
+        filename: str,
+        size: object = None,
+        format: object = None,
+    ) -> bytes:
+        return b"\xff\xd8\xff\xe0"  # minimal JPEG header
+
+    def supports_content_hashing(self) -> bool:
+        return False
+
 
 @pytest.fixture
 def dummy_storage_class() -> type:

@@ -35,6 +35,7 @@ from publisher_v2.services.ai import (  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
 from publisher_v2.services.storage import DropboxStorage  # noqa: E402
+from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
@@ -69,7 +70,7 @@ class WebImageService:
         else:
             cfg = runtime.config
 
-        storage = DropboxStorage(cfg.dropbox)
+        storage: StorageProtocol = DropboxStorage(cfg.dropbox)
 
         # AI may be resolved lazily in orchestrator mode (cfg.openai.api_key may be None)
         ai_service: AIService | None = None
@@ -335,21 +336,19 @@ class WebImageService:
 
         Args:
             filename: Image filename
-            size: Thumbnail size string (maps to ThumbnailSize enum)
+            size: Thumbnail size string (maps to protocol ThumbnailSize enum)
 
         Returns:
             JPEG thumbnail bytes
         """
-        from dropbox.files import ThumbnailSize
-
         size_map = {
-            "w256h256": ThumbnailSize.w256h256,
-            "w480h320": ThumbnailSize.w480h320,
-            "w640h480": ThumbnailSize.w640h480,
-            "w960h640": ThumbnailSize.w960h640,
-            "w1024h768": ThumbnailSize.w1024h768,
+            "w256h256": ThumbnailSize.W256H256,
+            "w480h320": ThumbnailSize.W480H320,
+            "w640h480": ThumbnailSize.W640H480,
+            "w960h640": ThumbnailSize.W960H640,
+            "w1024h768": ThumbnailSize.W1024H768,
         }
-        thumb_size = size_map.get(size, ThumbnailSize.w960h640)
+        thumb_size = size_map.get(size, ThumbnailSize.W960H640)
 
         folder = self.config.dropbox.image_folder
         return await self.storage.get_thumbnail(folder, filename, size=thumb_size)

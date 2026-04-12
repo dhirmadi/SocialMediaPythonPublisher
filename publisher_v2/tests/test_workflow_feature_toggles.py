@@ -40,6 +40,9 @@ class _StubStorage:
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         self.archives += 1
 
+    def supports_content_hashing(self) -> bool:
+        return False
+
 
 class _StubAnalyzer:
     def __init__(self) -> None:

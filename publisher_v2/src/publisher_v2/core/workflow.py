@@ -13,7 +13,7 @@ from publisher_v2.core.exceptions import AIServiceError, StorageError
 from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.services.storage import DropboxStorage
+from publisher_v2.services.storage_protocol import StorageProtocol
 from publisher_v2.utils.captions import (
     format_caption,
 )
@@ -43,7 +43,7 @@ class WorkflowOrchestrator:
     def __init__(
         self,
         config: ApplicationConfig,
-        storage: DropboxStorage,
+        storage: StorageProtocol,
         ai_service: AIService,
         publishers: list[Publisher],
     ):
@@ -61,9 +61,7 @@ class WorkflowOrchestrator:
         otherwise falls back to the legacy SHA256-only path (test/dummy storages).
         """
         image_folder = self.config.dropbox.image_folder
-        use_metadata = (
-            hasattr(self.storage, "list_images_with_hashes") and getattr(self.storage, "client", None) is not None
-        )
+        use_metadata = self.storage.supports_content_hashing()
 
         selected_image = ""
         content = b""

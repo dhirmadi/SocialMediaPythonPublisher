@@ -5,11 +5,21 @@ from typing import cast
 
 import dropbox
 from dropbox.exceptions import ApiError
-from dropbox.files import PathOrLink, ThumbnailFormat, ThumbnailMode, ThumbnailSize
+from dropbox.files import (
+    PathOrLink,
+    ThumbnailMode,
+)
+from dropbox.files import (
+    ThumbnailFormat as DbxThumbnailFormat,
+)
+from dropbox.files import (
+    ThumbnailSize as DbxThumbnailSize,
+)
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.core.exceptions import StorageError
+from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
 
 
 class DropboxStorage:
@@ -318,6 +328,23 @@ class DropboxStorage:
         """
         await self.move_image_with_sidecars(folder, filename, archive_folder)
 
+    def supports_content_hashing(self) -> bool:
+        """Dropbox supports content-hash-based dedup via content_hash metadata."""
+        return True
+
+    # Mapping from protocol-level enum string values to Dropbox SDK enums
+    _THUMB_SIZE_MAP: dict[str, DbxThumbnailSize] = {
+        "w256h256": DbxThumbnailSize.w256h256,
+        "w480h320": DbxThumbnailSize.w480h320,
+        "w640h480": DbxThumbnailSize.w640h480,
+        "w960h640": DbxThumbnailSize.w960h640,
+        "w1024h768": DbxThumbnailSize.w1024h768,
+    }
+    _THUMB_FMT_MAP: dict[str, DbxThumbnailFormat] = {
+        "jpeg": DbxThumbnailFormat.jpeg,
+        "png": DbxThumbnailFormat.png,
+    }
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
@@ -327,36 +354,33 @@ class DropboxStorage:
         self,
         folder: str,
         filename: str,
-        size: ThumbnailSize = ThumbnailSize.w960h640,
-        format: ThumbnailFormat = ThumbnailFormat.jpeg,
+        size: ThumbnailSize | DbxThumbnailSize = ThumbnailSize.W960H640,
+        format: ThumbnailFormat | DbxThumbnailFormat = ThumbnailFormat.JPEG,
     ) -> bytes:
         """
         Return a thumbnail of the specified image using Dropbox's thumbnail API.
 
-        Uses Dropbox's server-side thumbnail generation, which is fast and
-        avoids downloading the full image. Default size (960×640) produces
-        ~30-80KB files suitable for web preview.
-
-        Args:
-            folder: Dropbox folder path
-            filename: Image filename
-            size: Thumbnail size enum (default w960h640)
-            format: Output format (default JPEG for smaller files)
-
-        Returns:
-            Thumbnail image bytes
-
-        Raises:
-            StorageError: If thumbnail generation fails
+        Accepts protocol-level ThumbnailSize/ThumbnailFormat enums and maps
+        them to Dropbox SDK enums internally. Also accepts Dropbox SDK enums
+        directly for backward compatibility.
         """
+        if isinstance(size, DbxThumbnailSize):
+            dbx_size = size
+        else:
+            dbx_size = self._THUMB_SIZE_MAP.get(str(size), DbxThumbnailSize.w960h640)
+        if isinstance(format, DbxThumbnailFormat):
+            dbx_format = format
+        else:
+            dbx_format = self._THUMB_FMT_MAP.get(str(format), DbxThumbnailFormat.jpeg)
+
         try:
 
             def _get_thumb() -> bytes:
                 path = os.path.join(folder, filename)
                 _, response = self.client.files_get_thumbnail_v2(
                     resource=PathOrLink.path(path),
-                    size=size,
-                    format=format,
+                    size=dbx_size,
+                    format=dbx_format,
                     mode=ThumbnailMode.fitone_bestfit,
                 )
                 return cast(bytes, response.content)

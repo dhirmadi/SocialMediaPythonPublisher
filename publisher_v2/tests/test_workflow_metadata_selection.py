@@ -49,6 +49,9 @@ class _MetadataStorage:
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         self.archived = True
 
+    def supports_content_hashing(self) -> bool:
+        return True
+
 
 class _StubAnalyzer:
     async def analyze(self, link: str) -> ImageAnalysis:

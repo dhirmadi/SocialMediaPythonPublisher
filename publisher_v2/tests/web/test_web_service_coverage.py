@@ -195,8 +195,7 @@ class TestGetThumbnailSizeMapping:
         monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
         with patch("publisher_v2.services.storage.dropbox.Dropbox"):
-            from dropbox.files import ThumbnailSize
-
+            from publisher_v2.services.storage_protocol import ThumbnailSize
             from publisher_v2.web.service import WebImageService
 
             service = WebImageService()
@@ -210,7 +209,7 @@ class TestGetThumbnailSizeMapping:
 
             # Verify default size was used
             call_kwargs = service.storage.get_thumbnail.call_args.kwargs
-            assert call_kwargs.get("size") == ThumbnailSize.w960h640
+            assert call_kwargs.get("size") == ThumbnailSize.W960H640
 
 
 class TestAnalyzeAndCaptionSdCaptionFallback:
