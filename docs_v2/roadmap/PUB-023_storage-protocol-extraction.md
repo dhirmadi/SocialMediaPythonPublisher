@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Not Started |
+| **Status** | Done |
 | **Dependencies** | PUB-015 |
 
 ## Problem
