@@ -24,15 +24,15 @@ A `ManagedStorage` adapter implementing `StorageProtocol` (from PUB-023) that re
 - All protocol methods: `list_images`, `download_image`, `get_temporary_link` (pre-signed URLs), `get_thumbnail` (server-side generation via Pillow), `archive_image`, `move_image_with_sidecars`, `delete_file_with_sidecar`, `write_sidecar_text`, `download_sidecar_if_exists`, `get_file_metadata`, `ensure_folder_exists`
 - Storage factory: instantiate `DropboxStorage` or `ManagedStorage` based on `provider` config
 - Config support: `provider: "managed"` in orchestrator `RuntimeStorage` schema and in standalone INI config
-- Credential resolution: orchestrator resolves S3 credentials (access key, secret key, endpoint, bucket) via existing `/v1/credentials/resolve`
-- Tenant-prefixed object keys: `{tenant_id}/{root|archive|keep|remove}/filename.jpg`
+- Credential resolution: orchestrator resolves managed storage via existing `/v1/credentials/resolve` with **`provider: "managed"`** and fields **`access_key_id`**, **`secret_access_key`**, **`endpoint_url`**, **`bucket`**, **`region`** (S3-compatible; R2 in production)
+- Object key layout must match **orchestrator-projected paths** (e.g. `{tenant_slug}/{instance_name}/…` with `archive` / `keep` / `remove` under root); see orchestrator `project_runtime_config`
 
 ## Non-Goals
 
-- No image upload endpoints in the publisher (uploads are handled by the orchestrator)
-- No migration tooling (Dropbox → managed) in this item
+- No **admin bulk upload** or **Dropbox → managed migration** in this item — those are [PUB-031: Managed Storage Migration & Admin Library](PUB-031_managed-storage-migration-admin-library.md)
+- No first-party **orchestrator dashboard** file browser (orchestrator repo); PUB-031 may add Publisher-side admin library or defer uploads to orchestrator per hardening decision
 - No CDN or edge caching layer (can be added later)
-- No changes to the orchestrator (orchestrator changes are tracked separately)
+- Orchestrator contract work is tracked in the orchestrator repo; Publisher assumes **`storage.provider`** of **`dropbox`** or **`managed`** as already emitted by `/v1/runtime/by-host`
 
 ## Acceptance Criteria
 
@@ -65,7 +65,35 @@ A `ManagedStorage` adapter implementing `StorageProtocol` (from PUB-023) that re
 - Credential shape for orchestrator: `{ "access_key_id", "secret_access_key", "endpoint_url", "bucket", "region" }`
 - Wrap all `boto3` calls in `asyncio.to_thread` since boto3 is synchronous
 
+### Schema migration (critical)
+
+`ApplicationConfig.dropbox` is currently a **required** field. For managed-only instances there is no Dropbox config. This must change:
+
+```python
+class ApplicationConfig(BaseModel):
+    dropbox: DropboxConfig | None = None          # was required, now optional
+    managed: ManagedStorageConfig | None = None    # new
+```
+
+Plus a model validator: exactly one of `dropbox` or `managed` must be set, matching the storage provider. All code that accesses `config.dropbox` must be guarded or routed through the storage factory.
+
+### Orchestrator env (already provisioned)
+
+R2 credentials are already set on `org-staging` and `org-prod`: `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT_URL`, `R2_BUCKET_NAME`, `R2_REGION`. The orchestrator needs to serve these via `/v1/credentials/resolve` for `provider: "managed"` (tracked in orchestrator issue #95).
+
+### Startup guard (critical)
+
+`OrchestratorConfigSource.__init__` (line 130) currently **crashes** if `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` are missing — even in orchestrator mode, before any tenant is known. This guard must become **conditional on provider** or deferred to when a Dropbox-backed tenant is actually resolved. Otherwise a dyno serving only managed-storage tenants still needs dummy Dropbox env vars.
+
+### Standalone env vars
+
+For standalone (non-orchestrator) use with managed storage, the publisher needs:
+- `STORAGE_PROVIDER=managed` (new; default `dropbox` for backward compatibility)
+- `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, `R2_ENDPOINT_URL`, `R2_BUCKET_NAME`, `R2_REGION`
+- Or equivalent `[Storage]` INI section with `provider = managed`
+
 ## Related
 
 - [PUB-023: Storage Protocol Extraction](PUB-023_storage-protocol-extraction.md) — prerequisite; defines the protocol this adapter implements
+- [PUB-031: Managed Storage Migration & Admin Library](PUB-031_managed-storage-migration-admin-library.md) — migration + admin library (upload/list/delete)
 - [PUB-015: Cloud Storage Adapter (Dropbox)](archive/PUB-015_cloud-storage-dropbox.md) — the existing adapter; this item adds a second implementation
