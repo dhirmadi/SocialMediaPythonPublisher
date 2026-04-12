@@ -22,6 +22,16 @@ from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
 
 
+def _dropbox_move_destination_dir(folder: str, target_subfolder: str) -> str:
+    """Destination directory for curation moves (relative segment or full Dropbox path)."""
+    fn = folder.rstrip("/")
+    ts = target_subfolder.strip()
+    ts_n = ts.rstrip("/")
+    if ts_n.startswith(fn + "/") or ts_n == fn:
+        return ts
+    return os.path.join(folder, target_subfolder)
+
+
 class DropboxStorage:
     def __init__(self, config: DropboxConfig):
         self.config = config
@@ -274,7 +284,7 @@ class DropboxStorage:
 
             def _move() -> None:
                 src = os.path.join(folder, filename)
-                dst_dir = os.path.join(folder, target_subfolder)
+                dst_dir = _dropbox_move_destination_dir(folder, target_subfolder)
                 # Ensure destination folder exists
                 with contextlib.suppress(ApiError):
                     self.client.files_create_folder_v2(dst_dir)

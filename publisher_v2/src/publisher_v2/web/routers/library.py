@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, stat
 from pydantic import BaseModel
 
 from publisher_v2.config.features import resolve_library_enabled
+from publisher_v2.config.schema import StoragePathConfig
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.auth import require_admin, require_auth
 from publisher_v2.web.dependencies import get_request_service
@@ -26,6 +27,33 @@ from publisher_v2.web.service import WebImageService
 logger = logging.getLogger("publisher_v2.web.library")
 
 router = APIRouter(prefix="/api/library", tags=["library"])
+
+
+def _resolved_folder_under_image_root(image_folder: str, configured: str) -> str:
+    """Resolve a storage path that may be a short segment (``archive``) or full key prefix."""
+    root = image_folder.strip("/")
+    cfg = configured.strip("/")
+    if not cfg:
+        return root
+    if cfg.startswith(root + "/") or cfg == root:
+        return cfg
+    return f"{root}/{cfg}"
+
+
+def _library_list_prefix(paths: StoragePathConfig, logical: str) -> str:
+    """S3 list prefix with trailing slash. ``logical`` is '', 'archive', 'keep', or 'remove'."""
+    root = paths.image_folder.strip("/")
+    if not logical:
+        return f"{root}/"
+    if logical == "archive":
+        block = _resolved_folder_under_image_root(paths.image_folder, paths.archive_folder)
+    elif logical == "keep":
+        block = _resolved_folder_under_image_root(paths.image_folder, paths.folder_keep or "keep")
+    elif logical == "remove":
+        block = _resolved_folder_under_image_root(paths.image_folder, paths.folder_remove or "reject")
+    else:
+        return f"{root}/"
+    return f"{block.strip('/')}/"
 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png"}
 VALID_TARGET_FOLDERS = {"keep", "remove", "archive", "root"}
@@ -231,15 +259,15 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
     paths = service.config.storage_paths
     source_folder = paths.image_folder
 
-    # Resolve target
+    # Resolve target (INI may use short segments; orchestrator uses full key prefixes)
     if target_folder == "root":
         dest_folder = paths.image_folder
     elif target_folder == "archive":
-        dest_folder = f"{source_folder.strip('/')}/{paths.archive_folder}"
+        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.archive_folder)
     elif target_folder == "keep":
-        dest_folder = f"{source_folder.strip('/')}/{paths.folder_keep or 'keep'}"
+        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.folder_keep or "keep")
     elif target_folder == "remove":
-        dest_folder = f"{source_folder.strip('/')}/{paths.folder_remove or 'reject'}"
+        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.folder_remove or "reject")
     else:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid target_folder: {target_folder}")
 
@@ -288,15 +316,11 @@ async def list_objects(
     # Clamp limit
     limit = min(max(1, limit), 200)
 
-    # Build storage prefix using configured path names
     paths = service.config.storage_paths
-    base = paths.image_folder.strip("/")
-    prefix_map = {
-        "archive": paths.archive_folder,
-        "keep": paths.folder_keep or "keep",
-        "remove": paths.folder_remove or "reject",
-    }
-    storage_prefix = f"{base}/{prefix_map[prefix]}/" if prefix and prefix in prefix_map else f"{base}/"
+    if prefix in ("archive", "keep", "remove"):
+        storage_prefix = _library_list_prefix(paths, prefix)
+    else:
+        storage_prefix = _library_list_prefix(paths, "")
 
     result = await _list_objects_from_storage(service, storage_prefix, cursor, limit)
     return LibraryListResponse(**result)

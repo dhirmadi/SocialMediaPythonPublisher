@@ -468,3 +468,31 @@ class TestNoCredentials:
         response_text = res.text
         assert "super_secret_key_12345" not in response_text
         assert "access_key" not in response_text.lower() or "AKID" not in response_text
+
+
+class TestLibraryListPrefixResolution:
+    """Library S3 prefix must not double-prefix orchestrator-style full paths."""
+
+    def test_full_archive_prefix_not_doubled(self) -> None:
+        from publisher_v2.config.schema import StoragePathConfig
+        from publisher_v2.web.routers.library import _library_list_prefix
+
+        paths = StoragePathConfig(
+            image_folder="tenant/root",
+            archive_folder="tenant/root/archive",
+            folder_keep="tenant/root/keep",
+            folder_remove="tenant/root/reject",
+        )
+        assert _library_list_prefix(paths, "archive") == "tenant/root/archive/"
+        assert _library_list_prefix(paths, "keep") == "tenant/root/keep/"
+        assert _library_list_prefix(paths, "") == "tenant/root/"
+
+    def test_short_segment_joined_under_root(self) -> None:
+        from publisher_v2.config.schema import StoragePathConfig
+        from publisher_v2.web.routers.library import _library_list_prefix
+
+        paths = StoragePathConfig(
+            image_folder="tenant/root",
+            archive_folder="archive",
+        )
+        assert _library_list_prefix(paths, "archive") == "tenant/root/archive/"

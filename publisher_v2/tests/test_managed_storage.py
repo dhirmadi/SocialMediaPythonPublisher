@@ -178,6 +178,13 @@ class TestMoveImageWithSidecars:
         mock_s3_client.copy_object.assert_called()
         mock_s3_client.delete_object.assert_called()
 
+    async def test_move_accepts_full_path_target_like_orchestrator(self, storage, mock_s3_client) -> None:
+        """Orchestrator storage_paths.folder_keep is a full key prefix, not a single segment."""
+        await storage.move_image_with_sidecars("tenant/root", "a.jpg", "tenant/root/keep")
+
+        first_copy = mock_s3_client.copy_object.call_args_list[0].kwargs
+        assert first_copy["Key"] == "tenant/root/keep/a.jpg"
+
 
 # AC8: delete_file_with_sidecar
 class TestDeleteFileWithSidecar:

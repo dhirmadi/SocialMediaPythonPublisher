@@ -71,6 +71,21 @@ class ManagedStorage:
         return self._key(folder, f"{stem}.txt")
 
     @staticmethod
+    def _move_destination_prefix(folder: str, target_subfolder: str) -> str:
+        """Resolve destination key prefix for curation moves.
+
+        ``target_subfolder`` is either a single segment (``keep``) or an absolute
+        key prefix under the bucket (``tenant/root/keep`` from orchestrator).
+        """
+        fn = folder.strip("/")
+        ts = target_subfolder.strip("/")
+        if not ts:
+            return fn
+        if ts.startswith(fn + "/") or ts == fn:
+            return ts
+        return f"{fn}/{ts}"
+
+    @staticmethod
     def _is_immediate_child_object_key(folder: str, key: str) -> bool:
         """True if key is a direct object under folder (not in a nested sub-prefix).
 
@@ -293,14 +308,15 @@ class ManagedStorage:
 
             def _move() -> None:
                 src_key = self._key(folder, filename)
-                dst_key = self._key(f"{folder.strip('/')}/{target_subfolder}", filename)
+                dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
+                dst_key = self._key(dest_prefix, filename)
                 copy_src = {"Bucket": self._bucket, "Key": src_key}
                 self.client.copy_object(Bucket=self._bucket, Key=dst_key, CopySource=copy_src)
                 self.client.delete_object(Bucket=self._bucket, Key=src_key)
                 # Move sidecar
                 sidecar_src = self._sidecar_key(folder, filename)
                 stem = os.path.splitext(filename)[0]
-                sidecar_dst = self._key(f"{folder.strip('/')}/{target_subfolder}", f"{stem}.txt")
+                sidecar_dst = self._key(dest_prefix, f"{stem}.txt")
                 try:
                     self.client.copy_object(
                         Bucket=self._bucket, Key=sidecar_dst, CopySource={"Bucket": self._bucket, "Key": sidecar_src}
