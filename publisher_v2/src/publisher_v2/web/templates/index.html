@@ -198,6 +198,22 @@
     .hidden {
       display: none !important;
     }
+    .library-toolbar {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    #library-objects table th,
+    #library-objects table td {
+      font-size: 0.85rem;
+    }
+    @media (max-width: 768px) {
+      #library-objects table th:nth-child(3),
+      #library-objects table td:nth-child(3) {
+        display: none;
+      }
+    }
     .admin-only {
       /* marker class; actual visibility controlled via .hidden */
     }
@@ -455,6 +471,47 @@
       </div>
       <div id="details"></div>
     </div>
+
+    <!-- Library panel: admin-only, managed-storage-only -->
+    <div class="panel admin-only hidden" id="panel-library">
+      <h2>Library Management</h2>
+      <div class="library-toolbar">
+        <select id="library-folder-filter" style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;">
+          <option value="">Root</option>
+          <option value="archive">Archive</option>
+          <option value="keep">Keep</option>
+          <option value="remove">Remove</option>
+        </select>
+        <label class="library-upload-btn" style="display:inline-block;padding:0.4rem 0.75rem;background:linear-gradient(135deg,#06b6d4,#10b981);color:#020617;border-radius:0.5rem;cursor:pointer;font-size:0.85rem;font-weight:600;">
+          Upload
+          <input type="file" id="library-upload-input" accept="image/jpeg,image/png" style="display:none;" />
+        </label>
+        <button id="library-refresh-btn" class="secondary" style="padding:0.4rem 0.75rem;font-size:0.85rem;">Refresh</button>
+      </div>
+      <div id="library-upload-progress" class="hidden" style="margin-top:0.5rem;">
+        <div style="background:#1f2937;border-radius:0.25rem;overflow:hidden;height:4px;">
+          <div id="library-upload-bar" style="height:100%;background:linear-gradient(90deg,#06b6d4,#10b981);width:0%;transition:width 0.3s;"></div>
+        </div>
+        <div id="library-upload-status" style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem;"></div>
+      </div>
+      <div id="library-objects" style="margin-top:0.75rem;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+          <thead>
+            <tr style="border-bottom:1px solid #374151;">
+              <th style="text-align:left;padding:0.4rem;">Filename</th>
+              <th style="text-align:right;padding:0.4rem;">Size</th>
+              <th style="text-align:right;padding:0.4rem;">Modified</th>
+              <th style="text-align:center;padding:0.4rem;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="library-table-body"></tbody>
+        </table>
+      </div>
+      <div id="library-pagination" style="margin-top:0.5rem;text-align:center;" class="hidden">
+        <button id="library-load-more" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;">Load more</button>
+      </div>
+      <div id="library-empty" class="hidden" style="text-align:center;color:#9ca3af;padding:1rem;">No objects found.</div>
+    </div>
   </main>
 
   <div id="admin-modal" class="modal hidden">
@@ -538,6 +595,7 @@
       remove_enabled: true,
       delete_enabled: false,
       auto_view_enabled: false,
+      library_enabled: false,
       auth_mode: "none",
     };
 
@@ -936,6 +994,7 @@
             remove_enabled: true,
             delete_enabled: false,
             auto_view_enabled: false,
+            library_enabled: false,
             auth_mode: "none",
           };
         }
@@ -947,6 +1006,7 @@
           remove_enabled: data.remove_enabled ?? true,
           delete_enabled: data.delete_enabled ?? false,
           auto_view_enabled: data.auto_view_enabled ?? false,
+          library_enabled: data.library_enabled ?? false,
           auth_mode: data.auth_mode ?? "none",
         };
       } catch (error) {
@@ -958,6 +1018,7 @@
           remove_enabled: true,
           delete_enabled: false,
           auto_view_enabled: false,
+          library_enabled: false,
           auth_mode: "none",
         };
       }
@@ -1038,6 +1099,12 @@
       }
       // Ensure Next button reflects current admin + AUTO_VIEW state when not globally disabled.
       disableButtons(false);
+
+      // Library panel visibility
+      updateLibraryVisibility();
+      if (isAdmin && featureConfig.library_enabled) {
+        libraryFetchObjects(false);
+      }
     }
 
     async function fetchAdminStatus() {
@@ -1750,6 +1817,224 @@
       }
     }
 
+    // ---------------------------------------------------------------
+    // Library panel logic
+    // ---------------------------------------------------------------
+    const panelLibrary = document.getElementById("panel-library");
+    const libraryTableBody = document.getElementById("library-table-body");
+    const libraryFolderFilter = document.getElementById("library-folder-filter");
+    const libraryUploadInput = document.getElementById("library-upload-input");
+    const libraryRefreshBtn = document.getElementById("library-refresh-btn");
+    const libraryUploadProgress = document.getElementById("library-upload-progress");
+    const libraryUploadBar = document.getElementById("library-upload-bar");
+    const libraryUploadStatus = document.getElementById("library-upload-status");
+    const libraryPagination = document.getElementById("library-pagination");
+    const libraryLoadMore = document.getElementById("library-load-more");
+    const libraryEmpty = document.getElementById("library-empty");
+
+    let libraryCursor = null;
+
+    function updateLibraryVisibility() {
+      if (!panelLibrary) return;
+      if (isAdmin && featureConfig.library_enabled) {
+        panelLibrary.classList.remove("hidden");
+      } else {
+        panelLibrary.classList.add("hidden");
+      }
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes < 1024) return bytes + " B";
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
+    }
+
+    function formatDate(dateStr) {
+      if (!dateStr) return "";
+      try {
+        const d = new Date(dateStr);
+        return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
+      } catch { return dateStr; }
+    }
+
+    async function libraryFetchObjects(append) {
+      if (!append) {
+        libraryTableBody.innerHTML = "";
+        libraryCursor = null;
+      }
+      const prefix = libraryFolderFilter.value;
+      let url = `/api/library/objects?limit=50`;
+      if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`;
+      if (libraryCursor) url += `&cursor=${encodeURIComponent(libraryCursor)}`;
+
+      try {
+        const res = await fetch(url);
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || "Failed to list objects", "error");
+          return;
+        }
+        const data = await res.json();
+        libraryCursor = data.cursor;
+
+        if (data.objects.length === 0 && !append) {
+          libraryEmpty.classList.remove("hidden");
+        } else {
+          libraryEmpty.classList.add("hidden");
+        }
+
+        for (const obj of data.objects) {
+          const tr = document.createElement("tr");
+          tr.style.borderBottom = "1px solid #1f2937";
+          tr.innerHTML = `
+            <td style="padding:0.4rem;word-break:break-all;">${escapeHtml(obj.key)}</td>
+            <td style="padding:0.4rem;text-align:right;white-space:nowrap;">${formatFileSize(obj.size)}</td>
+            <td style="padding:0.4rem;text-align:right;white-space:nowrap;font-size:0.8rem;">${formatDate(obj.last_modified)}</td>
+            <td style="padding:0.4rem;text-align:center;white-space:nowrap;">
+              <select class="library-move-select" data-filename="${escapeHtml(obj.key)}" style="padding:0.2rem;border-radius:0.25rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.8rem;">
+                <option value="">Move...</option>
+                <option value="root">Root</option>
+                <option value="archive">Archive</option>
+                <option value="keep">Keep</option>
+                <option value="remove">Remove</option>
+              </select>
+              <button class="library-delete-btn secondary" data-filename="${escapeHtml(obj.key)}" style="padding:0.2rem 0.5rem;font-size:0.8rem;color:#ef4444;margin-left:0.25rem;">Del</button>
+            </td>
+          `;
+          libraryTableBody.appendChild(tr);
+        }
+
+        // Pagination
+        if (data.cursor) {
+          libraryPagination.classList.remove("hidden");
+        } else {
+          libraryPagination.classList.add("hidden");
+        }
+
+        // Attach event listeners to new rows
+        libraryTableBody.querySelectorAll(".library-delete-btn").forEach(btn => {
+          btn.onclick = () => libraryDelete(btn.dataset.filename);
+        });
+        libraryTableBody.querySelectorAll(".library-move-select").forEach(sel => {
+          sel.onchange = () => {
+            if (sel.value) {
+              libraryMove(sel.dataset.filename, sel.value);
+              sel.value = "";
+            }
+          };
+        });
+      } catch (err) {
+        showToast("Error loading library: " + err.message, "error");
+      }
+    }
+
+    async function libraryUpload(file) {
+      // Client-side validation
+      if (!["image/jpeg", "image/png"].includes(file.type)) {
+        showToast("Only JPEG and PNG files are allowed", "error");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        showToast("File too large (max 20 MB)", "error");
+        return;
+      }
+
+      libraryUploadProgress.classList.remove("hidden");
+      libraryUploadBar.style.width = "0%";
+      libraryUploadStatus.textContent = "Uploading...";
+
+      const formData = new FormData();
+      formData.append("file", file);
+
+      try {
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/library/upload");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            libraryUploadBar.style.width = pct + "%";
+            libraryUploadStatus.textContent = `Uploading... ${pct}%`;
+          }
+        };
+        const result = await new Promise((resolve, reject) => {
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText));
+            } else {
+              const err = JSON.parse(xhr.responseText || "{}");
+              reject(new Error(err.detail || `Upload failed (${xhr.status})`));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Upload failed"));
+          xhr.send(formData);
+        });
+
+        libraryUploadBar.style.width = "100%";
+        libraryUploadStatus.textContent = "Upload complete!";
+        showToast(`Uploaded: ${result.key}`, "success");
+        setTimeout(() => libraryUploadProgress.classList.add("hidden"), 2000);
+        await libraryFetchObjects(false);
+      } catch (err) {
+        libraryUploadStatus.textContent = "Upload failed: " + err.message;
+        showToast(err.message, "error");
+        setTimeout(() => libraryUploadProgress.classList.add("hidden"), 3000);
+      }
+    }
+
+    async function libraryDelete(filename) {
+      if (!confirm(`Delete "${filename}" and its sidecar?`)) return;
+      try {
+        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || "Delete failed", "error");
+          return;
+        }
+        showToast(`Deleted: ${filename}`, "success");
+        await libraryFetchObjects(false);
+      } catch (err) {
+        showToast("Delete error: " + err.message, "error");
+      }
+    }
+
+    async function libraryMove(filename, targetFolder) {
+      try {
+        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}/move`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ target_folder: targetFolder }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || "Move failed", "error");
+          return;
+        }
+        showToast(`Moved "${filename}" to ${targetFolder}`, "success");
+        await libraryFetchObjects(false);
+      } catch (err) {
+        showToast("Move error: " + err.message, "error");
+      }
+    }
+
+    function initLibrary() {
+      if (!panelLibrary) return;
+      libraryFolderFilter.addEventListener("change", () => libraryFetchObjects(false));
+      libraryRefreshBtn.addEventListener("click", () => libraryFetchObjects(false));
+      libraryUploadInput.addEventListener("change", (e) => {
+        if (e.target.files && e.target.files[0]) {
+          libraryUpload(e.target.files[0]);
+          e.target.value = "";
+        }
+      });
+      libraryLoadMore.addEventListener("click", () => libraryFetchObjects(true));
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement("div");
+      div.textContent = text;
+      return div.innerHTML;
+    }
+
     function initLayout() {
       btnNext.addEventListener("click", handleNext);
       btnPrev.addEventListener("click", handlePrev);
@@ -1774,6 +2059,7 @@
         btnDelete.addEventListener("click", apiDelete);
       }
       initAdminControls();
+      initLibrary();
       initGestures();
       window.addEventListener("load", async () => {
         // Fetch feature config first so we can gate buttons from .env feature flags.

@@ -26,7 +26,7 @@ External Services (Dropbox, OpenAI, IG API, Telegram, SMTP)
 
 ### Core Services
 - **WorkflowOrchestrator**: Coordinates select → analyze → caption → publish → archive
-- **ImageStorage (Protocol) + DropboxStorage**: List, download, temporary link, archive
+- **ImageStorage (Protocol) + DropboxStorage / ManagedStorage**: List, download, temporary link, archive (S3-compatible via PUB-024)
 - **AIService**: Composes VisionAnalyzer + CaptionGenerator and applies style templates
 - **Publishers**: InstagramPublisher, TelegramPublisher, EmailPublisher
 
@@ -76,6 +76,16 @@ Web API (FastAPI):
 - `GET /health/live` → {"status": "ok"} (liveness)
 - `GET /health/ready` → {"status": "ok"} (readiness; may check orchestrator connectivity when configured)
 - `GET /health` → {"status": "ok"} (legacy/compat)
+
+Admin Library API (PUB-031, managed storage only):
+- `GET /api/library/objects` → LibraryListResponse (paginated object list; query params: prefix, cursor, limit)
+- `POST /api/library/upload` → LibraryUploadResponse (multipart upload; MIME allowlist, 20 MB limit, rate limited)
+- `DELETE /api/library/objects/{filename}` → LibraryDeleteResponse (delete image + sidecar)
+- `POST /api/library/objects/{filename}/move` → LibraryMoveResponse (move to keep/remove/archive/root)
+
+Migration CLI (PUB-031, standalone tool):
+- `uv run python -m publisher_v2.tools.migrate_storage --source-folder <path> --target-prefix <prefix>`
+- Flags: `--dry-run`, `--limit N`, `--no-resume`, `--archive-folder`
 
 ## 4. Execution Model
 - Async entrypoint; wrap blocking SDK methods with `asyncio.to_thread`.

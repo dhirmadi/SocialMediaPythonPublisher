@@ -225,6 +225,10 @@ class FeaturesConfig(BaseModel):
         default=False,
         description="Allow random images to be viewed without admin login in the web UI",
     )
+    library_enabled: bool = Field(
+        default=False,
+        description="Enable admin library management panel (auto-enabled for managed storage instances)",
+    )
 
 
 class WebConfig(BaseModel):

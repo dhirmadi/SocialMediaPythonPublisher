@@ -39,6 +39,7 @@ from publisher_v2.web.models import (
     PublishResponse,
 )
 from publisher_v2.web.routers import auth as auth_router
+from publisher_v2.web.routers import library as library_router
 from publisher_v2.web.service import WebImageService
 
 __all__ = [
@@ -173,6 +174,7 @@ if not session_secret:
 secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
 app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
 app.include_router(auth_router.router)
+app.include_router(library_router.router)
 app.middleware("http")(tenant_middleware)
 
 
@@ -652,6 +654,11 @@ async def api_get_features_config(
     # Determine auth mode
     auth_mode = get_auth_mode()
 
+    # Resolve library_enabled dynamically (auto-enabled for managed storage)
+    from publisher_v2.config.features import resolve_library_enabled
+
+    library_enabled = resolve_library_enabled(service.config)
+
     return {
         "analyze_caption_enabled": features.analyze_caption_enabled,
         "publish_enabled": features.publish_enabled,
@@ -659,6 +666,7 @@ async def api_get_features_config(
         "remove_enabled": features.remove_enabled,
         "delete_enabled": features.delete_enabled,
         "auto_view_enabled": features.auto_view_enabled,
+        "library_enabled": library_enabled,
         "auth_mode": auth_mode,
     }
 
