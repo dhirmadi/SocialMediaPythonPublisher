@@ -279,8 +279,17 @@ async def async_main() -> int:
     source = _build_source_storage(args)
     target = _build_target_storage()
 
-    # Determine subfolders to migrate
-    subfolders = ["archive", "keep", "remove"]
+    # Determine subfolders to migrate — use actual subfolder names from DropboxConfig defaults
+    # or values derived from the source config. The standard subfolders are:
+    # archive (default "archive"), keep (default "keep"), remove (default "reject")
+    subfolders = ["archive", "keep", "reject"]
+
+    # If --archive-folder is explicitly provided, include it as an additional source
+    if args.archive_folder and args.archive_folder != args.source_folder:
+        # archive_folder is an absolute Dropbox path; derive relative subfolder name
+        rel = args.archive_folder.rstrip("/").rsplit("/", 1)[-1]
+        if rel not in subfolders:
+            subfolders.append(rel)
 
     result = await run_migration(
         source=source,

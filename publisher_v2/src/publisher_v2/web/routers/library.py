@@ -288,9 +288,15 @@ async def list_objects(
     # Clamp limit
     limit = min(max(1, limit), 200)
 
-    # Build storage prefix
-    base = service.config.storage_paths.image_folder.strip("/")
-    storage_prefix = f"{base}/{prefix}/" if prefix and prefix in ("archive", "keep", "remove") else f"{base}/"
+    # Build storage prefix using configured path names
+    paths = service.config.storage_paths
+    base = paths.image_folder.strip("/")
+    prefix_map = {
+        "archive": paths.archive_folder,
+        "keep": paths.folder_keep or "keep",
+        "remove": paths.folder_remove or "reject",
+    }
+    storage_prefix = f"{base}/{prefix_map[prefix]}/" if prefix and prefix in prefix_map else f"{base}/"
 
     result = await _list_objects_from_storage(service, storage_prefix, cursor, limit)
     return LibraryListResponse(**result)
