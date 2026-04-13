@@ -134,11 +134,13 @@ async def main_async() -> int:
                 sd_caption_text = result.image_analysis.sd_caption or ""
                 preview_utils.print_caption_sidecar_preview(sd_caption_text, meta)
 
-        # Show platform preview with formatted captions
+        # Show platform preview with per-platform AI-generated captions (AC18)
         platform_captions = {}
         for pub in publishers:
             if pub.is_enabled():
-                platform_captions[pub.platform_name] = format_caption(pub.platform_name, result.caption)
+                # Use AI-generated per-platform caption if available, else fall back to generic
+                raw_caption = result.platform_captions.get(pub.platform_name, result.caption)
+                platform_captions[pub.platform_name] = format_caption(pub.platform_name, raw_caption)
 
         # Compute email subject preview if email is enabled
         email_subject = None

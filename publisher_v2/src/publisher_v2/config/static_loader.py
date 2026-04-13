@@ -43,6 +43,12 @@ class AISDCaptionPrompts(BaseModel):
     )
 
 
+class PlatformCaptionStyle(BaseModel):
+    style: str = Field(default="minimal_poetic", description="Caption style directive for this platform")
+    max_length: int = Field(default=2200, description="Maximum caption length")
+    hashtags: bool = Field(default=True, description="Whether to include hashtags")
+
+
 class ConfirmationTagsConfig(BaseModel):
     prompt: str = Field(
         default="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
@@ -59,6 +65,23 @@ class AIPromptsConfig(BaseModel):
     caption: AICaptionPrompts = AICaptionPrompts()
     sd_caption: AISDCaptionPrompts = AISDCaptionPrompts()
     confirmation_tags: ConfirmationTagsConfig = ConfirmationTagsConfig()
+    platform_captions: dict[str, PlatformCaptionStyle] = Field(
+        default_factory=lambda: {
+            "telegram": PlatformCaptionStyle(
+                style="conversational, emoji-friendly, artistic commentary", max_length=4096, hashtags=True
+            ),
+            "instagram": PlatformCaptionStyle(
+                style="hook-first, hashtags woven naturally, engaging, visual storytelling",
+                max_length=2200,
+                hashtags=True,
+            ),
+            "email": PlatformCaptionStyle(
+                style="engagement question, intimate, FetLife-appropriate, no hashtags", max_length=240, hashtags=False
+            ),
+            "generic": PlatformCaptionStyle(style="minimal_poetic", max_length=2200, hashtags=True),
+        },
+        description="Per-platform caption style registry",
+    )
 
 
 class PlatformLimit(BaseModel):

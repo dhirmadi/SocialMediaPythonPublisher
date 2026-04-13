@@ -440,6 +440,12 @@ class BaseDummyAI:
     async def create_caption_pair_from_analysis(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, str]:
         return self._caption, self.generator._sd_caption
 
+    async def create_multi_caption_pair_from_analysis(
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+    ) -> tuple[dict[str, str], str | None]:
+        captions = {k: self._caption for k in specs}
+        return captions, self.generator._sd_caption
+
 
 @pytest.fixture
 def dummy_analyzer_class() -> type:

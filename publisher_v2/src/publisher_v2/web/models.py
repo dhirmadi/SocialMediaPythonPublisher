@@ -28,6 +28,7 @@ class AnalysisResponse(BaseModel):
     caption: str
     sd_caption: str | None = None
     sidecar_written: bool
+    platform_captions: dict[str, str] | None = None
 
 
 class PublishRequest(BaseModel):

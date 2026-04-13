@@ -311,9 +311,11 @@ class WorkflowOrchestrator:
                 )
 
             # 4. Generate caption from analysis (feature-gated)
-            spec = CaptionSpec.for_config(self.config)
+            specs = CaptionSpec.for_platforms(self.config)
+            spec = next(iter(specs.values()))  # primary spec for backward compat
             caption = ""
             sd_caption = None
+            platform_captions: dict[str, str] = {}
             if caption_override and caption_override.strip():
                 caption = caption_override
                 sd_caption = None
@@ -333,7 +335,15 @@ class WorkflowOrchestrator:
                 caption_start = now_monotonic()
                 if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
                     log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
-                caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
+                # Use multi-platform generation if available, fall back to single-caption
+                if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
+                    platform_captions, sd_caption = await self.ai_service.create_multi_caption_pair_from_analysis(
+                        analysis, specs
+                    )
+                    # Set primary caption from first platform
+                    caption = next(iter(platform_captions.values()), "")
+                else:
+                    caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
                 caption_generation_ms = elapsed_ms(caption_start)
                 if not preview_mode:
                     log_json(
@@ -341,6 +351,7 @@ class WorkflowOrchestrator:
                         logging.INFO,
                         "caption_generated",
                         caption_length=len(caption),
+                        platform_count=len(platform_captions),
                         correlation_id=correlation_id,
                     )
                 if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
@@ -394,7 +405,10 @@ class WorkflowOrchestrator:
                         *[
                             p.publish(
                                 tmp_path,
-                                format_caption(p.platform_name, caption),
+                                format_caption(
+                                    p.platform_name,
+                                    platform_captions.get(p.platform_name, caption),
+                                ),
                                 context={"analysis_tags": analysis.tags} if analysis else None,
                             )
                             for p in enabled_publishers
@@ -474,6 +488,7 @@ class WorkflowOrchestrator:
                 publish_results=publish_results,
                 archived=archived,
                 correlation_id=correlation_id,
+                platform_captions=platform_captions,
                 # Preview mode fields
                 image_analysis=analysis if preview_mode else None,
                 caption_spec=spec if preview_mode else None,

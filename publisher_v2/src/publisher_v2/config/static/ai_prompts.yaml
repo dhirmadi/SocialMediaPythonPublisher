@@ -39,6 +39,25 @@ sd_caption:
     2) 'sd_caption' optimized for Stable Diffusion prompts (PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).
     Respond strictly as JSON with keys caption, sd_caption.
 
+# Platform-specific caption styles for multi-platform generation (PUB-025)
+platform_captions:
+  telegram:
+    style: "conversational, emoji-friendly, artistic commentary"
+    max_length: 4096
+    hashtags: true
+  instagram:
+    style: "hook-first, hashtags woven naturally, engaging, visual storytelling"
+    max_length: 2200
+    hashtags: true
+  email:
+    style: "engagement question, intimate, FetLife-appropriate, no hashtags"
+    max_length: 240
+    hashtags: false
+  generic:
+    style: "minimal_poetic"
+    max_length: 2200
+    hashtags: true
+
 # Email confirmation tags prompt (FetLife)
 confirmation_tags:
   prompt: "short, lowercase, human-friendly topical nouns as used on FetLife; no hashtags; no emojis"

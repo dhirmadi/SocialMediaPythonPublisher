@@ -438,12 +438,18 @@ class WebImageService:
 
         from publisher_v2.core.models import CaptionSpec
 
-        spec = CaptionSpec.for_config(self.config)
+        specs = CaptionSpec.for_platforms(self.config)
+        spec = next(iter(specs.values()))  # primary spec for backward compat
 
-        # Generate caption + sd_caption via centralized AIService helper.
+        # Generate per-platform captions + sd_caption via centralized AIService helper.
         sd_caption = None
+        platform_captions_dict: dict[str, str] | None = None
         try:
-            caption, sd_caption = await ai.create_caption_pair_from_analysis(analysis, spec)
+            if hasattr(ai, "create_multi_caption_pair_from_analysis"):
+                platform_captions_dict, sd_caption = await ai.create_multi_caption_pair_from_analysis(analysis, specs)
+                caption = next(iter(platform_captions_dict.values()), "")
+            else:
+                caption, sd_caption = await ai.create_caption_pair_from_analysis(analysis, spec)
         except Exception as exc:
             log_json(
                 self.logger,
@@ -491,6 +497,7 @@ class WebImageService:
             caption=caption,
             sd_caption=sd_caption,
             sidecar_written=sidecar_written,
+            platform_captions=platform_captions_dict,
         )
 
     async def publish_image(

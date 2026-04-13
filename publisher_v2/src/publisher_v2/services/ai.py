@@ -338,6 +338,107 @@ class CaptionGeneratorOpenAI:
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption+sd failed: {exc}") from exc
 
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def generate_multi(self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]) -> dict[str, str]:
+        """Generate one caption per platform in a single OpenAI call.
+
+        Returns: {"telegram": "...", "instagram": "...", "email": "..."}
+        """
+        try:
+            platform_lines = []
+            for i, (name, spec) in enumerate(specs.items(), 1):
+                ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
+                platform_lines.append(f"{i}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}")
+            platforms_block = "\n".join(platform_lines)
+            keys_list = ", ".join(f'"{k}"' for k in specs)
+
+            prompt = (
+                f"{self.role_prompt}\n\n"
+                f"Generate captions for these platforms:\n\n"
+                f"{platforms_block}\n\n"
+                f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
+                f"Respond with strict JSON containing exactly these keys: {keys_list}"
+            )
+            resp = await self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.7,
+            )
+            content = (resp.choices[0].message.content or "{}").strip()
+            data = json.loads(content)
+            captions: dict[str, str] = {}
+            for platform in specs:
+                val = data.get(platform)
+                if val is None:
+                    raise AIServiceError(f"Missing platform '{platform}' in LLM response")
+                caption_text = str(val).strip()
+                if len(caption_text) > specs[platform].max_length:
+                    caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
+                captions[platform] = caption_text
+            return captions
+        except Exception as exc:
+            raise AIServiceError(f"OpenAI multi-caption failed: {exc}") from exc
+
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=1, min=1, max=8),
+    )
+    async def generate_multi_with_sd(self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]) -> dict[str, str]:
+        """Generate per-platform captions plus one sd_caption in a single OpenAI call.
+
+        Returns: {"telegram": "...", "instagram": "...", ..., "sd_caption": "..."}
+        """
+        try:
+            platform_lines = []
+            for i, (name, spec) in enumerate(specs.items(), 1):
+                ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
+                platform_lines.append(f"{i}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}")
+            platforms_block = "\n".join(platform_lines)
+            keys_list = ", ".join(f'"{k}"' for k in specs)
+
+            prompt = (
+                f"{self.sd_caption_role_prompt}\n\n"
+                f"Generate captions for these platforms:\n\n"
+                f"{platforms_block}\n\n"
+                f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
+                f"Also produce 'sd_caption' optimized for Stable Diffusion prompts "
+                f"(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).\n\n"
+                f'Respond with strict JSON containing exactly these keys: {keys_list}, "sd_caption"'
+            )
+            resp = await self.client.chat.completions.create(
+                model=self.sd_caption_model,
+                messages=[
+                    {"role": "system", "content": self.sd_caption_system_prompt},
+                    {"role": "user", "content": prompt},
+                ],
+                response_format={"type": "json_object"},
+                temperature=0.6,
+            )
+            content = (resp.choices[0].message.content or "{}").strip()
+            data = json.loads(content)
+            result: dict[str, str] = {}
+            for platform in specs:
+                val = data.get(platform)
+                if val is None:
+                    raise AIServiceError(f"Missing platform '{platform}' in LLM response")
+                caption_text = str(val).strip()
+                if len(caption_text) > specs[platform].max_length:
+                    caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
+                result[platform] = caption_text
+            result["sd_caption"] = str(data.get("sd_caption", "")).strip()
+            return result
+        except Exception as exc:
+            raise AIServiceError(f"OpenAI multi-caption+sd failed: {exc}") from exc
+
 
 class AIService:
     def __init__(self, analyzer: VisionAnalyzerOpenAI, generator: CaptionGeneratorOpenAI):
@@ -395,6 +496,36 @@ class AIService:
         async with self._rate_limiter:
             caption_only = await self.generator.generate(analysis, spec)
         return caption_only, None
+
+    async def create_multi_caption_pair_from_analysis(
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+    ) -> tuple[dict[str, str], str | None]:
+        """Create per-platform captions and optional sd_caption from an existing analysis.
+
+        Returns (platform_captions_dict, sd_caption_or_none).
+        Falls back to generate_multi if SD generation fails or is disabled.
+        If the generator doesn't support multi-caption, falls back to single-caption path.
+        """
+        # Fallback for generators that don't support multi-caption (backward compat)
+        if not hasattr(self.generator, "generate_multi"):
+            spec = next(iter(specs.values()))
+            caption, sd = await self.create_caption_pair_from_analysis(analysis, spec)
+            return {next(iter(specs)): caption}, sd
+
+        if getattr(self.generator, "sd_caption_enabled", True) and getattr(
+            self.generator, "sd_caption_single_call_enabled", True
+        ):
+            try:
+                async with self._rate_limiter:
+                    result = await self.generator.generate_multi_with_sd(analysis, specs)
+                sd_caption = result.pop("sd_caption", None) or None
+                return result, sd_caption
+            except Exception:  # noqa: S110 — intentional fallback
+                pass
+        # Fallback to multi-caption without SD
+        async with self._rate_limiter:
+            captions = await self.generator.generate_multi(analysis, specs)
+        return captions, None
 
 
 class NullAIService:

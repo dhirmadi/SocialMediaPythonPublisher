@@ -117,6 +117,7 @@ def mock_workflow_result():
         correlation_id="test-123",
         publish_results={},
         error=None,
+        platform_captions={},
     )
 
 
