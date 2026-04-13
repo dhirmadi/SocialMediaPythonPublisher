@@ -41,7 +41,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-031 | Storage / Web UI | [Managed Storage Migration & Admin Library](archive/PUB-031_managed-storage-migration-admin-library.md) | P1 | L | PUB-023, PUB-024 | Done |
 | PUB-032 | Web UI / Storage | [Admin Library — Sorting & Filtering](archive/PUB-032_library-list-sort-filter.md) | P1 | M | PUB-031 | Done |
 | **Web UI (Active)** ||||||
-| PUB-033 | Web UI | [Unified Image Browser](PUB-033_unified-image-browser.md) | P1 | M | PUB-031, PUB-032 | Proposal |
+| PUB-033 | Web UI | [Unified Image Browser](PUB-033_unified-image-browser.md) | P1 | L | PUB-031, PUB-032 | Hardened |
 | **AI-Powered Content** ||||||
 | PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |
 | PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |
