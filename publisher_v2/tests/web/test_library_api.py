@@ -107,12 +107,13 @@ class TestListObjects:
         """Managed instance returns object list."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        # Mock the list_objects_detailed method
-
-        with patch("publisher_v2.web.routers.library._list_objects_from_storage", new_callable=AsyncMock) as mock_list:
+        # PUB-032: default (no cursor) now uses buffered path
+        with patch("publisher_v2.web.routers.library._list_objects_buffered", new_callable=AsyncMock) as mock_list:
             mock_list.return_value = {
                 "objects": [{"key": "img.jpg", "size": 1024, "last_modified": "2026-01-01T00:00:00Z"}],
                 "cursor": None,
+                "total_in_window": 1,
+                "truncated": False,
             }
             res = managed_app.get(
                 "/api/library/objects",
@@ -141,16 +142,17 @@ class TestListObjects:
     def test_list_objects_paginated(
         self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        """Pagination cursor is returned."""
+        """Pagination cursor is returned (legacy cursor path)."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
+        # PUB-032: cursor param triggers legacy path
         with patch("publisher_v2.web.routers.library._list_objects_from_storage", new_callable=AsyncMock) as mock_list:
             mock_list.return_value = {
                 "objects": [{"key": f"img{i}.jpg", "size": 100, "last_modified": "2026-01-01"} for i in range(50)],
                 "cursor": "next-page-token",
             }
             res = managed_app.get(
-                "/api/library/objects?limit=50",
+                "/api/library/objects?limit=50&cursor=start-token",
                 headers=admin_headers,
                 cookies=admin_cookies,
             )

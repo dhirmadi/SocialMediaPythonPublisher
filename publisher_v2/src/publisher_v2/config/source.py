@@ -278,9 +278,7 @@ class OrchestratorConfigSource:
             candidate = f"{r}/{default_suffix.lstrip('/')}"
         else:
             s = str(value).strip()
-            candidate = (
-                s if s.startswith("/") or (r and (s == r or s.startswith(f"{r}/"))) else f"{r}/{s.lstrip('/')}"
-            )
+            candidate = s if s.startswith("/") or (r and (s == r or s.startswith(f"{r}/"))) else f"{r}/{s.lstrip('/')}"
         if ".." in candidate.split("/"):
             raise ConfigurationError("Storage path contains '..' which is not allowed")
         return candidate

@@ -482,6 +482,13 @@
           <option value="keep">Keep</option>
           <option value="remove">Remove</option>
         </select>
+        <input type="text" id="library-search" placeholder="Filter by name..." style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;width:10rem;" />
+        <select id="library-sort" style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;">
+          <option value="name">Name</option>
+          <option value="last_modified">Date Modified</option>
+          <option value="size">Size</option>
+        </select>
+        <button id="library-order-toggle" class="secondary" style="padding:0.4rem 0.5rem;font-size:0.85rem;min-width:2rem;" title="Sort direction">&uarr;</button>
         <label class="library-upload-btn" style="display:inline-block;padding:0.4rem 0.75rem;background:linear-gradient(135deg,#06b6d4,#10b981);color:#020617;border-radius:0.5rem;cursor:pointer;font-size:0.85rem;font-weight:600;">
           Upload
           <input type="file" id="library-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
@@ -507,8 +514,11 @@
           <tbody id="library-table-body"></tbody>
         </table>
       </div>
-      <div id="library-pagination" style="margin-top:0.5rem;text-align:center;" class="hidden">
+      <div id="library-result-count" style="margin-top:0.4rem;font-size:0.8rem;color:#9ca3af;text-align:center;" class="hidden"></div>
+      <div id="library-pagination" style="margin-top:0.5rem;text-align:center;display:flex;justify-content:center;gap:0.5rem;" class="hidden">
+        <button id="library-prev" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;" disabled>Previous</button>
         <button id="library-load-more" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;">Load more</button>
+        <button id="library-next" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;" disabled>Next</button>
       </div>
       <div id="library-empty" class="hidden" style="text-align:center;color:#9ca3af;padding:1rem;">No objects found.</div>
     </div>
@@ -1823,16 +1833,29 @@
     const panelLibrary = document.getElementById("panel-library");
     const libraryTableBody = document.getElementById("library-table-body");
     const libraryFolderFilter = document.getElementById("library-folder-filter");
+    const librarySearchInput = document.getElementById("library-search");
+    const librarySortSelect = document.getElementById("library-sort");
+    const libraryOrderToggle = document.getElementById("library-order-toggle");
     const libraryUploadInput = document.getElementById("library-upload-input");
     const libraryRefreshBtn = document.getElementById("library-refresh-btn");
     const libraryUploadProgress = document.getElementById("library-upload-progress");
     const libraryUploadBar = document.getElementById("library-upload-bar");
     const libraryUploadStatus = document.getElementById("library-upload-status");
+    const libraryResultCount = document.getElementById("library-result-count");
     const libraryPagination = document.getElementById("library-pagination");
+    const libraryPrevBtn = document.getElementById("library-prev");
     const libraryLoadMore = document.getElementById("library-load-more");
+    const libraryNextBtn = document.getElementById("library-next");
     const libraryEmpty = document.getElementById("library-empty");
 
     let libraryCursor = null;
+    let libraryOffset = 0;
+    let librarySort = "name";
+    let libraryOrder = "asc";
+    let libraryQ = "";
+    let libraryTotalInWindow = 0;
+    let libraryTruncated = false;
+    let librarySearchTimeout = null;
 
     function updateLibraryVisibility() {
       if (!panelLibrary) return;
@@ -1857,15 +1880,31 @@
       } catch { return dateStr; }
     }
 
+    function libraryUsingBufferedPath() {
+      return libraryQ || librarySort !== "name" || libraryOrder !== "asc" || libraryOffset > 0 || !libraryCursor;
+    }
+
     async function libraryFetchObjects(append) {
       if (!append) {
         libraryTableBody.innerHTML = "";
         libraryCursor = null;
+        if (!libraryUsingBufferedPath()) libraryOffset = 0;
       }
       const prefix = libraryFolderFilter.value;
-      let url = `/api/library/objects?limit=50`;
+      const limit = 50;
+      let url = `/api/library/objects?limit=${limit}`;
       if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`;
-      if (libraryCursor) url += `&cursor=${encodeURIComponent(libraryCursor)}`;
+
+      // Use buffered path with sort/filter/offset params
+      const useBuffered = libraryUsingBufferedPath();
+      if (useBuffered) {
+        url += `&sort=${encodeURIComponent(librarySort)}`;
+        url += `&order=${encodeURIComponent(libraryOrder)}`;
+        url += `&offset=${libraryOffset}`;
+        if (libraryQ) url += `&q=${encodeURIComponent(libraryQ)}`;
+      } else if (libraryCursor) {
+        url += `&cursor=${encodeURIComponent(libraryCursor)}`;
+      }
 
       try {
         const res = await fetch(url);
@@ -1876,8 +1915,16 @@
         }
         const data = await res.json();
         libraryCursor = data.cursor;
+        libraryTotalInWindow = data.total_in_window || 0;
+        libraryTruncated = data.truncated || false;
 
+        // Empty state
         if (data.objects.length === 0 && !append) {
+          if (libraryQ) {
+            libraryEmpty.textContent = "No objects match your filter.";
+          } else {
+            libraryEmpty.textContent = "No objects found.";
+          }
           libraryEmpty.classList.remove("hidden");
         } else {
           libraryEmpty.classList.add("hidden");
@@ -1904,10 +1951,39 @@
           libraryTableBody.appendChild(tr);
         }
 
-        // Pagination
-        if (data.cursor) {
-          libraryPagination.classList.remove("hidden");
+        // Pagination and result count
+        if (useBuffered && libraryTotalInWindow > 0) {
+          const start = libraryOffset + 1;
+          const end = Math.min(libraryOffset + data.objects.length, libraryTotalInWindow);
+          const totalLabel = libraryTruncated ? `${libraryTotalInWindow}+` : `${libraryTotalInWindow}`;
+          libraryResultCount.textContent = `Showing ${start}\u2013${end} of ${totalLabel}`;
+          libraryResultCount.classList.remove("hidden");
+
+          // Show prev/next, hide load-more
+          libraryLoadMore.classList.add("hidden");
+          const hasMultiplePages = libraryTotalInWindow > limit;
+          if (hasMultiplePages) {
+            libraryPagination.classList.remove("hidden");
+            libraryPrevBtn.disabled = libraryOffset <= 0;
+            libraryNextBtn.disabled = libraryOffset + limit >= libraryTotalInWindow;
+            libraryPrevBtn.classList.remove("hidden");
+            libraryNextBtn.classList.remove("hidden");
+          } else {
+            libraryPagination.classList.add("hidden");
+          }
+        } else if (!useBuffered) {
+          // Legacy cursor path
+          libraryResultCount.classList.add("hidden");
+          libraryPrevBtn.classList.add("hidden");
+          libraryNextBtn.classList.add("hidden");
+          if (data.cursor) {
+            libraryPagination.classList.remove("hidden");
+            libraryLoadMore.classList.remove("hidden");
+          } else {
+            libraryPagination.classList.add("hidden");
+          }
         } else {
+          libraryResultCount.classList.add("hidden");
           libraryPagination.classList.add("hidden");
         }
 
@@ -2022,10 +2098,38 @@
       }
     }
 
+    function libraryResetAndFetch() {
+      libraryOffset = 0;
+      libraryFetchObjects(false);
+    }
+
     function initLibrary() {
       if (!panelLibrary) return;
-      libraryFolderFilter.addEventListener("change", () => libraryFetchObjects(false));
-      libraryRefreshBtn.addEventListener("click", () => libraryFetchObjects(false));
+      libraryFolderFilter.addEventListener("change", libraryResetAndFetch);
+      libraryRefreshBtn.addEventListener("click", libraryResetAndFetch);
+
+      // Search input with 300ms debounce
+      librarySearchInput.addEventListener("input", () => {
+        clearTimeout(librarySearchTimeout);
+        librarySearchTimeout = setTimeout(() => {
+          libraryQ = librarySearchInput.value;
+          libraryResetAndFetch();
+        }, 300);
+      });
+
+      // Sort dropdown — immediate re-fetch
+      librarySortSelect.addEventListener("change", () => {
+        librarySort = librarySortSelect.value;
+        libraryResetAndFetch();
+      });
+
+      // Order toggle — immediate re-fetch
+      libraryOrderToggle.addEventListener("click", () => {
+        libraryOrder = libraryOrder === "asc" ? "desc" : "asc";
+        libraryOrderToggle.innerHTML = libraryOrder === "asc" ? "&uarr;" : "&darr;";
+        libraryResetAndFetch();
+      });
+
       libraryUploadInput.addEventListener("change", async (e) => {
         const files = e.target.files ? Array.from(e.target.files) : [];
         e.target.value = "";
@@ -2037,7 +2141,19 @@
           await libraryUpload(files[i]);
         }
       });
+
+      // Legacy "Load more" for cursor path
       libraryLoadMore.addEventListener("click", () => libraryFetchObjects(true));
+
+      // Prev/Next for buffered path
+      libraryPrevBtn.addEventListener("click", () => {
+        libraryOffset = Math.max(0, libraryOffset - 50);
+        libraryFetchObjects(false);
+      });
+      libraryNextBtn.addEventListener("click", () => {
+        libraryOffset += 50;
+        libraryFetchObjects(false);
+      });
     }
 
     function escapeHtml(text) {

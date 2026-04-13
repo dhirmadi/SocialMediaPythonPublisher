@@ -55,6 +55,7 @@ def _library_list_prefix(paths: StoragePathConfig, logical: str) -> str:
         return f"{root}/"
     return f"{block.strip('/')}/"
 
+
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png"}
 VALID_TARGET_FOLDERS = {"keep", "remove", "archive", "root"}
 
@@ -78,6 +79,8 @@ class LibraryObject(BaseModel):
 class LibraryListResponse(BaseModel):
     objects: list[LibraryObject]
     cursor: str | None = None
+    total_in_window: int = 0
+    truncated: bool = False
 
 
 class LibraryUploadResponse(BaseModel):
@@ -154,6 +157,120 @@ def _check_rate_limit(request: Request) -> None:
         )
 
     _upload_rate_limit[cookie_val].append(now)
+
+
+def _sanitize_filter(q: str | None) -> str | None:
+    """Sanitize filter query: strip path traversal chars, null bytes, enforce max length."""
+    if not q:
+        return None
+    cleaned = q.replace("/", "").replace("\\", "").replace("..", "").replace("\x00", "")
+    cleaned = cleaned.strip()[:100]
+    return cleaned or None
+
+
+def _get_scan_budget() -> int:
+    """Get scan budget from env (default 5000)."""
+    raw = os.environ.get("LIBRARY_SCAN_BUDGET", "5000")
+    try:
+        return int(raw)
+    except ValueError:
+        return 5000
+
+
+_SORT_KEYS = {
+    "name": lambda obj: obj["key"].lower(),
+    "last_modified": lambda obj: obj["last_modified_raw"],
+    "size": lambda obj: obj["size"],
+}
+
+_VALID_SORT_FIELDS = {"name", "last_modified", "size"}
+_VALID_ORDER_VALUES = {"asc", "desc"}
+
+
+async def _list_objects_buffered(
+    service: WebImageService,
+    prefix: str,
+    q: str | None,
+    sort: str,
+    order: str,
+    offset: int,
+    limit: int,
+    scan_budget: int,
+) -> dict[str, Any]:
+    """Scan up to scan_budget keys, filter, sort, paginate in memory."""
+    storage: Any = service.storage
+    bucket = storage._bucket
+    _image_suffixes = (".jpg", ".jpeg", ".png")
+    sanitized_q = _sanitize_filter(q)
+
+    def _scan() -> dict[str, Any]:
+        items: list[dict[str, Any]] = []
+        continuation: str | None = None
+        truncated = False
+
+        for _ in range(500):  # safety cap on S3 pages
+            if len(items) >= scan_budget:
+                truncated = True
+                break
+            kwargs: dict[str, Any] = {
+                "Bucket": bucket,
+                "Prefix": prefix,
+                "Delimiter": "/",
+                "MaxKeys": min(1000, scan_budget - len(items)),
+            }
+            if continuation:
+                kwargs["ContinuationToken"] = continuation
+            resp = storage.client.list_objects_v2(**kwargs)
+
+            for obj in resp.get("Contents", []):
+                key: str = obj["Key"]
+                fname = key.rsplit("/", 1)[-1] if "/" in key else key
+                if not fname.lower().endswith(_image_suffixes):
+                    continue
+                items.append(
+                    {
+                        "key": fname,
+                        "size": obj.get("Size", 0),
+                        "last_modified_raw": obj.get("LastModified", ""),
+                        "last_modified": str(obj.get("LastModified", "")),
+                    }
+                )
+                if len(items) >= scan_budget:
+                    if resp.get("IsTruncated"):
+                        truncated = True
+                    break
+
+            if not resp.get("IsTruncated"):
+                break
+            continuation = resp.get("NextContinuationToken")
+            if not continuation:
+                break
+
+        # Apply filter
+        if sanitized_q:
+            q_lower = sanitized_q.lower()
+            items = [it for it in items if q_lower in it["key"].lower()]
+
+        # Sort
+        sort_key = _SORT_KEYS[sort]
+        items.sort(key=sort_key, reverse=(order == "desc"))
+
+        total_in_window = len(items)
+
+        # Paginate
+        page = items[offset : offset + limit]
+
+        # Build response objects (drop last_modified_raw)
+        objects = [{"key": it["key"], "size": it["size"], "last_modified": it["last_modified"]} for it in page]
+
+        return {
+            "objects": objects,
+            "cursor": None,
+            "total_in_window": total_in_window,
+            "truncated": truncated,
+        }
+
+    return await asyncio.to_thread(_scan)
 
 
 async def _list_objects_from_storage(
@@ -321,6 +438,10 @@ async def list_objects(
     prefix: str = "",
     cursor: str | None = None,
     limit: int = 50,
+    q: str | None = None,
+    sort: str = "name",
+    order: str = "asc",
+    offset: int = 0,
     service: WebImageService = Depends(get_request_service),
 ) -> LibraryListResponse:
     """List objects under instance prefix (paginated)."""
@@ -328,8 +449,15 @@ async def list_objects(
     require_admin(request)
     _check_library_available(service)
 
+    # Validate sort/order
+    if sort not in _VALID_SORT_FIELDS:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid sort field: {sort}")
+    if order not in _VALID_ORDER_VALUES:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid order: {order}")
+
     # Clamp limit
     limit = min(max(1, limit), 200)
+    offset = max(0, offset)
 
     paths = service.config.storage_paths
     if prefix in ("archive", "keep", "remove"):
@@ -337,7 +465,18 @@ async def list_objects(
     else:
         storage_prefix = _library_list_prefix(paths, "")
 
-    result = await _list_objects_from_storage(service, storage_prefix, cursor, limit)
+    # Path selection: use legacy cursor path only when cursor is provided and no new params are used
+    use_buffered = q is not None or sort != "name" or order != "asc" or offset > 0 or cursor is None
+    use_legacy = not use_buffered and cursor is not None
+
+    if use_legacy:
+        result = await _list_objects_from_storage(service, storage_prefix, cursor, limit)
+        result["total_in_window"] = 0
+        result["truncated"] = False
+    else:
+        scan_budget = _get_scan_budget()
+        result = await _list_objects_buffered(service, storage_prefix, q, sort, order, offset, limit, scan_budget)
+
     return LibraryListResponse(**result)
 
 
