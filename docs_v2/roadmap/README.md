@@ -39,7 +39,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-023 | Foundation | [Storage Protocol Extraction](archive/PUB-023_storage-protocol-extraction.md) | P1 | S | PUB-015 | Done |
 | PUB-024 | Storage | [Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Done |
 | PUB-031 | Storage / Web UI | [Managed Storage Migration & Admin Library](archive/PUB-031_managed-storage-migration-admin-library.md) | P1 | L | PUB-023, PUB-024 | Done |
-| PUB-032 | Web UI / Storage | [Admin Library — Sorting & Filtering](PUB-032_library-list-sort-filter.md) | P1 | M | PUB-031 | Not Started |
+| PUB-032 | Web UI / Storage | [Admin Library — Sorting & Filtering](archive/PUB-032_library-list-sort-filter.md) | P1 | M | PUB-031 | Done |
 | **AI-Powered Content** ||||||
 | PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |
 | PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |

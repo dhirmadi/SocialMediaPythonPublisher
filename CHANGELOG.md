@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-032: Admin Library — Sorting & Filtering
+- **Buffered-window sort/filter** on `GET /api/library/objects` — scan up to `scan_budget` S3 keys (default 5000, configurable via `LIBRARY_SCAN_BUDGET`), filter/sort in memory, paginate with offset/limit
+- Sort by `name` (default), `last_modified`, or `size` in `asc`/`desc` order
+- Filename substring filter (`q` parameter, case-insensitive, path-traversal-safe)
+- Response extended with `total_in_window` (count of matching objects) and `truncated` (true when scan budget reached)
+- Offset-based pagination (`offset`/`limit`) for sort/filter path; legacy `cursor`-based pagination preserved for backwards compatibility
+- Invalid `sort`/`order` values return 400 with clear JSON error
+- **Web UI**: search input (300ms debounce), sort dropdown, order toggle, "Showing X–Y of Z" count, Previous/Next pagination
+- Empty state and truncation indicator in UI
+- 609 tests passing including dedicated sort/filter test suite
+
 ### Added - PUB-031: Managed Storage Migration & Admin Library
 - **Migration CLI** (`publisher_v2/tools/migrate_storage.py`) — standalone async tool for copying images + sidecars from Dropbox to managed storage (Cloudflare R2)
 - Supports `--dry-run`, `--limit N`, `--resume` (idempotent skip on existing keys), structured JSON progress logging
