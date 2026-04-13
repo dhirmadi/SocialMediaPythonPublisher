@@ -198,22 +198,6 @@
     .hidden {
       display: none !important;
     }
-    .library-toolbar {
-      display: flex;
-      gap: 0.5rem;
-      flex-wrap: wrap;
-      align-items: center;
-    }
-    #library-objects table th,
-    #library-objects table td {
-      font-size: 0.85rem;
-    }
-    @media (max-width: 768px) {
-      #library-objects table th:nth-child(3),
-      #library-objects table td:nth-child(3) {
-        display: none;
-      }
-    }
     .admin-only {
       /* marker class; actual visibility controlled via .hidden */
     }
@@ -288,7 +272,7 @@
     }
     .browse-grid {
       display: grid;
-      grid-template-columns: repeat(5, 1fr);
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
       gap: 8px;
     }
     .browse-grid-item {
@@ -300,6 +284,62 @@
       position: relative;
       border: 2px solid transparent;
       transition: border-color 0.15s, transform 0.15s;
+    }
+    .browse-grid-item .delete-overlay {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: rgba(220, 53, 69, 0.85);
+      color: white;
+      border: none;
+      font-size: 0.85rem;
+      line-height: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      opacity: 0;
+      transition: opacity 0.15s;
+      z-index: 5;
+    }
+    .browse-grid-item:hover .delete-overlay,
+    .browse-grid-item:focus-within .delete-overlay {
+      opacity: 1;
+    }
+    @media (pointer: coarse) {
+      .browse-grid-item .delete-overlay {
+        opacity: 1;
+      }
+    }
+    .grid-toolbar {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      align-items: center;
+      margin-bottom: 0.5rem;
+    }
+    .grid-toolbar input[type="text"],
+    .grid-toolbar select,
+    .grid-toolbar button.secondary {
+      padding: 0.4rem 0.6rem;
+      border-radius: 0.5rem;
+      border: 1px solid #374151;
+      background: #1f2937;
+      color: #e5e7eb;
+      font-size: 0.85rem;
+    }
+    .grid-upload-label {
+      display: inline-block;
+      padding: 0.4rem 0.75rem;
+      background: linear-gradient(135deg, #06b6d4, #10b981);
+      color: #020617;
+      border-radius: 0.5rem;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
     }
     .browse-grid-item:hover {
       border-color: #38bdf8;
@@ -348,11 +388,6 @@
     .browse-pagination button.active {
       background: #38bdf8;
       color: #0f172a;
-    }
-    @media (max-width: 640px) {
-      .browse-grid {
-        grid-template-columns: repeat(3, 1fr);
-      }
     }
     #caption-text {
       width: 100%;
@@ -423,8 +458,8 @@
     </div>
 
     <div class="controls">
-      <button id="btn-browse" class="secondary hidden">
-        {{ web_ui_text.buttons.browse or "Browse" }}
+      <button id="btn-back-to-grid" class="secondary">
+        {{ web_ui_text.buttons.back_to_grid or "Back to grid" }}
       </button>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
@@ -472,55 +507,36 @@
       <div id="details"></div>
     </div>
 
-    <!-- Library panel: admin-only, managed-storage-only -->
-    <div class="panel admin-only hidden" id="panel-library">
-      <h2>Library Management</h2>
-      <div class="library-toolbar">
-        <select id="library-folder-filter" style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;">
-          <option value="">Root</option>
-          <option value="archive">Archive</option>
-          <option value="keep">Keep</option>
-          <option value="remove">Remove</option>
-        </select>
-        <input type="text" id="library-search" placeholder="Filter by name..." style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;width:10rem;" />
-        <select id="library-sort" style="padding:0.4rem;border-radius:0.5rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.85rem;">
+    <!-- Unified image browser grid (PUB-033) -->
+    <div class="panel hidden" id="panel-grid">
+      <div class="grid-toolbar">
+        <input type="text" id="grid-search" placeholder="Search..." class="hidden" style="flex:1;min-width:8rem;" />
+        <select id="grid-sort" class="hidden">
           <option value="name">Name</option>
-          <option value="last_modified">Date Modified</option>
+          <option value="last_modified">Date</option>
           <option value="size">Size</option>
         </select>
-        <button id="library-order-toggle" class="secondary" style="padding:0.4rem 0.5rem;font-size:0.85rem;min-width:2rem;" title="Sort direction">&uarr;</button>
-        <label class="library-upload-btn" style="display:inline-block;padding:0.4rem 0.75rem;background:linear-gradient(135deg,#06b6d4,#10b981);color:#020617;border-radius:0.5rem;cursor:pointer;font-size:0.85rem;font-weight:600;">
+        <button id="grid-order-toggle" class="secondary hidden" title="Sort direction" style="min-width:2rem;">&uarr;</button>
+        <label id="grid-upload-label" class="grid-upload-label hidden">
           Upload
-          <input type="file" id="library-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
+          <input type="file" id="grid-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
         </label>
-        <button id="library-refresh-btn" class="secondary" style="padding:0.4rem 0.75rem;font-size:0.85rem;">Refresh</button>
+        <button id="grid-refresh-btn" class="secondary">Refresh</button>
       </div>
-      <div id="library-upload-progress" class="hidden" style="margin-top:0.5rem;">
+      <div id="grid-upload-progress" class="hidden" style="margin-bottom:0.5rem;">
         <div style="background:#1f2937;border-radius:0.25rem;overflow:hidden;height:4px;">
-          <div id="library-upload-bar" style="height:100%;background:linear-gradient(90deg,#06b6d4,#10b981);width:0%;transition:width 0.3s;"></div>
+          <div id="grid-upload-bar" style="height:100%;background:linear-gradient(90deg,#06b6d4,#10b981);width:0%;transition:width 0.3s;"></div>
         </div>
-        <div id="library-upload-status" style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem;"></div>
+        <div id="grid-upload-status" style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem;"></div>
       </div>
-      <div id="library-objects" style="margin-top:0.75rem;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-          <thead>
-            <tr style="border-bottom:1px solid #374151;">
-              <th style="text-align:left;padding:0.4rem;">Filename</th>
-              <th style="text-align:right;padding:0.4rem;">Size</th>
-              <th style="text-align:right;padding:0.4rem;">Modified</th>
-              <th style="text-align:center;padding:0.4rem;">Actions</th>
-            </tr>
-          </thead>
-          <tbody id="library-table-body"></tbody>
-        </table>
+      <div id="grid-result-count" style="font-size:0.8rem;color:#9ca3af;margin-bottom:0.5rem;"></div>
+      <div id="grid-container" class="browse-grid"></div>
+      <div id="grid-empty" class="hidden" style="text-align:center;color:#9ca3af;padding:1rem;">No images found.</div>
+      <div id="grid-pagination" class="browse-pagination hidden">
+        <button id="grid-prev" class="secondary" disabled>&lt;</button>
+        <span id="grid-pages" style="display:flex;gap:4px;align-items:center;"></span>
+        <button id="grid-next" class="secondary" disabled>&gt;</button>
       </div>
-      <div id="library-result-count" style="margin-top:0.4rem;font-size:0.8rem;color:#9ca3af;text-align:center;" class="hidden"></div>
-      <div id="library-pagination" style="margin-top:0.5rem;text-align:center;display:flex;justify-content:center;gap:0.5rem;" class="hidden">
-        <button id="library-prev" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;" disabled>Previous</button>
-        <button id="library-load-more" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;">Load more</button>
-        <button id="library-next" class="secondary" style="padding:0.4rem 1rem;font-size:0.85rem;" disabled>Next</button>
-      </div>
-      <div id="library-empty" class="hidden" style="text-align:center;color:#9ca3af;padding:1rem;">No objects found.</div>
     </div>
   </main>
 
@@ -580,22 +596,48 @@
     const loginError = document.getElementById("login-error");
 
     const btnPrev = document.getElementById("btn-prev");
-    const btnBrowse = document.getElementById("btn-browse");
+    const btnBackToGrid = document.getElementById("btn-back-to-grid");
 
     const imageContainer = document.querySelector(".image-container");
+    const controlsEl = document.querySelector(".controls");
+    const captionPanel = document.getElementById("panel-caption");
+    const gridPanel = document.getElementById("panel-grid");
+    const gridContainer = document.getElementById("grid-container");
+    const gridSearch = document.getElementById("grid-search");
+    const gridSort = document.getElementById("grid-sort");
+    const gridOrderToggle = document.getElementById("grid-order-toggle");
+    const gridUploadLabel = document.getElementById("grid-upload-label");
+    const gridUploadInput = document.getElementById("grid-upload-input");
+    const gridRefreshBtn = document.getElementById("grid-refresh-btn");
+    const gridUploadProgress = document.getElementById("grid-upload-progress");
+    const gridUploadBar = document.getElementById("grid-upload-bar");
+    const gridUploadStatus = document.getElementById("grid-upload-status");
+    const gridResultCount = document.getElementById("grid-result-count");
+    const gridEmpty = document.getElementById("grid-empty");
+    const gridPagination = document.getElementById("grid-pagination");
+    const gridPrev = document.getElementById("grid-prev");
+    const gridNext = document.getElementById("grid-next");
+    const gridPages = document.getElementById("grid-pages");
     const positionIndicator = document.getElementById("position-indicator");
 
     let currentFilename = null;
     let currentFullUrl = null;  // Store full-size URL for "Full Size" button
-    let prefetchedImage = null; // Prefetched next image for instant loading (Story 03)
-    let reviewList = [];
-    let reviewIndex = -1;
-    let currentMode = "publish"; // Set automatically based on config
 
-    let browseImageList = null;
+    // PUB-033 grid state
+    const GRID_PAGE_SIZE = 24;
+    const BROWSE_CACHE_TTL = 60000;
+    let viewState = "detail";
+    let gridOffset = 0;
+    let gridSortValue = "name";
+    let gridOrderValue = "asc";
+    let gridQ = "";
+    let gridImages = [];           // current page filenames
+    let gridCurrentIndex = -1;     // selected index within gridImages
+    let gridTotal = 0;             // total in current window
+    let gridTruncated = false;
+    let browseImageList = null;    // Dropbox client-side cache
     let browseListTimestamp = 0;
-    const BROWSE_CACHE_TTL = 30000;
-    const BROWSE_PAGE_SIZE = 30;
+    let gridSearchTimeout = null;
 
     let isAdmin = false;
     let featureConfig = {
@@ -607,91 +649,33 @@
       auto_view_enabled: false,
       library_enabled: false,
       auth_mode: "none",
+      storage_provider: "dropbox",
     };
 
-    function updateModeUI() {
-      if (currentMode === "review") {
-        btnPrev.classList.remove("hidden");
-        // btnNext.textContent = "Next"; // Removed text update for overlay
-        positionIndicator.classList.remove("hidden");
-      } else {
-        btnPrev.classList.add("hidden");
-        // btnNext.textContent = TEXT.buttons?.next || "Next image"; // Removed text update for overlay
+    function isManagedStorage() {
+      return featureConfig.storage_provider === "managed";
+    }
+
+    function setViewState(state) {
+      viewState = state;
+      if (state === "grid") {
+        gridPanel.classList.remove("hidden");
+        imageContainer.classList.add("hidden");
+        controlsEl.classList.add("hidden");
+        captionPanel.classList.add("hidden");
         positionIndicator.classList.add("hidden");
-      }
-    }
-
-    async function setModeFromConfig() {
-        if (featureConfig.publish_enabled) {
-            currentMode = "publish";
-        } else {
-            currentMode = "review";
+        // Admin/activity panels stay hidden during grid view (spec Part B)
+        panelAdmin.classList.add("hidden");
+        panelActivity.classList.add("hidden");
+      } else {
+        gridPanel.classList.add("hidden");
+        imageContainer.classList.remove("hidden");
+        controlsEl.classList.remove("hidden");
+        captionPanel.classList.remove("hidden");
+        if (isAdmin) {
+          panelAdmin.classList.remove("hidden");
+          panelActivity.classList.remove("hidden");
         }
-        updateModeUI();
-    }
-
-    async function initReviewMode() {
-      setActivity("Loading image list...");
-      disableButtons(true);
-      try {
-        const res = await fetch("/api/images/list");
-        if (!res.ok) throw new Error("Failed to fetch image list");
-        const data = await res.json();
-        reviewList = data.filenames || [];
-        
-        if (reviewList.length === 0) {
-          showImagePlaceholder("No images found.");
-          return;
-        }
-
-        // Try to find current image in list to sync position
-        if (currentFilename) {
-          const idx = reviewList.indexOf(currentFilename);
-          if (idx !== -1) {
-            reviewIndex = idx;
-          } else {
-            reviewIndex = 0;
-            await loadReviewImage(reviewIndex);
-          }
-        } else {
-          reviewIndex = 0;
-          await loadReviewImage(reviewIndex);
-        }
-        updatePositionIndicator();
-      } catch (e) {
-        console.error(e);
-        setActivity("Error loading list.");
-      } finally {
-        disableButtons(false);
-      }
-    }
-
-    async function loadReviewImage(index) {
-      if (index < 0 || index >= reviewList.length) return;
-      
-      const filename = reviewList[index];
-      setActivity(`Loading ${filename}...`);
-      disableButtons(true);
-      
-      try {
-        // Check prefetch first
-        if (prefetchedImage && prefetchedImage.filename === filename) {
-           applyImageData(prefetchedImage);
-           prefetchedImage = null;
-        } else {
-           const res = await fetch(`/api/images/${encodeURIComponent(filename)}`);
-           if (!res.ok) throw new Error("Failed to load image");
-           const data = await res.json();
-           applyImageData(data);
-        }
-        reviewIndex = index;
-        updatePositionIndicator();
-        prefetchNextSequential();
-      } catch (e) {
-        console.error(e);
-        setActivity(`Error loading ${filename}`);
-      } finally {
-        disableButtons(false);
       }
     }
 
@@ -707,128 +691,77 @@
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
         setActivity("Image loaded.");
+        updatePositionIndicator();
     }
 
     function updatePositionIndicator() {
-      if (currentMode === "review" && reviewList.length > 0) {
-        positionIndicator.textContent = `${reviewIndex + 1} / ${reviewList.length}`;
+      if (gridImages.length > 0 && gridCurrentIndex >= 0) {
+        const overall = gridOffset + gridCurrentIndex + 1;
+        const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal || gridImages.length}`;
+        positionIndicator.textContent = `${overall} / ${totalLabel}`;
+        positionIndicator.classList.remove("hidden");
       } else {
         positionIndicator.textContent = "";
+        positionIndicator.classList.add("hidden");
       }
     }
 
-    async function prefetchNextSequential() {
-      if (reviewIndex + 1 < reviewList.length) {
-        const nextFilename = reviewList[reviewIndex + 1];
-        try {
-          const res = await fetch(`/api/images/${encodeURIComponent(nextFilename)}`);
-          if (res.ok) {
-            const data = await res.json();
-            prefetchedImage = data;
-            // Browser cache warming
-            if (data.thumbnail_url) {
-                const link = document.createElement("link");
-                link.rel = "prefetch";
-                link.as = "image";
-                link.href = data.thumbnail_url;
-                document.head.appendChild(link);
-                setTimeout(() => link.remove(), 30000);
-            }
-          }
-        } catch (e) { console.warn("Prefetch failed", e); }
+    async function loadImageDetail(filename) {
+      setActivity(`Loading ${filename}...`);
+      disableButtons(true);
+      try {
+        const res = await fetch(`/api/images/${encodeURIComponent(filename)}`);
+        if (!res.ok) throw new Error("Failed to load image");
+        const data = await res.json();
+        applyImageData(data);
+      } catch (e) {
+        console.error(e);
+        setActivity(`Error loading ${filename}`);
+      } finally {
+        disableButtons(false);
       }
     }
 
     async function handleNext() {
-      if (currentMode === "review") {
-        if (reviewIndex + 1 < reviewList.length) {
-          await loadReviewImage(reviewIndex + 1);
-        } else {
-          setActivity("End of list.");
-        }
+      if (gridImages.length === 0) return;
+      const lastIndexInPage = gridImages.length - 1;
+      if (gridCurrentIndex < lastIndexInPage) {
+        gridCurrentIndex++;
+        await loadImageDetail(gridImages[gridCurrentIndex]);
+        return;
+      }
+      // At end of page — try next page
+      const nextOffset = gridOffset + GRID_PAGE_SIZE;
+      if (gridTotal && nextOffset >= gridTotal) {
+        setActivity("End of list.");
+        return;
+      }
+      gridOffset = nextOffset;
+      await fetchGrid();
+      if (gridImages.length > 0) {
+        gridCurrentIndex = 0;
+        await loadImageDetail(gridImages[0]);
       } else {
-        await apiGetRandom();
+        setActivity("End of list.");
       }
     }
 
     async function handlePrev() {
-      if (currentMode === "review") {
-        if (reviewIndex > 0) {
-          await loadReviewImage(reviewIndex - 1);
-        } else {
-          setActivity("Start of list.");
-        }
-      }
-    }
-
-    // Modify apiGetRandom to use applyImageData for consistency and handle new response shape
-    async function apiGetRandom() {
-      const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
-      
-      // Check permission first
-      if (!isAdmin && !featureConfig.auto_view_enabled) {
-        setActivity(adminReq);
-        setDetails("");
-        showImagePlaceholder(adminReq);
+      if (gridImages.length === 0) return;
+      if (gridCurrentIndex > 0) {
+        gridCurrentIndex--;
+        await loadImageDetail(gridImages[gridCurrentIndex]);
         return;
       }
-      
-      // Check for prefetched image (instant load path)
-      if (prefetchedImage) {
-        const data = prefetchedImage;
-        prefetchedImage = null; // Consume the prefetch
-        
-        currentFilename = data.filename;
-        const displayUrl = data.thumbnail_url || data.temp_url;
-        showImage(
-          displayUrl,
-          data.temp_url,
-          data.caption || data.sd_caption || data.filename
-        );
-        setCaption(data.caption || data.sd_caption || "No caption yet.");
-        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
-        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
-        setActivity("Image loaded (prefetched).");
-        
-        // Start prefetching the next image
-        prefetchNextThumbnail();
+      if (gridOffset === 0) {
+        setActivity("Start of list.");
         return;
       }
-      
-      // Cold start path: fetch from API
-      setActivity("Loading random image…");
-      disableButtons(true);
-      try {
-        const res = await fetch("/api/images/random");
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          throw new Error(err.detail || err.error || "Failed to load image");
-        }
-        const data = await res.json();
-        currentFilename = data.filename;
-        // Use thumbnail_url for display (fast), fallback to temp_url for backward compat
-        const displayUrl = data.thumbnail_url || data.temp_url;
-        showImage(
-          displayUrl,
-          data.temp_url,  // Store full URL for "Full Size" access
-          data.caption || data.sd_caption || data.filename
-        );
-        setCaption(data.caption || data.sd_caption || "No caption yet.");
-        const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
-        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
-        setActivity("Image loaded.");
-        
-        // Start prefetching the next image
-        prefetchNextThumbnail();
-      } catch (e) {
-        console.error(e);
-        currentFilename = null;
-        showImagePlaceholder("Error loading image.");
-        setCaption(null);
-        setDetails("");
-        setActivity(e.message || "Error loading image.");
-      } finally {
-        disableButtons(false);
+      gridOffset = Math.max(0, gridOffset - GRID_PAGE_SIZE);
+      await fetchGrid();
+      if (gridImages.length > 0) {
+        gridCurrentIndex = gridImages.length - 1;
+        await loadImageDetail(gridImages[gridCurrentIndex]);
       }
     }
 
@@ -939,42 +872,9 @@
       }
     }
 
-    // Prefetch next image for instant loading during curation (Story 03)
-    async function prefetchNextThumbnail() {
-      // Only prefetch if user can view images
-      if (!isAdmin && !featureConfig.auto_view_enabled) {
-        prefetchedImage = null;
-        return;
-      }
-      try {
-        const res = await fetch("/api/images/random");
-        if (!res.ok) {
-          prefetchedImage = null;
-          return;
-        }
-        const data = await res.json();
-        prefetchedImage = data;
-        
-        // Prefetch thumbnail via link element (browser caches it)
-        if (data.thumbnail_url) {
-          const link = document.createElement("link");
-          link.rel = "prefetch";
-          link.as = "image";
-          link.href = data.thumbnail_url;
-          document.head.appendChild(link);
-          // Clean up link after 30 seconds to prevent DOM bloat
-          setTimeout(() => link.remove(), 30000);
-        }
-      } catch (e) {
-        console.warn("Prefetch failed:", e);
-        prefetchedImage = null;
-      }
-    }
-
     function disableButtons(disabled) {
       const nextShouldBeDisabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       btnNext.disabled = nextShouldBeDisabled;
-      if (btnBrowse) btnBrowse.disabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       if (btnAnalyze) {
         btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
       }
@@ -993,20 +893,22 @@
     }
 
     async function fetchFeatureConfig() {
+      const fallback = {
+        analyze_caption_enabled: true,
+        publish_enabled: true,
+        keep_enabled: true,
+        remove_enabled: true,
+        delete_enabled: false,
+        auto_view_enabled: false,
+        library_enabled: false,
+        auth_mode: "none",
+        storage_provider: "dropbox",
+      };
       try {
         const res = await fetch("/api/config/features");
         if (!res.ok) {
           console.warn("Failed to fetch feature config, defaulting to all enabled");
-          return {
-            analyze_caption_enabled: true,
-            publish_enabled: true,
-            keep_enabled: true,
-            remove_enabled: true,
-            delete_enabled: false,
-            auto_view_enabled: false,
-            library_enabled: false,
-            auth_mode: "none",
-          };
+          return fallback;
         }
         const data = await res.json();
         return {
@@ -1018,19 +920,11 @@
           auto_view_enabled: data.auto_view_enabled ?? false,
           library_enabled: data.library_enabled ?? false,
           auth_mode: data.auth_mode ?? "none",
+          storage_provider: data.storage_provider ?? "dropbox",
         };
       } catch (error) {
         console.error("Error fetching feature config:", error);
-        return {
-          analyze_caption_enabled: true,
-          publish_enabled: true,
-          keep_enabled: true,
-          remove_enabled: true,
-          delete_enabled: false,
-          auto_view_enabled: false,
-          library_enabled: false,
-          auth_mode: "none",
-        };
+        return fallback;
       }
     }
 
@@ -1099,9 +993,6 @@
         btnDelete.classList.toggle("hidden", !shouldShowDelete);
         btnDelete.disabled = !isAdmin || !shouldShowDelete;
       }
-      if (btnBrowse) {
-        btnBrowse.classList.toggle("hidden", !isAdmin && !featureConfig.auto_view_enabled);
-      }
       // When AUTO_VIEW is disabled and user is not admin, replace the image
       // area with a clear login-required message instead of a broken image.
       if (!isAdmin && !featureConfig.auto_view_enabled) {
@@ -1110,11 +1001,17 @@
       // Ensure Next button reflects current admin + AUTO_VIEW state when not globally disabled.
       disableButtons(false);
 
-      // Library panel visibility
-      updateLibraryVisibility();
-      if (isAdmin && featureConfig.library_enabled) {
-        libraryFetchObjects(false);
-      }
+      // Grid toolbar visibility (per Part C rules)
+      updateGridToolbarVisibility();
+    }
+
+    function updateGridToolbarVisibility() {
+      const managed = isManagedStorage();
+      gridSearch.classList.toggle("hidden", !managed);
+      gridSort.classList.toggle("hidden", !managed);
+      gridOrderToggle.classList.toggle("hidden", !managed);
+      const canUpload = managed && isAdmin && featureConfig.library_enabled;
+      gridUploadLabel.classList.toggle("hidden", !canUpload);
     }
 
     async function fetchAdminStatus() {
@@ -1140,10 +1037,6 @@
       const admin = await fetchAdminStatus();
       updateAdminState(admin);
     }
-
-    // apiGetRandom is already defined above, but there was a duplicate here in previous version.
-    // Ensure we are calling the correct function and not redefining it.
-    // The previous implementation block that was around here has been removed to avoid duplication.
 
     async function apiAnalyze() {
       if (!currentFilename) {
@@ -1201,177 +1094,285 @@
       return pages;
     }
 
-    function showBrowseModal(filenames) {
-      return new Promise((resolve) => {
-        const totalPages = Math.ceil(filenames.length / BROWSE_PAGE_SIZE);
-        let currentPage = 0;
+    // ---------------------------------------------------------------
+    // Unified grid (PUB-033)
+    // ---------------------------------------------------------------
 
-        // Start on page containing current image
-        if (currentFilename) {
-          const idx = filenames.indexOf(currentFilename);
-          if (idx !== -1) currentPage = Math.floor(idx / BROWSE_PAGE_SIZE);
-        }
-
-        const overlay = document.createElement("div");
-        overlay.className = "modal browse-modal";
-        const dialog = document.createElement("div");
-        dialog.className = "modal-dialog";
-
-        // Header
-        const header = document.createElement("div");
-        header.className = "browse-header";
-        const title = document.createElement("h2");
-        title.textContent = TEXT.browse_dialog?.title || "Browse images";
-        const countBadge = document.createElement("span");
-        countBadge.className = "count-badge";
-        countBadge.textContent = `${filenames.length} images`;
-        const closeBtn = document.createElement("button");
-        closeBtn.className = "close-btn";
-        closeBtn.innerHTML = "&times;";
-        closeBtn.type = "button";
-        header.appendChild(title);
-        header.appendChild(countBadge);
-        header.appendChild(closeBtn);
-
-        const grid = document.createElement("div");
-        grid.className = "browse-grid";
-
-        const pagination = document.createElement("div");
-        pagination.className = "browse-pagination";
-
-        dialog.appendChild(header);
-        dialog.appendChild(grid);
-        dialog.appendChild(pagination);
-        overlay.appendChild(dialog);
-
-        function renderPage(pageIndex) {
-          currentPage = pageIndex;
-          grid.innerHTML = "";
-          const start = pageIndex * BROWSE_PAGE_SIZE;
-          const end = Math.min(start + BROWSE_PAGE_SIZE, filenames.length);
-          for (let i = start; i < end; i++) {
-            const fname = filenames[i];
-            const item = document.createElement("div");
-            item.className = "browse-grid-item";
-            if (fname === currentFilename) item.classList.add("current");
-
-            const img = document.createElement("img");
-            img.loading = "lazy";
-            img.alt = fname;
-            img.src = `/api/images/${encodeURIComponent(fname)}/thumbnail?size=w256h256`;
-            img.addEventListener("load", () => img.classList.add("loaded"));
-
-            const nameLabel = document.createElement("div");
-            nameLabel.className = "thumb-name";
-            nameLabel.textContent = fname;
-            nameLabel.title = fname;
-
-            item.appendChild(img);
-            item.appendChild(nameLabel);
-            item.addEventListener("click", () => cleanup(fname));
-            grid.appendChild(item);
-          }
-          renderPagination();
-        }
-
-        function renderPagination() {
-          pagination.innerHTML = "";
-          if (totalPages <= 1) return;
-
-          const prevBtn = document.createElement("button");
-          prevBtn.className = "secondary";
-          prevBtn.textContent = "<";
-          prevBtn.disabled = currentPage === 0;
-          prevBtn.addEventListener("click", () => renderPage(currentPage - 1));
-          pagination.appendChild(prevBtn);
-
-          const range = getPaginationRange(currentPage, totalPages);
-          for (const p of range) {
-            if (p === "...") {
-              const ellipsis = document.createElement("span");
-              ellipsis.textContent = "...";
-              ellipsis.style.padding = "0.35rem 0.25rem";
-              ellipsis.style.color = "#9ca3af";
-              pagination.appendChild(ellipsis);
-            } else {
-              const btn = document.createElement("button");
-              btn.className = p === currentPage ? "active" : "secondary";
-              btn.textContent = p + 1;
-              btn.addEventListener("click", () => renderPage(p));
-              pagination.appendChild(btn);
-            }
-          }
-
-          const nextBtn = document.createElement("button");
-          nextBtn.className = "secondary";
-          nextBtn.textContent = ">";
-          nextBtn.disabled = currentPage === totalPages - 1;
-          nextBtn.addEventListener("click", () => renderPage(currentPage + 1));
-          pagination.appendChild(nextBtn);
-        }
-
-        function cleanup(val) {
-          document.removeEventListener("keydown", onKey);
-          overlay.remove();
-          resolve(val);
-        }
-
-        function onKey(e) {
-          if (e.key === "Escape") cleanup(null);
-          if (e.key === "ArrowLeft" && currentPage > 0) renderPage(currentPage - 1);
-          if (e.key === "ArrowRight" && currentPage < totalPages - 1) renderPage(currentPage + 1);
-        }
-
-        closeBtn.addEventListener("click", () => cleanup(null));
-        overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(null); });
-        document.addEventListener("keydown", onKey);
-
-        document.body.appendChild(overlay);
-        renderPage(currentPage);
-      });
+    function buildLibraryUrl() {
+      const params = new URLSearchParams();
+      params.set("limit", String(GRID_PAGE_SIZE));
+      params.set("offset", String(gridOffset));
+      params.set("sort", gridSortValue);
+      params.set("order", gridOrderValue);
+      if (gridQ) params.set("q", gridQ);
+      return `/api/library/objects?${params.toString()}`;
     }
 
-    async function handleBrowse() {
-      const now = Date.now();
-      if (!browseImageList || (now - browseListTimestamp) > BROWSE_CACHE_TTL) {
-        try {
-          const res = await fetch("/api/images/list");
-          if (!res.ok) throw new Error("Failed to fetch image list");
+    async function fetchGrid() {
+      try {
+        if (isManagedStorage()) {
+          const res = await fetch(buildLibraryUrl());
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            showToast(err.detail || "Failed to load images", "error");
+            gridImages = [];
+            renderGrid();
+            return;
+          }
           const data = await res.json();
-          browseImageList = data.filenames || [];
-          browseListTimestamp = now;
-        } catch (e) {
-          console.error(e);
-          showToast("Failed to load image list.", "error");
-          return;
+          gridImages = (data.objects || []).map((o) => o.key);
+          gridTotal = data.total_in_window || 0;
+          gridTruncated = !!data.truncated;
+        } else {
+          const now = Date.now();
+          if (!browseImageList || (now - browseListTimestamp) > BROWSE_CACHE_TTL) {
+            const res = await fetch("/api/images/list");
+            if (!res.ok) {
+              showToast("Failed to load image list.", "error");
+              gridImages = [];
+              renderGrid();
+              return;
+            }
+            const data = await res.json();
+            browseImageList = data.filenames || data.images || [];
+            browseListTimestamp = now;
+          }
+          gridTotal = browseImageList.length;
+          gridTruncated = false;
+          gridImages = browseImageList.slice(gridOffset, gridOffset + GRID_PAGE_SIZE);
         }
+        renderGrid();
+      } catch (e) {
+        console.error("fetchGrid failed", e);
+        showToast("Error loading images: " + e.message, "error");
       }
-      if (browseImageList.length === 0) {
-        showToast(TEXT.browse_dialog?.empty || "No images found.");
+    }
+
+    function renderGrid() {
+      gridContainer.innerHTML = "";
+      if (gridImages.length === 0) {
+        gridEmpty.classList.remove("hidden");
+        gridResultCount.textContent = "";
+        gridPagination.classList.add("hidden");
         return;
       }
-      const selected = await showBrowseModal(browseImageList);
-      if (!selected) return;
+      gridEmpty.classList.add("hidden");
+
+      const showDelete = isManagedStorage() && isAdmin && featureConfig.delete_enabled;
+      for (const fname of gridImages) {
+        const item = document.createElement("div");
+        item.className = "browse-grid-item";
+        if (fname === currentFilename) item.classList.add("current");
+
+        const img = document.createElement("img");
+        img.loading = "lazy";
+        img.alt = fname;
+        img.src = `/api/images/${encodeURIComponent(fname)}/thumbnail?size=w256h256`;
+        img.addEventListener("load", () => img.classList.add("loaded"));
+        item.appendChild(img);
+
+        const nameLabel = document.createElement("div");
+        nameLabel.className = "thumb-name";
+        nameLabel.textContent = fname;
+        nameLabel.title = fname;
+        item.appendChild(nameLabel);
+
+        if (showDelete) {
+          const del = document.createElement("button");
+          del.type = "button";
+          del.className = "delete-overlay";
+          del.title = "Delete";
+          del.textContent = "×";
+          del.addEventListener("click", (e) => {
+            e.stopPropagation();
+            handleGridDelete(fname, item);
+          });
+          item.appendChild(del);
+        }
+
+        item.addEventListener("click", () => selectGridItem(fname));
+        gridContainer.appendChild(item);
+      }
+
+      // Result count
+      const start = gridOffset + 1;
+      const end = gridOffset + gridImages.length;
+      const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal}`;
+      gridResultCount.textContent = `Showing ${start}\u2013${end} of ${totalLabel}`;
+
+      // Pagination
+      renderGridPagination();
+    }
+
+    function renderGridPagination() {
+      const total = gridTotal || gridImages.length;
+      const totalPages = Math.max(1, Math.ceil(total / GRID_PAGE_SIZE));
+      if (totalPages <= 1) {
+        gridPagination.classList.add("hidden");
+        return;
+      }
+      gridPagination.classList.remove("hidden");
+      gridPrev.disabled = gridOffset === 0;
+      gridNext.disabled = gridOffset + GRID_PAGE_SIZE >= total;
+
+      gridPages.innerHTML = "";
+      const currentPage = Math.floor(gridOffset / GRID_PAGE_SIZE);
+      const range = getPaginationRange(currentPage, totalPages);
+      for (const p of range) {
+        if (p === "...") {
+          const span = document.createElement("span");
+          span.textContent = "...";
+          span.style.padding = "0.35rem 0.25rem";
+          span.style.color = "#9ca3af";
+          gridPages.appendChild(span);
+        } else {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.className = p === currentPage ? "active" : "secondary";
+          btn.textContent = String(p + 1);
+          btn.addEventListener("click", () => {
+            gridOffset = p * GRID_PAGE_SIZE;
+            fetchGrid();
+          });
+          gridPages.appendChild(btn);
+        }
+      }
+    }
+
+    async function selectGridItem(fname) {
+      const idx = gridImages.indexOf(fname);
+      if (idx !== -1) gridCurrentIndex = idx;
+      setViewState("detail");
+      await loadImageDetail(fname);
+    }
+
+    async function backToGrid() {
+      setViewState("grid");
+      if (gridImages.length === 0) {
+        await fetchGrid();
+      }
+    }
+
+    async function handleGridUpload(file) {
+      if (!["image/jpeg", "image/png"].includes(file.type)) {
+        showToast("Only JPEG and PNG files are allowed", "error");
+        return;
+      }
+      if (file.size > 20 * 1024 * 1024) {
+        showToast("File too large (max 20 MB)", "error");
+        return;
+      }
+
+      gridUploadProgress.classList.remove("hidden");
+      gridUploadBar.style.width = "0%";
+      gridUploadStatus.textContent = "Uploading...";
+
+      const formData = new FormData();
+      formData.append("file", file);
+
       try {
-        disableButtons(true);
-        setActivity(`Loading ${selected}...`);
-        const res = await fetch(`/api/images/${encodeURIComponent(selected)}`);
-        if (!res.ok) throw new Error("Failed to load image");
-        const data = await res.json();
-        applyImageData(data);
-        if (currentMode === "review" && reviewList.length > 0) {
-          const idx = reviewList.indexOf(selected);
-          if (idx !== -1) {
-            reviewIndex = idx;
-            updatePositionIndicator();
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/api/library/upload");
+        xhr.upload.onprogress = (e) => {
+          if (e.lengthComputable) {
+            const pct = Math.round((e.loaded / e.total) * 100);
+            gridUploadBar.style.width = pct + "%";
+            gridUploadStatus.textContent = `Uploading... ${pct}%`;
+          }
+        };
+        await new Promise((resolve, reject) => {
+          xhr.onload = () => {
+            if (xhr.status === 429) {
+              reject(new Error("Upload rate limit reached. Try again shortly."));
+              return;
+            }
+            if (xhr.status >= 200 && xhr.status < 300) {
+              resolve(JSON.parse(xhr.responseText || "{}"));
+            } else {
+              let detail = `Upload failed (${xhr.status})`;
+              try {
+                const err = JSON.parse(xhr.responseText || "{}");
+                if (err.detail) detail = err.detail;
+              } catch (_) { /* ignore */ }
+              reject(new Error(detail));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Upload failed"));
+          xhr.send(formData);
+        });
+
+        gridUploadBar.style.width = "100%";
+        gridUploadStatus.textContent = "Upload complete!";
+        setTimeout(() => gridUploadProgress.classList.add("hidden"), 2000);
+      } catch (err) {
+        gridUploadStatus.textContent = "Upload failed: " + err.message;
+        showToast(err.message, "error");
+        setTimeout(() => gridUploadProgress.classList.add("hidden"), 3000);
+        throw err;
+      }
+    }
+
+    async function handleGridDelete(filename, itemEl) {
+      if (!confirm(`Delete ${filename}?`)) return;
+      try {
+        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}`, { method: "DELETE" });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          showToast(err.detail || "Delete failed", "error");
+          return;
+        }
+        showToast(`Deleted: ${filename}`, "success");
+        if (itemEl && itemEl.parentNode) itemEl.parentNode.removeChild(itemEl);
+        // Update local state
+        const idx = gridImages.indexOf(filename);
+        if (idx !== -1) {
+          gridImages.splice(idx, 1);
+          if (gridTotal > 0) gridTotal--;
+        }
+        const start = gridOffset + 1;
+        const end = gridOffset + gridImages.length;
+        const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal}`;
+        gridResultCount.textContent = gridImages.length
+          ? `Showing ${start}\u2013${end} of ${totalLabel}`
+          : "";
+        if (gridImages.length === 0) {
+          gridEmpty.classList.remove("hidden");
+        }
+      } catch (err) {
+        showToast("Delete error: " + err.message, "error");
+      }
+    }
+
+    function spliceCurrentFromGrid() {
+      browseImageList = null;  // invalidate dropbox cache
+      if (gridCurrentIndex < 0 || gridCurrentIndex >= gridImages.length) return;
+      gridImages.splice(gridCurrentIndex, 1);
+      if (gridTotal > 0) gridTotal--;
+    }
+
+    async function advanceAfterAction() {
+      if (gridImages.length === 0) {
+        // Page exhausted. If more items remain (gridTotal still > offset), refetch
+        // the same offset — items shifted up from later pages may surface here.
+        if (gridTotal > gridOffset) {
+          await fetchGrid();
+          if (gridImages.length > 0) {
+            gridCurrentIndex = 0;
+            await loadImageDetail(gridImages[0]);
+            return;
           }
         }
-      } catch (e) {
-        console.error(e);
-        setActivity("Error loading selected image.");
-      } finally {
-        disableButtons(false);
+        // Nothing left — return to grid with a fresh fetch.
+        gridCurrentIndex = -1;
+        currentFilename = null;
+        setViewState("grid");
+        await fetchGrid();
+        return;
       }
+      if (gridCurrentIndex >= gridImages.length) {
+        gridCurrentIndex = gridImages.length - 1;
+      }
+      await loadImageDetail(gridImages[gridCurrentIndex]);
     }
 
     function showPublishConfirm(caption, isPlaceholder) {
@@ -1462,17 +1463,8 @@
         const results = JSON.stringify(data.results || {}, null, 2);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
-          // Advance to next image — the next load will replace details with new image metadata
-          removeFromReviewList(currentFilename);
-          if (currentMode === "review") {
-            if (reviewList.length === 0) {
-              showImagePlaceholder("No images left.");
-              return;
-            }
-            await loadReviewImage(reviewIndex);
-          } else {
-            await apiGetRandom();
-          }
+          spliceCurrentFromGrid();
+          await advanceAfterAction();
         } else {
           // No platform succeeded — stay on the image so the user can investigate
           setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
@@ -1484,32 +1476,6 @@
         setActivity(msg);
       } finally {
         disableButtons(false);
-      }
-    }
-
-    function removeFromReviewList(filename) {
-      browseImageList = null; // Invalidate browse cache on curation
-
-      if (currentMode !== "review") return;
-
-      const idx = reviewList.indexOf(filename);
-      if (idx !== -1) {
-        reviewList.splice(idx, 1);
-        // If we removed the item at the current index, the next item slides into this index.
-        // We don't need to increment reviewIndex to go "next", we just stay at reviewIndex
-        // (unless we were at the end, then we decrement).
-        // However, apiGetRandom (or loadReviewImage) will be called next.
-        
-        // Adjust index if necessary to keep it valid
-        if (reviewIndex >= reviewList.length) {
-          reviewIndex = Math.max(0, reviewList.length - 1);
-        }
-        // If we removed an item *before* current index (unlikely in this flow), decrement.
-        if (idx < reviewIndex) {
-          reviewIndex--;
-        }
-        
-        updatePositionIndicator();
       }
     }
 
@@ -1539,23 +1505,8 @@
         }
         const data = await res.json();
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
-        
-        // Sync client state
-        removeFromReviewList(currentFilename);
-        
-        // After a successful keep, advance to the next image.
-        if (currentMode === "review") {
-             // In review mode, the list shifted, so the "next" image is now at the current reviewIndex
-             // (unless we were at the end).
-             // If list is empty, handle that.
-             if (reviewList.length === 0) {
-                 showImagePlaceholder("No images left.");
-                 return;
-             }
-             await loadReviewImage(reviewIndex);
-        } else {
-             await apiGetRandom();
-        }
+        spliceCurrentFromGrid();
+        await advanceAfterAction();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error keeping image.";
@@ -1593,20 +1544,8 @@
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
-        
-        // Sync client state
-        removeFromReviewList(currentFilename);
-
-        // After a successful remove, advance to the next image.
-        if (currentMode === "review") {
-             if (reviewList.length === 0) {
-                 showImagePlaceholder("No images left.");
-                 return;
-             }
-             await loadReviewImage(reviewIndex);
-        } else {
-             await apiGetRandom();
-        }
+        spliceCurrentFromGrid();
+        await advanceAfterAction();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error removing image.";
@@ -1655,20 +1594,8 @@
         }
         const data = await res.json();
         setActivity(`Permanently deleted: ${data.filename}`);
-
-        // Sync client state
-        removeFromReviewList(currentFilename);
-
-        // After a successful delete, advance to the next image.
-        if (currentMode === "review") {
-             if (reviewList.length === 0) {
-                 showImagePlaceholder("No images left.");
-                 return;
-             }
-             await loadReviewImage(reviewIndex);
-        } else {
-             await apiGetRandom();
-        }
+        spliceCurrentFromGrid();
+        await advanceAfterAction();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error deleting image.";
@@ -1704,12 +1631,9 @@
         passwordInput.value = "";
         updateAdminUI();
         showToast("Logged in successfully.");
-        // Refresh view if needed
-        if (currentMode === "review") {
-           await initReviewMode();
-        } else {
-           await apiGetRandom();
-        }
+        // Refresh grid view (may now show admin-gated controls)
+        setViewState("grid");
+        await fetchGrid();
       } catch (e) {
         loginError.textContent = "Invalid password.";
         btnSubmitLogin.disabled = false;
@@ -1815,358 +1739,80 @@
                setTimeout(() => imageContainer.classList.remove("swiping-left"), 300);
                handleNext();
              } else {
-               // Swipe Right -> Previous (if allowed)
-               if (currentMode === "review") {
-                 imageContainer.classList.add("swiping-right");
-                 setTimeout(() => imageContainer.classList.remove("swiping-right"), 300);
-                 handlePrev();
-               }
+               // Swipe Right -> Previous
+               imageContainer.classList.add("swiping-right");
+               setTimeout(() => imageContainer.classList.remove("swiping-right"), 300);
+               handlePrev();
              }
            }
         }
       }
     }
 
-    // ---------------------------------------------------------------
-    // Library panel logic
-    // ---------------------------------------------------------------
-    const panelLibrary = document.getElementById("panel-library");
-    const libraryTableBody = document.getElementById("library-table-body");
-    const libraryFolderFilter = document.getElementById("library-folder-filter");
-    const librarySearchInput = document.getElementById("library-search");
-    const librarySortSelect = document.getElementById("library-sort");
-    const libraryOrderToggle = document.getElementById("library-order-toggle");
-    const libraryUploadInput = document.getElementById("library-upload-input");
-    const libraryRefreshBtn = document.getElementById("library-refresh-btn");
-    const libraryUploadProgress = document.getElementById("library-upload-progress");
-    const libraryUploadBar = document.getElementById("library-upload-bar");
-    const libraryUploadStatus = document.getElementById("library-upload-status");
-    const libraryResultCount = document.getElementById("library-result-count");
-    const libraryPagination = document.getElementById("library-pagination");
-    const libraryPrevBtn = document.getElementById("library-prev");
-    const libraryLoadMore = document.getElementById("library-load-more");
-    const libraryNextBtn = document.getElementById("library-next");
-    const libraryEmpty = document.getElementById("library-empty");
+    function initGridControls() {
+      gridRefreshBtn.addEventListener("click", () => {
+        gridOffset = 0;
+        fetchGrid();
+      });
 
-    let libraryCursor = null;
-    let libraryOffset = 0;
-    let librarySort = "name";
-    let libraryOrder = "asc";
-    let libraryQ = "";
-    let libraryTotalInWindow = 0;
-    let libraryTruncated = false;
-    let librarySearchTimeout = null;
-
-    function updateLibraryVisibility() {
-      if (!panelLibrary) return;
-      if (isAdmin && featureConfig.library_enabled) {
-        panelLibrary.classList.remove("hidden");
-      } else {
-        panelLibrary.classList.add("hidden");
-      }
-    }
-
-    function formatFileSize(bytes) {
-      if (bytes < 1024) return bytes + " B";
-      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
-      return (bytes / (1024 * 1024)).toFixed(1) + " MB";
-    }
-
-    function formatDate(dateStr) {
-      if (!dateStr) return "";
-      try {
-        const d = new Date(dateStr);
-        return d.toLocaleDateString() + " " + d.toLocaleTimeString([], {hour: "2-digit", minute: "2-digit"});
-      } catch { return dateStr; }
-    }
-
-    function libraryUsingBufferedPath() {
-      return libraryQ || librarySort !== "name" || libraryOrder !== "asc" || libraryOffset > 0 || !libraryCursor;
-    }
-
-    async function libraryFetchObjects(append) {
-      if (!append) {
-        libraryTableBody.innerHTML = "";
-        libraryCursor = null;
-        if (!libraryUsingBufferedPath()) libraryOffset = 0;
-      }
-      const prefix = libraryFolderFilter.value;
-      const limit = 50;
-      let url = `/api/library/objects?limit=${limit}`;
-      if (prefix) url += `&prefix=${encodeURIComponent(prefix)}`;
-
-      // Use buffered path with sort/filter/offset params
-      const useBuffered = libraryUsingBufferedPath();
-      if (useBuffered) {
-        url += `&sort=${encodeURIComponent(librarySort)}`;
-        url += `&order=${encodeURIComponent(libraryOrder)}`;
-        url += `&offset=${libraryOffset}`;
-        if (libraryQ) url += `&q=${encodeURIComponent(libraryQ)}`;
-      } else if (libraryCursor) {
-        url += `&cursor=${encodeURIComponent(libraryCursor)}`;
-      }
-
-      try {
-        const res = await fetch(url);
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          showToast(err.detail || "Failed to list objects", "error");
-          return;
-        }
-        const data = await res.json();
-        libraryCursor = data.cursor;
-        libraryTotalInWindow = data.total_in_window || 0;
-        libraryTruncated = data.truncated || false;
-
-        // Empty state
-        if (data.objects.length === 0 && !append) {
-          if (libraryQ) {
-            libraryEmpty.textContent = "No objects match your filter.";
-          } else {
-            libraryEmpty.textContent = "No objects found.";
-          }
-          libraryEmpty.classList.remove("hidden");
-        } else {
-          libraryEmpty.classList.add("hidden");
-        }
-
-        for (const obj of data.objects) {
-          const tr = document.createElement("tr");
-          tr.style.borderBottom = "1px solid #1f2937";
-          tr.innerHTML = `
-            <td style="padding:0.4rem;word-break:break-all;">${escapeHtml(obj.key)}</td>
-            <td style="padding:0.4rem;text-align:right;white-space:nowrap;">${formatFileSize(obj.size)}</td>
-            <td style="padding:0.4rem;text-align:right;white-space:nowrap;font-size:0.8rem;">${formatDate(obj.last_modified)}</td>
-            <td style="padding:0.4rem;text-align:center;white-space:nowrap;">
-              <select class="library-move-select" data-filename="${escapeHtml(obj.key)}" style="padding:0.2rem;border-radius:0.25rem;border:1px solid #374151;background:#1f2937;color:#e5e7eb;font-size:0.8rem;">
-                <option value="">Move...</option>
-                <option value="root">Root</option>
-                <option value="archive">Archive</option>
-                <option value="keep">Keep</option>
-                <option value="remove">Remove</option>
-              </select>
-              <button class="library-delete-btn secondary" data-filename="${escapeHtml(obj.key)}" style="padding:0.2rem 0.5rem;font-size:0.8rem;color:#ef4444;margin-left:0.25rem;">Del</button>
-            </td>
-          `;
-          libraryTableBody.appendChild(tr);
-        }
-
-        // Pagination and result count
-        if (useBuffered && libraryTotalInWindow > 0) {
-          const start = libraryOffset + 1;
-          const end = Math.min(libraryOffset + data.objects.length, libraryTotalInWindow);
-          const totalLabel = libraryTruncated ? `${libraryTotalInWindow}+` : `${libraryTotalInWindow}`;
-          libraryResultCount.textContent = `Showing ${start}\u2013${end} of ${totalLabel}`;
-          libraryResultCount.classList.remove("hidden");
-
-          // Show prev/next, hide load-more
-          libraryLoadMore.classList.add("hidden");
-          const hasMultiplePages = libraryTotalInWindow > limit;
-          if (hasMultiplePages) {
-            libraryPagination.classList.remove("hidden");
-            libraryPrevBtn.disabled = libraryOffset <= 0;
-            libraryNextBtn.disabled = libraryOffset + limit >= libraryTotalInWindow;
-            libraryPrevBtn.classList.remove("hidden");
-            libraryNextBtn.classList.remove("hidden");
-          } else {
-            libraryPagination.classList.add("hidden");
-          }
-        } else if (!useBuffered) {
-          // Legacy cursor path
-          libraryResultCount.classList.add("hidden");
-          libraryPrevBtn.classList.add("hidden");
-          libraryNextBtn.classList.add("hidden");
-          if (data.cursor) {
-            libraryPagination.classList.remove("hidden");
-            libraryLoadMore.classList.remove("hidden");
-          } else {
-            libraryPagination.classList.add("hidden");
-          }
-        } else {
-          libraryResultCount.classList.add("hidden");
-          libraryPagination.classList.add("hidden");
-        }
-
-        // Attach event listeners to new rows
-        libraryTableBody.querySelectorAll(".library-delete-btn").forEach(btn => {
-          btn.onclick = () => libraryDelete(btn.dataset.filename);
-        });
-        libraryTableBody.querySelectorAll(".library-move-select").forEach(sel => {
-          sel.onchange = () => {
-            if (sel.value) {
-              libraryMove(sel.dataset.filename, sel.value);
-              sel.value = "";
-            }
-          };
-        });
-      } catch (err) {
-        showToast("Error loading library: " + err.message, "error");
-      }
-    }
-
-    async function libraryUpload(file) {
-      // Client-side validation
-      if (!["image/jpeg", "image/png"].includes(file.type)) {
-        showToast("Only JPEG and PNG files are allowed", "error");
-        return;
-      }
-      if (file.size > 20 * 1024 * 1024) {
-        showToast("File too large (max 20 MB)", "error");
-        return;
-      }
-
-      libraryUploadProgress.classList.remove("hidden");
-      libraryUploadBar.style.width = "0%";
-      libraryUploadStatus.textContent = "Uploading...";
-
-      const formData = new FormData();
-      formData.append("file", file);
-
-      try {
-        const xhr = new XMLHttpRequest();
-        xhr.open("POST", "/api/library/upload");
-        xhr.upload.onprogress = (e) => {
-          if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            libraryUploadBar.style.width = pct + "%";
-            libraryUploadStatus.textContent = `Uploading... ${pct}%`;
-          }
-        };
-        const result = await new Promise((resolve, reject) => {
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(JSON.parse(xhr.responseText));
-            } else {
-              let detail = `Upload failed (${xhr.status})`;
-              try {
-                const err = JSON.parse(xhr.responseText || "{}");
-                if (err.detail) detail = err.detail;
-              } catch (_) {
-                if (xhr.responseText && xhr.responseText.length < 200) detail = xhr.responseText.trim();
-              }
-              reject(new Error(detail));
-            }
-          };
-          xhr.onerror = () => reject(new Error("Upload failed"));
-          xhr.send(formData);
-        });
-
-        libraryUploadBar.style.width = "100%";
-        libraryUploadStatus.textContent = "Upload complete!";
-        showToast(`Uploaded: ${result.key}`, "success");
-        setTimeout(() => libraryUploadProgress.classList.add("hidden"), 2000);
-        await libraryFetchObjects(false);
-      } catch (err) {
-        libraryUploadStatus.textContent = "Upload failed: " + err.message;
-        showToast(err.message, "error");
-        setTimeout(() => libraryUploadProgress.classList.add("hidden"), 3000);
-      }
-    }
-
-    async function libraryDelete(filename) {
-      if (!confirm(`Delete "${filename}" and its sidecar?`)) return;
-      try {
-        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}`, { method: "DELETE" });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          showToast(err.detail || "Delete failed", "error");
-          return;
-        }
-        showToast(`Deleted: ${filename}`, "success");
-        await libraryFetchObjects(false);
-      } catch (err) {
-        showToast("Delete error: " + err.message, "error");
-      }
-    }
-
-    async function libraryMove(filename, targetFolder) {
-      try {
-        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}/move`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ target_folder: targetFolder }),
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          showToast(err.detail || "Move failed", "error");
-          return;
-        }
-        showToast(`Moved "${filename}" to ${targetFolder}`, "success");
-        await libraryFetchObjects(false);
-      } catch (err) {
-        showToast("Move error: " + err.message, "error");
-      }
-    }
-
-    function libraryResetAndFetch() {
-      libraryOffset = 0;
-      libraryFetchObjects(false);
-    }
-
-    function initLibrary() {
-      if (!panelLibrary) return;
-      libraryFolderFilter.addEventListener("change", libraryResetAndFetch);
-      libraryRefreshBtn.addEventListener("click", libraryResetAndFetch);
-
-      // Search input with 300ms debounce
-      librarySearchInput.addEventListener("input", () => {
-        clearTimeout(librarySearchTimeout);
-        librarySearchTimeout = setTimeout(() => {
-          libraryQ = librarySearchInput.value;
-          libraryResetAndFetch();
+      gridSearch.addEventListener("input", () => {
+        clearTimeout(gridSearchTimeout);
+        gridSearchTimeout = setTimeout(() => {
+          gridQ = gridSearch.value;
+          gridOffset = 0;
+          fetchGrid();
         }, 300);
       });
 
-      // Sort dropdown — immediate re-fetch
-      librarySortSelect.addEventListener("change", () => {
-        librarySort = librarySortSelect.value;
-        libraryResetAndFetch();
+      gridSort.addEventListener("change", () => {
+        gridSortValue = gridSort.value;
+        gridOffset = 0;
+        fetchGrid();
       });
 
-      // Order toggle — immediate re-fetch
-      libraryOrderToggle.addEventListener("click", () => {
-        libraryOrder = libraryOrder === "asc" ? "desc" : "asc";
-        libraryOrderToggle.innerHTML = libraryOrder === "asc" ? "&uarr;" : "&darr;";
-        libraryResetAndFetch();
+      gridOrderToggle.addEventListener("click", () => {
+        gridOrderValue = gridOrderValue === "asc" ? "desc" : "asc";
+        gridOrderToggle.innerHTML = gridOrderValue === "asc" ? "&uarr;" : "&darr;";
+        gridOffset = 0;
+        fetchGrid();
       });
 
-      libraryUploadInput.addEventListener("change", async (e) => {
+      gridUploadInput.addEventListener("change", async (e) => {
         const files = e.target.files ? Array.from(e.target.files) : [];
         e.target.value = "";
         if (!files.length) return;
         for (let i = 0; i < files.length; i++) {
           if (files.length > 1) {
-            libraryUploadStatus.textContent = `Uploading file ${i + 1} of ${files.length}...`;
+            gridUploadStatus.textContent = `Uploading file ${i + 1} of ${files.length}...`;
           }
-          await libraryUpload(files[i]);
+          try {
+            await handleGridUpload(files[i]);
+          } catch (_err) {
+            break;  // Stop on first failure (e.g. 429)
+          }
         }
+        gridOffset = 0;
+        await fetchGrid();
       });
 
-      // Legacy "Load more" for cursor path
-      libraryLoadMore.addEventListener("click", () => libraryFetchObjects(true));
-
-      // Prev/Next for buffered path
-      libraryPrevBtn.addEventListener("click", () => {
-        libraryOffset = Math.max(0, libraryOffset - 50);
-        libraryFetchObjects(false);
+      gridPrev.addEventListener("click", () => {
+        if (gridOffset === 0) return;
+        gridOffset = Math.max(0, gridOffset - GRID_PAGE_SIZE);
+        fetchGrid();
       });
-      libraryNextBtn.addEventListener("click", () => {
-        libraryOffset += 50;
-        libraryFetchObjects(false);
+      gridNext.addEventListener("click", () => {
+        const total = gridTotal || gridImages.length;
+        if (gridOffset + GRID_PAGE_SIZE >= total) return;
+        gridOffset += GRID_PAGE_SIZE;
+        fetchGrid();
       });
-    }
-
-    function escapeHtml(text) {
-      const div = document.createElement("div");
-      div.textContent = text;
-      return div.innerHTML;
     }
 
     function initLayout() {
       btnNext.addEventListener("click", handleNext);
       btnPrev.addEventListener("click", handlePrev);
-      if (btnBrowse) btnBrowse.addEventListener("click", handleBrowse);
-      
+      if (btnBackToGrid) btnBackToGrid.addEventListener("click", backToGrid);
+
       if (btnFullSize) {
         btnFullSize.addEventListener("click", handleFullSize);
       }
@@ -2186,25 +1832,25 @@
         btnDelete.addEventListener("click", apiDelete);
       }
       initAdminControls();
-      initLibrary();
+      initGridControls();
       initGestures();
+
       window.addEventListener("load", async () => {
-        // Fetch feature config first so we can gate buttons from .env feature flags.
         featureConfig = await fetchFeatureConfig();
-        await setModeFromConfig();
         await refreshAdminStatus();
         updateAdminUI();
 
+        // Show grid first
+        setViewState("grid");
         if (isAdmin || featureConfig.auto_view_enabled) {
-          if (currentMode === "review") {
-            await initReviewMode();
-          } else {
-            await apiGetRandom();
-          }
+          await fetchGrid();
         } else {
           setActivity("Ready. Admin mode required to view images.");
           setDetails("");
           showImagePlaceholder("Admin mode required to view images.");
+          gridResultCount.textContent = "";
+          gridEmpty.classList.remove("hidden");
+          gridEmpty.textContent = "Admin mode required to browse images.";
         }
       });
     }

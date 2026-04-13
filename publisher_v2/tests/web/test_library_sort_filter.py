@@ -758,31 +758,37 @@ class TestDefaultBehavior:
 
 
 class TestUIControls:
+    """PUB-033 moved these controls from #panel-library into #panel-grid.
+
+    The unified grid panel now exposes search/sort/order/pagination
+    via the grid-* element ids.
+    """
+
     def test_ui_search_input_exists(self, managed_app: TestClient) -> None:
-        """AC15: Library panel has a search input."""
+        """Grid panel has a search input."""
         res = managed_app.get("/")
         assert res.status_code == 200
-        assert 'id="library-search"' in res.text
+        assert 'id="grid-search"' in res.text
 
     def test_ui_sort_controls_exist(self, managed_app: TestClient) -> None:
-        """AC15: Library panel has sort dropdown and order toggle."""
+        """Grid panel has sort dropdown and order toggle."""
         res = managed_app.get("/")
         assert res.status_code == 200
-        assert 'id="library-sort"' in res.text
-        assert 'id="library-order-toggle"' in res.text
+        assert 'id="grid-sort"' in res.text
+        assert 'id="grid-order-toggle"' in res.text
 
     def test_ui_result_count_container(self, managed_app: TestClient) -> None:
-        """AC16: Library panel has result count display element."""
+        """Grid panel has result count display element."""
         res = managed_app.get("/")
         assert res.status_code == 200
-        assert 'id="library-result-count"' in res.text
+        assert 'id="grid-result-count"' in res.text
 
     def test_ui_prev_next_buttons(self, managed_app: TestClient) -> None:
-        """AC17: Library panel has Previous and Next pagination buttons."""
+        """Grid panel has Previous and Next pagination buttons."""
         res = managed_app.get("/")
         assert res.status_code == 200
-        assert 'id="library-prev"' in res.text
-        assert 'id="library-next"' in res.text
+        assert 'id="grid-prev"' in res.text
+        assert 'id="grid-next"' in res.text
 
 
 # ---------------------------------------------------------------------------

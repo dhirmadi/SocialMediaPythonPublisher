@@ -659,6 +659,8 @@ async def api_get_features_config(
 
     library_enabled = resolve_library_enabled(service.config)
 
+    storage_provider = "managed" if service.config.managed is not None else "dropbox"
+
     return {
         "analyze_caption_enabled": features.analyze_caption_enabled,
         "publish_enabled": features.publish_enabled,
@@ -668,6 +670,7 @@ async def api_get_features_config(
         "auto_view_enabled": features.auto_view_enabled,
         "library_enabled": library_enabled,
         "auth_mode": auth_mode,
+        "storage_provider": storage_provider,
     }
 
 

@@ -90,9 +90,10 @@ def test_api_config_features_returns_json(test_client: TestClient) -> None:
     assert "analyze_caption_enabled" in data
     assert "publish_enabled" in data
 
-    # Verify auth_mode is a string, others are booleans
+    # String fields: auth_mode and storage_provider (PUB-033). All others are booleans.
     assert isinstance(data.get("auth_mode"), str)
+    assert isinstance(data.get("storage_provider"), str)
 
-    # Check boolean flags (exclude auth_mode)
-    bool_fields = {k: v for k, v in data.items() if k != "auth_mode"}
+    string_keys = {"auth_mode", "storage_provider"}
+    bool_fields = {k: v for k, v in data.items() if k not in string_keys}
     assert all(isinstance(v, bool) for v in bool_fields.values())

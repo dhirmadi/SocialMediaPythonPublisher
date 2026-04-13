@@ -4,6 +4,7 @@ header_title: "Publisher V2 Web"
 buttons:
   next: "Next image"
   browse: "Browse"
+  back_to_grid: "Back to grid"
   admin: "Admin"
   logout: "Logout"
   analyze: "Analyze & caption"
