@@ -638,6 +638,13 @@
     let browseListTimestamp = 0;
     let gridSearchTimeout = null;
 
+    // Two-mode navigation:
+    //   "publish" — publish_enabled=true: right arrow only, random image.
+    //   "curate"  — publish_enabled=false: both arrows, sequential through reviewList.
+    let currentMode = "publish";
+    let reviewList = [];
+    let reviewIndex = -1;
+
     let isAdmin = false;
     let featureConfig = {
       analyze_caption_enabled: true,
@@ -690,6 +697,48 @@
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
         setActivity("Image loaded.");
+        // Sync reviewIndex so sequential prev/next has a coherent anchor
+        // whenever we land on an image (random fetch, grid pick, etc.).
+        if (currentMode === "curate" && reviewList.length > 0) {
+          const idx = reviewList.indexOf(currentFilename);
+          if (idx !== -1) reviewIndex = idx;
+        }
+        updatePositionIndicator();
+    }
+
+    function updatePositionIndicator() {
+      if (currentMode === "curate" && reviewList.length > 0 && reviewIndex >= 0) {
+        positionIndicator.textContent = `${reviewIndex + 1} / ${reviewList.length}`;
+        positionIndicator.classList.remove("hidden");
+      } else {
+        positionIndicator.textContent = "";
+        positionIndicator.classList.add("hidden");
+      }
+    }
+
+    function updateModeUI() {
+      if (currentMode === "curate") {
+        btnPrev.classList.remove("hidden");
+      } else {
+        btnPrev.classList.add("hidden");
+      }
+    }
+
+    async function ensureReviewList() {
+      if (reviewList.length > 0) return;
+      try {
+        const res = await fetch("/api/images/list");
+        if (!res.ok) return;
+        const data = await res.json();
+        reviewList = data.filenames || data.images || [];
+        if (currentFilename) {
+          const idx = reviewList.indexOf(currentFilename);
+          if (idx !== -1) reviewIndex = idx;
+        }
+        updatePositionIndicator();
+      } catch (e) {
+        console.warn("Failed to load review list", e);
+      }
     }
 
     async function loadImageDetail(filename) {
@@ -738,16 +787,55 @@
       }
     }
 
-    // Navigation is always random. The grid is a one-shot visual picker:
-    // clicking a thumbnail loads that specific image once, after which
-    // Next / curation fall back to random selection.
     async function handleNext() {
+      if (currentMode === "curate") {
+        await ensureReviewList();
+        if (reviewList.length === 0) {
+          setActivity("No images to review.");
+          return;
+        }
+        if (reviewIndex + 1 < reviewList.length) {
+          reviewIndex++;
+          await loadImageDetail(reviewList[reviewIndex]);
+        } else {
+          setActivity("End of list.");
+        }
+        return;
+      }
+      // Publish mode: always random.
       await apiGetRandom();
     }
 
     async function handlePrev() {
-      // No "previous" in a random workflow — fetch another random image
-      // so the button is never a dead end.
+      if (currentMode !== "curate") return;  // prev button is hidden in publish mode
+      await ensureReviewList();
+      if (reviewList.length === 0) return;
+      if (reviewIndex > 0) {
+        reviewIndex--;
+        await loadImageDetail(reviewList[reviewIndex]);
+      } else {
+        setActivity("Start of list.");
+      }
+    }
+
+    // After a curation action (keep/remove/delete/publish) the current image
+    // leaves the inbox. Splice it from the review list and load the next one.
+    async function advanceAfterCurate() {
+      invalidateGridCache();
+      if (currentMode === "curate" && reviewList.length > 0) {
+        const idx = reviewList.indexOf(currentFilename);
+        if (idx !== -1) {
+          reviewList.splice(idx, 1);
+          if (reviewIndex >= reviewList.length) reviewIndex = reviewList.length - 1;
+        }
+        if (reviewList.length === 0) {
+          showImagePlaceholder("No images left.");
+          updatePositionIndicator();
+          return;
+        }
+        await loadImageDetail(reviewList[reviewIndex]);
+        return;
+      }
       await apiGetRandom();
     }
 
@@ -1427,8 +1515,7 @@
         const results = JSON.stringify(data.results || {}, null, 2);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
-          invalidateGridCache();
-          await apiGetRandom();
+          await advanceAfterCurate();
         } else {
           // No platform succeeded — stay on the image so the user can investigate
           setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
@@ -1469,8 +1556,7 @@
         }
         const data = await res.json();
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
-        invalidateGridCache();
-        await apiGetRandom();
+        await advanceAfterCurate();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error keeping image.";
@@ -1508,8 +1594,7 @@
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
-        invalidateGridCache();
-        await apiGetRandom();
+        await advanceAfterCurate();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error removing image.";
@@ -1558,8 +1643,7 @@
         }
         const data = await res.json();
         setActivity(`Permanently deleted: ${data.filename}`);
-        invalidateGridCache();
-        await apiGetRandom();
+        await advanceAfterCurate();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error deleting image.";
@@ -1595,9 +1679,17 @@
         passwordInput.value = "";
         updateAdminUI();
         showToast("Logged in successfully.");
-        // Refresh image: stay in current view, pull a fresh random one.
         setViewState("detail");
-        await apiGetRandom();
+        if (currentMode === "curate") {
+          reviewList = [];
+          await ensureReviewList();
+          if (reviewList.length > 0) {
+            reviewIndex = 0;
+            await loadImageDetail(reviewList[0]);
+          }
+        } else {
+          await apiGetRandom();
+        }
       } catch (e) {
         loginError.textContent = "Invalid password.";
         btnSubmitLogin.disabled = false;
@@ -1804,11 +1896,27 @@
         await refreshAdminStatus();
         updateAdminUI();
 
-        // Start in detail view with a random image. The grid opens lazily
-        // when the operator clicks "Back to grid".
+        // Derive mode from publish_enabled:
+        //   publish_enabled=true  → "publish": only right arrow, random.
+        //   publish_enabled=false → "curate":  both arrows, sequential.
+        currentMode = featureConfig.publish_enabled ? "publish" : "curate";
+        updateModeUI();
+
+        // Start in detail view. Publish mode loads a random image; curate
+        // mode loads the review list and opens the first image.
         setViewState("detail");
         if (isAdmin || featureConfig.auto_view_enabled) {
-          await apiGetRandom();
+          if (currentMode === "curate") {
+            await ensureReviewList();
+            if (reviewList.length > 0) {
+              reviewIndex = 0;
+              await loadImageDetail(reviewList[0]);
+            } else {
+              showImagePlaceholder("No images found.");
+            }
+          } else {
+            await apiGetRandom();
+          }
         } else {
           setActivity("Ready. Admin mode required to view images.");
           setDetails("");
