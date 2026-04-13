@@ -631,8 +631,7 @@
     let gridSortValue = "name";
     let gridOrderValue = "asc";
     let gridQ = "";
-    let gridImages = [];           // current page filenames
-    let gridCurrentIndex = -1;     // selected index within gridImages
+    let gridImages = [];           // current page filenames (for rendering)
     let gridTotal = 0;             // total in current window
     let gridTruncated = false;
     let browseImageList = null;    // Dropbox client-side cache
@@ -691,19 +690,6 @@
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
         setActivity("Image loaded.");
-        updatePositionIndicator();
-    }
-
-    function updatePositionIndicator() {
-      if (gridImages.length > 0 && gridCurrentIndex >= 0) {
-        const overall = gridOffset + gridCurrentIndex + 1;
-        const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal || gridImages.length}`;
-        positionIndicator.textContent = `${overall} / ${totalLabel}`;
-        positionIndicator.classList.remove("hidden");
-      } else {
-        positionIndicator.textContent = "";
-        positionIndicator.classList.add("hidden");
-      }
     }
 
     async function loadImageDetail(filename) {
@@ -720,13 +706,6 @@
       } finally {
         disableButtons(false);
       }
-    }
-
-    // True when the operator entered the grid and selected an image from it.
-    // Until then, navigation/curation behaves like the original "random image"
-    // workflow so the publisher feels the same on first load.
-    function gridNavActive() {
-      return gridImages.length > 0 && gridCurrentIndex >= 0;
     }
 
     async function apiGetRandom() {
@@ -746,8 +725,6 @@
           throw new Error(err.detail || err.error || "Failed to load image");
         }
         const data = await res.json();
-        // Reset grid pointer — this image did not come from the grid.
-        gridCurrentIndex = -1;
         applyImageData(data);
       } catch (e) {
         console.error(e);
@@ -761,55 +738,17 @@
       }
     }
 
+    // Navigation is always random. The grid is a one-shot visual picker:
+    // clicking a thumbnail loads that specific image once, after which
+    // Next / curation fall back to random selection.
     async function handleNext() {
-      if (!gridNavActive()) {
-        // Random-image workflow: just fetch another random image.
-        await apiGetRandom();
-        return;
-      }
-      const lastIndexInPage = gridImages.length - 1;
-      if (gridCurrentIndex < lastIndexInPage) {
-        gridCurrentIndex++;
-        await loadImageDetail(gridImages[gridCurrentIndex]);
-        return;
-      }
-      // At end of page — try next page
-      const nextOffset = gridOffset + GRID_PAGE_SIZE;
-      if (gridTotal && nextOffset >= gridTotal) {
-        setActivity("End of list.");
-        return;
-      }
-      gridOffset = nextOffset;
-      await fetchGrid();
-      if (gridImages.length > 0) {
-        gridCurrentIndex = 0;
-        await loadImageDetail(gridImages[0]);
-      } else {
-        setActivity("End of list.");
-      }
+      await apiGetRandom();
     }
 
     async function handlePrev() {
-      if (!gridNavActive()) {
-        // No grid context — previous is a no-op for random workflow.
-        setActivity("Open the grid to navigate backwards.");
-        return;
-      }
-      if (gridCurrentIndex > 0) {
-        gridCurrentIndex--;
-        await loadImageDetail(gridImages[gridCurrentIndex]);
-        return;
-      }
-      if (gridOffset === 0) {
-        setActivity("Start of list.");
-        return;
-      }
-      gridOffset = Math.max(0, gridOffset - GRID_PAGE_SIZE);
-      await fetchGrid();
-      if (gridImages.length > 0) {
-        gridCurrentIndex = gridImages.length - 1;
-        await loadImageDetail(gridImages[gridCurrentIndex]);
-      }
+      // No "previous" in a random workflow — fetch another random image
+      // so the button is never a dead end.
+      await apiGetRandom();
     }
 
     function setActivity(msg) {
@@ -1287,17 +1226,18 @@
     }
 
     async function selectGridItem(fname) {
-      const idx = gridImages.indexOf(fname);
-      if (idx !== -1) gridCurrentIndex = idx;
+      // One-shot pick: load this specific image, then navigation reverts to
+      // random. The grid pointer is not retained.
       setViewState("detail");
       await loadImageDetail(fname);
     }
 
     async function backToGrid() {
+      // Always refetch so the grid reflects the current library state
+      // (images curated via publish/keep/remove/delete have moved).
       setViewState("grid");
-      if (gridImages.length === 0) {
-        await fetchGrid();
-      }
+      gridOffset = 0;
+      await fetchGrid();
     }
 
     async function handleGridUpload(file) {
@@ -1390,43 +1330,13 @@
       }
     }
 
-    // Returns true if the splice happened (i.e. we were navigating via the grid).
-    function spliceCurrentFromGrid() {
-      browseImageList = null;  // invalidate dropbox cache
-      if (gridCurrentIndex < 0 || gridCurrentIndex >= gridImages.length) return false;
-      gridImages.splice(gridCurrentIndex, 1);
-      if (gridTotal > 0) gridTotal--;
-      return true;
-    }
-
-    async function advanceAfterAction(wasFromGrid) {
-      // No grid context — stay in detail view and pull another random image.
-      if (!wasFromGrid) {
-        await apiGetRandom();
-        return;
-      }
-      if (gridImages.length === 0) {
-        // Page exhausted. If more items remain (gridTotal still > offset), refetch
-        // the same offset — items shifted up from later pages may surface here.
-        if (gridTotal > gridOffset) {
-          await fetchGrid();
-          if (gridImages.length > 0) {
-            gridCurrentIndex = 0;
-            await loadImageDetail(gridImages[0]);
-            return;
-          }
-        }
-        // Nothing left — return to grid with a fresh fetch.
-        gridCurrentIndex = -1;
-        currentFilename = null;
-        setViewState("grid");
-        await fetchGrid();
-        return;
-      }
-      if (gridCurrentIndex >= gridImages.length) {
-        gridCurrentIndex = gridImages.length - 1;
-      }
-      await loadImageDetail(gridImages[gridCurrentIndex]);
+    // Invalidate cached grid data after any curation so the next time the
+    // user opens the grid, they see the current state of the library.
+    function invalidateGridCache() {
+      browseImageList = null;
+      gridImages = [];
+      gridTotal = 0;
+      gridTruncated = false;
     }
 
     function showPublishConfirm(caption, isPlaceholder) {
@@ -1517,8 +1427,8 @@
         const results = JSON.stringify(data.results || {}, null, 2);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
-          const wasFromGrid = spliceCurrentFromGrid();
-          await advanceAfterAction(wasFromGrid);
+          invalidateGridCache();
+          await apiGetRandom();
         } else {
           // No platform succeeded — stay on the image so the user can investigate
           setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
@@ -1559,8 +1469,8 @@
         }
         const data = await res.json();
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
-        const wasFromGrid = spliceCurrentFromGrid();
-        await advanceAfterAction(wasFromGrid);
+        invalidateGridCache();
+        await apiGetRandom();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error keeping image.";
@@ -1598,8 +1508,8 @@
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
-        const wasFromGrid = spliceCurrentFromGrid();
-        await advanceAfterAction(wasFromGrid);
+        invalidateGridCache();
+        await apiGetRandom();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error removing image.";
@@ -1648,8 +1558,8 @@
         }
         const data = await res.json();
         setActivity(`Permanently deleted: ${data.filename}`);
-        const wasFromGrid = spliceCurrentFromGrid();
-        await advanceAfterAction(wasFromGrid);
+        invalidateGridCache();
+        await apiGetRandom();
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error deleting image.";
