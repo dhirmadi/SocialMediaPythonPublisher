@@ -88,10 +88,12 @@ class TestUnifiedGridPanel:
 class TestRemovedJavaScript:
     """AC-D2..D5: Old JS functions and modal are removed."""
 
-    def test_apiGetRandom_removed(self, managed_admin_client: TestClient) -> None:
-        """AC-D3: apiGetRandom function is removed."""
+    def test_apiGetRandom_kept_for_random_workflow(self, managed_admin_client: TestClient) -> None:
+        """apiGetRandom is retained: per operator request the publisher starts
+        with a random image and only opens the grid when the user clicks
+        "Back to grid". This supersedes the original AC-D3 removal."""
         res = managed_admin_client.get("/")
-        assert "apiGetRandom" not in res.text
+        assert "apiGetRandom" in res.text
 
     def test_showBrowseModal_removed(self, managed_admin_client: TestClient) -> None:
         """AC-D5: showBrowseModal function is removed."""

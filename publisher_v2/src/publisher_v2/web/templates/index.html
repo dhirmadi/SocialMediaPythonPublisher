@@ -722,8 +722,51 @@
       }
     }
 
+    // True when the operator entered the grid and selected an image from it.
+    // Until then, navigation/curation behaves like the original "random image"
+    // workflow so the publisher feels the same on first load.
+    function gridNavActive() {
+      return gridImages.length > 0 && gridCurrentIndex >= 0;
+    }
+
+    async function apiGetRandom() {
+      if (!isAdmin && !featureConfig.auto_view_enabled) {
+        const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
+        setActivity(adminReq);
+        setDetails("");
+        showImagePlaceholder(adminReq);
+        return;
+      }
+      setActivity("Loading random image…");
+      disableButtons(true);
+      try {
+        const res = await fetch("/api/images/random");
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.detail || err.error || "Failed to load image");
+        }
+        const data = await res.json();
+        // Reset grid pointer — this image did not come from the grid.
+        gridCurrentIndex = -1;
+        applyImageData(data);
+      } catch (e) {
+        console.error(e);
+        currentFilename = null;
+        showImagePlaceholder("Error loading image.");
+        setCaption(null);
+        setDetails("");
+        setActivity(e.message || "Error loading image.");
+      } finally {
+        disableButtons(false);
+      }
+    }
+
     async function handleNext() {
-      if (gridImages.length === 0) return;
+      if (!gridNavActive()) {
+        // Random-image workflow: just fetch another random image.
+        await apiGetRandom();
+        return;
+      }
       const lastIndexInPage = gridImages.length - 1;
       if (gridCurrentIndex < lastIndexInPage) {
         gridCurrentIndex++;
@@ -747,7 +790,11 @@
     }
 
     async function handlePrev() {
-      if (gridImages.length === 0) return;
+      if (!gridNavActive()) {
+        // No grid context — previous is a no-op for random workflow.
+        setActivity("Open the grid to navigate backwards.");
+        return;
+      }
       if (gridCurrentIndex > 0) {
         gridCurrentIndex--;
         await loadImageDetail(gridImages[gridCurrentIndex]);
@@ -1343,14 +1390,21 @@
       }
     }
 
+    // Returns true if the splice happened (i.e. we were navigating via the grid).
     function spliceCurrentFromGrid() {
       browseImageList = null;  // invalidate dropbox cache
-      if (gridCurrentIndex < 0 || gridCurrentIndex >= gridImages.length) return;
+      if (gridCurrentIndex < 0 || gridCurrentIndex >= gridImages.length) return false;
       gridImages.splice(gridCurrentIndex, 1);
       if (gridTotal > 0) gridTotal--;
+      return true;
     }
 
-    async function advanceAfterAction() {
+    async function advanceAfterAction(wasFromGrid) {
+      // No grid context — stay in detail view and pull another random image.
+      if (!wasFromGrid) {
+        await apiGetRandom();
+        return;
+      }
       if (gridImages.length === 0) {
         // Page exhausted. If more items remain (gridTotal still > offset), refetch
         // the same offset — items shifted up from later pages may surface here.
@@ -1463,8 +1517,8 @@
         const results = JSON.stringify(data.results || {}, null, 2);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
-          spliceCurrentFromGrid();
-          await advanceAfterAction();
+          const wasFromGrid = spliceCurrentFromGrid();
+          await advanceAfterAction(wasFromGrid);
         } else {
           // No platform succeeded — stay on the image so the user can investigate
           setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
@@ -1505,8 +1559,8 @@
         }
         const data = await res.json();
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
-        spliceCurrentFromGrid();
-        await advanceAfterAction();
+        const wasFromGrid = spliceCurrentFromGrid();
+        await advanceAfterAction(wasFromGrid);
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error keeping image.";
@@ -1544,8 +1598,8 @@
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
-        spliceCurrentFromGrid();
-        await advanceAfterAction();
+        const wasFromGrid = spliceCurrentFromGrid();
+        await advanceAfterAction(wasFromGrid);
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error removing image.";
@@ -1594,8 +1648,8 @@
         }
         const data = await res.json();
         setActivity(`Permanently deleted: ${data.filename}`);
-        spliceCurrentFromGrid();
-        await advanceAfterAction();
+        const wasFromGrid = spliceCurrentFromGrid();
+        await advanceAfterAction(wasFromGrid);
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error deleting image.";
@@ -1631,9 +1685,9 @@
         passwordInput.value = "";
         updateAdminUI();
         showToast("Logged in successfully.");
-        // Refresh grid view (may now show admin-gated controls)
-        setViewState("grid");
-        await fetchGrid();
+        // Refresh image: stay in current view, pull a fresh random one.
+        setViewState("detail");
+        await apiGetRandom();
       } catch (e) {
         loginError.textContent = "Invalid password.";
         btnSubmitLogin.disabled = false;
@@ -1840,17 +1894,15 @@
         await refreshAdminStatus();
         updateAdminUI();
 
-        // Show grid first
-        setViewState("grid");
+        // Start in detail view with a random image. The grid opens lazily
+        // when the operator clicks "Back to grid".
+        setViewState("detail");
         if (isAdmin || featureConfig.auto_view_enabled) {
-          await fetchGrid();
+          await apiGetRandom();
         } else {
           setActivity("Ready. Admin mode required to view images.");
           setDetails("");
           showImagePlaceholder("Admin mode required to view images.");
-          gridResultCount.textContent = "";
-          gridEmpty.classList.remove("hidden");
-          gridEmpty.textContent = "Admin mode required to browse images.";
         }
       });
     }

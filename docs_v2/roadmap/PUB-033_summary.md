@@ -95,8 +95,31 @@ Both confirmed pre-existing via `git stash` on the unmodified tree.
 
 ## Notes / Decisions
 
-- The spec said `.browse-grid` already used `repeat(auto-fill, minmax(140px, 1fr))` ("no change needed"), but the existing CSS used `repeat(5, 1fr)` with a `@media (max-width: 640px)` 3-column override. I updated the CSS to match the spec (the responsive auto-fill is the desired behaviour) and removed the now-redundant media query.
+- The spec said `.browse-grid` already used `repeat(auto-fill, minmax(140px, 1fr))` ("no change needed"), but the existing CSS used `repeat(5, 1fr)` with a `@media (max-width: 640px)` 3-column override. Updated the CSS to match the spec (responsive auto-fill is the desired behaviour) and removed the now-redundant media query.
 - The handoff said `storage_provider` should land in `/api/config/features`. Implemented by reading `service.config.managed is not None`.
-- The `auto_view_enabled` non-admin path now displays the grid panel with an empty-state message ("Admin mode required to browse images.") rather than the old image placeholder, since the grid is the new entry point.
 - For Dropbox, filename list is cached 60s (`BROWSE_CACHE_TTL`); the cache is invalidated whenever an image is curated to keep counts honest.
 - All library API endpoints (`/api/library/*`) remain untouched per AC-D7.
+
+## Spec deviation — startup flow (operator-requested)
+
+After implementation the operator requested that the publisher continue to
+**start with a random image** (as in v1) and only open the grid when the user
+explicitly clicks the "Back to grid" button. This supersedes Story E /
+AC-E1 / AC-E2 / AC-D3:
+
+- Startup now renders a single random image in detail view (`apiGetRandom`).
+- `apiGetRandom` is retained (AC-D3 reversed); the spec's "no random image
+  loading" rule no longer applies.
+- The grid loads lazily on the first click of `btn-back-to-grid`.
+- Navigation/curation has two modes:
+  - **Random mode** (initial): `Next` pulls another random image; `Previous`
+    is a no-op (advises opening the grid); curation actions advance to a
+    fresh random image.
+  - **Grid mode** (after the user picks a thumbnail): unchanged from the
+    spec — `Next`/`Previous` traverse `gridImages` across page boundaries,
+    curation splices the image and auto-advances.
+- `spliceCurrentFromGrid` now returns whether it actually mutated state, so
+  callers can pass that flag to `advanceAfterAction(wasFromGrid)` and pick
+  the right branch even when the splice empties the page.
+- Test `test_apiGetRandom_removed` was rewritten to
+  `test_apiGetRandom_kept_for_random_workflow`.
