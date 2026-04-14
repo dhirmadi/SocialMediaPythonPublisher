@@ -458,8 +458,11 @@
     </div>
 
     <div class="controls">
-      <button id="btn-back-to-grid" class="secondary">
+      <button id="btn-back-to-grid" class="secondary admin-only hidden">
         {{ web_ui_text.buttons.back_to_grid or "Back to grid" }}
+      </button>
+      <button id="btn-login-cta" class="primary hidden" style="padding: 0.75rem 1.5rem; font-size: 1rem;">
+        {{ web_ui_text.buttons.login or "Login to manage images" }}
       </button>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
@@ -480,7 +483,7 @@
       </div>
     </div>
 
-    <div class="panel" id="panel-caption">
+    <div class="panel admin-only hidden" id="panel-caption">
       <h2>{{ web_ui_text.panels.caption_title or "Caption" }}</h2>
       <textarea id="caption-text" rows="4"
         placeholder="{{ web_ui_text.placeholders.caption_empty or 'No caption yet.' }}"
@@ -597,6 +600,7 @@
 
     const btnPrev = document.getElementById("btn-prev");
     const btnBackToGrid = document.getElementById("btn-back-to-grid");
+    const btnLoginCta = document.getElementById("btn-login-cta");
 
     const imageContainer = document.querySelector(".image-container");
     const controlsEl = document.querySelector(".controls");
@@ -677,8 +681,9 @@
         gridPanel.classList.add("hidden");
         imageContainer.classList.remove("hidden");
         controlsEl.classList.remove("hidden");
-        captionPanel.classList.remove("hidden");
         if (isAdmin) {
+          captionPanel.classList.remove("hidden");
+          btnBackToGrid.classList.remove("hidden");
           panelAdmin.classList.remove("hidden");
           panelActivity.classList.remove("hidden");
         }
@@ -1011,6 +1016,8 @@
           ? "Viewer mode"
           : "Private mode";
       }
+
+      const authConfigured = featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password";
       
       // Handle Admin Button Visibility & Type
       if (isAdmin) {
@@ -1018,19 +1025,25 @@
         adminControls.classList.remove("hidden");
         panelAdmin.classList.remove("hidden");
         panelActivity.classList.remove("hidden");
+        captionPanel.classList.remove("hidden");
+        btnBackToGrid.classList.remove("hidden");
         btnAdmin.classList.add("hidden");
         btnAdminLogout.classList.remove("hidden");
+        btnLoginCta.classList.add("hidden");
       } else {
         bodyEl.classList.remove("admin-mode");
         adminControls.classList.add("hidden");
         panelAdmin.classList.add("hidden");
         panelActivity.classList.add("hidden");
+        captionPanel.classList.add("hidden");
+        btnBackToGrid.classList.add("hidden");
         btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
         
-        // Only show login button if auth is configured
-        if (featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password") {
+        // Only show login buttons if auth is configured
+        if (authConfigured) {
             btnAdmin.classList.remove("hidden");
+            btnLoginCta.classList.remove("hidden");
             // Set up link for Auth0, or remove it for password (JS handles click)
             if (featureConfig.auth_mode === "auth0") {
                 btnAdmin.href = "/auth/login";
@@ -1040,6 +1053,7 @@
             }
         } else {
             btnAdmin.classList.add("hidden");
+            btnLoginCta.classList.add("hidden");
         }
       }
       if (btnAnalyze) {
@@ -1731,6 +1745,15 @@
           }
           // If auth_mode is "auth0", the href handles it.
           // If "none", nothing happens (or hidden).
+      });
+
+      // Prominent login CTA button (shown when logged out)
+      btnLoginCta.addEventListener("click", () => {
+          if (featureConfig.auth_mode === "auth0") {
+              window.location.href = "/auth/login";
+          } else if (featureConfig.auth_mode === "password") {
+              toggleAdminModal();
+          }
       });
     }
 

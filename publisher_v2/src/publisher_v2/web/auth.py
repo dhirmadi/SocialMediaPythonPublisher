@@ -124,14 +124,14 @@ def verify_admin_password(candidate: str, actual: str) -> bool:
 
 
 def _admin_cookie_ttl_seconds() -> int:
-    # Default to 1 hour; allow override while keeping it bounded.
+    # Default to 7 days (604800s); allow override while keeping it bounded.
     raw = os.environ.get("WEB_ADMIN_COOKIE_TTL_SECONDS")
     try:
-        value = int(raw) if raw is not None else 3600
+        value = int(raw) if raw is not None else 604800
     except ValueError:
-        value = 3600
-    # Clamp to a sensible minimum/maximum.
-    return max(60, min(value, 3600))
+        value = 604800
+    # Clamp to a sensible minimum (1 min) / maximum (30 days).
+    return max(60, min(value, 2592000))
 
 
 def set_admin_cookie(response: Response, expires_in_seconds: int | None = None) -> None:

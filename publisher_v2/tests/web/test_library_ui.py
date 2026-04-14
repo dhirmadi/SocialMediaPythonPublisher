@@ -84,6 +84,16 @@ class TestUnifiedGridPanel:
         res = managed_admin_client.get("/")
         assert 'id="btn-back-to-grid"' in res.text
 
+    def test_login_cta_button(self, managed_admin_client: TestClient) -> None:
+        """Login CTA button exists for logged-out users."""
+        res = managed_admin_client.get("/")
+        assert 'id="btn-login-cta"' in res.text
+
+    def test_caption_panel_has_admin_class(self, managed_admin_client: TestClient) -> None:
+        """Caption panel is admin-only (hidden when logged out)."""
+        res = managed_admin_client.get("/")
+        assert 'class="panel admin-only hidden" id="panel-caption"' in res.text
+
 
 class TestRemovedJavaScript:
     """AC-D2..D5: Old JS functions and modal are removed."""
