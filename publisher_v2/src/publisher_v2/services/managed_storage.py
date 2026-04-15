@@ -13,6 +13,7 @@ import os
 from typing import Any, cast
 
 import boto3
+from botocore.config import Config as BotoConfig
 from botocore.exceptions import ClientError, EndpointConnectionError
 from botocore.exceptions import ConnectionError as BotoConnectionError
 from PIL import Image
@@ -52,12 +53,18 @@ class ManagedStorage:
 
     def __init__(self, config: ManagedStorageConfig) -> None:
         self.config = config
+        boto_config = BotoConfig(
+            connect_timeout=30,
+            read_timeout=60,
+            retries={"max_attempts": 3, "mode": "adaptive"},
+        )
         self.client: Any = boto3.client(
             "s3",
             aws_access_key_id=config.access_key_id,
             aws_secret_access_key=config.secret_access_key,
             endpoint_url=config.endpoint_url,
             region_name=config.region,
+            config=boto_config,
         )
         self._bucket = config.bucket
 
@@ -168,7 +175,14 @@ class ManagedStorage:
             def _download() -> bytes:
                 key = self._key(folder, filename)
                 resp = self.client.get_object(Bucket=self._bucket, Key=key)
-                return cast(bytes, resp["Body"].read())
+                expected_length = resp.get("ContentLength")
+                body = resp["Body"].read()
+                actual_length = len(body)
+                if expected_length is not None and actual_length != expected_length:
+                    raise StorageError(
+                        f"Incomplete download for {filename}: expected {expected_length} bytes, got {actual_length}"
+                    )
+                return cast(bytes, body)
 
             return await asyncio.to_thread(_download)
         except ClientError as exc:
