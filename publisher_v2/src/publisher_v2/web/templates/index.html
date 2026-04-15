@@ -12,8 +12,8 @@
       font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       margin: 0;
       padding: 0;
-      background-color: #0f172a;
-      color: #e5e7eb;
+      background-color: #1a1a1a;
+      color: #e5e5e5;
       display: flex;
       flex-direction: column;
       min-height: 100vh;
@@ -22,12 +22,12 @@
       transition: background-color 0.2s ease;
     }
     body.admin-mode {
-      background-color: #8b0000;
+      background-color: #2d1a1a;
     }
     header {
       padding: 0.75rem 1rem;
-      background-color: #020617;
-      border-bottom: 1px solid #1f2937;
+      background-color: #141414;
+      border-bottom: 1px solid #333;
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -58,10 +58,10 @@
       display: flex;
       justify-content: center;
       align-items: center;
-      background-color: #020617;
+      background-color: #222;
       border-radius: 0.75rem;
       padding: 0.75rem;
-      border: 1px solid #1f2937;
+      border: 1px solid #333;
       max-width: min(100%, 1280px);
       width: 100%;
       margin: 0 auto;
@@ -157,23 +157,37 @@
       font-size: 0.95rem;
       font-weight: 500;
       cursor: pointer;
-      color: #0f172a;
-      background: linear-gradient(to right, #38bdf8, #22c55e);
+      color: #fff;
+      background: #cc0000;
+    }
+    button:hover:not(:disabled) {
+      background: #e60000;
+    }
+    button.primary {
+      background: #cc0000;
+      color: #fff;
+    }
+    button.primary:hover:not(:disabled) {
+      background: #e60000;
     }
     button.secondary {
-      background: #111827;
-      color: #e5e7eb;
-      border: 1px solid #374151;
+      background: #2d2d2d;
+      color: #e5e5e5;
+      border: 1px solid #444;
+    }
+    button.secondary:hover:not(:disabled) {
+      background: #3d3d3d;
+      border-color: #555;
     }
     button:disabled {
       opacity: 0.5;
       cursor: default;
     }
     .panel {
-      background-color: #020617;
+      background-color: #222;
       border-radius: 0.75rem;
       padding: 0.75rem;
-      border: 1px solid #1f2937;
+      border: 1px solid #333;
       font-size: 0.9rem;
     }
     .panel h2 {
@@ -215,14 +229,14 @@
       display: flex;
       align-items: center;
       justify-content: center;
-      background-color: rgba(15, 23, 42, 0.8);
+      background-color: rgba(0, 0, 0, 0.85);
       z-index: 50;
     }
     .modal-dialog {
-      background-color: #020617;
+      background-color: #222;
       border-radius: 0.75rem;
       padding: 1rem;
-      border: 1px solid #1f2937;
+      border: 1px solid #444;
       width: 100%;
       max-width: 22rem;
       box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6);
@@ -280,7 +294,7 @@
       overflow: hidden;
       border-radius: 0.5rem;
       cursor: pointer;
-      background: #111827;
+      background: #2d2d2d;
       position: relative;
       border: 2px solid transparent;
       transition: border-color 0.15s, transform 0.15s;
@@ -326,27 +340,30 @@
     .grid-toolbar button.secondary {
       padding: 0.4rem 0.6rem;
       border-radius: 0.5rem;
-      border: 1px solid #374151;
-      background: #1f2937;
-      color: #e5e7eb;
+      border: 1px solid #444;
+      background: #2d2d2d;
+      color: #e5e5e5;
       font-size: 0.85rem;
     }
     .grid-upload-label {
       display: inline-block;
       padding: 0.4rem 0.75rem;
-      background: linear-gradient(135deg, #06b6d4, #10b981);
-      color: #020617;
+      background: #cc0000;
+      color: #fff;
       border-radius: 0.5rem;
       cursor: pointer;
       font-size: 0.85rem;
       font-weight: 600;
     }
+    .grid-upload-label:hover {
+      background: #e60000;
+    }
     .browse-grid-item:hover {
-      border-color: #38bdf8;
+      border-color: #cc0000;
       transform: scale(1.03);
     }
     .browse-grid-item.current {
-      border-color: #38bdf8;
+      border-color: #cc0000;
     }
     .browse-grid-item img {
       width: 100%;
@@ -386,8 +403,8 @@
       border-radius: 0.375rem;
     }
     .browse-pagination button.active {
-      background: #38bdf8;
-      color: #0f172a;
+      background: #cc0000;
+      color: #fff;
     }
     #caption-text {
       width: 100%;
@@ -403,7 +420,7 @@
     }
     #caption-text:focus {
       outline: none;
-      border-color: #38bdf8;
+      border-color: #cc0000;
     }
     #caption-text[readonly] {
       opacity: 0.6;
@@ -520,8 +537,8 @@
         <button id="grid-refresh-btn" class="secondary">Refresh</button>
       </div>
       <div id="grid-upload-progress" class="hidden" style="margin-bottom:0.5rem;">
-        <div style="background:#1f2937;border-radius:0.25rem;overflow:hidden;height:4px;">
-          <div id="grid-upload-bar" style="height:100%;background:linear-gradient(90deg,#06b6d4,#10b981);width:0%;transition:width 0.3s;"></div>
+        <div style="background:#333;border-radius:0.25rem;overflow:hidden;height:4px;">
+          <div id="grid-upload-bar" style="height:100%;background:#cc0000;width:0%;transition:width 0.3s;"></div>
         </div>
         <div id="grid-upload-status" style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem;"></div>
       </div>
