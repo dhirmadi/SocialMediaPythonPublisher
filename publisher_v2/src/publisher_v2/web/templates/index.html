@@ -21,9 +21,6 @@
       overflow-x: hidden;
       transition: background-color 0.2s ease;
     }
-    body.admin-mode {
-      background-color: #2d1a1a;
-    }
     header {
       padding: 0.75rem 1rem;
       background-color: #141414;
@@ -1014,17 +1011,15 @@
     }
 
     function updateAdminUI() {
+      // Hide the env indicator (no longer needed)
       if (envIndicator) {
-        envIndicator.textContent = featureConfig.auto_view_enabled
-          ? "Viewer mode"
-          : "Private mode";
+        envIndicator.classList.add("hidden");
       }
 
       const authConfigured = featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password";
       
       // Handle Admin Button Visibility & Type
       if (isAdmin) {
-        bodyEl.classList.add("admin-mode");
         adminControls.classList.remove("hidden");
         panelActivity.classList.remove("hidden");
         captionPanel.classList.remove("hidden");
@@ -1033,7 +1028,6 @@
         btnAdminLogout.classList.remove("hidden");
         btnLoginCta.classList.add("hidden");
       } else {
-        bodyEl.classList.remove("admin-mode");
         adminControls.classList.add("hidden");
         panelActivity.classList.add("hidden");
         captionPanel.classList.add("hidden");
