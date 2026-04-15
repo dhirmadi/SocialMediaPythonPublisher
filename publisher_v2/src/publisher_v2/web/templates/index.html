@@ -494,13 +494,6 @@
       </div>
     </div>
 
-    <div class="panel admin-only hidden" id="panel-admin">
-      <h2>{{ web_ui_text.panels.admin_title or "Administration" }}</h2>
-      <div id="admin-mode-indicator" class="status">
-        {{ web_ui_text.status.admin_mode_off or "Admin mode: off" }}
-      </div>
-      <div class="status">Admin-only controls are active while you are logged in.</div>
-    </div>
 
     <div class="panel admin-only hidden" id="panel-activity">
       <h2>{{ web_ui_text.panels.activity_title or "Activity" }}</h2>
@@ -587,9 +580,7 @@
     const btnAdmin = document.getElementById("btn-admin");
     const btnAdminLogout = document.getElementById("btn-admin-logout");
     const adminControls = document.getElementById("admin-controls");
-    const panelAdmin = document.getElementById("panel-admin");
     const panelActivity = document.getElementById("panel-activity");
-    const adminModeIndicator = document.getElementById("admin-mode-indicator");
     const toastContainer = document.getElementById("toast-container");
 
     const modal = document.getElementById("admin-modal");
@@ -674,8 +665,7 @@
         controlsEl.classList.add("hidden");
         captionPanel.classList.add("hidden");
         positionIndicator.classList.add("hidden");
-        // Admin/activity panels stay hidden during grid view (spec Part B)
-        panelAdmin.classList.add("hidden");
+        // Activity panel stays hidden during grid view (spec Part B)
         panelActivity.classList.add("hidden");
       } else {
         gridPanel.classList.add("hidden");
@@ -684,7 +674,6 @@
         if (isAdmin) {
           captionPanel.classList.remove("hidden");
           btnBackToGrid.classList.remove("hidden");
-          panelAdmin.classList.remove("hidden");
           panelActivity.classList.remove("hidden");
         }
       }
@@ -1008,9 +997,6 @@
     }
 
     function updateAdminUI() {
-      const onText = TEXT.status?.admin_mode_on || "Admin mode: on";
-      const offText = TEXT.status?.admin_mode_off || "Admin mode: off";
-      adminModeIndicator.textContent = isAdmin ? onText : offText;
       if (envIndicator) {
         envIndicator.textContent = featureConfig.auto_view_enabled
           ? "Viewer mode"
@@ -1023,7 +1009,6 @@
       if (isAdmin) {
         bodyEl.classList.add("admin-mode");
         adminControls.classList.remove("hidden");
-        panelAdmin.classList.remove("hidden");
         panelActivity.classList.remove("hidden");
         captionPanel.classList.remove("hidden");
         btnBackToGrid.classList.remove("hidden");
@@ -1033,7 +1018,6 @@
       } else {
         bodyEl.classList.remove("admin-mode");
         adminControls.classList.add("hidden");
-        panelAdmin.classList.add("hidden");
         panelActivity.classList.add("hidden");
         captionPanel.classList.add("hidden");
         btnBackToGrid.classList.add("hidden");
