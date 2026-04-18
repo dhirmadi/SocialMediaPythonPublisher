@@ -6,7 +6,13 @@ from typing import Any
 
 import httpx
 
-from publisher_v2.core.exceptions import CredentialResolutionError, OrchestratorUnavailableError, TenantNotFoundError
+from publisher_v2.core.exceptions import (
+    CredentialResolutionError,
+    InsufficientBalanceError,
+    OrchestratorUnavailableError,
+    TenantNotFoundError,
+    UsageMeteringError,
+)
 
 RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
@@ -131,10 +137,55 @@ class OrchestratorClient:
         if resp.status_code == 404:
             raise CredentialResolutionError("Credentials not found or not authorized")
         if resp.status_code == 403:
+            try:
+                body = resp.json()
+            except Exception:
+                body = {}
+            error_code = body.get("error", "")
+            if error_code == "insufficient_balance":
+                raise InsufficientBalanceError("Workspace has insufficient credits for this operation")
             raise CredentialResolutionError("Orchestrator authorization failed (403)")
         if resp.status_code in RETRYABLE_STATUS:
             raise OrchestratorUnavailableError(f"Orchestrator credentials unavailable: {resp.status_code}")
         raise CredentialResolutionError(f"Unexpected orchestrator credentials response: {resp.status_code}")
+
+    async def post_usage(
+        self,
+        *,
+        tenant_id: str,
+        metric: str,
+        quantity: int,
+        unit: str,
+        idempotency_key: str,
+        occurred_at: str,
+        source: str = "publisher",
+        request_id: str | None = None,
+    ) -> dict[str, Any]:
+        url = f"{self._base_url}/v1/billing/usage"
+        headers = self._headers(request_id=request_id)
+        body = {
+            "tenant_id": tenant_id,
+            "source": source,
+            "idempotency_key": idempotency_key,
+            "metric": metric,
+            "quantity": quantity,
+            "unit": unit,
+            "occurred_at": occurred_at,
+        }
+        resp = await self._request_with_retry("POST", url, headers=headers, json=body)
+
+        if resp.status_code == 200:
+            result: dict[str, Any] = resp.json()
+            return result
+        if resp.status_code == 403:
+            raise CredentialResolutionError("Orchestrator authorization failed (403)")
+        if resp.status_code == 404:
+            raise UsageMeteringError("Tenant not found for usage reporting")
+        if resp.status_code == 422:
+            raise UsageMeteringError(f"Usage rejected (422): invalid body or unknown metric '{metric}'")
+        if resp.status_code in RETRYABLE_STATUS:
+            raise OrchestratorUnavailableError(f"Orchestrator usage endpoint unavailable: {resp.status_code}")
+        raise UsageMeteringError(f"Unexpected usage response: {resp.status_code}")
 
 
 def prefer_post_default() -> bool:

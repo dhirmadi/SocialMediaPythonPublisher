@@ -15,7 +15,7 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
-from publisher_v2.core.models import CaptionSpec, ImageAnalysis
+from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
 
@@ -76,6 +76,19 @@ _DEFAULT_VISION_USER_PROMPT = (
 )
 
 
+def _extract_usage(resp: object) -> AIUsage | None:
+    """Extract AIUsage from an OpenAI response object. Returns None if usage is absent."""
+    usage = getattr(resp, "usage", None)
+    if usage is None:
+        return None
+    return AIUsage(
+        response_id=getattr(resp, "id", None) or "",
+        total_tokens=getattr(usage, "total_tokens", 0) or 0,
+        prompt_tokens=getattr(usage, "prompt_tokens", 0) or 0,
+        completion_tokens=getattr(usage, "completion_tokens", 0) or 0,
+    )
+
+
 class VisionAnalyzerOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
@@ -97,7 +110,7 @@ class VisionAnalyzerOpenAI:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, AIUsage | None]:
         """
         Use OpenAI vision model to produce structured analysis.
         Accepts a temporary url or image bytes (url recommended).
@@ -174,8 +187,9 @@ class VisionAnalyzerOpenAI:
                 background=self._opt_str(data.get("background")),
                 color_palette=self._opt_str(data.get("color_palette")),
             )
+            ai_usage = _extract_usage(resp)
             ok = True
-            return analysis
+            return analysis, ai_usage
         except Exception as exc:
             if error_type is None:
                 error_type = "openai_error"
@@ -264,7 +278,7 @@ class CaptionGeneratorOpenAI:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
+    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
         try:
             hashtags_clause = ""
             if spec.hashtags:
@@ -290,7 +304,7 @@ class CaptionGeneratorOpenAI:
             # Enforce length
             if len(content) > spec.max_length:
                 content = content[: spec.max_length - 1].rstrip() + "…"
-            return content
+            return content, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption failed: {exc}") from exc
 
@@ -299,7 +313,9 @@ class CaptionGeneratorOpenAI:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
+    async def generate_with_sd(
+        self, analysis: ImageAnalysis, spec: CaptionSpec
+    ) -> tuple[dict[str, str], AIUsage | None]:
         """
         Prefer a single-call generation that returns a JSON object:
         { "caption": str, "sd_caption": str }
@@ -334,7 +350,7 @@ class CaptionGeneratorOpenAI:
             # Enforce length for normal caption
             if len(caption) > spec.max_length:
                 caption = caption[: spec.max_length - 1].rstrip() + "…"
-            return {"caption": caption, "sd_caption": sd_caption}
+            return {"caption": caption, "sd_caption": sd_caption}, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption+sd failed: {exc}") from exc
 
@@ -343,7 +359,9 @@ class CaptionGeneratorOpenAI:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def generate_multi(self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]) -> dict[str, str]:
+    async def generate_multi(
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+    ) -> tuple[dict[str, str], AIUsage | None]:
         """Generate one caption per platform in a single OpenAI call.
 
         Returns: {"telegram": "...", "instagram": "...", "email": "..."}
@@ -383,7 +401,7 @@ class CaptionGeneratorOpenAI:
                 if len(caption_text) > specs[platform].max_length:
                     caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
                 captions[platform] = caption_text
-            return captions
+            return captions, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI multi-caption failed: {exc}") from exc
 
@@ -392,7 +410,9 @@ class CaptionGeneratorOpenAI:
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def generate_multi_with_sd(self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]) -> dict[str, str]:
+    async def generate_multi_with_sd(
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+    ) -> tuple[dict[str, str], AIUsage | None]:
         """Generate per-platform captions plus one sd_caption in a single OpenAI call.
 
         Returns: {"telegram": "...", "instagram": "...", ..., "sd_caption": "..."}
@@ -435,7 +455,7 @@ class CaptionGeneratorOpenAI:
                     caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
                 result[platform] = caption_text
             result["sd_caption"] = str(data.get("sd_caption", "")).strip()
-            return result
+            return result, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI multi-caption+sd failed: {exc}") from exc
 
@@ -459,9 +479,9 @@ class AIService:
 
     async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
         async with self._rate_limiter:
-            analysis = await self.analyzer.analyze(url_or_bytes)
+            analysis, _usage = await self.analyzer.analyze(url_or_bytes)
         async with self._rate_limiter:
-            caption = await self.generator.generate(analysis, spec)
+            caption, _usage2 = await self.generator.generate(analysis, spec)
         return caption
 
     async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str | None]:
@@ -470,62 +490,73 @@ class AIService:
         return (caption, None) using legacy caption path.
         """
         async with self._rate_limiter:
-            analysis = await self.analyzer.analyze(url_or_bytes)
-        return await self.create_caption_pair_from_analysis(analysis, spec)
+            analysis, _usage = await self.analyzer.analyze(url_or_bytes)
+        caption, sd, _usages = await self.create_caption_pair_from_analysis(analysis, spec)
+        return caption, sd
 
     async def create_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec
-    ) -> tuple[str, str | None]:
+    ) -> tuple[str, str | None, list[AIUsage]]:
         """
-        Create (caption, sd_caption) when an ImageAnalysis is already available.
+        Create (caption, sd_caption, usages) when an ImageAnalysis is already available.
 
         If SD caption generation is disabled or the single-call path fails,
-        falls back to the legacy caption-only path and returns (caption, None).
+        falls back to the legacy caption-only path and returns (caption, None, usages).
         """
+        usages: list[AIUsage] = []
         # Attempt single-call generation if enabled
         if getattr(self.generator, "sd_caption_enabled", True) and getattr(
             self.generator, "sd_caption_single_call_enabled", True
         ):
             try:
                 async with self._rate_limiter:
-                    pair = await self.generator.generate_with_sd(analysis, spec)
-                return pair.get("caption", ""), pair.get("sd_caption") or None
+                    pair, usage = await self.generator.generate_with_sd(analysis, spec)
+                if usage is not None:
+                    usages.append(usage)
+                return pair.get("caption", ""), pair.get("sd_caption") or None, usages
             except Exception:  # noqa: S110 — intentional fallback to legacy caption-only path below
                 pass
         # Legacy fallback
         async with self._rate_limiter:
-            caption_only = await self.generator.generate(analysis, spec)
-        return caption_only, None
+            caption_only, usage = await self.generator.generate(analysis, spec)
+        if usage is not None:
+            usages.append(usage)
+        return caption_only, None, usages
 
     async def create_multi_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
-    ) -> tuple[dict[str, str], str | None]:
+    ) -> tuple[dict[str, str], str | None, list[AIUsage]]:
         """Create per-platform captions and optional sd_caption from an existing analysis.
 
-        Returns (platform_captions_dict, sd_caption_or_none).
+        Returns (platform_captions_dict, sd_caption_or_none, usages).
         Falls back to generate_multi if SD generation fails or is disabled.
         If the generator doesn't support multi-caption, falls back to single-caption path.
         """
         # Fallback for generators that don't support multi-caption (backward compat)
         if not hasattr(self.generator, "generate_multi"):
             spec = next(iter(specs.values()))
-            caption, sd = await self.create_caption_pair_from_analysis(analysis, spec)
-            return {next(iter(specs)): caption}, sd
+            caption, sd, fallback_usages = await self.create_caption_pair_from_analysis(analysis, spec)
+            return {next(iter(specs)): caption}, sd, fallback_usages
 
+        usages: list[AIUsage] = []
         if getattr(self.generator, "sd_caption_enabled", True) and getattr(
             self.generator, "sd_caption_single_call_enabled", True
         ):
             try:
                 async with self._rate_limiter:
-                    result = await self.generator.generate_multi_with_sd(analysis, specs)
+                    result, usage = await self.generator.generate_multi_with_sd(analysis, specs)
+                if usage is not None:
+                    usages.append(usage)
                 sd_caption = result.pop("sd_caption", None) or None
-                return result, sd_caption
+                return result, sd_caption, usages
             except Exception:  # noqa: S110 — intentional fallback
                 pass
         # Fallback to multi-caption without SD
         async with self._rate_limiter:
-            captions = await self.generator.generate_multi(analysis, specs)
-        return captions, None
+            captions, usage = await self.generator.generate_multi(analysis, specs)
+        if usage is not None:
+            usages.append(usage)
+        return captions, None, usages
 
 
 class NullAIService:

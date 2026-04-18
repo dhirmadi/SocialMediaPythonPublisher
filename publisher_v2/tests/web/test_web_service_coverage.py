@@ -245,7 +245,7 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
                 nsfw=False,
                 safety_labels=[],
             )
-            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)  # type: ignore[method-assign, union-attr]
+            service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
             service.ai_service.create_caption_pair_from_analysis = AsyncMock(side_effect=Exception("SD caption failed"))  # type: ignore[method-assign, union-attr]
             service.ai_service.create_caption = AsyncMock(return_value="fallback caption")  # type: ignore[method-assign, union-attr]
 
@@ -288,10 +288,12 @@ class TestAnalyzeAndCaptionSidecarWriteException:
                 nsfw=False,
                 safety_labels=[],
             )
-            service.ai_service.analyzer.analyze = AsyncMock(return_value=analysis)  # type: ignore[method-assign, union-attr]
-            service.ai_service.create_caption_pair_from_analysis = AsyncMock(return_value=("caption", "sd_caption"))  # type: ignore[method-assign, union-attr]
+            service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
+            service.ai_service.create_caption_pair_from_analysis = AsyncMock(return_value=("caption", "sd_caption", []))  # type: ignore[method-assign, union-attr]
             ai = service.ai_service
-            ai.create_multi_caption_pair_from_analysis = AsyncMock(return_value=({"generic": "caption"}, "sd_caption"))  # type: ignore[method-assign, union-attr]
+            ai.create_multi_caption_pair_from_analysis = AsyncMock(
+                return_value=({"generic": "caption"}, "sd_caption", [])
+            )  # type: ignore[method-assign, union-attr]
 
             # Mock sidecar generation to fail - the import is inside the method
             with patch("publisher_v2.services.sidecar.generate_and_upload_sidecar") as mock_sidecar:

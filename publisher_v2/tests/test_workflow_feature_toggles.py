@@ -49,9 +49,9 @@ class _StubAnalyzer:
     def __init__(self) -> None:
         self.calls = 0
 
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, None]:
         self.calls += 1
-        return ImageAnalysis(description="desc", mood="calm", tags=["tag"], nsfw=False, safety_labels=[])
+        return ImageAnalysis(description="desc", mood="calm", tags=["tag"], nsfw=False, safety_labels=[]), None
 
 
 class _StubGenerator:
@@ -60,13 +60,13 @@ class _StubGenerator:
         self.sd_caption_enabled = True
         self.sd_caption_single_call_enabled = True
 
-    async def generate_with_sd(self, analysis: ImageAnalysis, spec) -> dict[str, str]:
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec) -> tuple[dict[str, str], None]:
         self.calls += 1
-        return {"caption": "generated", "sd_caption": "sd style"}
+        return {"caption": "generated", "sd_caption": "sd style"}, None
 
-    async def generate(self, analysis: ImageAnalysis, spec) -> str:
+    async def generate(self, analysis: ImageAnalysis, spec) -> tuple[str, None]:
         self.calls += 1
-        return "fallback"
+        return "fallback", None
 
 
 class _StubPublisher(Publisher):

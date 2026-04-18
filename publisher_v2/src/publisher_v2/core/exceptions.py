@@ -28,3 +28,11 @@ class AIServiceError(SocialMediaPublisherError):
 
 class PublishingError(SocialMediaPublisherError):
     """Error publishing to platform."""
+
+
+class UsageMeteringError(SocialMediaPublisherError):
+    """Usage metering ingest call failed (non-retryable)."""
+
+
+class InsufficientBalanceError(CredentialResolutionError):
+    """Workspace cannot afford this platform-billed credential."""

@@ -56,7 +56,7 @@ async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DummyClient())
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     analyzer = VisionAnalyzerOpenAI(cfg)
-    result = await analyzer.analyze("http://tmp-url")
+    result, _usage = await analyzer.analyze("http://tmp-url")
 
     assert result.description.startswith("A composed")
     assert result.mood == "bold"

@@ -79,23 +79,23 @@ class _DummyAI:
         async def analyze(self, url_or_bytes):
             from publisher_v2.core.models import ImageAnalysis
 
-            return ImageAnalysis(description="d", mood="m", tags=["t"], nsfw=False, safety_labels=[])
+            return ImageAnalysis(description="d", mood="m", tags=["t"], nsfw=False, safety_labels=[]), None
 
     class _Generator:
         sd_caption_model = "test"
 
         async def generate(self, analysis, spec):
-            return "caption"
+            return "caption", None
 
         async def generate_with_sd(self, analysis, spec):
-            return {"caption": "caption", "sd_caption": None}
+            return {"caption": "caption", "sd_caption": None}, None
 
     def __init__(self):
         self.analyzer = self._Analyzer()
         self.generator = self._Generator()
 
     async def create_caption_pair_from_analysis(self, analysis, spec):
-        return "caption", None
+        return "caption", None, []
 
 
 def _make_config(*, email_password: str | None = None) -> ApplicationConfig:
