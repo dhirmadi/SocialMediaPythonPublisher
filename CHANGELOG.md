@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-033: Unified Image Browser
+- **Thumbnail grid view** replaces both the old browse modal and the separate library panel — one unified experience for browsing and managing images
+- **Grid ↔ detail view state machine** — click a thumbnail to enter detail view (analyze/publish/keep/remove), "Upload/Select images" button returns to the grid preserving search/sort/page state
+- **Two-path data fetching** — managed storage uses `GET /api/library/objects` with full sort/filter/offset; Dropbox uses `GET /api/images/list` with client-side pagination
+- **Search, sort, upload, delete** integrated into the grid toolbar (managed storage only), gated by `library_enabled` and `delete_enabled` feature flags
+- **`storage_provider` field** added to `GET /api/config/features` response — frontend uses this to branch UI capabilities
+- **Old code removed** — `#panel-library` HTML, `showBrowseModal()`, `apiGetRandom()`, `initReviewMode()`, review mode variables, and all library-panel-specific JS functions
+- Mobile-responsive grid layout (2 columns on small screens, 3-4 on larger)
+
 ### Added - PUB-032: Admin Library — Sorting & Filtering
 - **Buffered-window sort/filter** on `GET /api/library/objects` — scan up to `scan_budget` S3 keys (default 5000, configurable via `LIBRARY_SCAN_BUDGET`), filter/sort in memory, paginate with offset/limit
 - Sort by `name` (default), `last_modified`, or `size` in `asc`/`desc` order
