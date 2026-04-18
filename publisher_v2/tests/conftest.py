@@ -374,8 +374,8 @@ class BaseDummyAnalyzer:
                 safety_labels=[],
             )
 
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
-        return self._analysis
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, None]:
+        return self._analysis, None
 
 
 class BaseDummyGenerator:
@@ -397,11 +397,11 @@ class BaseDummyGenerator:
         if config:
             self.model = config.caption_model
 
-    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
-        return self._caption
+    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, None]:
+        return self._caption, None
 
-    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {"caption": self._caption, "sd_caption": self._sd_caption}
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[dict[str, str], None]:
+        return {"caption": self._caption, "sd_caption": self._sd_caption}, None
 
 
 class BaseDummyAI:
@@ -437,14 +437,16 @@ class BaseDummyAI:
     async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str]:
         return self._caption, self.generator._sd_caption
 
-    async def create_caption_pair_from_analysis(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, str]:
-        return self._caption, self.generator._sd_caption
+    async def create_caption_pair_from_analysis(
+        self, analysis: ImageAnalysis, spec: CaptionSpec
+    ) -> tuple[str, str, list]:
+        return self._caption, self.generator._sd_caption, []
 
     async def create_multi_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
-    ) -> tuple[dict[str, str], str | None]:
+    ) -> tuple[dict[str, str], str | None, list]:
         captions = {k: self._caption for k in specs}
-        return captions, self.generator._sd_caption
+        return captions, self.generator._sd_caption, []
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@
 | **Category** | Web UI |
 | **Priority** | P1 |
 | **Effort** | L |
-| **Status** | Hardened |
+| **Status** | Done |
 | **Dependencies** | PUB-031 (Done), PUB-032 (Done) |
 
 ## Problem

@@ -25,11 +25,11 @@ class SDCaptionGenerator(BaseDummyGenerator):
         super().__init__(caption="normal caption", sd_caption="fine-art portrait, soft light, calm mood")
         self.model = cfg.caption_model
 
-    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {"caption": self._caption, "sd_caption": self._sd_caption}
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[dict[str, str], None]:
+        return {"caption": self._caption, "sd_caption": self._sd_caption}, None
 
-    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
-        return "legacy caption"
+    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, None]:
+        return "legacy caption", None
 
 
 class TrackingStorage(BaseDummyStorage):

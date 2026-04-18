@@ -56,10 +56,10 @@ class MultiCaptionAI(BaseDummyAI):
 
     async def create_multi_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
-    ) -> tuple[dict[str, str], str | None]:
+    ) -> tuple[dict[str, str], str | None, list]:
         if self._platform_captions:
-            return self._platform_captions, None
-        return {k: f"{k}-generated-caption" for k in specs}, None
+            return self._platform_captions, None, []
+        return {k: f"{k}-generated-caption" for k in specs}, None, []
 
 
 class TestEachPublisherReceivesOwnCaption:

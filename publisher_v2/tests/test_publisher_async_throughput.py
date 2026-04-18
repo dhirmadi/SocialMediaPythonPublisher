@@ -37,12 +37,12 @@ class _DummyAnalyzer:
             tags=["test"],
             nsfw=False,
             safety_labels=[],
-        )
+        ), None
 
 
 class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> str:
-        return "hello world"
+    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
+        return "hello world", None
 
 
 class _DummyAI(AIService):

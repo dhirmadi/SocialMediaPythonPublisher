@@ -7,6 +7,7 @@ import pytest
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
 from publisher_v2.config.source import OrchestratorConfigSource
+from publisher_v2.core.exceptions import CredentialResolutionError, InsufficientBalanceError
 
 
 def _make_source(transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch) -> OrchestratorConfigSource:
@@ -84,3 +85,61 @@ async def test_cache_hit_skips_network(monkeypatch: pytest.MonkeyPatch) -> None:
     _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
     _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
     assert calls["resolve"] == 1
+
+
+# --- Part D: 403 disambiguation tests (AC-D1..D4) ---
+
+
+@pytest.mark.asyncio
+async def test_403_insufficient_balance_raises_insufficient_balance_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-D2: 403 with body {"error": "insufficient_balance"} raises InsufficientBalanceError."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/credentials/resolve":
+            return httpx.Response(403, json={"error": "insufficient_balance"})
+        return httpx.Response(500)
+
+    src = _make_source(httpx.MockTransport(handler), monkeypatch)
+    with pytest.raises(InsufficientBalanceError, match="insufficient credits"):
+        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+
+
+@pytest.mark.asyncio
+async def test_403_forbidden_raises_credential_resolution_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-D3: 403 with body {"error": "forbidden"} raises CredentialResolutionError (not InsufficientBalanceError)."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/credentials/resolve":
+            return httpx.Response(403, json={"error": "forbidden"})
+        return httpx.Response(500)
+
+    src = _make_source(httpx.MockTransport(handler), monkeypatch)
+    with pytest.raises(CredentialResolutionError, match="403"):
+        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+    # Must NOT be the subclass
+    try:
+        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+    except InsufficientBalanceError:
+        pytest.fail("Should not raise InsufficientBalanceError for 'forbidden' error code")
+    except CredentialResolutionError:
+        pass  # expected
+
+
+@pytest.mark.asyncio
+async def test_403_unparseable_body_raises_credential_resolution_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC-D3: 403 with unparseable body raises CredentialResolutionError."""
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/credentials/resolve":
+            return httpx.Response(403, content=b"not json")
+        return httpx.Response(500)
+
+    src = _make_source(httpx.MockTransport(handler), monkeypatch)
+    with pytest.raises(CredentialResolutionError):
+        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+
+
+def test_insufficient_balance_error_is_subclass_of_credential_resolution_error() -> None:
+    """AC-D4: isinstance(InsufficientBalanceError(...), CredentialResolutionError) is True."""
+    err = InsufficientBalanceError("test")
+    assert isinstance(err, CredentialResolutionError)

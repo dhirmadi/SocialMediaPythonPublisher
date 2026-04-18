@@ -51,7 +51,7 @@ async def test_analyzer_fallback_non_json(monkeypatch: pytest.MonkeyPatch) -> No
     )
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     analyzer = VisionAnalyzerOpenAI(cfg)
-    out = await analyzer.analyze("http://tmp-url")
+    out, _usage = await analyzer.analyze("http://tmp-url")
     assert isinstance(out, ImageAnalysis)
     # Fallback should fill minimal fields
     assert out.description != ""
@@ -78,7 +78,9 @@ async def test_caption_generate_enforces_length(monkeypatch: pytest.MonkeyPatch)
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
-    text = await gen.generate(ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), spec)
+    text, _usage = await gen.generate(
+        ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), spec
+    )
     assert len(text) <= 50
     assert text.endswith("…")
 
@@ -93,7 +95,7 @@ async def test_generate_with_sd_parses_json(monkeypatch: pytest.MonkeyPatch) -> 
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
-    out = await gen.generate_with_sd(
+    out, _usage = await gen.generate_with_sd(
         ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), spec
     )
     assert out["caption"] == "short"

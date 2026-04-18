@@ -8,6 +8,14 @@ if TYPE_CHECKING:
 
 
 @dataclass(frozen=True, slots=True)
+class AIUsage:
+    response_id: str
+    total_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+
+
+@dataclass(frozen=True, slots=True)
 class Image:
     filename: str
     dropbox_path: str

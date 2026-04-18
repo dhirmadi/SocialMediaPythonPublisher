@@ -57,29 +57,30 @@ class _DummyAIService:
                 tags=["a", "b"],
                 nsfw=False,
                 safety_labels=[],
-            )
+            ), None
 
     class _DummyGenerator:
         sd_caption_model = "dummy-model"
 
-        async def generate_with_sd(self, analysis: Any, spec: Any) -> dict[str, str]:
-            return {"caption": "caption", "sd_caption": "sd-caption"}
+        async def generate_with_sd(self, analysis: Any, spec: Any) -> tuple[dict[str, str], Any]:
+            return {"caption": "caption", "sd_caption": "sd-caption"}, None
 
-        async def generate(self, analysis: Any, spec: Any) -> str:
-            return "caption"
+        async def generate(self, analysis: Any, spec: Any) -> tuple[str, Any]:
+            return "caption", None
 
     def __init__(self) -> None:
         self.analyzer = self._DummyAnalyzer()
         self.generator = self._DummyGenerator()
 
-    async def create_caption_pair_from_analysis(self, analysis: Any, spec: Any) -> tuple[str, str | None]:
+    async def create_caption_pair_from_analysis(self, analysis: Any, spec: Any) -> tuple[str, str | None, list]:
         # Mirror generate_with_sd behaviour used by the real AIService.
-        pair = await self.generator.generate_with_sd(analysis, spec)
-        return pair["caption"], pair.get("sd_caption")
+        pair, _usage = await self.generator.generate_with_sd(analysis, spec)
+        return pair["caption"], pair.get("sd_caption"), []
 
     async def create_caption(self, url_or_bytes: str | bytes, spec: Any) -> str:
-        analysis = await self.analyzer.analyze(url_or_bytes)
-        return await self.generator.generate(analysis, spec)
+        analysis, _usage = await self.analyzer.analyze(url_or_bytes)
+        caption, _gen_usage = await self.generator.generate(analysis, spec)
+        return caption
 
 
 class _DummyOrchestrator:

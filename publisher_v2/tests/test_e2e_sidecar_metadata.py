@@ -26,7 +26,7 @@ class MetadataAnalyzer(BaseDummyAnalyzer):
         # Base extended_fields, but customize to match expected metadata
         super().__init__()
 
-    async def analyze(self, url_or_bytes: str | bytes) -> ImageAnalysis:
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, None]:
         return ImageAnalysis(
             description="desc",
             mood="mood",
@@ -37,7 +37,7 @@ class MetadataAnalyzer(BaseDummyAnalyzer):
             pose="standing",
             clothing_or_accessories="rope body-form art styling",
             style="fine-art figure study",
-        )
+        ), None
 
 
 class MetadataGenerator(BaseDummyGenerator):
@@ -50,11 +50,11 @@ class MetadataGenerator(BaseDummyGenerator):
         self.model = cfg.caption_model
         self.sd_caption_model = "gpt-4o-mini"
 
-    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {"caption": self._caption, "sd_caption": self._sd_caption}
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[dict[str, str], None]:
+        return {"caption": self._caption, "sd_caption": self._sd_caption}, None
 
-    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> str:
-        return "legacy caption"
+    async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, None]:
+        return "legacy caption", None
 
 
 class SidecarTrackingStorage(BaseDummyStorage):

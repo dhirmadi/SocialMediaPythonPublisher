@@ -16,8 +16,8 @@ async def test_ai_generate_with_sd_pair_parsing(monkeypatch: pytest.MonkeyPatch)
 
     gen = CaptionGeneratorOpenAI(cfg)
 
-    async def fake_generate_with_sd(analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {"caption": "c", "sd_caption": "s"}
+    async def fake_generate_with_sd(analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[dict[str, str], None]:
+        return {"caption": "c", "sd_caption": "s"}, None
 
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
@@ -38,8 +38,8 @@ async def test_ai_generate_with_sd_from_existing_analysis(monkeypatch: pytest.Mo
 
     gen = CaptionGeneratorOpenAI(cfg)
 
-    async def fake_generate_with_sd(analysis: ImageAnalysis, spec: CaptionSpec) -> dict[str, str]:
-        return {"caption": "from-analysis", "sd_caption": "from-analysis-sd"}
+    async def fake_generate_with_sd(analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[dict[str, str], None]:
+        return {"caption": "from-analysis", "sd_caption": "from-analysis-sd"}, None
 
     monkeypatch.setattr(gen, "generate_with_sd", fake_generate_with_sd)
 
@@ -47,9 +47,9 @@ async def test_ai_generate_with_sd_from_existing_analysis(monkeypatch: pytest.Mo
     ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
-    analysis = await analyzer.analyze("http://tmp")
+    analysis, _usage = await analyzer.analyze("http://tmp")
 
-    caption, sd_caption = await ai.create_caption_pair_from_analysis(analysis, spec)
+    caption, sd_caption, _usages = await ai.create_caption_pair_from_analysis(analysis, spec)
 
     assert caption == "from-analysis"
     assert sd_caption == "from-analysis-sd"

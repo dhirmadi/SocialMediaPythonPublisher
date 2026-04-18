@@ -40,13 +40,16 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-024 | Storage | [Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md) | P1 | M | PUB-023 | Done |
 | PUB-031 | Storage / Web UI | [Managed Storage Migration & Admin Library](archive/PUB-031_managed-storage-migration-admin-library.md) | P1 | L | PUB-023, PUB-024 | Done |
 | PUB-032 | Web UI / Storage | [Admin Library — Sorting & Filtering](archive/PUB-032_library-list-sort-filter.md) | P1 | M | PUB-031 | Done |
-| **Web UI (Active)** ||||||
-| PUB-033 | Web UI | [Unified Image Browser](PUB-033_unified-image-browser.md) | P1 | L | PUB-031, PUB-032 | Hardened |
+| **Web UI (Shipped)** ||||||
+| PUB-033 | Web UI | [Unified Image Browser](archive/PUB-033_unified-image-browser.md) | P1 | L | PUB-031, PUB-032 | Done |
 | **AI-Powered Content** ||||||
-| PUB-025 | AI | [Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) | P1 | S | — | Not Started |
+| PUB-025 | AI | [Platform-Adaptive Captions](archive/PUB-025_platform-adaptive-captions.md) | P1 | S | — | Done |
 | PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |
+| PUB-035 | AI | [Caption Context Intelligence](PUB-035_caption-context-intelligence.md) | P1 | S–M | PUB-025 | Proposal |
 | PUB-028 | AI | [Smart Hashtag Generation](PUB-028_smart-hashtag-generation.md) | P2 | S | PUB-025 | Not Started |
 | PUB-029 | AI | [Brand Voice Matching](PUB-029_brand-voice-matching.md) | P2 | S–M | PUB-025 | Not Started |
+| **Billing & Metering** ||||||
+| PUB-034 | Foundation | [Usage Metering](PUB-034_usage-metering.md) | P1 | S | Orchestrator #14 | Hardened |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | — | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | — | Not Started |

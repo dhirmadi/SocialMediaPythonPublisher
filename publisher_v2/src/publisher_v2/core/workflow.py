@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import contextlib
 import dataclasses
@@ -7,6 +9,7 @@ import os
 import random
 import tempfile
 import uuid
+from typing import TYPE_CHECKING
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.core.exceptions import AIServiceError, StorageError
@@ -14,6 +17,10 @@ from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.storage_protocol import StorageProtocol
+
+if TYPE_CHECKING:
+    from publisher_v2.services.usage_meter import UsageMeter
+
 from publisher_v2.utils.captions import (
     format_caption,
 )
@@ -46,11 +53,13 @@ class WorkflowOrchestrator:
         storage: StorageProtocol,
         ai_service: AIService,
         publishers: list[Publisher],
+        usage_meter: UsageMeter | None = None,
     ):
         self.config = config
         self.storage = storage
         self.ai_service = ai_service
         self.publishers = publishers
+        self._usage_meter = usage_meter
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
@@ -286,8 +295,10 @@ class WorkflowOrchestrator:
                         correlation_id=correlation_id,
                     )
                 analysis_start = now_monotonic()
-                analysis = await self.ai_service.analyzer.analyze(temp_link)
+                analysis, vision_usage = await self.ai_service.analyzer.analyze(temp_link)
                 vision_analysis_ms = elapsed_ms(analysis_start)
+                if self._usage_meter and vision_usage:
+                    await self._usage_meter.emit(vision_usage)
                 if not preview_mode:
                     log_json(
                         self.logger,
@@ -337,13 +348,19 @@ class WorkflowOrchestrator:
                     log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
-                    platform_captions, sd_caption = await self.ai_service.create_multi_caption_pair_from_analysis(
-                        analysis, specs
-                    )
+                    (
+                        platform_captions,
+                        sd_caption,
+                        caption_usages,
+                    ) = await self.ai_service.create_multi_caption_pair_from_analysis(analysis, specs)
                     # Set primary caption from first platform
                     caption = next(iter(platform_captions.values()), "")
                 else:
-                    caption, sd_caption = await self.ai_service.create_caption_pair_from_analysis(analysis, spec)
+                    caption, sd_caption, caption_usages = await self.ai_service.create_caption_pair_from_analysis(
+                        analysis, spec
+                    )
+                if self._usage_meter and caption_usages:
+                    await self._usage_meter.emit_all(caption_usages)
                 caption_generation_ms = elapsed_ms(caption_start)
                 if not preview_mode:
                     log_json(

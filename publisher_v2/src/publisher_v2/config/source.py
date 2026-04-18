@@ -71,6 +71,9 @@ class ConfigSource(Protocol):
 
     def is_orchestrated(self) -> bool: ...
 
+    @property
+    def orchestrator_client(self) -> OrchestratorClient | None: ...
+
 
 class EnvConfigSource:
     """
@@ -106,6 +109,10 @@ class EnvConfigSource:
             ttl_seconds=None,
             credentials_refs=None,
         )
+
+    @property
+    def orchestrator_client(self) -> None:
+        return None
 
     async def get_credentials(self, host: str, credentials_ref: str) -> dict[str, Any]:
         # Env-first mode does not support opaque refs; callers should use flat env vars.
@@ -150,6 +157,10 @@ class OrchestratorConfigSource:
             service_token=self.token,
             prefer_post=prefer_post_default(),
         )
+
+    @property
+    def orchestrator_client(self) -> OrchestratorClient:
+        return self._client
 
     def is_orchestrated(self) -> bool:
         return True

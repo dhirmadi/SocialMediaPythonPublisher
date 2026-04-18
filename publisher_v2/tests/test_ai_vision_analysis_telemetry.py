@@ -74,7 +74,7 @@ async def test_vision_analyzer_logs_timing_success(monkeypatch, caplog) -> None:
 
     caplog.set_level(logging.INFO, logger="publisher_v2.ai.vision")
 
-    analysis = await analyzer.analyze("http://example.com/image.jpg")
+    analysis, _usage = await analyzer.analyze("http://example.com/image.jpg")
     assert isinstance(analysis, ImageAnalysis)
 
     telemetry_logs = [record for record in caplog.records if "vision_analysis" in getattr(record, "message", "")]
@@ -100,7 +100,7 @@ async def test_vision_analyzer_logs_timing_on_json_error(monkeypatch, caplog) ->
 
     caplog.set_level(logging.INFO, logger="publisher_v2.ai.vision")
 
-    analysis = await analyzer.analyze("http://example.com/image.jpg")
+    analysis, _usage = await analyzer.analyze("http://example.com/image.jpg")
     assert isinstance(analysis, ImageAnalysis)
 
     telemetry_logs = [record for record in caplog.records if "vision_analysis" in getattr(record, "message", "")]

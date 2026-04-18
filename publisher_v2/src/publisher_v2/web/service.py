@@ -36,6 +36,7 @@ from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
 from publisher_v2.services.storage_factory import create_storage  # noqa: E402
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
+from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
@@ -85,6 +86,13 @@ class WebImageService:
         self.storage = storage
         self.ai_service = ai_service
         self.publishers = publishers
+        # Build usage meter for orchestrated mode
+        self._usage_meter: UsageMeter | None = None
+        if runtime is not None and config_source is not None:
+            client = getattr(config_source, "orchestrator_client", None)
+            if client is not None:
+                self._usage_meter = UsageMeter(client=client, tenant_id=runtime.tenant)
+
         # Keep legacy behavior for standalone mode: orchestrator is ready immediately.
         # In orchestrator mode we build it lazily to allow late-binding publishers/AI.
         if runtime is None:
@@ -235,7 +243,9 @@ class WebImageService:
 
         ai = await self._ensure_ai_service()
         ai_service = ai if ai is not None else NullAIService()
-        self.orchestrator = WorkflowOrchestrator(self.config, self.storage, ai_service, self.publishers)  # type: ignore[arg-type]
+        self.orchestrator = WorkflowOrchestrator(
+            self.config, self.storage, ai_service, self.publishers, usage_meter=self._usage_meter
+        )  # type: ignore[arg-type]
         return self.orchestrator
 
     async def _get_cached_images(self) -> list[str]:
@@ -434,7 +444,9 @@ class WebImageService:
             image=filename,
             correlation_id=correlation_id,
         )
-        analysis = await ai.analyzer.analyze(temp_link)
+        analysis, vision_usage = await ai.analyzer.analyze(temp_link)
+        if self._usage_meter and vision_usage:
+            await self._usage_meter.emit(vision_usage)
 
         from publisher_v2.core.models import CaptionSpec
 
@@ -446,10 +458,14 @@ class WebImageService:
         platform_captions_dict: dict[str, str] | None = None
         try:
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
-                platform_captions_dict, sd_caption = await ai.create_multi_caption_pair_from_analysis(analysis, specs)
+                platform_captions_dict, sd_caption, caption_usages = await ai.create_multi_caption_pair_from_analysis(
+                    analysis, specs
+                )
                 caption = next(iter(platform_captions_dict.values()), "")
             else:
-                caption, sd_caption = await ai.create_caption_pair_from_analysis(analysis, spec)
+                caption, sd_caption, caption_usages = await ai.create_caption_pair_from_analysis(analysis, spec)
+            if self._usage_meter and caption_usages:
+                await self._usage_meter.emit_all(caption_usages)
         except Exception as exc:
             log_json(
                 self.logger,

@@ -96,7 +96,7 @@ class TestGenerateMulti:
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = _make_specs()
-        result = await gen.generate_multi(_make_analysis(), specs)
+        result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
         assert isinstance(result, dict)
         assert set(result.keys()) == {"telegram", "instagram", "email"}
@@ -116,7 +116,7 @@ class TestGenerateMulti:
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        await gen.generate_multi(_make_analysis(), _make_specs())
+        _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
 
         assert len(completions.calls) == 1
 
@@ -135,7 +135,7 @@ class TestGenerateMulti:
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        result = await gen.generate_multi(_make_analysis(), _make_specs())
+        result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
 
         assert len(result["email"]) <= 240
         assert result["email"].endswith("…")
@@ -164,7 +164,7 @@ class TestGenerateMulti:
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        await gen.generate_multi(_make_analysis(), _make_specs())
+        _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
 
         call = completions.calls[0]
         assert call["response_format"] == {"type": "json_object"}
@@ -187,7 +187,7 @@ class TestPlatformStylesInPrompt:
                 platform="telegram", style="conversational, emoji-friendly", hashtags="#tag", max_length=4096
             )
         }
-        await gen.generate_multi(_make_analysis(), specs)
+        _result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
         user_msg = completions.calls[0]["messages"][-1]["content"]
         assert "conversational" in user_msg.lower()
@@ -205,7 +205,7 @@ class TestPlatformStylesInPrompt:
                 platform="instagram", style="hook-first, hashtags naturally", hashtags="#tag", max_length=2200
             )
         }
-        await gen.generate_multi(_make_analysis(), specs)
+        _result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
         user_msg = completions.calls[0]["messages"][-1]["content"]
         assert "hook-first" in user_msg.lower()
@@ -223,7 +223,7 @@ class TestPlatformStylesInPrompt:
                 platform="email", style="engagement question, no hashtags", hashtags="", max_length=240
             )
         }
-        await gen.generate_multi(_make_analysis(), specs)
+        _result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
         user_msg = completions.calls[0]["messages"][-1]["content"]
         assert "engagement question" in user_msg.lower()
@@ -248,7 +248,7 @@ class TestGenerateMultiWithSD:
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        result = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
+        result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
 
         assert result["telegram"] == "t-caption"
         assert result["instagram"] == "i-caption"
@@ -270,7 +270,7 @@ class TestGenerateMultiWithSD:
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        result = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
+        result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
 
         sd = result["sd_caption"]
         assert isinstance(sd, str)
@@ -288,7 +288,7 @@ class TestGenerateMultiWithSD:
 
         # Make generate_multi succeed
         async def _ok_multi(analysis, specs):
-            return {k: f"{k}-caption" for k in specs}
+            return {k: f"{k}-caption" for k in specs}, None
 
         monkeypatch.setattr(gen, "generate_multi_with_sd", _failing_sd)
         monkeypatch.setattr(gen, "generate_multi", _ok_multi)
@@ -297,7 +297,7 @@ class TestGenerateMultiWithSD:
         ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
         specs = _make_specs()
-        captions, sd_caption = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
+        captions, sd_caption, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
 
         assert set(captions.keys()) == {"telegram", "instagram", "email"}
         assert sd_caption is None
@@ -315,7 +315,7 @@ class TestCreateMultiCaptionPair:
         async def _fake_multi_sd(analysis, specs):
             result = {k: f"{k}-cap" for k in specs}
             result["sd_caption"] = "sd-text"
-            return result
+            return result, None
 
         monkeypatch.setattr(gen, "generate_multi_with_sd", _fake_multi_sd)
 
@@ -323,7 +323,7 @@ class TestCreateMultiCaptionPair:
         ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
         specs = _make_specs()
-        captions, sd = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
+        captions, sd, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
 
         assert captions["telegram"] == "telegram-cap"
         assert sd == "sd-text"
@@ -338,7 +338,7 @@ class TestCreateMultiCaptionPair:
         gen = CaptionGeneratorOpenAI(cfg)
 
         async def _fake_multi(analysis, specs):
-            return {k: f"{k}-only" for k in specs}
+            return {k: f"{k}-only" for k in specs}, None
 
         monkeypatch.setattr(gen, "generate_multi", _fake_multi)
 
@@ -346,7 +346,7 @@ class TestCreateMultiCaptionPair:
         ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
         specs = _make_specs()
-        captions, sd = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
+        captions, sd, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
 
         assert captions["telegram"] == "telegram-only"
         assert sd is None

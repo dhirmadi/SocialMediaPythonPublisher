@@ -55,14 +55,14 @@ class _MetadataStorage:
 
 
 class _StubAnalyzer:
-    async def analyze(self, link: str) -> ImageAnalysis:
+    async def analyze(self, link: str) -> tuple[ImageAnalysis, None]:
         return ImageAnalysis(
             description="desc",
             mood="calm",
             tags=["tag"],
             nsfw=False,
             safety_labels=[],
-        )
+        ), None
 
 
 class _StubAI:
@@ -71,7 +71,7 @@ class _StubAI:
         self.generator = SimpleNamespace(sd_caption_model="gpt-4o")
 
     async def create_caption_pair_from_analysis(self, analysis, spec):
-        return "caption", "sd caption"
+        return "caption", "sd caption", []
 
 
 class _SuccessPublisher(Publisher):

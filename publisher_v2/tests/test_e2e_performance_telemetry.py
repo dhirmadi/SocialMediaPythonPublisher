@@ -28,7 +28,7 @@ class _DummyStorage(BaseDummyStorage):
 
 
 class _DummyAnalyzer:
-    async def analyze(self, url_or_bytes: str | bytes) -> Any:
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[Any, None]:
         from publisher_v2.core.models import ImageAnalysis
 
         return ImageAnalysis(
@@ -37,12 +37,12 @@ class _DummyAnalyzer:
             tags=["test"],
             nsfw=False,
             safety_labels=[],
-        )
+        ), None
 
 
 class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> str:
-        return "hello world"
+    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
+        return "hello world", None
 
 
 class _DummyAI(AIService):
