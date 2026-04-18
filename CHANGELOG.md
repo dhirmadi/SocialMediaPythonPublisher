@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-034: Usage Metering
+- **`OrchestratorClient.post_usage()`** method calls `POST /v1/billing/usage` with retry, idempotency key dedup, and proper error handling (422 → `UsageMeteringError`, 403 → `CredentialResolutionError`)
+- **`AIUsage` dataclass** returned from all OpenAI API calls (vision analysis + caption generation) carrying `response_id`, `total_tokens`, `prompt_tokens`, `completion_tokens`
+- **`UsageMeter` fire-and-forget collaborator** — emits `ai_tokens` metric after each successful AI call; failures are logged but never block the workflow
+- **403 disambiguation** on `resolve_credentials` — new `InsufficientBalanceError` subclass distinguishes "out of credits" from "bad service token"
+- Standalone mode: no metering calls when no orchestrator is configured
+
 ### Added - PUB-025: Platform-Adaptive Captions
 - **Per-platform caption generation** — single OpenAI call produces distinct captions tailored to each enabled platform (Telegram, Instagram, Email) instead of one caption formatted N ways
 - **`CaptionSpec.for_platforms()`** factory builds platform-specific specs from `ai_prompts.yaml` style registry

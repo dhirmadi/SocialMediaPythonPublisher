@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Hardened |
+| **Status** | Done |
 | **Dependencies** | Orchestrator roadmap #14 (shipped) |
 | **GitHub Issue** | #57 |
 
