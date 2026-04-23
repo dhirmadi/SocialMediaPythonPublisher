@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-037: Multi-Select & Bulk Delete
+- **Multi-select mode** in the image grid — toggle via toolbar button, ctrl/cmd+click or long-press to select multiple thumbnails
+- **Bulk delete** with single confirmation dialog, sequential deletion with per-file progress
+- Select all on page, selection counter, Escape to exit multi-select
+- Gated behind existing `delete_enabled` feature flag
+
+### Added - PUB-036: Upload Queue with Client-Side Rate Limiting
+- **Visual upload queue** showing per-file status: queued, uploading, done, failed
+- **Sequential processing** with client-side pacing to stay within the server's 10/min rate limit
+- **Auto-retry on 429** with backoff instead of permanent failure
+- Grid refreshes on completion to show newly uploaded images
+
 ### Added - PUB-034: Usage Metering
 - **`OrchestratorClient.post_usage()`** method calls `POST /v1/billing/usage` with retry, idempotency key dedup, and proper error handling (422 → `UsageMeteringError`, 403 → `CredentialResolutionError`)
 - **`AIUsage` dataclass** returned from all OpenAI API calls (vision analysis + caption generation) carrying `response_id`, `total_tokens`, `prompt_tokens`, `completion_tokens`

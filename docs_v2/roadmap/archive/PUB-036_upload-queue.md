@@ -5,7 +5,7 @@
 **Priority:** P1
 **Effort:** S
 **Dependencies:** PUB-031, PUB-033
-**Status:** In Progress
+**Status:** Done
 
 ## Problem
 
