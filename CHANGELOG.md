@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-038: Grid Toolbar Redesign
+- **Two-zone toolbar layout** — Find zone (search + sort + order) on the left, Actions zone (upload + refresh) on the right
+- Compact sort order toggle, primary gradient styling for upload, icon-only refresh button
+- Responsive layout with clear visual hierarchy and functional grouping
+- Result count integrated below the find zone
+
 ### Added - PUB-037: Multi-Select & Bulk Delete
 - **Multi-select mode** in the image grid — toggle via toolbar button, ctrl/cmd+click or long-press to select multiple thumbnails
 - **Bulk delete** with single confirmation dialog, sequential deletion with per-file progress
