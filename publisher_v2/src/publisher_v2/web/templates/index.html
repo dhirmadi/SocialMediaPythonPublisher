@@ -403,6 +403,121 @@
       background: #cc0000;
       color: #fff;
     }
+    /* Upload queue (PUB-036) */
+    .upload-queue {
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 0.5rem;
+      padding: 0.5rem;
+      margin-bottom: 0.5rem;
+      max-height: 240px;
+      overflow-y: auto;
+      scrollbar-width: thin;
+      scrollbar-color: #555 #1a1a1a;
+    }
+    .upload-queue-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.35rem;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      font-weight: 600;
+    }
+    .upload-queue-dismiss {
+      background: none;
+      border: none;
+      color: #9ca3af;
+      font-size: 1rem;
+      cursor: pointer;
+      padding: 0.1rem 0.3rem;
+      line-height: 1;
+      flex: 0 0 auto;
+      min-width: auto;
+      min-height: auto;
+    }
+    .upload-queue-dismiss:hover {
+      color: #e5e7eb;
+    }
+    .upload-queue-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.25rem;
+      border-bottom: 1px solid #2d2d2d;
+      font-size: 0.8rem;
+    }
+    .upload-queue-item:last-child {
+      border-bottom: none;
+    }
+    .upload-queue-item .uq-status {
+      flex: 0 0 1.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .uq-status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      display: inline-block;
+    }
+    .uq-queued .uq-status-dot { background: #6b7280; }
+    .uq-uploading .uq-status-dot { background: #cc0000; animation: uq-pulse 1s infinite; }
+    .uq-waiting .uq-status-dot { background: #f59e0b; animation: uq-pulse 1.5s infinite; }
+    .uq-done .uq-status-dot { background: #10b981; }
+    .uq-failed .uq-status-dot { background: #ef4444; }
+    @keyframes uq-pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .upload-queue-item .uq-name {
+      flex: 1;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      color: #e5e5e5;
+    }
+    .upload-queue-item .uq-progress {
+      flex: 0 0 60px;
+      height: 8px;
+      background: #333;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    .upload-queue-item .uq-progress-bar {
+      height: 100%;
+      background: #cc0000;
+      width: 0%;
+      transition: width 0.2s;
+    }
+    .upload-queue-item .uq-retry-btn {
+      flex: 0 0 auto;
+      background: #cc0000;
+      color: #fff;
+      border: none;
+      border-radius: 0.375rem;
+      padding: 0.5rem 0.75rem;
+      font-size: 0.85rem;
+      cursor: pointer;
+      min-height: 44px;
+      min-width: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .upload-queue-item .uq-retry-btn:hover {
+      background: #e60000;
+    }
+    .upload-queue-item.uq-done .uq-name {
+      color: #6ee7b7;
+    }
+    .upload-queue-item.uq-failed .uq-name {
+      color: #fca5a5;
+    }
+    .upload-queue-item.uq-waiting .uq-name {
+      color: #fbbf24;
+    }
     #caption-text {
       width: 100%;
       background: #111827;
@@ -533,11 +648,13 @@
         </label>
         <button id="grid-refresh-btn" class="secondary">Refresh</button>
       </div>
-      <div id="grid-upload-progress" class="hidden" style="margin-bottom:0.5rem;">
-        <div style="background:#333;border-radius:0.25rem;overflow:hidden;height:4px;">
-          <div id="grid-upload-bar" style="height:100%;background:#cc0000;width:0%;transition:width 0.3s;"></div>
+      <div id="upload-queue" class="upload-queue hidden" aria-live="polite">
+        <div class="upload-queue-header">
+          <span id="upload-queue-title">Upload Queue</span>
+          <span id="upload-queue-summary" role="status"></span>
+          <button id="upload-queue-dismiss" class="upload-queue-dismiss hidden" title="Dismiss queue">&times;</button>
         </div>
-        <div id="grid-upload-status" style="font-size:0.8rem;color:#9ca3af;margin-top:0.25rem;"></div>
+        <div id="upload-queue-list"></div>
       </div>
       <div id="grid-result-count" style="font-size:0.8rem;color:#9ca3af;margin-bottom:0.5rem;"></div>
       <div id="grid-container" class="browse-grid"></div>
@@ -618,9 +735,10 @@
     const gridUploadLabel = document.getElementById("grid-upload-label");
     const gridUploadInput = document.getElementById("grid-upload-input");
     const gridRefreshBtn = document.getElementById("grid-refresh-btn");
-    const gridUploadProgress = document.getElementById("grid-upload-progress");
-    const gridUploadBar = document.getElementById("grid-upload-bar");
-    const gridUploadStatus = document.getElementById("grid-upload-status");
+    const uploadQueueEl = document.getElementById("upload-queue");
+    const uploadQueueList = document.getElementById("upload-queue-list");
+    const uploadQueueSummary = document.getElementById("upload-queue-summary");
+    const uploadQueueDismiss = document.getElementById("upload-queue-dismiss");
     const gridResultCount = document.getElementById("grid-result-count");
     const gridEmpty = document.getElementById("grid-empty");
     const gridPagination = document.getElementById("grid-pagination");
@@ -1355,62 +1473,251 @@
       }
     }
 
-    async function handleGridUpload(file) {
-      if (!["image/jpeg", "image/png"].includes(file.type)) {
-        showToast("Only JPEG and PNG files are allowed", "error");
-        return;
-      }
-      if (file.size > 20 * 1024 * 1024) {
-        showToast("File too large (max 20 MB)", "error");
-        return;
-      }
+    // ---------------------------------------------------------------
+    // Upload queue with client-side rate limiting (PUB-036 / GH-60)
+    // ---------------------------------------------------------------
+    const CLIENT_RATE_LIMIT_MAX = 8;        // uploads per window (headroom below server's 10)
+    const CLIENT_RATE_LIMIT_WINDOW = 60000; // 60 seconds in ms
+    const RETRY_BACKOFF_MS = 5000;          // initial backoff for 429 retry
+    const MAX_RETRIES = 3;                  // max consecutive 429 retries per file
+    const MAX_UPLOAD_SIZE_BYTES = 20 * 1024 * 1024;
+    const AUTO_HIDE_DELAY_MS = 5000;
+    const RATE_LIMIT_BUFFER_MS = 500;
 
-      gridUploadProgress.classList.remove("hidden");
-      gridUploadBar.style.width = "0%";
-      gridUploadStatus.textContent = "Uploading...";
+    let uploadQueue = [];          // [{file, name, status, progress, retries, error}]
+    let uploadTimestamps = [];     // timestamps of completed uploads for rate limiting
+    let uploadQueueProcessing = false;
+    let activeProgressBarEl = null; // direct reference for O(1) progress updates
+
+    function enqueueFiles(files) {
+      // Clear completed entries from previous batches
+      uploadQueue = uploadQueue.filter(e => e.status === "failed");
+      const newEntries = [];
+      for (const file of files) {
+        if (!["image/jpeg", "image/png"].includes(file.type)) {
+          showToast(`Skipped ${file.name}: only JPEG/PNG allowed`, "error");
+          continue;
+        }
+        if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+          showToast(`Skipped ${file.name}: too large (max 20 MB)`, "error");
+          continue;
+        }
+        newEntries.push({
+          file,
+          name: file.name,
+          status: "queued",   // queued | uploading | waiting | done | failed
+          progress: 0,
+          retries: 0,
+          error: null,
+        });
+      }
+      if (newEntries.length === 0) return;
+      uploadQueue.push(...newEntries);
+      uploadQueueEl.classList.remove("hidden");
+      uploadQueueDismiss.classList.add("hidden");
+      renderUploadQueue();
+      if (!uploadQueueProcessing) processUploadQueue();
+    }
+
+    function renderUploadQueue() {
+      uploadQueueList.innerHTML = "";
+      activeProgressBarEl = null;
+      let done = 0, failed = 0, total = uploadQueue.length;
+      for (let i = 0; i < uploadQueue.length; i++) {
+        const entry = uploadQueue[i];
+        const row = document.createElement("div");
+        row.className = "upload-queue-item uq-" + entry.status;
+
+        // Status dot (CSS-only, cross-platform)
+        const statusEl = document.createElement("span");
+        statusEl.className = "uq-status";
+        const dot = document.createElement("span");
+        dot.className = "uq-status-dot";
+        statusEl.appendChild(dot);
+        row.appendChild(statusEl);
+
+        if (entry.status === "done") done++;
+        if (entry.status === "failed") failed++;
+
+        // Filename
+        const nameEl = document.createElement("span");
+        nameEl.className = "uq-name";
+        nameEl.textContent = entry.status === "waiting"
+          ? entry.name + " (rate limited\u2026)"
+          : entry.name;
+        nameEl.title = entry.name;
+        row.appendChild(nameEl);
+
+        // Progress bar (for uploading state)
+        if (entry.status === "uploading") {
+          const prog = document.createElement("span");
+          prog.className = "uq-progress";
+          const bar = document.createElement("span");
+          bar.className = "uq-progress-bar";
+          bar.style.width = entry.progress + "%";
+          prog.appendChild(bar);
+          row.appendChild(prog);
+          activeProgressBarEl = bar;
+        }
+
+        // Retry button (for failed state)
+        if (entry.status === "failed") {
+          const retryBtn = document.createElement("button");
+          retryBtn.type = "button";
+          retryBtn.className = "uq-retry-btn";
+          retryBtn.textContent = "Retry";
+          retryBtn.setAttribute("aria-label", `Retry upload for ${entry.name}`);
+          retryBtn.addEventListener("click", () => retryUpload(i));
+          row.appendChild(retryBtn);
+        }
+
+        uploadQueueList.appendChild(row);
+      }
+      uploadQueueSummary.textContent = `${done}/${total} done` + (failed ? `, ${failed} failed` : "");
+
+      // Show dismiss button when queue is not actively processing
+      if (!uploadQueueProcessing && uploadQueue.length > 0) {
+        uploadQueueDismiss.classList.remove("hidden");
+      } else {
+        uploadQueueDismiss.classList.add("hidden");
+      }
+    }
+
+    function dismissUploadQueue() {
+      uploadQueue = [];
+      uploadQueueEl.classList.add("hidden");
+      uploadQueueDismiss.classList.add("hidden");
+    }
+
+    function retryUpload(index) {
+      const entry = uploadQueue[index];
+      if (!entry || entry.status !== "failed") return;
+      entry.status = "queued";
+      entry.progress = 0;
+      entry.retries = 0;
+      entry.error = null;
+      renderUploadQueue();
+      if (!uploadQueueProcessing) processUploadQueue();
+    }
+
+    async function waitForRateLimit(entry) {
+      const now = Date.now();
+      uploadTimestamps = uploadTimestamps.filter(t => now - t < CLIENT_RATE_LIMIT_WINDOW);
+      if (uploadTimestamps.length >= CLIENT_RATE_LIMIT_MAX) {
+        // Show waiting state so user knows why we paused
+        if (entry) {
+          entry.status = "waiting";
+          renderUploadQueue();
+        }
+        const oldest = uploadTimestamps[0];
+        const waitMs = CLIENT_RATE_LIMIT_WINDOW - (now - oldest) + RATE_LIMIT_BUFFER_MS;
+        if (waitMs > 0) {
+          await new Promise(r => setTimeout(r, waitMs));
+          uploadTimestamps = uploadTimestamps.filter(t => Date.now() - t < CLIENT_RATE_LIMIT_WINDOW);
+        }
+      }
+    }
+
+    async function uploadSingleFile(entry) {
+      entry.status = "uploading";
+      entry.progress = 0;
+      renderUploadQueue();
 
       const formData = new FormData();
-      formData.append("file", file);
+      formData.append("file", entry.file);
 
-      try {
+      return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/library/upload");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
-            const pct = Math.round((e.loaded / e.total) * 100);
-            gridUploadBar.style.width = pct + "%";
-            gridUploadStatus.textContent = `Uploading... ${pct}%`;
+            entry.progress = Math.round((e.loaded / e.total) * 100);
+            // O(1) progress update — no full DOM rebuild
+            if (activeProgressBarEl) {
+              activeProgressBarEl.style.width = entry.progress + "%";
+            }
           }
         };
-        await new Promise((resolve, reject) => {
-          xhr.onload = () => {
-            if (xhr.status === 429) {
-              reject(new Error("Upload rate limit reached. Try again shortly."));
-              return;
-            }
-            if (xhr.status >= 200 && xhr.status < 300) {
-              resolve(JSON.parse(xhr.responseText || "{}"));
-            } else {
-              let detail = `Upload failed (${xhr.status})`;
-              try {
-                const err = JSON.parse(xhr.responseText || "{}");
-                if (err.detail) detail = err.detail;
-              } catch (_) { /* ignore */ }
-              reject(new Error(detail));
-            }
-          };
-          xhr.onerror = () => reject(new Error("Upload failed"));
-          xhr.send(formData);
-        });
+        xhr.onload = () => {
+          if (xhr.status === 429) {
+            reject({ is429: true, message: "Rate limit reached" });
+            return;
+          }
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            let detail = `Upload failed (${xhr.status})`;
+            try {
+              const err = JSON.parse(xhr.responseText || "{}");
+              if (err.detail) detail = err.detail;
+            } catch (_) { /* ignore */ }
+            reject({ is429: false, message: detail });
+          }
+        };
+        xhr.onerror = () => reject({ is429: false, message: "Network error" });
+        xhr.send(formData);
+      });
+    }
 
-        gridUploadBar.style.width = "100%";
-        gridUploadStatus.textContent = "Upload complete!";
-        setTimeout(() => gridUploadProgress.classList.add("hidden"), 2000);
-      } catch (err) {
-        gridUploadStatus.textContent = "Upload failed: " + err.message;
-        showToast(err.message, "error");
-        setTimeout(() => gridUploadProgress.classList.add("hidden"), 3000);
-        throw err;
+    async function uploadWithRetry(entry) {
+      while (entry.retries <= MAX_RETRIES) {
+        try {
+          await waitForRateLimit(entry);
+          await uploadSingleFile(entry);
+          entry.status = "done";
+          entry.progress = 100;
+          uploadTimestamps.push(Date.now());
+          try { renderUploadQueue(); } catch (_) { /* error boundary */ }
+          return;
+        } catch (err) {
+          if (err.is429 && entry.retries < MAX_RETRIES) {
+            entry.retries++;
+            const backoff = RETRY_BACKOFF_MS * Math.pow(2, entry.retries - 1);
+            entry.status = "waiting";
+            entry.progress = 0;
+            try { renderUploadQueue(); } catch (_) { /* error boundary */ }
+            await new Promise(r => setTimeout(r, backoff));
+          } else {
+            entry.status = "failed";
+            entry.error = err.message || "Upload failed";
+            try { renderUploadQueue(); } catch (_) { /* error boundary */ }
+            return;
+          }
+        }
+      }
+    }
+
+    async function processUploadQueue() {
+      uploadQueueProcessing = true;
+      uploadQueueDismiss.classList.add("hidden");
+      for (const entry of uploadQueue) {
+        if (entry.status !== "queued") continue;
+        await uploadWithRetry(entry);
+      }
+      uploadQueueProcessing = false;
+
+      // Clean up timestamps
+      uploadTimestamps = uploadTimestamps.filter(t => Date.now() - t < CLIENT_RATE_LIMIT_WINDOW);
+
+      // Grid refresh on completion (AC-4)
+      gridOffset = 0;
+      await fetchGrid();
+
+      // Batch failure toast (single summary, not per-file)
+      const failedEntries = uploadQueue.filter(e => e.status === "failed");
+      if (failedEntries.length > 0) {
+        const names = failedEntries.map(e => e.name).join(", ");
+        showToast(`${failedEntries.length} upload(s) failed: ${names}`, "error");
+      }
+
+      // Auto-hide queue after a delay if all done (no failures)
+      const hasFailed = failedEntries.length > 0;
+      try { renderUploadQueue(); } catch (_) { /* error boundary */ }
+      if (!hasFailed) {
+        setTimeout(() => {
+          uploadQueue = [];
+          uploadQueueEl.classList.add("hidden");
+        }, AUTO_HIDE_DELAY_MS);
       }
     }
 
@@ -1847,6 +2154,8 @@
         fetchGrid();
       });
 
+      uploadQueueDismiss.addEventListener("click", dismissUploadQueue);
+
       gridSearch.addEventListener("input", () => {
         clearTimeout(gridSearchTimeout);
         gridSearchTimeout = setTimeout(() => {
@@ -1869,22 +2178,11 @@
         fetchGrid();
       });
 
-      gridUploadInput.addEventListener("change", async (e) => {
+      gridUploadInput.addEventListener("change", (e) => {
         const files = e.target.files ? Array.from(e.target.files) : [];
         e.target.value = "";
         if (!files.length) return;
-        for (let i = 0; i < files.length; i++) {
-          if (files.length > 1) {
-            gridUploadStatus.textContent = `Uploading file ${i + 1} of ${files.length}...`;
-          }
-          try {
-            await handleGridUpload(files[i]);
-          } catch (_err) {
-            break;  // Stop on first failure (e.g. 429)
-          }
-        }
-        gridOffset = 0;
-        await fetchGrid();
+        enqueueFiles(files);
       });
 
       gridPrev.addEventListener("click", () => {
