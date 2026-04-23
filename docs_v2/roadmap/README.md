@@ -48,7 +48,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **AI-Powered Content** ||||||
 | PUB-025 | AI | [Platform-Adaptive Captions](archive/PUB-025_platform-adaptive-captions.md) | P1 | S | — | Done |
 | PUB-026 | AI | [AI Alt Text Generation](PUB-026_ai-alt-text.md) | P1 | S | — | Not Started |
-| PUB-035 | AI | [Caption Context Intelligence](PUB-035_caption-context-intelligence.md) | P1 | S–M | PUB-025 | Proposal |
+| PUB-035 | AI | [Caption Context Intelligence](archive/PUB-035_caption-context-intelligence.md) | P1 | S–M | PUB-025 | Done |
 | PUB-028 | AI | [Smart Hashtag Generation](PUB-028_smart-hashtag-generation.md) | P2 | S | PUB-025 | Not Started |
 | PUB-029 | AI | [Brand Voice Matching](PUB-029_brand-voice-matching.md) | P2 | S–M | PUB-025 | Not Started |
 | **Billing & Metering** ||||||

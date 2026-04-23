@@ -1,9 +1,16 @@
+from __future__ import annotations
+
+import asyncio
 import json
 import logging
 import os
 import time
+from typing import TYPE_CHECKING, Any
 
 from openai import AsyncOpenAI
+
+if TYPE_CHECKING:
+    from publisher_v2.services.storage_protocol import StorageProtocol
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartTextParam,
@@ -209,6 +216,140 @@ class VisionAnalyzerOpenAI:
             )
 
 
+# ---------------------------------------------------------------------------
+# PUB-035: Prompt builder helpers for context intelligence
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger("publisher_v2.services.ai")
+
+
+def build_platform_block(index: int, name: str, spec: CaptionSpec) -> str:
+    """Build the prompt block for a single platform, including examples and guidance."""
+    ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
+    lines = [f"{index}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}"]
+
+    if spec.examples:
+        lines.append("   Voice examples (match this tone, DO NOT copy):")
+        for ex in spec.examples:
+            lines.append(f'     - "{ex}"')
+
+    if spec.guidance:
+        lines.append(f"   Guidance: {spec.guidance}")
+
+    return "\n".join(lines)
+
+
+def build_history_block(captions: list[str]) -> str:
+    """Build the history context block with anti-repetition instructions."""
+    if not captions:
+        return ""
+    lines = ["Your recent captions for this account (DO NOT repeat phrasing, vary structure and openings):"]
+    for i, cap in enumerate(captions, 1):
+        lines.append(f'{i}. "{cap}"')
+    lines.append("")
+    lines.append("Now write a NEW caption that maintains voice consistency but uses DIFFERENT:")
+    lines.append("- Opening patterns")
+    lines.append("- Sentence structures")
+    lines.append("- Word choices")
+    lines.append("- Emotional angles")
+    return "\n".join(lines)
+
+
+def truncate_history_to_budget(captions: list[str], max_tokens_budget: int) -> list[str]:
+    """Truncate captions list (oldest first) to fit within token budget.
+
+    Uses a rough estimate of 1 token per 4 characters.
+    """
+    if not captions:
+        return []
+    result = list(captions)
+    while result and sum(len(c) // 4 + 1 for c in result) > max_tokens_budget:
+        result.pop(0)  # drop oldest first
+    return result
+
+
+_SIDECAR_MAX_SIZE = 64 * 1024  # 64 KB — skip suspiciously large sidecars
+
+
+def _extract_caption_from_sidecar(data: bytes) -> str:
+    """Extract the published caption from a sidecar file.
+
+    Handles both JSON sidecars (``{"caption": "..."}`) and the standard text
+    format (``sd_caption\\n\\n# ---\\n# key: val``).  For text sidecars the
+    published caption is stored in the metadata line ``# caption: ...``;
+    if absent we skip it (the first line is the SD prompt, not a social caption).
+    """
+    if len(data) > _SIDECAR_MAX_SIZE:
+        return ""
+    text = data.decode("utf-8", errors="replace").strip()
+    if not text:
+        return ""
+
+    # Try JSON sidecar format first (future / PUB-035 format)
+    try:
+        parsed = json.loads(text)
+        if isinstance(parsed, dict):
+            return str(parsed.get("caption") or parsed.get("caption_generated") or "").strip()
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Standard text sidecar: parse metadata lines for a 'caption' key
+    for line in text.split("\n"):
+        stripped = line.strip()
+        if stripped.startswith("# caption:"):
+            return stripped[len("# caption:") :].strip()
+        if stripped.startswith("# caption_generated:"):
+            return stripped[len("# caption_generated:") :].strip()
+
+    return ""
+
+
+async def fetch_caption_history(
+    storage: StorageProtocol | Any,
+    folder: str,
+    window_size: int = 8,
+    max_tokens_budget: int = 1000,
+) -> list[str]:
+    """Fetch recent captions from storage sidecars.
+
+    Returns a list of caption strings (most recent last), or empty list on any error.
+    Prefers 'caption' (published/edited) over 'caption_generated' (AI original).
+    Downloads sidecars in parallel for performance.
+    """
+    if window_size <= 0:
+        return []
+
+    try:
+        images = await storage.list_images(folder)
+    except Exception:
+        log_json(logger, logging.WARNING, "caption_history_list_failed", folder=folder)
+        return []
+
+    # Take the most recent N images
+    recent = images[-window_size:] if len(images) > window_size else images
+    if not recent:
+        return []
+
+    # Download sidecars in parallel (H2)
+    async def _safe_download(img: str) -> tuple[str, bytes | None]:
+        try:
+            return img, await storage.download_sidecar_if_exists(folder, img)
+        except Exception:
+            return img, None
+
+    results = await asyncio.gather(*[_safe_download(img) for img in recent])
+
+    captions: list[str] = []
+    for _img, data in results:
+        if data is None:
+            continue
+        cap = _extract_caption_from_sidecar(data)
+        if cap:
+            captions.append(cap)
+
+    return truncate_history_to_budget(captions, max_tokens_budget)
+
+
 class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
@@ -354,33 +495,60 @@ class CaptionGeneratorOpenAI:
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption+sd failed: {exc}") from exc
 
+    @staticmethod
+    def _build_multi_prompt(
+        role_prompt: str,
+        analysis: ImageAnalysis,
+        specs: dict[str, CaptionSpec],
+        history: list[str] | None,
+        sd_suffix: str = "",
+    ) -> tuple[str, str]:
+        """Build the prompt and keys_list for multi-platform generation (DRY)."""
+        platform_blocks = [build_platform_block(i, name, spec) for i, (name, spec) in enumerate(specs.items(), 1)]
+        platforms_block = "\n".join(platform_blocks)
+        keys_list = ", ".join(f'"{k}"' for k in specs)
+        history_block = build_history_block(history or [])
+
+        prompt = (
+            f"{role_prompt}\n\n"
+            f"Generate captions for these platforms:\n\n"
+            f"{platforms_block}\n\n"
+            + (f"{history_block}\n\n" if history_block else "")
+            + f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
+            + sd_suffix
+            + f"Respond with strict JSON containing exactly these keys: {keys_list}"
+            + (', "sd_caption"' if sd_suffix else "")
+        )
+        return prompt, keys_list
+
+    @staticmethod
+    def _parse_platform_captions(data: dict, specs: dict[str, CaptionSpec]) -> dict[str, str]:
+        """Parse and enforce max_length on per-platform captions from LLM response."""
+        captions: dict[str, str] = {}
+        for platform in specs:
+            val = data.get(platform)
+            if val is None:
+                raise AIServiceError(f"Missing platform '{platform}' in LLM response")
+            caption_text = str(val).strip()
+            if len(caption_text) > specs[platform].max_length:
+                caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
+            captions[platform] = caption_text
+        return captions
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
     async def generate_multi(
-        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+        self,
+        analysis: ImageAnalysis,
+        specs: dict[str, CaptionSpec],
+        history: list[str] | None = None,
     ) -> tuple[dict[str, str], AIUsage | None]:
-        """Generate one caption per platform in a single OpenAI call.
-
-        Returns: {"telegram": "...", "instagram": "...", "email": "..."}
-        """
+        """Generate one caption per platform in a single OpenAI call."""
         try:
-            platform_lines = []
-            for i, (name, spec) in enumerate(specs.items(), 1):
-                ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
-                platform_lines.append(f"{i}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}")
-            platforms_block = "\n".join(platform_lines)
-            keys_list = ", ".join(f'"{k}"' for k in specs)
-
-            prompt = (
-                f"{self.role_prompt}\n\n"
-                f"Generate captions for these platforms:\n\n"
-                f"{platforms_block}\n\n"
-                f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
-                f"Respond with strict JSON containing exactly these keys: {keys_list}"
-            )
+            prompt, _ = self._build_multi_prompt(self.role_prompt, analysis, specs, history)
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 messages=[
@@ -390,18 +558,8 @@ class CaptionGeneratorOpenAI:
                 response_format={"type": "json_object"},
                 temperature=0.7,
             )
-            content = (resp.choices[0].message.content or "{}").strip()
-            data = json.loads(content)
-            captions: dict[str, str] = {}
-            for platform in specs:
-                val = data.get(platform)
-                if val is None:
-                    raise AIServiceError(f"Missing platform '{platform}' in LLM response")
-                caption_text = str(val).strip()
-                if len(caption_text) > specs[platform].max_length:
-                    caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
-                captions[platform] = caption_text
-            return captions, _extract_usage(resp)
+            data = json.loads((resp.choices[0].message.content or "{}").strip())
+            return self._parse_platform_captions(data, specs), _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI multi-caption failed: {exc}") from exc
 
@@ -411,29 +569,18 @@ class CaptionGeneratorOpenAI:
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
     async def generate_multi_with_sd(
-        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+        self,
+        analysis: ImageAnalysis,
+        specs: dict[str, CaptionSpec],
+        history: list[str] | None = None,
     ) -> tuple[dict[str, str], AIUsage | None]:
-        """Generate per-platform captions plus one sd_caption in a single OpenAI call.
-
-        Returns: {"telegram": "...", "instagram": "...", ..., "sd_caption": "..."}
-        """
+        """Generate per-platform captions plus one sd_caption in a single OpenAI call."""
         try:
-            platform_lines = []
-            for i, (name, spec) in enumerate(specs.items(), 1):
-                ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
-                platform_lines.append(f"{i}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}")
-            platforms_block = "\n".join(platform_lines)
-            keys_list = ", ".join(f'"{k}"' for k in specs)
-
-            prompt = (
-                f"{self.sd_caption_role_prompt}\n\n"
-                f"Generate captions for these platforms:\n\n"
-                f"{platforms_block}\n\n"
-                f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
-                f"Also produce 'sd_caption' optimized for Stable Diffusion prompts "
-                f"(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).\n\n"
-                f'Respond with strict JSON containing exactly these keys: {keys_list}, "sd_caption"'
+            sd_suffix = (
+                "Also produce 'sd_caption' optimized for Stable Diffusion prompts "
+                "(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).\n\n"
             )
+            prompt, _ = self._build_multi_prompt(self.sd_caption_role_prompt, analysis, specs, history, sd_suffix)
             resp = await self.client.chat.completions.create(
                 model=self.sd_caption_model,
                 messages=[
@@ -443,17 +590,8 @@ class CaptionGeneratorOpenAI:
                 response_format={"type": "json_object"},
                 temperature=0.6,
             )
-            content = (resp.choices[0].message.content or "{}").strip()
-            data = json.loads(content)
-            result: dict[str, str] = {}
-            for platform in specs:
-                val = data.get(platform)
-                if val is None:
-                    raise AIServiceError(f"Missing platform '{platform}' in LLM response")
-                caption_text = str(val).strip()
-                if len(caption_text) > specs[platform].max_length:
-                    caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
-                result[platform] = caption_text
+            data = json.loads((resp.choices[0].message.content or "{}").strip())
+            result = self._parse_platform_captions(data, specs)
             result["sd_caption"] = str(data.get("sd_caption", "")).strip()
             return result, _extract_usage(resp)
         except Exception as exc:
@@ -524,7 +662,10 @@ class AIService:
         return caption_only, None, usages
 
     async def create_multi_caption_pair_from_analysis(
-        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+        self,
+        analysis: ImageAnalysis,
+        specs: dict[str, CaptionSpec],
+        history: list[str] | None = None,
     ) -> tuple[dict[str, str], str | None, list[AIUsage]]:
         """Create per-platform captions and optional sd_caption from an existing analysis.
 
@@ -544,7 +685,7 @@ class AIService:
         ):
             try:
                 async with self._rate_limiter:
-                    result, usage = await self.generator.generate_multi_with_sd(analysis, specs)
+                    result, usage = await self.generator.generate_multi_with_sd(analysis, specs, history=history)
                 if usage is not None:
                     usages.append(usage)
                 sd_caption = result.pop("sd_caption", None) or None
@@ -553,7 +694,7 @@ class AIService:
                 pass
         # Fallback to multi-caption without SD
         async with self._rate_limiter:
-            captions, usage = await self.generator.generate_multi(analysis, specs)
+            captions, usage = await self.generator.generate_multi(analysis, specs, history=history)
         if usage is not None:
             usages.append(usage)
         return captions, None, usages

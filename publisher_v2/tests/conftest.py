@@ -443,7 +443,7 @@ class BaseDummyAI:
         return self._caption, self.generator._sd_caption, []
 
     async def create_multi_caption_pair_from_analysis(
-        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec], **kwargs: object
     ) -> tuple[dict[str, str], str | None, list]:
         captions = {k: self._caption for k in specs}
         return captions, self.generator._sd_caption, []

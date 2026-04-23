@@ -55,7 +55,7 @@ class MultiCaptionAI(BaseDummyAI):
         self._platform_captions = platform_captions or {}
 
     async def create_multi_caption_pair_from_analysis(
-        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec]
+        self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec], **kwargs: object
     ) -> tuple[dict[str, str], str | None, list]:
         if self._platform_captions:
             return self._platform_captions, None, []

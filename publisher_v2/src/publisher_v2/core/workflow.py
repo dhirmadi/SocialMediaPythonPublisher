@@ -12,6 +12,7 @@ import uuid
 from typing import TYPE_CHECKING
 
 from publisher_v2.config.schema import ApplicationConfig
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
 from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
@@ -346,13 +347,30 @@ class WorkflowOrchestrator:
                 caption_start = now_monotonic()
                 if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
                     log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
+                # PUB-035: Fetch caption history for context intelligence
+                caption_history: list[str] = []
+                try:
+                    from publisher_v2.services.ai import fetch_caption_history
+
+                    history_cfg = get_static_config().ai_prompts.caption_history
+                    caption_history = await fetch_caption_history(
+                        self.storage,
+                        self.config.storage_paths.image_folder,
+                        window_size=history_cfg.window_size,
+                        max_tokens_budget=history_cfg.max_tokens_budget,
+                    )
+                except Exception:  # noqa: S110 — graceful degradation per AC7
+                    log_json(self.logger, logging.DEBUG, "caption_history_fetch_failed", correlation_id=correlation_id)
+
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
                     (
                         platform_captions,
                         sd_caption,
                         caption_usages,
-                    ) = await self.ai_service.create_multi_caption_pair_from_analysis(analysis, specs)
+                    ) = await self.ai_service.create_multi_caption_pair_from_analysis(
+                        analysis, specs, history=caption_history
+                    )
                     # Set primary caption from first platform
                     caption = next(iter(platform_captions.values()), "")
                 else:

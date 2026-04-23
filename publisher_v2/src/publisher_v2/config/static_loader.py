@@ -47,6 +47,10 @@ class PlatformCaptionStyle(BaseModel):
     style: str = Field(default="minimal_poetic", description="Caption style directive for this platform")
     max_length: int = Field(default=2200, description="Maximum caption length")
     hashtags: bool = Field(default=True, description="Whether to include hashtags")
+    examples: list[str] = Field(
+        default_factory=list, max_length=10, description="Voice examples for few-shot prompting"
+    )
+    guidance: str = Field(default="", max_length=1000, description="Platform-specific trend guidance")
 
 
 class ConfirmationTagsConfig(BaseModel):
@@ -58,6 +62,11 @@ class ConfirmationTagsConfig(BaseModel):
         default=5,
         description="Default number of confirmation tags to generate",
     )
+
+
+class CaptionHistoryConfig(BaseModel):
+    window_size: int = Field(default=8, ge=0, le=50, description="Number of recent captions to fetch")
+    max_tokens_budget: int = Field(default=1000, ge=0, le=10000, description="Max tokens for history context")
 
 
 class AIPromptsConfig(BaseModel):
@@ -82,6 +91,7 @@ class AIPromptsConfig(BaseModel):
         },
         description="Per-platform caption style registry",
     )
+    caption_history: CaptionHistoryConfig = CaptionHistoryConfig()
 
 
 class PlatformLimit(BaseModel):

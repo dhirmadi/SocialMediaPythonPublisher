@@ -287,7 +287,7 @@ class TestGenerateMultiWithSD:
             raise AIServiceError("SD generation failed")
 
         # Make generate_multi succeed
-        async def _ok_multi(analysis, specs):
+        async def _ok_multi(analysis, specs, **kwargs):
             return {k: f"{k}-caption" for k in specs}, None
 
         monkeypatch.setattr(gen, "generate_multi_with_sd", _failing_sd)
@@ -312,7 +312,7 @@ class TestCreateMultiCaptionPair:
         cfg = _default_config()
         gen = CaptionGeneratorOpenAI(cfg)
 
-        async def _fake_multi_sd(analysis, specs):
+        async def _fake_multi_sd(analysis, specs, **kwargs):
             result = {k: f"{k}-cap" for k in specs}
             result["sd_caption"] = "sd-text"
             return result, None
@@ -337,7 +337,7 @@ class TestCreateMultiCaptionPair:
         )
         gen = CaptionGeneratorOpenAI(cfg)
 
-        async def _fake_multi(analysis, specs):
+        async def _fake_multi(analysis, specs, **kwargs):
             return {k: f"{k}-only" for k in specs}, None
 
         monkeypatch.setattr(gen, "generate_multi", _fake_multi)

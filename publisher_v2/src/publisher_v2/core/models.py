@@ -57,6 +57,8 @@ class CaptionSpec:
     style: str
     hashtags: str
     max_length: int
+    examples: tuple[str, ...] = ()
+    guidance: str = ""
 
     @staticmethod
     def for_platforms(config: "ApplicationConfig") -> dict[str, "CaptionSpec"]:
@@ -89,6 +91,8 @@ class CaptionSpec:
                     style=style_cfg.style,
                     hashtags=hashtags,
                     max_length=style_cfg.max_length,
+                    examples=tuple(style_cfg.examples),
+                    guidance=style_cfg.guidance,
                 )
 
         if not specs:

@@ -23,7 +23,9 @@ async def generate_and_upload_sidecar(
     model_version: str,
     sha256: str = "",
     correlation_id: str | None = None,
-    log_prefix: str = "sidecar_upload",  # e.g. "web_sidecar_upload" or "sidecar_upload"
+    log_prefix: str = "sidecar_upload",
+    caption_generated: str | None = None,
+    caption_edited: bool = False,
 ) -> float:
     """
     Generate and upload a caption sidecar file.
@@ -55,6 +57,13 @@ async def generate_and_upload_sidecar(
         if config.captionfile.extended_metadata_enabled and analysis:
             phase2 = build_metadata_phase2(analysis)
             meta.update(phase2)
+
+        # PUB-035: Store edit tracking metadata
+        if caption_generated:
+            meta["caption_generated"] = caption_generated
+        if caption_edited:
+            meta["caption_edited"] = str(caption_edited)
+            meta["caption"] = sd_caption  # published version
 
         # 3. Build content
         content = build_caption_sidecar(sd_caption, meta)
