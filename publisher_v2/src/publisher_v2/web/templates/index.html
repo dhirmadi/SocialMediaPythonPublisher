@@ -1333,8 +1333,26 @@
       // Always refetch so the grid reflects the current library state
       // (images curated via publish/keep/remove/delete have moved).
       setViewState("grid");
-      gridOffset = 0;
+
+      // GH-59: Open grid on the page containing the currently displayed image
+      if (currentFilename && !isManagedStorage() && browseImageList && browseImageList.length > 0) {
+        // Dropbox: full list is cached client-side — find exact page
+        const idx = browseImageList.indexOf(currentFilename);
+        if (idx !== -1) {
+          gridOffset = Math.floor(idx / GRID_PAGE_SIZE) * GRID_PAGE_SIZE;
+        }
+        // else: filename was curated away; keep existing gridOffset
+      }
+      // Managed storage: gridOffset retains its value from the last grid
+      // interaction — no reset to 0.
+
       await fetchGrid();
+
+      // If offset is past the end (images removed since last visit), fall back
+      if (gridImages.length === 0 && gridOffset > 0) {
+        gridOffset = 0;
+        await fetchGrid();
+      }
     }
 
     async function handleGridUpload(file) {

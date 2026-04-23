@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import email
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -81,7 +82,9 @@ async def test_email_publisher_sends_and_confirms(tmp_path: Path, monkeypatch: p
     assert len(smtp.sent_messages) == 2
     first_subject = [line for line in smtp.sent_messages[0][2].split("\n") if line.startswith("Subject")][0]
     assert "Private: Hello World" in first_subject
-    confirm_body = smtp.sent_messages[1][2]
+    confirm_raw = smtp.sent_messages[1][2]
+    confirm_msg = email.message_from_string(confirm_raw)
+    confirm_body = confirm_msg.get_payload(0).get_payload(decode=True).decode()  # type: ignore[union-attr]
     assert "Image Tags (FetLife context): happy" in confirm_body
 
 

@@ -131,6 +131,41 @@ class TestRemovedJavaScript:
         assert "libraryMove" not in res.text
 
 
+class TestBackToGridPosition:
+    """GH-59: Grid should open on the page containing the currently displayed image."""
+
+    def test_back_to_grid_does_not_hardcode_offset_zero(self, managed_admin_client: TestClient) -> None:
+        """backToGrid must not unconditionally reset gridOffset to 0."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        # The function must exist
+        assert "backToGrid" in html
+        # Extract the backToGrid function body (between 'async function backToGrid' and the next top-level function)
+        import re
+
+        match = re.search(r"async function backToGrid\(\)\s*\{(.*?)\n    \}", html, re.DOTALL)
+        assert match, "backToGrid function not found"
+        body = match.group(1)
+        # Must NOT contain a bare 'gridOffset = 0;' as the only offset logic
+        # It should calculate offset from currentFilename position
+        assert "browseImageList" in body, "backToGrid should use browseImageList to find image position (Dropbox)"
+        assert "GRID_PAGE_SIZE" in body, "backToGrid should calculate page offset from GRID_PAGE_SIZE"
+
+    def test_back_to_grid_handles_empty_page_fallback(self, managed_admin_client: TestClient) -> None:
+        """backToGrid should fall back to page 1 if the calculated offset yields an empty page."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        import re
+
+        match = re.search(r"async function backToGrid\(\)\s*\{(.*?)\n    \}", html, re.DOTALL)
+        assert match, "backToGrid function not found"
+        body = match.group(1)
+        # Should handle the case where offset is past the end (stale offset after curation)
+        assert "gridImages.length === 0" in body or "gridImages.length==0" in body, (
+            "backToGrid should handle empty page fallback"
+        )
+
+
 class TestPreservedJavaScript:
     """AC-D6: getPaginationRange is preserved; toast and admin systems remain."""
 

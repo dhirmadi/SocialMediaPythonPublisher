@@ -244,8 +244,12 @@ class WebImageService:
         ai = await self._ensure_ai_service()
         ai_service = ai if ai is not None else NullAIService()
         self.orchestrator = WorkflowOrchestrator(
-            self.config, self.storage, ai_service, self.publishers, usage_meter=self._usage_meter
-        )  # type: ignore[arg-type]
+            self.config,
+            self.storage,
+            ai_service,  # type: ignore[arg-type]
+            self.publishers,
+            usage_meter=self._usage_meter,
+        )
         return self.orchestrator
 
     async def _get_cached_images(self) -> list[str]:

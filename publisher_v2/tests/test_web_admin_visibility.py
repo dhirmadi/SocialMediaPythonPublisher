@@ -15,11 +15,11 @@ def _get_index_html() -> str:
 def test_admin_sections_hidden_for_non_admin() -> None:
     html = _get_index_html()
     # Admin-only panels and controls should be present but initially hidden
-    assert 'id="panel-admin"' in html
+    assert 'id="panel-caption"' in html
     assert 'id="panel-activity"' in html
     assert 'id="admin-controls"' in html
     # Hidden marker class should be applied so non-admin users do not see them
-    assert 'class="panel admin-only hidden" id="panel-admin"' in html
+    assert 'class="panel admin-only hidden" id="panel-caption"' in html
     assert 'class="panel admin-only hidden" id="panel-activity"' in html
 
 
