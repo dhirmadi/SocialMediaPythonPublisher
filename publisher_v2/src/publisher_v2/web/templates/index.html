@@ -327,10 +327,23 @@
     }
     .grid-toolbar {
       display: flex;
-      gap: 0.5rem;
+      gap: 0.75rem;
       flex-wrap: wrap;
-      align-items: center;
+      align-items: stretch;
       margin-bottom: 0.5rem;
+    }
+    .toolbar-find {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex: 1 1 auto;
+      min-width: 0;
+    }
+    .toolbar-actions {
+      display: flex;
+      gap: 0.4rem;
+      align-items: center;
+      flex: 0 0 auto;
     }
     .grid-toolbar input[type="text"],
     .grid-toolbar select,
@@ -342,18 +355,57 @@
       color: #e5e5e5;
       font-size: 0.85rem;
     }
-    .grid-upload-label {
-      display: inline-block;
-      padding: 0.4rem 0.75rem;
-      background: #cc0000;
+    .toolbar-order-btn {
+      width: 36px;
+      height: 36px;
+      padding: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex: 0 0 36px;
+    }
+    .toolbar-upload {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      padding: 0.45rem 0.85rem;
+      background: linear-gradient(135deg, #cc0000, #a30000);
       color: #fff;
       border-radius: 0.5rem;
       cursor: pointer;
       font-size: 0.85rem;
       font-weight: 600;
+      border: none;
+      transition: background 0.15s;
     }
-    .grid-upload-label:hover {
-      background: #e60000;
+    .toolbar-upload:hover {
+      background: linear-gradient(135deg, #e60000, #cc0000);
+    }
+    .toolbar-select-toggle {
+      font-size: 0.8rem;
+      color: #9ca3af;
+      border-color: #555;
+    }
+    .toolbar-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin-bottom: 0.35rem;
+    }
+    @media (max-width: 640px) {
+      .grid-toolbar {
+        flex-direction: column;
+        align-items: stretch;
+      }
+      .toolbar-find,
+      .toolbar-actions {
+        width: 100%;
+      }
+      .toolbar-actions {
+        justify-content: flex-end;
+      }
     }
     .browse-grid-item:hover {
       border-color: #cc0000;
@@ -681,19 +733,26 @@
     <!-- Unified image browser grid (PUB-033) -->
     <div class="panel hidden" id="panel-grid">
       <div class="grid-toolbar">
-        <input type="text" id="grid-search" placeholder="Search..." class="hidden" style="flex:1;min-width:8rem;" />
-        <select id="grid-sort" class="hidden">
-          <option value="name">Name</option>
-          <option value="last_modified">Date</option>
-          <option value="size">Size</option>
-        </select>
-        <button id="grid-order-toggle" class="secondary hidden" title="Sort direction" style="min-width:2rem;">&uarr;</button>
-        <label id="grid-upload-label" class="grid-upload-label hidden">
-          Upload
-          <input type="file" id="grid-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
-        </label>
-        <button id="grid-select-toggle" class="secondary hidden" title="Multi-select mode">Select</button>
-        <button id="grid-refresh-btn" class="secondary">Refresh</button>
+        <div class="toolbar-find">
+          <input type="text" id="grid-search" placeholder="Search..." class="hidden" style="flex:1;min-width:8rem;" />
+          <select id="grid-sort" class="hidden">
+            <option value="name">Name</option>
+            <option value="last_modified">Date</option>
+            <option value="size">Size</option>
+          </select>
+          <button id="grid-order-toggle" class="secondary toolbar-order-btn hidden" title="Sort direction">&uarr;</button>
+        </div>
+        <div class="toolbar-actions">
+          <label id="grid-upload-label" class="toolbar-upload hidden">
+            &#11014; Upload
+            <input type="file" id="grid-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
+          </label>
+          <button id="grid-refresh-btn" class="secondary" title="Refresh">&#8635;</button>
+        </div>
+      </div>
+      <div class="toolbar-meta">
+        <div id="grid-result-count" style="font-size:0.8rem;color:#9ca3af;"></div>
+        <button id="grid-select-toggle" class="secondary toolbar-select-toggle hidden" title="Multi-select mode">&#9744; Select</button>
       </div>
       <!-- Multi-select toolbar (PUB-037) -->
       <div id="grid-select-bar" class="grid-select-bar hidden">
@@ -718,7 +777,6 @@
         </div>
         <div id="delete-queue-list"></div>
       </div>
-      <div id="grid-result-count" style="font-size:0.8rem;color:#9ca3af;margin-bottom:0.5rem;"></div>
       <div id="grid-container" class="browse-grid"></div>
       <div id="grid-empty" class="hidden" style="text-align:center;color:#9ca3af;padding:1rem;">No images found.</div>
       <div id="grid-pagination" class="browse-pagination hidden">
@@ -1881,6 +1939,7 @@
         multiSelectMode = true;
         gridSelectToggle.textContent = "Cancel";
         gridSelectToggle.classList.add("danger");
+        gridSelectToggle.classList.remove("toolbar-select-toggle");
         gridSelectBar.classList.remove("hidden");
         updateSelectionUI();
         renderGrid();
@@ -1890,8 +1949,9 @@
     function exitMultiSelect() {
       multiSelectMode = false;
       selectedFiles.clear();
-      gridSelectToggle.textContent = "Select";
+      gridSelectToggle.textContent = "\u2610 Select";
       gridSelectToggle.classList.remove("danger");
+      gridSelectToggle.classList.add("toolbar-select-toggle");
       gridSelectBar.classList.add("hidden");
       gridDeleteSelected.classList.add("hidden");
       renderGrid();

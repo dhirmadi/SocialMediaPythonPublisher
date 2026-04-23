@@ -42,7 +42,8 @@ class TestMultiSelectScaffold:
     def test_select_toggle_starts_hidden(self, managed_admin_client: TestClient) -> None:
         """Select toggle starts with hidden class (JS un-hides it based on feature config)."""
         res = managed_admin_client.get("/")
-        assert 'id="grid-select-toggle" class="secondary hidden"' in res.text
+        assert 'id="grid-select-toggle"' in res.text
+        assert "toolbar-select-toggle hidden" in res.text
 
     def test_delete_selected_starts_hidden(self, managed_admin_client: TestClient) -> None:
         """Delete-selected button starts hidden until selection is made."""
