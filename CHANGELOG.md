@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-035: Caption Context Intelligence
+- **Style examples** in `ai_prompts.yaml` — per-platform few-shot voice examples for human-sounding captions
+- **Trend guidance** per platform — manually curated instructions on current platform conventions and anti-patterns
+- **Caption history sliding context window** — fetches N most recent published captions from sidecars and injects into the AI prompt for anti-repetition and voice consistency
+- **`CaptionHistoryConfig`** — configurable `window_size` (default 8) and `max_tokens_budget` (default 1000)
+- No vector database needed — uses existing storage infrastructure and prompt engineering
+
 ### Added - PUB-038: Grid Toolbar Redesign
 - **Two-zone toolbar layout** — Find zone (search + sort + order) on the left, Actions zone (upload + refresh) on the right
 - Compact sort order toggle, primary gradient styling for upload, icon-only refresh button

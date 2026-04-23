@@ -1,4 +1,5 @@
 ---
+description: "Documentation authoring rules for V2: roadmap items, lifecycle, PUB-NNN naming"
 paths:
   - "docs_v2/**"
 ---

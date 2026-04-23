@@ -1,4 +1,5 @@
 {
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "env": {
     "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
     "CLAUDE_CODE_TEAMMATE_MODE": "tmux"
@@ -10,12 +11,14 @@
       "Bash(uv run mypy*)",
       "Bash(uv run pytest*)",
       "Bash(uv run python -m py_compile*)",
+      "Bash(uv add *)",
       "Bash(make format)",
       "Bash(make lint)",
       "Bash(make type-check)",
       "Bash(make test)",
       "Bash(make check)",
       "Bash(make status)",
+      "Bash(make clean)",
       "Bash(git status*)",
       "Bash(git diff*)",
       "Bash(git log*)",
@@ -25,13 +28,61 @@
       "Bash(git checkout*)",
       "Bash(git switch*)",
       "Bash(git stash*)",
-      "Bash(git show*)"
+      "Bash(git show*)",
+      "Bash(git merge*)",
+      "Bash(git rebase*)",
+      "Bash(git cherry-pick*)",
+      "Bash(git tag*)",
+      "Bash(git remote -v*)",
+      "Bash(git fetch*)",
+      "Bash(git pull*)",
+      "Bash(git push *)",
+      "Read(publisher_v2/**)",
+      "Read(docs_v2/**)",
+      "Read(.claude/**)",
+      "Read(AGENTS.md)",
+      "Read(CLAUDE.md)",
+      "Read(Makefile)",
+      "Read(pyproject.toml)",
+      "Write(publisher_v2/**)",
+      "Write(docs_v2/**)",
+      "Edit(publisher_v2/**)",
+      "Edit(docs_v2/**)"
     ],
     "deny": [
       "Bash(rm -rf /)",
       "Bash(git push --force*)",
       "Bash(git push -f *)",
-      "Bash(git reset --hard*)"
+      "Bash(git reset --hard*)",
+      "Read(.env*)",
+      "Read(*.ini)",
+      "Read(*session.json)",
+      "Read(*.key)",
+      "Read(*.pem)"
+    ]
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // .tool_input.path // empty' < /dev/stdin) && [ -n \"$file\" ] && [[ \"$file\" == *.py ]] && cd \"$CLAUDE_PROJECT_DIR\" && uv run ruff check --fix --quiet \"$file\" 2>/dev/null && uv run ruff format --quiet \"$file\" 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run ruff check --quiet publisher_v2/src/ publisher_v2/tests/ 2>/dev/null; exit 0"
+          }
+        ]
+      }
     ]
   }
 }

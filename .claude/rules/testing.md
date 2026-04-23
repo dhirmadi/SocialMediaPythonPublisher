@@ -1,4 +1,5 @@
 ---
+description: "Test authoring conventions, TDD workflow, and failing-test diagnostic rules"
 paths:
   - "publisher_v2/tests/**"
 ---

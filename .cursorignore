@@ -1,0 +1,18 @@
+# Secrets and credentials — hard-block from AI context
+.env
+.env.*
+*.key
+*.pem
+*.enc
+secret.key
+*.ini
+!*.ini.example
+
+# Session tokens
+*session.json
+*.session
+
+# Security scan results
+.bandit
+bandit-report.*
+safety-report.*

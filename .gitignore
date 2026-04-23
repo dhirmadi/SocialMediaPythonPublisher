@@ -265,10 +265,9 @@ safety-report.*
 # ----------------------------------------------------------------------------
 .cursor/
 .specstory/
-.cursorignore
-.cursorindexingignore
 .vscode/
 .idea/
+# Note: .cursorignore and .cursorindexingignore are tracked (shared with team)
 
 # ----------------------------------------------------------------------------
 # Claude Code configuration
@@ -280,9 +279,13 @@ safety-report.*
 CLAUDE.local.md
 
 # ----------------------------------------------------------------------------
+# Legacy — .cursorrules replaced by AGENTS.md + .cursor/rules/*.mdc
+# ----------------------------------------------------------------------------
+.cursorrules
+
+# ----------------------------------------------------------------------------
 # OS and local scripts
 # ----------------------------------------------------------------------------
 .DS_Store
 runfet.sh
-.cursorrules
 scripts/servers.txt

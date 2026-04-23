@@ -1,5 +1,7 @@
 # Social Media Python Publisher — Claude Code Instructions
 
+> Shared rules live in `AGENTS.md` (universal agent standard). This file adds Claude Code-specific detail.
+
 ## Quick reference
 
 - **Install**: `uv sync` (prod) / `uv sync --group dev` (dev)

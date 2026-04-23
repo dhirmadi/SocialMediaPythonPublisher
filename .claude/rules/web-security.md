@@ -1,4 +1,5 @@
 ---
+description: "FastAPI web UI security, admin auth, cookie TTL, and responsive design rules"
 paths:
   - "publisher_v2/src/publisher_v2/web/**"
 ---

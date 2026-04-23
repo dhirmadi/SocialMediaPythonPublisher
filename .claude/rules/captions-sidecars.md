@@ -1,8 +1,11 @@
 ---
+description: "Caption and sidecar schema stability rules"
 paths:
   - "publisher_v2/src/publisher_v2/**caption**"
   - "publisher_v2/src/publisher_v2/**sidecar**"
   - "publisher_v2/src/publisher_v2/utils/**"
+  - "publisher_v2/src/publisher_v2/services/ai*"
+  - "publisher_v2/src/publisher_v2/core/models*"
 ---
 
 # Caption & sidecar rules (do not break)

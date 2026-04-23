@@ -6,7 +6,7 @@
 | **Category** | AI |
 | **Priority** | P1 |
 | **Effort** | S–M |
-| **Status** | Proposal |
+| **Status** | Done |
 | **Dependencies** | PUB-025 (Done) |
 
 ## Problem

@@ -1,4 +1,5 @@
 ---
+description: "V2 package layout, module boundaries, and architectural constraints"
 paths:
   - "publisher_v2/src/publisher_v2/**"
 ---

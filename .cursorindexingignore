@@ -1,0 +1,45 @@
+# Archived V1 code — exclude from index to avoid V1/V2 confusion
+code_v1/
+docs_v1/
+
+# Dependencies and virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+node_modules/
+
+# Build artifacts and caches
+build/
+dist/
+*.egg-info/
+.eggs/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+htmlcov/
+
+# Lock file (large, not useful for AI context)
+uv.lock
+
+# Media and binaries
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.webp
+*.mp4
+*.zip
+*.tar.gz
+*.whl
+
+# IDE artifacts
+.cursor/
+.vscode/
+.idea/
+
+# Agent tool scratch files
+agent-tools/
+agent-transcripts/

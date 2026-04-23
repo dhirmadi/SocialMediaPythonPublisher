@@ -1,4 +1,5 @@
 ---
+description: "Spec-based TDD implementation workflow for roadmap items"
 paths:
   - "docs_v2/roadmap/**"
 ---
