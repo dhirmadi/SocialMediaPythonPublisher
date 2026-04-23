@@ -15,12 +15,14 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture(autouse=True)
 def _clear_rate_limit():
-    """Clear the upload rate limit between tests."""
-    from publisher_v2.web.routers.library import _upload_rate_limit
+    """Clear rate limits between tests."""
+    from publisher_v2.web.routers.library import _delete_rate_limit, _upload_rate_limit
 
     _upload_rate_limit.clear()
+    _delete_rate_limit.clear()
     yield
     _upload_rate_limit.clear()
+    _delete_rate_limit.clear()
 
 
 @pytest.fixture
@@ -356,6 +358,59 @@ class TestDelete:
             )
 
         assert res.status_code == 404
+
+    def test_delete_blocked_when_feature_disabled(
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict
+    ) -> None:
+        """PUB-037/M5: DELETE returns 403 when delete_enabled is False."""
+        # Override the mock service's delete_enabled to False
+        from publisher_v2.web.app import app
+        from publisher_v2.web.dependencies import get_request_service
+
+        svc = app.dependency_overrides[get_request_service]()
+        svc.config.features.delete_enabled = False
+
+        res = managed_app.delete(
+            "/api/library/objects/img.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 403
+        assert "disabled" in res.json()["detail"].lower()
+
+        # Restore for other tests
+        svc.config.features.delete_enabled = True
+
+    def test_delete_rate_limit(
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PUB-037/M4: DELETE returns 429 after exceeding rate limit."""
+        from publisher_v2.web.routers.library import _delete_rate_limit
+
+        _delete_rate_limit.clear()
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+
+        with patch("publisher_v2.web.routers.library._delete_from_storage", new_callable=AsyncMock) as mock_del:
+            mock_del.return_value = {"deleted": "img.jpg", "sidecar_deleted": False}
+
+            # First 20 should succeed
+            for i in range(20):
+                res = managed_app.delete(
+                    f"/api/library/objects/img{i}.jpg",
+                    headers=admin_headers,
+                    cookies=admin_cookies,
+                )
+                assert res.status_code == 200, f"Request {i} failed unexpectedly"
+
+            # 21st should be rate-limited
+            res = managed_app.delete(
+                "/api/library/objects/img_extra.jpg",
+                headers=admin_headers,
+                cookies=admin_cookies,
+            )
+            assert res.status_code == 429
+
+        _delete_rate_limit.clear()
 
 
 # ---------------------------------------------------------------------------

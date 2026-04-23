@@ -59,10 +59,12 @@ def _library_list_prefix(paths: StoragePathConfig, logical: str) -> str:
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png"}
 VALID_TARGET_FOLDERS = {"keep", "remove", "archive", "root"}
 
-# In-memory rate limit store: {cookie_value: [timestamp, ...]}
+# In-memory rate limit stores: {cookie_value: [timestamp, ...]}
 _upload_rate_limit: dict[str, list[float]] = {}
+_delete_rate_limit: dict[str, list[float]] = {}
 _RATE_LIMIT_WINDOW = 60.0  # seconds
 _RATE_LIMIT_MAX = 10  # uploads per window
+_DELETE_RATE_LIMIT_MAX = 20  # deletes per window (higher: deletes are lighter)
 
 
 # ---------------------------------------------------------------------------
@@ -157,6 +159,34 @@ def _check_rate_limit(request: Request) -> None:
         )
 
     _upload_rate_limit[cookie_val].append(now)
+
+
+def _check_delete_rate_limit(request: Request) -> None:
+    """Check delete rate limit (20/minute per admin session)."""
+    cookie_val = request.cookies.get("pv2_admin", "anonymous")
+    now = time.time()
+
+    if cookie_val not in _delete_rate_limit:
+        _delete_rate_limit[cookie_val] = []
+
+    _delete_rate_limit[cookie_val] = [t for t in _delete_rate_limit[cookie_val] if now - t < _RATE_LIMIT_WINDOW]
+
+    if len(_delete_rate_limit[cookie_val]) >= _DELETE_RATE_LIMIT_MAX:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Delete rate limit exceeded (max 20/minute)",
+        )
+
+    _delete_rate_limit[cookie_val].append(now)
+
+
+def _check_delete_enabled(service: WebImageService) -> None:
+    """Raise 403 if delete feature is disabled."""
+    if not service.config.features.delete_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Delete feature is disabled",
+        )
 
 
 def _sanitize_filter(q: str | None) -> str | None:
@@ -532,9 +562,11 @@ async def delete_object(
     await require_auth(request)
     require_admin(request)
     _check_library_available(service)
+    _check_delete_enabled(service)
+    _check_delete_rate_limit(request)
 
     try:
-        result = await _delete_from_storage(service, filename)
+        result = await _delete_from_storage(service, _sanitize_filename(filename))
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {filename}") from exc
 

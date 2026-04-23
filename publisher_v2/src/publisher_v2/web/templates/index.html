@@ -403,8 +403,8 @@
       background: #cc0000;
       color: #fff;
     }
-    /* Upload queue (PUB-036) */
-    .upload-queue {
+    /* Shared queue panel (upload + delete) */
+    .queue-panel {
       background: #1a1a1a;
       border: 1px solid #333;
       border-radius: 0.5rem;
@@ -415,7 +415,7 @@
       scrollbar-width: thin;
       scrollbar-color: #555 #1a1a1a;
     }
-    .upload-queue-header {
+    .queue-panel-header {
       display: flex;
       justify-content: space-between;
       align-items: center;
@@ -424,7 +424,7 @@
       color: #9ca3af;
       font-weight: 600;
     }
-    .upload-queue-dismiss {
+    .queue-dismiss {
       background: none;
       border: none;
       color: #9ca3af;
@@ -436,7 +436,7 @@
       min-width: auto;
       min-height: auto;
     }
-    .upload-queue-dismiss:hover {
+    .queue-dismiss:hover {
       color: #e5e7eb;
     }
     .upload-queue-item {
@@ -517,6 +517,52 @@
     }
     .upload-queue-item.uq-waiting .uq-name {
       color: #fbbf24;
+    }
+    /* Multi-select & bulk delete (PUB-037) */
+    .browse-grid-item.selected {
+      border-color: #3b82f6;
+      box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.5);
+    }
+    .browse-grid-item.selected:hover {
+      border-color: #60a5fa;
+    }
+    .browse-grid-item .select-checkbox {
+      position: absolute;
+      top: 4px;
+      left: 4px;
+      width: 22px;
+      height: 22px;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.6);
+      border: 2px solid #9ca3af;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 5;
+      pointer-events: none;
+      font-size: 0.75rem;
+      color: white;
+    }
+    .browse-grid-item.selected .select-checkbox {
+      background: #3b82f6;
+      border-color: #3b82f6;
+    }
+    .grid-select-bar {
+      display: flex;
+      gap: 0.5rem;
+      align-items: center;
+      font-size: 0.8rem;
+    }
+    .grid-select-bar button {
+      min-height: 44px;
+      min-width: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .grid-select-bar .select-count {
+      color: #9ca3af;
+      min-width: 5rem;
     }
     #caption-text {
       width: 100%;
@@ -646,15 +692,31 @@
           Upload
           <input type="file" id="grid-upload-input" accept="image/jpeg,image/png" multiple style="display:none;" />
         </label>
+        <button id="grid-select-toggle" class="secondary hidden" title="Multi-select mode">Select</button>
         <button id="grid-refresh-btn" class="secondary">Refresh</button>
       </div>
-      <div id="upload-queue" class="upload-queue hidden" aria-live="polite">
-        <div class="upload-queue-header">
+      <!-- Multi-select toolbar (PUB-037) -->
+      <div id="grid-select-bar" class="grid-select-bar hidden">
+        <button id="grid-select-all" class="secondary" style="font-size:0.8rem;padding:0.3rem 0.6rem;">Select page</button>
+        <span id="grid-select-count" class="select-count"></span>
+        <button id="grid-delete-selected" class="secondary danger hidden" style="font-size:0.8rem;padding:0.3rem 0.6rem;">Delete selected</button>
+      </div>
+      <div id="upload-queue" class="queue-panel hidden" aria-live="polite">
+        <div class="queue-panel-header">
           <span id="upload-queue-title">Upload Queue</span>
           <span id="upload-queue-summary" role="status"></span>
-          <button id="upload-queue-dismiss" class="upload-queue-dismiss hidden" title="Dismiss queue">&times;</button>
+          <button id="upload-queue-dismiss" class="queue-dismiss hidden" title="Dismiss queue">&times;</button>
         </div>
         <div id="upload-queue-list"></div>
+      </div>
+      <!-- Delete queue (PUB-037) -->
+      <div id="delete-queue" class="queue-panel hidden" aria-live="polite">
+        <div class="queue-panel-header">
+          <span id="delete-queue-title">Delete Queue</span>
+          <span id="delete-queue-summary" role="status"></span>
+          <button id="delete-queue-dismiss" class="queue-dismiss hidden" title="Dismiss queue">&times;</button>
+        </div>
+        <div id="delete-queue-list"></div>
       </div>
       <div id="grid-result-count" style="font-size:0.8rem;color:#9ca3af;margin-bottom:0.5rem;"></div>
       <div id="grid-container" class="browse-grid"></div>
@@ -747,6 +809,17 @@
     const gridPages = document.getElementById("grid-pages");
     const positionIndicator = document.getElementById("position-indicator");
 
+    // PUB-037: multi-select & bulk delete DOM refs
+    const gridSelectToggle = document.getElementById("grid-select-toggle");
+    const gridSelectBar = document.getElementById("grid-select-bar");
+    const gridSelectAll = document.getElementById("grid-select-all");
+    const gridSelectCount = document.getElementById("grid-select-count");
+    const gridDeleteSelected = document.getElementById("grid-delete-selected");
+    const deleteQueueEl = document.getElementById("delete-queue");
+    const deleteQueueList = document.getElementById("delete-queue-list");
+    const deleteQueueSummary = document.getElementById("delete-queue-summary");
+    const deleteQueueDismiss = document.getElementById("delete-queue-dismiss");
+
     let currentFilename = null;
     let currentFullUrl = null;  // Store full-size URL for "Full Size" button
 
@@ -764,6 +837,12 @@
     let browseImageList = null;    // Dropbox client-side cache
     let browseListTimestamp = 0;
     let gridSearchTimeout = null;
+
+    // PUB-037: multi-select state
+    let multiSelectMode = false;
+    let selectedFiles = new Set();
+    let deleteQueue = [];            // [{name, status, error}]
+    let deleteQueueProcessing = false;
 
     // Two-mode navigation:
     //   "publish" — publish_enabled=true: right arrow only, random image.
@@ -1213,6 +1292,10 @@
       gridOrderToggle.classList.toggle("hidden", !managed);
       const canUpload = managed && isAdmin && featureConfig.library_enabled;
       gridUploadLabel.classList.toggle("hidden", !canUpload);
+      // PUB-037: show select toggle only when delete is available
+      const canDelete = managed && isAdmin && featureConfig.delete_enabled;
+      gridSelectToggle.classList.toggle("hidden", !canDelete);
+      if (!canDelete && multiSelectMode) exitMultiSelect();
     }
 
     async function fetchAdminStatus() {
@@ -1349,6 +1432,19 @@
       }
     }
 
+    function updateResultCount() {
+      if (gridImages.length === 0) {
+        gridResultCount.textContent = "";
+        gridEmpty.classList.remove("hidden");
+        return;
+      }
+      gridEmpty.classList.add("hidden");
+      const start = gridOffset + 1;
+      const end = gridOffset + gridImages.length;
+      const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal}`;
+      gridResultCount.textContent = `Showing ${start}\u2013${end} of ${totalLabel}`;
+    }
+
     function renderGrid() {
       gridContainer.innerHTML = "";
       if (gridImages.length === 0) {
@@ -1363,7 +1459,15 @@
       for (const fname of gridImages) {
         const item = document.createElement("div");
         item.className = "browse-grid-item";
+        item.dataset.filename = fname;
         if (fname === currentFilename) item.classList.add("current");
+        if (multiSelectMode && selectedFiles.has(fname)) item.classList.add("selected");
+        if (multiSelectMode) {
+          item.setAttribute("tabindex", "0");
+          item.setAttribute("role", "checkbox");
+          item.setAttribute("aria-checked", selectedFiles.has(fname) ? "true" : "false");
+          item.setAttribute("aria-label", fname);
+        }
 
         const img = document.createElement("img");
         img.loading = "lazy";
@@ -1372,13 +1476,21 @@
         img.addEventListener("load", () => img.classList.add("loaded"));
         item.appendChild(img);
 
+        // PUB-037: checkbox overlay in multi-select mode
+        if (multiSelectMode) {
+          const cb = document.createElement("span");
+          cb.className = "select-checkbox";
+          cb.textContent = selectedFiles.has(fname) ? "✓" : "";
+          item.appendChild(cb);
+        }
+
         const nameLabel = document.createElement("div");
         nameLabel.className = "thumb-name";
         nameLabel.textContent = fname;
         nameLabel.title = fname;
         item.appendChild(nameLabel);
 
-        if (showDelete) {
+        if (showDelete && !multiSelectMode) {
           const del = document.createElement("button");
           del.type = "button";
           del.className = "delete-overlay";
@@ -1391,17 +1503,18 @@
           item.appendChild(del);
         }
 
-        item.addEventListener("click", () => selectGridItem(fname));
+        if (multiSelectMode) {
+          item.addEventListener("click", () => toggleFileSelection(fname));
+          item.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleFileSelection(fname); }
+          });
+        } else {
+          item.addEventListener("click", () => selectGridItem(fname));
+        }
         gridContainer.appendChild(item);
       }
 
-      // Result count
-      const start = gridOffset + 1;
-      const end = gridOffset + gridImages.length;
-      const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal}`;
-      gridResultCount.textContent = `Showing ${start}\u2013${end} of ${totalLabel}`;
-
-      // Pagination
+      updateResultCount();
       renderGridPagination();
     }
 
@@ -1519,16 +1632,19 @@
       if (!uploadQueueProcessing) processUploadQueue();
     }
 
-    function renderUploadQueue() {
-      uploadQueueList.innerHTML = "";
+    // Shared queue renderer for upload + delete queues (DRY)
+    function renderQueuePanel(config) {
+      const { queue, listEl, summaryEl, dismissEl, processing, statusMap, onRetry } = config;
+      listEl.innerHTML = "";
       activeProgressBarEl = null;
-      let done = 0, failed = 0, total = uploadQueue.length;
-      for (let i = 0; i < uploadQueue.length; i++) {
-        const entry = uploadQueue[i];
+      let done = 0, failed = 0;
+      const total = queue.length;
+      for (let i = 0; i < queue.length; i++) {
+        const entry = queue[i];
+        const cssStatus = statusMap ? (statusMap[entry.status] || entry.status) : entry.status;
         const row = document.createElement("div");
-        row.className = "upload-queue-item uq-" + entry.status;
+        row.className = "upload-queue-item uq-" + cssStatus;
 
-        // Status dot (CSS-only, cross-platform)
         const statusEl = document.createElement("span");
         statusEl.className = "uq-status";
         const dot = document.createElement("span");
@@ -1539,17 +1655,15 @@
         if (entry.status === "done") done++;
         if (entry.status === "failed") failed++;
 
-        // Filename
         const nameEl = document.createElement("span");
         nameEl.className = "uq-name";
         nameEl.textContent = entry.status === "waiting"
           ? entry.name + " (rate limited\u2026)"
           : entry.name;
-        nameEl.title = entry.name;
+        nameEl.title = entry.error || entry.name;
         row.appendChild(nameEl);
 
-        // Progress bar (for uploading state)
-        if (entry.status === "uploading") {
+        if (entry.status === "uploading" && entry.progress != null) {
           const prog = document.createElement("span");
           prog.className = "uq-progress";
           const bar = document.createElement("span");
@@ -1560,33 +1674,46 @@
           activeProgressBarEl = bar;
         }
 
-        // Retry button (for failed state)
-        if (entry.status === "failed") {
+        if (entry.status === "failed" && onRetry) {
           const retryBtn = document.createElement("button");
           retryBtn.type = "button";
           retryBtn.className = "uq-retry-btn";
           retryBtn.textContent = "Retry";
-          retryBtn.setAttribute("aria-label", `Retry upload for ${entry.name}`);
-          retryBtn.addEventListener("click", () => retryUpload(i));
+          retryBtn.setAttribute("aria-label", `Retry for ${entry.name}`);
+          retryBtn.addEventListener("click", () => onRetry(i));
           row.appendChild(retryBtn);
         }
 
-        uploadQueueList.appendChild(row);
+        listEl.appendChild(row);
       }
-      uploadQueueSummary.textContent = `${done}/${total} done` + (failed ? `, ${failed} failed` : "");
-
-      // Show dismiss button when queue is not actively processing
-      if (!uploadQueueProcessing && uploadQueue.length > 0) {
-        uploadQueueDismiss.classList.remove("hidden");
+      summaryEl.textContent = `${done}/${total} done` + (failed ? `, ${failed} failed` : "");
+      if (!processing && queue.length > 0) {
+        dismissEl.classList.remove("hidden");
       } else {
-        uploadQueueDismiss.classList.add("hidden");
+        dismissEl.classList.add("hidden");
       }
     }
 
+    function dismissQueue(queueRef, containerEl, dismissEl) {
+      queueRef.length = 0;
+      containerEl.classList.add("hidden");
+      dismissEl.classList.add("hidden");
+    }
+
+    function renderUploadQueue() {
+      renderQueuePanel({
+        queue: uploadQueue,
+        listEl: uploadQueueList,
+        summaryEl: uploadQueueSummary,
+        dismissEl: uploadQueueDismiss,
+        processing: uploadQueueProcessing,
+        onRetry: retryUpload,
+      });
+    }
+
     function dismissUploadQueue() {
+      dismissQueue(uploadQueue, uploadQueueEl, uploadQueueDismiss);
       uploadQueue = [];
-      uploadQueueEl.classList.add("hidden");
-      uploadQueueDismiss.classList.add("hidden");
     }
 
     function retryUpload(index) {
@@ -1738,18 +1865,258 @@
           gridImages.splice(idx, 1);
           if (gridTotal > 0) gridTotal--;
         }
-        const start = gridOffset + 1;
-        const end = gridOffset + gridImages.length;
-        const totalLabel = gridTruncated ? `${gridTotal}+` : `${gridTotal}`;
-        gridResultCount.textContent = gridImages.length
-          ? `Showing ${start}\u2013${end} of ${totalLabel}`
-          : "";
-        if (gridImages.length === 0) {
-          gridEmpty.classList.remove("hidden");
-        }
+        updateResultCount();
       } catch (err) {
         showToast("Delete error: " + err.message, "error");
       }
+    }
+
+    // ---------------------------------------------------------------
+    // Multi-select & bulk delete (PUB-037 / GH-61)
+    // ---------------------------------------------------------------
+    function toggleMultiSelect() {
+      if (multiSelectMode) {
+        exitMultiSelect();
+      } else {
+        multiSelectMode = true;
+        gridSelectToggle.textContent = "Cancel";
+        gridSelectToggle.classList.add("danger");
+        gridSelectBar.classList.remove("hidden");
+        updateSelectionUI();
+        renderGrid();
+      }
+    }
+
+    function exitMultiSelect() {
+      multiSelectMode = false;
+      selectedFiles.clear();
+      gridSelectToggle.textContent = "Select";
+      gridSelectToggle.classList.remove("danger");
+      gridSelectBar.classList.add("hidden");
+      gridDeleteSelected.classList.add("hidden");
+      renderGrid();
+    }
+
+    function toggleFileSelection(fname) {
+      if (selectedFiles.has(fname)) {
+        selectedFiles.delete(fname);
+      } else {
+        selectedFiles.add(fname);
+      }
+      updateSelectionUI();
+      // O(1) targeted DOM update instead of full grid rebuild
+      const el = gridContainer.querySelector(`[data-filename="${CSS.escape(fname)}"]`);
+      if (el) {
+        const isSelected = selectedFiles.has(fname);
+        el.classList.toggle("selected", isSelected);
+        el.setAttribute("aria-checked", isSelected ? "true" : "false");
+        const cb = el.querySelector(".select-checkbox");
+        if (cb) cb.textContent = isSelected ? "\u2713" : "";
+      }
+    }
+
+    function toggleSelectAll() {
+      const allOnPageSelected = gridImages.every(f => selectedFiles.has(f));
+      if (allOnPageSelected) {
+        for (const f of gridImages) selectedFiles.delete(f);
+      } else {
+        for (const f of gridImages) selectedFiles.add(f);
+      }
+      updateSelectionUI();
+      renderGrid();
+    }
+
+    function updateSelectionUI() {
+      const n = selectedFiles.size;
+      const onPage = gridImages.filter(f => selectedFiles.has(f)).length;
+      // Show cross-page context when selections span multiple pages
+      gridSelectCount.textContent = n > 0
+        ? (onPage < n ? `${n} selected (${onPage} on this page)` : `${n} selected`)
+        : "";
+      gridDeleteSelected.classList.toggle("hidden", n === 0);
+      gridDeleteSelected.textContent = `Delete selected (${n})`;
+      // Update select-all label — scoped to current page
+      if (gridImages.length > 0 && gridImages.every(f => selectedFiles.has(f))) {
+        gridSelectAll.textContent = "Deselect page";
+      } else {
+        gridSelectAll.textContent = "Select page";
+      }
+    }
+
+    function showBulkDeleteConfirm(count) {
+      return new Promise((resolve) => {
+        const overlay = document.createElement("div");
+        overlay.className = "modal";
+        const dialog = document.createElement("div");
+        dialog.className = "modal-dialog";
+
+        const heading = document.createElement("h2");
+        heading.textContent = `Delete ${count} image${count > 1 ? "s" : ""}?`;
+
+        const msg = document.createElement("p");
+        msg.style.color = "#fca5a5";
+        msg.textContent = "This cannot be undone. The selected images and their sidecars will be permanently removed.";
+
+        const footer = document.createElement("div");
+        footer.className = "modal-footer";
+        const cancelBtn = document.createElement("button");
+        cancelBtn.className = "secondary";
+        cancelBtn.textContent = "Cancel";
+        const deleteBtn = document.createElement("button");
+        deleteBtn.className = "danger";
+        deleteBtn.textContent = `Delete ${count} image${count > 1 ? "s" : ""}`;
+        footer.appendChild(cancelBtn);
+        footer.appendChild(deleteBtn);
+
+        dialog.appendChild(heading);
+        dialog.appendChild(msg);
+        dialog.appendChild(footer);
+        overlay.appendChild(dialog);
+        document.body.appendChild(overlay);
+
+        const cleanup = (val) => { overlay.remove(); resolve(val); };
+        cancelBtn.addEventListener("click", () => cleanup(false));
+        deleteBtn.addEventListener("click", () => cleanup(true));
+        overlay.addEventListener("click", (e) => { if (e.target === overlay) cleanup(false); });
+      });
+    }
+
+    async function handleBulkDelete() {
+      const filenames = [...selectedFiles];
+      if (filenames.length === 0) return;
+      const confirmed = await showBulkDeleteConfirm(filenames.length);
+      if (!confirmed) return;
+
+      // Build delete queue
+      deleteQueue = filenames.map(name => ({
+        name,
+        status: "queued",  // queued | deleting | done | failed
+        error: null,
+      }));
+      deleteQueueProcessing = true;
+      deleteQueueEl.classList.remove("hidden");
+      deleteQueueDismiss.classList.add("hidden");
+      renderDeleteQueue();
+
+      // Process sequentially
+      for (const entry of deleteQueue) {
+        if (entry.status !== "queued") continue;
+        entry.status = "deleting";
+        renderDeleteQueue();
+        try {
+          const res = await fetch(`/api/library/objects/${encodeURIComponent(entry.name)}`, { method: "DELETE" });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            entry.status = "failed";
+            entry.error = err.detail || `Delete failed (${res.status})`;
+          } else {
+            entry.status = "done";
+            const idx = gridImages.indexOf(entry.name);
+            if (idx !== -1) {
+              gridImages.splice(idx, 1);
+              if (gridTotal > 0) gridTotal--;
+            }
+            selectedFiles.delete(entry.name);
+            // Remove from DOM via data-filename (O(1) lookup)
+            const el = gridContainer.querySelector(`[data-filename="${CSS.escape(entry.name)}"]`);
+            if (el) el.remove();
+          }
+        } catch (err) {
+          entry.status = "failed";
+          entry.error = err.message || "Network error";
+        }
+        renderDeleteQueue();
+      }
+
+      deleteQueueProcessing = false;
+      updateResultCount();
+
+      const failedEntries = deleteQueue.filter(e => e.status === "failed");
+      if (failedEntries.length > 0) {
+        showToast(`${failedEntries.length} delete(s) failed`, "error");
+      } else {
+        const doneCount = deleteQueue.filter(e => e.status === "done").length;
+        showToast(`Deleted ${doneCount} image${doneCount > 1 ? "s" : ""}`, "success");
+      }
+
+      updateSelectionUI();
+      renderDeleteQueue();
+
+      // Refresh grid after bulk delete
+      gridOffset = 0;
+      await fetchGrid();
+
+      // Auto-hide queue if no failures
+      if (failedEntries.length === 0) {
+        setTimeout(() => {
+          deleteQueue = [];
+          deleteQueueEl.classList.add("hidden");
+        }, AUTO_HIDE_DELAY_MS);
+      }
+    }
+
+    const DELETE_STATUS_MAP = { deleting: "uploading" };
+
+    function renderDeleteQueue() {
+      renderQueuePanel({
+        queue: deleteQueue,
+        listEl: deleteQueueList,
+        summaryEl: deleteQueueSummary,
+        dismissEl: deleteQueueDismiss,
+        processing: deleteQueueProcessing,
+        statusMap: DELETE_STATUS_MAP,
+        onRetry: retryDelete,
+      });
+    }
+
+    function retryDelete(index) {
+      const entry = deleteQueue[index];
+      if (!entry || entry.status !== "failed") return;
+      entry.status = "queued";
+      entry.error = null;
+      renderDeleteQueue();
+      if (!deleteQueueProcessing) processDeleteRetries();
+    }
+
+    async function processDeleteRetries() {
+      deleteQueueProcessing = true;
+      deleteQueueDismiss.classList.add("hidden");
+      for (const entry of deleteQueue) {
+        if (entry.status !== "queued") continue;
+        entry.status = "deleting";
+        renderDeleteQueue();
+        try {
+          const res = await fetch(`/api/library/objects/${encodeURIComponent(entry.name)}`, { method: "DELETE" });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            entry.status = "failed";
+            entry.error = err.detail || `Delete failed (${res.status})`;
+          } else {
+            entry.status = "done";
+            const idx = gridImages.indexOf(entry.name);
+            if (idx !== -1) {
+              gridImages.splice(idx, 1);
+              if (gridTotal > 0) gridTotal--;
+            }
+            selectedFiles.delete(entry.name);
+            const el = gridContainer.querySelector(`[data-filename="${CSS.escape(entry.name)}"]`);
+            if (el) el.remove();
+          }
+        } catch (err) {
+          entry.status = "failed";
+          entry.error = err.message || "Network error";
+        }
+        renderDeleteQueue();
+      }
+      deleteQueueProcessing = false;
+      updateResultCount();
+      updateSelectionUI();
+      renderDeleteQueue();
+    }
+
+    function dismissDeleteQueue() {
+      dismissQueue(deleteQueue, deleteQueueEl, deleteQueueDismiss);
+      deleteQueue = [];
     }
 
     // Invalidate cached grid data after any curation so the next time the
@@ -2155,6 +2522,15 @@
       });
 
       uploadQueueDismiss.addEventListener("click", dismissUploadQueue);
+
+      // PUB-037: multi-select & bulk delete controls
+      gridSelectToggle.addEventListener("click", toggleMultiSelect);
+      gridSelectAll.addEventListener("click", toggleSelectAll);
+      gridDeleteSelected.addEventListener("click", handleBulkDelete);
+      deleteQueueDismiss.addEventListener("click", dismissDeleteQueue);
+      document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && multiSelectMode) exitMultiSelect();
+      });
 
       gridSearch.addEventListener("input", () => {
         clearTimeout(gridSearchTimeout);

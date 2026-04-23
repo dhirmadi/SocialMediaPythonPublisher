@@ -227,7 +227,7 @@ class TestUploadQueueCSS:
     def test_dismiss_button_styles(self, managed_admin_client: TestClient) -> None:
         """Dismiss button has styling."""
         html = _get_html(managed_admin_client)
-        assert ".upload-queue-dismiss" in html
+        assert ".queue-dismiss" in html
 
 
 class TestPerformance:
