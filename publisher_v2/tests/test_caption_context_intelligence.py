@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 from typing import Any
 
+import pytest
+
 from publisher_v2.config.static_loader import PlatformCaptionStyle
 from publisher_v2.core.models import CaptionSpec
 
@@ -418,3 +420,82 @@ class TestHistoryIntegration:
         assert "Previous caption one" in prompt
         assert "Previous caption two" in prompt
         assert "DO NOT repeat" in prompt
+
+
+# ---------------------------------------------------------------------------
+# Part D Extended: update_sidecar_with_caption for caption override
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateSidecarWithCaption:
+    """Test update_sidecar_with_caption for PUB-035 caption override fix."""
+
+    @pytest.mark.asyncio
+    async def test_updates_existing_sidecar_with_caption(self) -> None:
+        """When a sidecar exists, update it with the published caption."""
+        from publisher_v2.services.sidecar import update_sidecar_with_caption
+        from publisher_v2.utils.captions import build_caption_sidecar
+        from publisher_v2.web.sidecar_parser import parse_sidecar_text
+
+        existing_sidecar = build_caption_sidecar(
+            "Original SD caption",
+            {"image_file": "test.jpg", "mood": "calm"},
+        )
+
+        class MockStorage:
+            written_content: str | None = None
+
+            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
+                return existing_sidecar.encode("utf-8")
+
+            async def write_sidecar_text(self, folder: str, filename: str, content: str) -> None:
+                self.written_content = content
+
+        storage = MockStorage()
+        await update_sidecar_with_caption(
+            storage=storage,  # type: ignore[arg-type]
+            folder="/images",
+            filename="test.jpg",
+            published_caption="My custom caption override",
+            caption_edited=True,
+        )
+
+        assert storage.written_content is not None
+        sd_caption, meta = parse_sidecar_text(storage.written_content)
+        assert sd_caption == "Original SD caption"
+        assert meta is not None
+        assert meta["caption"] == "My custom caption override"
+        assert meta["caption_edited"] == "True"
+        assert "caption_updated_at" in meta
+        assert meta["mood"] == "calm"
+
+    @pytest.mark.asyncio
+    async def test_creates_minimal_sidecar_when_none_exists(self) -> None:
+        """When no sidecar exists, create a minimal one with the caption."""
+        from publisher_v2.services.sidecar import update_sidecar_with_caption
+        from publisher_v2.web.sidecar_parser import parse_sidecar_text
+
+        class MockStorage:
+            written_content: str | None = None
+
+            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
+                return None
+
+            async def write_sidecar_text(self, folder: str, filename: str, content: str) -> None:
+                self.written_content = content
+
+        storage = MockStorage()
+        await update_sidecar_with_caption(
+            storage=storage,  # type: ignore[arg-type]
+            folder="/images",
+            filename="test.jpg",
+            published_caption="My manual caption",
+            caption_edited=True,
+        )
+
+        assert storage.written_content is not None
+        sd_caption, meta = parse_sidecar_text(storage.written_content)
+        assert sd_caption == "My manual caption"
+        assert meta is not None
+        assert meta["caption"] == "My manual caption"
+        assert meta["caption_edited"] == "True"

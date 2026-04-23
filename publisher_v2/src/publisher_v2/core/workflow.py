@@ -477,6 +477,30 @@ class WorkflowOrchestrator:
             else:
                 any_success = self.config.content.debug if self.config.features.publish_enabled else False
 
+            # PUB-035: Update sidecar with published caption when caption_override was used
+            # This ensures caption history includes manually-edited captions
+            if (
+                any_success
+                and caption_override
+                and not sd_caption
+                and not self.config.content.debug
+                and not dry_publish
+                and not preview_mode
+            ):
+                from publisher_v2.services.sidecar import update_sidecar_with_caption
+
+                with contextlib.suppress(Exception):
+                    sidecar_write_ms = int(
+                        await update_sidecar_with_caption(
+                            storage=self.storage,
+                            folder=self.config.storage_paths.image_folder,
+                            filename=selected_image,
+                            published_caption=caption,
+                            caption_edited=True,
+                            correlation_id=correlation_id,
+                        )
+                    )
+
             # 6. Archive if any success and not debug
             archived = False
             if (
