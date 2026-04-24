@@ -80,6 +80,11 @@ class CaptionSpec:
             "email": config.platforms.email_enabled,
         }
 
+        # PUB-039: Prepend voice profile examples when voice matching is enabled
+        voice_profile_examples: tuple[str, ...] = ()
+        if config.features.voice_matching_enabled and config.content.voice_profile:
+            voice_profile_examples = tuple(config.content.voice_profile)
+
         for name, enabled in platform_enabled.items():
             if enabled:
                 style_cfg = registry.get(name, generic)
@@ -91,7 +96,7 @@ class CaptionSpec:
                     style=style_cfg.style,
                     hashtags=hashtags,
                     max_length=style_cfg.max_length,
-                    examples=tuple(style_cfg.examples),
+                    examples=voice_profile_examples + tuple(style_cfg.examples),
                     guidance=style_cfg.guidance,
                 )
 

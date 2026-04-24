@@ -43,6 +43,23 @@ class ManagedStorageConfig(BaseModel):
     region: str = Field(default="auto", description="S3 region")
 
 
+class ModelLifecycle(BaseModel):
+    """Advisory lifecycle metadata for an OpenAI model (PUB-040)."""
+
+    warning: str
+    shutdown_date: str
+    recommended_replacement: str
+    severity: str
+
+    @field_validator("severity")
+    @classmethod
+    def validate_severity(cls, v: str) -> str:
+        allowed = {"info", "warning", "critical"}
+        if v not in allowed:
+            raise ValueError(f"severity must be one of {allowed}, got '{v}'")
+        return v
+
+
 class OpenAIConfig(BaseModel):
     # In orchestrator mode, api_key may be resolved lazily; loader still requires it.
     api_key: str | None = Field(default=None, description="OpenAI API key")
@@ -89,6 +106,14 @@ class OpenAIConfig(BaseModel):
         description="System prompt used for caption generation",
     )
     role_prompt: str = Field(default="Write a caption for:", description="Role/user prompt prefix")
+
+    # PUB-040: Advisory lifecycle metadata (observability only)
+    vision_model_lifecycle: ModelLifecycle | None = Field(
+        default=None, description="Advisory lifecycle metadata for vision model"
+    )
+    caption_model_lifecycle: ModelLifecycle | None = Field(
+        default=None, description="Advisory lifecycle metadata for caption model"
+    )
 
     @field_validator("api_key")
     @classmethod
@@ -181,6 +206,18 @@ class ContentConfig(BaseModel):
     hashtag_string: str = Field(default="", description="Hashtags to append")
     archive: bool = Field(default=True, description="Archive after posting")
     debug: bool = Field(default=False, description="Debug mode")
+    voice_profile: list[str] | None = Field(default=None, description="Operator example captions for few-shot tone")
+
+    @field_validator("voice_profile")
+    @classmethod
+    def validate_voice_profile(cls, v: list[str] | None) -> list[str] | None:
+        if v is None:
+            return v
+        if len(v) > 20:
+            raise ValueError("voice_profile may contain at most 20 examples")
+        if any(not s.strip() for s in v):
+            raise ValueError("voice_profile entries must be non-empty strings")
+        return v
 
 
 class CaptionFileConfig(BaseModel):
@@ -228,6 +265,11 @@ class FeaturesConfig(BaseModel):
     library_enabled: bool = Field(
         default=False,
         description="Enable admin library management panel (auto-enabled for managed storage instances)",
+    )
+    alt_text_enabled: bool = Field(default=True, description="Enable AI alt-text generation (PUB-026)")
+    smart_hashtags_enabled: bool = Field(default=True, description="Enable smart hashtag generation (PUB-028)")
+    voice_matching_enabled: bool = Field(
+        default=False, description="Enable voice profile injection for caption tone matching"
     )
 
 

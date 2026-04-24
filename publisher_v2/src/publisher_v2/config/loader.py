@@ -37,6 +37,7 @@ REDACT_KEYS: set[str] = {
     "refresh_token",
     "bot_token",
     "api_key",
+    "voice_profile",
 }
 
 
@@ -234,11 +235,14 @@ def _load_content_settings_from_env() -> dict | None:
         return None
     if not isinstance(parsed, dict):
         raise ConfigurationError("CONTENT_SETTINGS must be a JSON object")
-    return {
+    result: dict = {
         "hashtag_string": parsed.get("hashtag_string", ""),
         "archive": parsed.get("archive", True),
         "debug": parsed.get("debug", False),
     }
+    if "voice_profile" in parsed:
+        result["voice_profile"] = parsed["voice_profile"]
+    return result
 
 
 # =============================================================================
@@ -758,6 +762,13 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 os.environ.get("FEATURE_REMOVE_CURATE"), True, var_name="FEATURE_REMOVE_CURATE"
             ),
             auto_view_enabled=parse_bool_env(os.environ.get("AUTO_VIEW"), False, var_name="AUTO_VIEW"),
+            alt_text_enabled=parse_bool_env(os.environ.get("FEATURE_ALT_TEXT"), True, var_name="FEATURE_ALT_TEXT"),
+            smart_hashtags_enabled=parse_bool_env(
+                os.environ.get("FEATURE_SMART_HASHTAGS"), True, var_name="FEATURE_SMART_HASHTAGS"
+            ),
+            voice_matching_enabled=parse_bool_env(
+                os.environ.get("FEATURE_VOICE_MATCHING"), False, var_name="FEATURE_VOICE_MATCHING"
+            ),
         )
 
     except KeyError as exc:

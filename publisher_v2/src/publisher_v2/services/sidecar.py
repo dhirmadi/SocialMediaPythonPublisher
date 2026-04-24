@@ -144,9 +144,7 @@ async def update_sidecar_with_caption(
 
         meta["caption"] = published_caption
         meta["caption_edited"] = str(caption_edited)
-        meta["caption_updated_at"] = (
-            datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-        )
+        meta["caption_updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
         final_sd_caption = sd_caption or published_caption
         content = build_caption_sidecar(final_sd_caption, meta)

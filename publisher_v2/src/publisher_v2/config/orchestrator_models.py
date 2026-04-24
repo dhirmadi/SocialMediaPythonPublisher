@@ -30,6 +30,9 @@ class OrchestratorFeatures(BaseModel):
     keep_enabled: bool = True
     remove_enabled: bool = True
     auto_view_enabled: bool = False
+    alt_text_enabled: bool = True
+    smart_hashtags_enabled: bool = True
+    voice_matching_enabled: bool = False
 
 
 class OrchestratorStoragePaths(BaseModel):
@@ -83,6 +86,8 @@ class OrchestratorAI(BaseModel):
     sd_caption_model: str | None = None
     sd_caption_system_prompt: str | None = None
     sd_caption_role_prompt: str | None = None
+    vision_model_lifecycle: dict[str, Any] | None = None
+    caption_model_lifecycle: dict[str, Any] | None = None
 
 
 class OrchestratorCaptionFile(BaseModel):
@@ -106,6 +111,7 @@ class OrchestratorContent(BaseModel):
     hashtag_string: str | None = None
     archive: bool | None = None
     debug: bool | None = None
+    voice_profile: list[str] | None = None
 
 
 class OrchestratorConfigV1(BaseModel):

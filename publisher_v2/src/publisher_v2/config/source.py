@@ -1,3 +1,4 @@
+import logging
 import os
 import uuid
 from dataclasses import dataclass
@@ -31,6 +32,7 @@ from publisher_v2.config.schema import (
     EmailConfig,
     FeaturesConfig,
     ManagedStorageConfig,
+    ModelLifecycle,
     OpenAIConfig,
     PlatformsConfig,
     StoragePathConfig,
@@ -43,6 +45,7 @@ from publisher_v2.core.exceptions import (
     OrchestratorUnavailableError,
     TenantNotFoundError,
 )
+from publisher_v2.utils.logging import log_json
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +65,44 @@ class RuntimeConfig:
     config_version: str | None = None
     ttl_seconds: int | None = None
     credentials_refs: dict[str, str] | None = None
+
+
+_source_logger = logging.getLogger("publisher_v2.config.source")
+
+_SEVERITY_TO_LEVEL = {
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "critical": logging.ERROR,
+}
+
+
+def _map_lifecycle(lc_dict: dict[str, Any] | None, model_role: str) -> ModelLifecycle | None:
+    """Map a raw lifecycle dict to a ModelLifecycle model, returning None on failure."""
+    if lc_dict is None:
+        return None
+    try:
+        return ModelLifecycle.model_validate(lc_dict)
+    except Exception:
+        log_json(_source_logger, logging.WARNING, "model_lifecycle_parse_error", model_role=model_role)
+        return None
+
+
+def emit_model_lifecycle_warnings(openai_cfg: OpenAIConfig) -> None:
+    """Emit structured log warnings for model lifecycle advisories (PUB-040)."""
+    for role, lc in [("vision", openai_cfg.vision_model_lifecycle), ("caption", openai_cfg.caption_model_lifecycle)]:
+        if lc is None:
+            continue
+        level = _SEVERITY_TO_LEVEL.get(lc.severity, logging.WARNING)
+        log_json(
+            _source_logger,
+            level,
+            "model_lifecycle_warning",
+            model_role=role,
+            warning=lc.warning,
+            shutdown_date=lc.shutdown_date,
+            recommended_replacement=lc.recommended_replacement,
+            severity=lc.severity,
+        )
 
 
 class ConfigSource(Protocol):
@@ -189,6 +230,9 @@ class OrchestratorConfigSource:
             else:
                 cfg_v2 = OrchestratorConfigV2.model_validate(runtime.config)
                 app_cfg, creds = await self._build_app_config_v2(h, runtime.tenant, cfg_v2)
+
+            # PUB-040: Emit lifecycle warnings on fresh fetch (not on cache hit)
+            emit_model_lifecycle_warnings(app_cfg.openai)
 
             rc = RuntimeConfig(
                 host=h,
@@ -488,6 +532,9 @@ class OrchestratorConfigSource:
                 openai_cfg.sd_caption_system_prompt = cfg.ai.sd_caption_system_prompt
             if cfg.ai.sd_caption_role_prompt:
                 openai_cfg.sd_caption_role_prompt = cfg.ai.sd_caption_role_prompt
+            # PUB-040: Map lifecycle metadata
+            openai_cfg.vision_model_lifecycle = _map_lifecycle(cfg.ai.vision_model_lifecycle, "vision")
+            openai_cfg.caption_model_lifecycle = _map_lifecycle(cfg.ai.caption_model_lifecycle, "caption")
         else:
             features.analyze_caption_enabled = False
 
@@ -504,6 +551,7 @@ class OrchestratorConfigSource:
             hashtag_string=ct.hashtag_string or "" if ct else "",
             archive=bool(ct.archive) if ct and ct.archive is not None else True,
             debug=bool(ct.debug) if ct and ct.debug is not None else False,
+            voice_profile=ct.voice_profile if ct else None,
         )
 
         web_cfg, auth0_cfg = load_web_and_auth0_from_env()
