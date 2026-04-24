@@ -14,9 +14,32 @@ from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
 logger = logging.getLogger("publisher_v2.publishers.email")
 
 
+def _dedupe_email_recipients(emails: list[str]) -> list[str]:
+    """Preserve order; strip whitespace; case-insensitive uniqueness."""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in emails:
+        e = raw.strip()
+        if not e:
+            continue
+        key = e.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(e)
+    return out
+
+
 class EmailPublisher(Publisher):
-    def __init__(self, config: EmailConfig | None, enabled: bool):
+    def __init__(
+        self,
+        config: EmailConfig | None,
+        enabled: bool,
+        *,
+        admin_login_emails: list[str] | None = None,
+    ):
         self._config = config
+        self._admin_login_emails = _dedupe_email_recipients(list(admin_login_emails or []))
         self._enabled = (
             enabled and config is not None and bool(config.sender) and bool(config.recipient) and bool(config.password)
         )
@@ -40,11 +63,12 @@ class EmailPublisher(Publisher):
         start = now_monotonic()
         try:
 
-            def _build_message(to_addr: str, subject: str, body: str) -> MIMEMultipart:
+            def _build_message(to_addrs: str | list[str], subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
                 msg["Subject"] = subject
                 msg["From"] = config.sender
-                msg["To"] = to_addr
+                to_header = to_addrs if isinstance(to_addrs, str) else ", ".join(to_addrs)
+                msg["To"] = to_header
                 msg.attach(MIMEText(body, "plain", "utf-8"))
                 with open(image_path, "rb") as f:
                     img = MIMEImage(f.read())
@@ -79,7 +103,7 @@ class EmailPublisher(Publisher):
                 service_msg = _build_message(config.recipient, service_subject, service_body)
                 server.sendmail(config.sender, [config.recipient], service_msg.as_string())
 
-                # Optional confirmation back to sender
+                # Optional confirmation to admin login allowlist (or SMTP sender if none configured)
                 if config.confirmation_to_sender:
                     analysis_tags: list = []
                     if context and isinstance(context.get("analysis_tags"), list):
@@ -92,8 +116,9 @@ class EmailPublisher(Publisher):
                     )
                     confirm_body = f"{service_body}\n\n---\n{tags_line}"
                     confirm_subject = service_subject
-                    confirm_msg = _build_message(config.sender, confirm_subject, confirm_body)
-                    server.sendmail(config.sender, [config.sender], confirm_msg.as_string())
+                    confirm_rcpt = self._admin_login_emails or [config.sender]
+                    confirm_msg = _build_message(confirm_rcpt, confirm_subject, confirm_body)
+                    server.sendmail(config.sender, confirm_rcpt, confirm_msg.as_string())
 
                 server.quit()
 

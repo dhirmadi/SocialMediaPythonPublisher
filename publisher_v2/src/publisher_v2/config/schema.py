@@ -165,8 +165,11 @@ class EmailConfig(BaseModel):
     password: str | None = Field(default=None, description="Email (app) password")
     smtp_server: str = Field(default="smtp.gmail.com")
     smtp_port: int = Field(default=587)
-    # Confirmation email back to sender after service email is sent
-    confirmation_to_sender: bool = Field(default=True, description="Send a confirmation email to sender")
+    # Confirmation after service email is sent (recipients: admin login emails when configured, else SMTP sender)
+    confirmation_to_sender: bool = Field(
+        default=True,
+        description="Send a confirmation copy; recipients are Auth0 admin allowlist emails when set, else sender",
+    )
     confirmation_tags_count: int = Field(default=5, description="How many descriptive tags to include in confirmation")
     confirmation_tags_nature: str = Field(
         default="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",

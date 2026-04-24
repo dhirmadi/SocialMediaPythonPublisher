@@ -80,12 +80,49 @@ async def test_email_publisher_sends_and_confirms(tmp_path: Path, monkeypatch: p
     assert result.success is True
     assert smtp.starttls_called is True
     assert len(smtp.sent_messages) == 2
+    assert smtp.sent_messages[1][1] == ("sender@example.com",)  # fallback when no admin emails
     first_subject = [line for line in smtp.sent_messages[0][2].split("\n") if line.startswith("Subject")][0]
     assert "Private: Hello World" in first_subject
     confirm_raw = smtp.sent_messages[1][2]
     confirm_msg = email.message_from_string(confirm_raw)
     confirm_body = confirm_msg.get_payload(0).get_payload(decode=True).decode()  # type: ignore[union-attr]
     assert "Image Tags (FetLife context): happy" in confirm_body
+
+
+@pytest.mark.asyncio
+async def test_email_publisher_confirmation_uses_admin_login_emails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    smtp = _DummySMTP()
+    monkeypatch.setattr("publisher_v2.services.publishers.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.email.asyncio.to_thread", fake_to_thread)
+
+    image_path = tmp_path / "image.jpg"
+    with Image.new("RGB", (10, 10), color="red") as img:
+        img.save(image_path)
+
+    config = EmailConfig(
+        sender="smtp@example.com",
+        recipient="upload@example.com",
+        password="pwd",
+        smtp_server="smtp.example.com",
+        confirmation_to_sender=True,
+    )
+    publisher = EmailPublisher(
+        config=config,
+        enabled=True,
+        admin_login_emails=["  A@Example.com ", "a@example.com", "c@other.com"],
+    )
+
+    result = await publisher.publish(str(image_path), "Hi")
+
+    assert result.success is True
+    assert len(smtp.sent_messages) == 2
+    assert smtp.sent_messages[1][1] == ("A@Example.com", "c@other.com")  # deduped case-insensitively
 
 
 @pytest.mark.asyncio

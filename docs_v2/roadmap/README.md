@@ -52,8 +52,8 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-028 | AI | [Smart Hashtag Generation](PUB-028_smart-hashtag-generation.md) | P2 | S | PUB-025 | Not Started |
 | PUB-029 | AI | [Brand Voice Matching](PUB-029_brand-voice-matching.md) | P2 | S–M | PUB-025 | Not Started |
 | **Orchestrator AI Integration** ||||||
-| PUB-039 | Config / AI | [AI Caption Feature Flags & Voice Profile](PUB-039_ai-caption-feature-flags.md) | P1 | S | PUB-025, PUB-035 | Not Started |
-| PUB-040 | Config / Observability | [OpenAI Model Lifecycle Warnings](PUB-040_model-lifecycle-warnings.md) | P1 | S | PUB-022 | Not Started |
+| PUB-039 | Config / AI | [AI Caption Feature Flags & Voice Profile](archive/PUB-039_ai-caption-feature-flags.md) | P1 | S | PUB-025, PUB-035 | Done |
+| PUB-040 | Config / Observability | [OpenAI Model Lifecycle Warnings](archive/PUB-040_model-lifecycle-warnings.md) | P1 | S | PUB-022 | Done |
 | **Billing & Metering** ||||||
 | PUB-034 | Foundation | [Usage Metering](archive/PUB-034_usage-metering.md) | P1 | S | Orchestrator #14 | Done |
 | **New Platforms** ||||||

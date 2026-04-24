@@ -176,12 +176,16 @@ async def main_async() -> int:
                     result.image_analysis.tags or [],
                     cfg.email.confirmation_tags_count,
                 )
+            auth0_cfg = getattr(cfg, "auth0", None)
+            admin_rcpt = list(auth0_cfg.admin_emails_list) if auth0_cfg is not None else []
             preview_utils.print_email_confirmation_preview(
                 enabled=True,
                 to_sender=cfg.email.confirmation_to_sender,
                 tags_count=cfg.email.confirmation_tags_count,
                 tags_sample=tags_sample,
                 nature=cfg.email.confirmation_tags_nature,
+                confirmation_recipients=admin_rcpt or None,
+                confirmation_fallback_email=str(getattr(cfg.email, "sender", "") or ""),
             )
 
         # Show footer

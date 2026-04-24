@@ -6,7 +6,7 @@
 | **Category** | Config / Observability |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Not Started |
+| **Status** | Done |
 | **Dependencies** | PUB-022 (Done) |
 | **GitHub Issue** | [dhirmadi/SocialMediaPythonPublisher#64](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/64) |
 | **Orchestrator PR** | [dhirmadi/platform-orchestrator#169](https://github.com/dhirmadi/platform-orchestrator/pull/169) |

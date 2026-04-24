@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-039: AI Caption Feature Flags & Voice Profile
+- Three new runtime feature flags from orchestrator: `alt_text_enabled`, `smart_hashtags_enabled`, `voice_matching_enabled`
+- `voice_profile` on `ContentConfig` — operator-managed example captions (1–20 strings) for few-shot tone matching
+- Orchestrator voice profile **prepends** to YAML-defined examples in caption prompts when `voice_matching_enabled=True`
+- Standalone env var support: `FEATURE_ALT_TEXT`, `FEATURE_SMART_HASHTAGS`, `FEATURE_VOICE_MATCHING`
+- `voice_profile` redacted in config logging (sensitive user content)
+
+### Added - PUB-040: OpenAI Model Lifecycle Warnings
+- `ModelLifecycle` Pydantic model for advisory deprecation metadata from orchestrator
+- `vision_model_lifecycle` and `caption_model_lifecycle` fields on `OpenAIConfig`
+- Structured log warnings emitted on fresh config fetch when models are deprecated (`info`/`warning`/`critical` severity)
+- Graceful degradation for malformed lifecycle payloads (no crash)
+- Cache-aware: warnings only on fresh fetch, not on cache hits
+
+### Changed
+- FetLife email confirmation (`confirmation_to_sender`) is delivered to **Auth0 admin / login allowlist** addresses when configured (`ADMIN_LOGIN_EMAILS` / orchestrator `auth.allowed_emails`); if none are set, confirmation still goes to the SMTP sender address. Preview output documents the resolved recipient list.
+
 ### Added - PUB-035: Caption Context Intelligence
 - **Style examples** in `ai_prompts.yaml` — per-platform few-shot voice examples for human-sounding captions
 - **Trend guidance** per platform — manually curated instructions on current platform conventions and anti-patterns

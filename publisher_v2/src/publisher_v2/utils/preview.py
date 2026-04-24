@@ -225,6 +225,9 @@ def print_email_confirmation_preview(
     tags_count: int,
     tags_sample: list[str] | None,
     nature: str,
+    *,
+    confirmation_recipients: list[str] | None = None,
+    confirmation_fallback_email: str = "",
 ) -> None:
     """Show what confirmation email settings will do"""
     if not enabled:
@@ -235,6 +238,10 @@ def print_email_confirmation_preview(
     print("─" * 70)
     print(f"  To sender:   {'ON' if to_sender else 'OFF'}")
     if to_sender:
+        if confirmation_recipients:
+            print(f"  Confirm to:  {', '.join(confirmation_recipients)} (admin / login emails)")
+        elif confirmation_fallback_email:
+            print(f"  Confirm to:  {confirmation_fallback_email} (SMTP sender; no admin login emails)")
         print(f"  Tags count:  {tags_count}")
         print(f"  Tags nature: {nature}")
         if tags_sample:
