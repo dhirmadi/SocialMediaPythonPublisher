@@ -110,6 +110,9 @@ def print_vision_analysis(analysis: ImageAnalysis | None, model: str, feature_en
     palette = getattr(analysis, "color_palette", None)
     if palette:
         print(f"  Palette:     {palette}")
+    alt_text = getattr(analysis, "alt_text", None)
+    if alt_text:
+        print(f"  Alt text:    {alt_text}")
 
     # Optional SD caption preview
     sd_text = getattr(analysis, "sd_caption", None)

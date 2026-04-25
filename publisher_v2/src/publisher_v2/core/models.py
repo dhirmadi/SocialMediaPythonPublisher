@@ -49,6 +49,7 @@ class ImageAnalysis:
     composition: str | None = None
     background: str | None = None
     color_palette: str | None = None
+    alt_text: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

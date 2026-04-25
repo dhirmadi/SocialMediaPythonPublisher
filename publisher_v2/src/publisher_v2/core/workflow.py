@@ -9,12 +9,12 @@ import os
 import random
 import tempfile
 import uuid
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
-from publisher_v2.core.models import CaptionSpec, PublishResult, WorkflowResult
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.storage_protocol import StorageProtocol
@@ -436,6 +436,7 @@ class WorkflowOrchestrator:
             if self.config.features.publish_enabled:
                 if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                     publish_start = now_monotonic()
+                    context = self._build_publisher_context(analysis)
                     results = await asyncio.gather(
                         *[
                             p.publish(
@@ -444,7 +445,7 @@ class WorkflowOrchestrator:
                                     p.platform_name,
                                     platform_captions.get(p.platform_name, caption),
                                 ),
-                                context={"analysis_tags": analysis.tags} if analysis else None,
+                                context=context,
                             )
                             for p in enabled_publishers
                         ],
@@ -559,6 +560,17 @@ class WorkflowOrchestrator:
             if tmp_path and os.path.exists(tmp_path):  # noqa: ASYNC240 — fast local FS check in finally cleanup
                 with contextlib.suppress(Exception):
                     os.unlink(tmp_path)
+
+    def _build_publisher_context(self, analysis: ImageAnalysis | None) -> dict[str, Any] | None:
+        if analysis is None:
+            return None
+        tags = analysis.tags
+        context: dict[str, Any] = {"analysis_tags": tags} if tags is not None else {}
+
+        if self.config.features.alt_text_enabled and analysis.alt_text:
+            context["alt_text"] = analysis.alt_text
+
+        return context or None
 
     async def _curate_image(
         self,

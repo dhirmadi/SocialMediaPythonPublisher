@@ -74,7 +74,7 @@ async def test_email_publisher_sends_and_confirms(tmp_path: Path, monkeypatch: p
     )
     publisher = EmailPublisher(config=config, enabled=True)
 
-    context = {"analysis_tags": [" #Happy ", "#Happy", "Mo0dy!!!"]}
+    context = {"analysis_tags": [" #Happy ", "#Happy", "Mo0dy!!!"], "alt_text": "A person standing by a window."}
     result = await publisher.publish(str(image_path), "Hello World", context=context)
 
     assert result.success is True
@@ -271,7 +271,7 @@ async def test_telegram_publisher_success(monkeypatch: pytest.MonkeyPatch, tmp_p
     image_path = tmp_path / "image.jpg"
     image_path.write_bytes(b"img")
 
-    result = await publisher.publish(str(image_path), "caption")
+    result = await publisher.publish(str(image_path), "caption", context={"alt_text": "A person standing by a window."})
     assert result.success is True
     assert bot.sent == ("channel", "caption")
     assert bot.shutdown_called is True

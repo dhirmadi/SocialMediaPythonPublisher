@@ -518,6 +518,7 @@ class WebImageService:
             nsfw=analysis.nsfw,
             caption=caption,
             sd_caption=sd_caption,
+            alt_text=analysis.alt_text if self.config.features.alt_text_enabled else None,
             sidecar_written=sidecar_written,
             platform_captions=platform_captions_dict,
         )

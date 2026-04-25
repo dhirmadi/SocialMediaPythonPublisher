@@ -163,6 +163,8 @@ def build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, Any]:
         meta["background"] = analysis.background
     if getattr(analysis, "color_palette", None):
         meta["color_palette"] = analysis.color_palette
+    if getattr(analysis, "alt_text", None):
+        meta["alt_text"] = analysis.alt_text
     tags = getattr(analysis, "tags", None) or []
     if isinstance(tags, list) and tags:
         meta["tags"] = [str(t) for t in tags if str(t).strip()]

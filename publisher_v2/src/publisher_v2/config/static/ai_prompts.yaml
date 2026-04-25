@@ -7,7 +7,7 @@ vision:
     Analyze this image and return strict JSON with keys:
     description, mood, tags (array), nsfw (boolean), safety_labels (array),
     subject, style, lighting, camera, clothing_or_accessories,
-    aesthetic_terms (array), pose, composition, background, color_palette (array).
+    aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text.
 
     GUIDELINES:
     - description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.
@@ -20,6 +20,8 @@ vision:
     - camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.
     - lighting: type + quality + direction (e.g., soft sidelight, high-key studio).
     - color_palette: 3–6 dominant colors (hex preferred).
+    - alt_text: ≤125 characters, plain descriptive sentence for screen readers; describe what is visually depicted
+      (no hashtags, no promotional language, no mood/interpretation).
     - Unknown values → null or [].
 
     Return ONE JSON object ONLY — no extra text.

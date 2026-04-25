@@ -37,7 +37,7 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
     "- Use EXACTLY these keys (lowercase):\n"
     "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
-    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette\n\n"
+    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette, alt_text\n\n"
     "TYPES & CONSTRAINTS:\n"
     "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
     "- mood: string\n"
@@ -56,7 +56,9 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- pose: string (orientation/gesture/tension; avoid explicit anatomy)\n"
     "- composition: string (framing, structure, focal emphasis, leading lines/negative space)\n"
     "- background: string (environment/backdrop/texture)\n"
-    "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n\n"
+    "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n"
+    "- alt_text: string (≤125 characters, plain descriptive sentence for screen readers; describe what is visually "
+    "depicted, not mood or interpretation; no hashtags or promotional language)\n\n"
     "ADDITIONAL RULES:\n"
     "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
     "- Avoid explicit terminology or slang; no sexual description.\n"
@@ -69,7 +71,7 @@ _DEFAULT_VISION_USER_PROMPT = (
     "Analyze this image and return strict JSON with keys:\n"
     "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
     "subject, style, lighting, camera, clothing_or_accessories,\n"
-    "aesthetic_terms (array), pose, composition, background, color_palette (array).\n\n"
+    "aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text.\n\n"
     "GUIDELINES:\n"
     "- description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.\n"
     "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
@@ -81,6 +83,8 @@ _DEFAULT_VISION_USER_PROMPT = (
     "- camera: null if uncertain; otherwise perspective + focal bucket (wide/normal/short-tele/tele) + DoF.\n"
     "- lighting: type + quality + direction (e.g., soft sidelight, high-key studio).\n"
     "- color_palette: 3–6 dominant colors (hex preferred).\n"
+    "- alt_text: ≤125 characters, plain descriptive sentence for screen readers; describe what is visually depicted "
+    "(no hashtags, no promotional language, no mood/interpretation).\n"
     "- Unknown values → null or [].\n\n"
     "Return ONE JSON object ONLY — no extra text."
 )
@@ -288,6 +292,7 @@ class VisionAnalyzerOpenAI:
                     "tags": [],
                     "nsfw": False,
                     "safety_labels": [],
+                    "alt_text": None,
                 }
             analysis = ImageAnalysis(
                 description=str(data.get("description", "")).strip(),
@@ -305,6 +310,7 @@ class VisionAnalyzerOpenAI:
                 composition=self._opt_str(data.get("composition")),
                 background=self._opt_str(data.get("background")),
                 color_palette=self._opt_str(data.get("color_palette")),
+                alt_text=self._opt_str(data.get("alt_text")),
             )
             ai_usage = _extract_usage(resp)
             ok = True

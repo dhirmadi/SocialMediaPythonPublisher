@@ -27,6 +27,7 @@ class AnalysisResponse(BaseModel):
     nsfw: bool
     caption: str
     sd_caption: str | None = None
+    alt_text: str | None = None
     sidecar_written: bool
     platform_captions: dict[str, str] | None = None
 
