@@ -1,0 +1,41 @@
+version: 1
+roadmap_id: PUB-029
+summary: Token-bounded + injection-hardened voice examples in caption prompts; INI fallback support; admin web editor; preview status.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/services/ai.py
+    - publisher_v2/src/publisher_v2/config/loader.py
+    - publisher_v2/src/publisher_v2/web/app.py
+    - publisher_v2/src/publisher_v2/web/templates/index.html
+    - publisher_v2/src/publisher_v2/utils/preview.py
+    - publisher_v2/tests/**
+    - docs_v2/roadmap/PUB-029_*
+  excluded:
+    - publisher_v2/src/publisher_v2/services/publishers/**
+    - publisher_v2/src/publisher_v2/services/storage/**
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  - AC-01: Voice examples truncated to budget (default 500 rough tokens ≈ 2000 chars), order preserved, drop from end.
+  - AC-02: Voice block uses explicit delimiters and a "style references only" instruction.
+  - AC-03: Multi-platform prompt still contains per-platform blocks AND the bounded voice examples.
+  - AC-04: Voice matching off OR empty profile → no voice block in prompt (byte-identical to pre-PUB-029 behavior).
+  - AC-05: INI [Content] voice_profile = ["a","b"] parses correctly; invalid JSON raises ConfigurationError; missing key → None.
+  - AC-06: Admin-gated GET + POST /api/config/voice-profile updates in-memory config; non-admin blocked.
+  - AC-07: Preview output reports voice matching enabled + applied count, without printing the examples themselves.
+
+tasks:
+  - failing_tests
+  - prompt_helpers
+  - ini_fallback
+  - web_endpoint_and_ui
+  - preview_status
+  - quality_gates_and_summary
+
+quality_gates:
+  coverage_affected: 0.80
+  coverage_overall: 0.85
+  preview_safe: true
+  no_voice_profile_in_logs: true

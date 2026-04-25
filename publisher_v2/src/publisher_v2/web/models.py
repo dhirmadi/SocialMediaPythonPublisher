@@ -63,3 +63,16 @@ class CurationResponse(BaseModel):
     action: str  # "keep" or "remove"
     destination_folder: str
     preview_only: bool = False
+
+
+class VoiceProfileResponse(BaseModel):
+    """PUB-029: response shape for GET /api/config/voice-profile."""
+
+    voice_profile: list[str] | None = None
+    enabled: bool = False
+
+
+class VoiceProfileUpdateRequest(BaseModel):
+    """PUB-029: request body for POST /api/config/voice-profile."""
+
+    voice_profile: list[str]

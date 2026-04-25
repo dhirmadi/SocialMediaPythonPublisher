@@ -751,6 +751,19 @@
       <div id="details"></div>
     </div>
 
+    <!-- PUB-029: Brand voice profile editor (admin-only) -->
+    <div class="panel admin-only hidden" id="panel-voice-profile">
+      <h2>Voice Profile</h2>
+      <p style="font-size:0.85rem;color:#9ca3af;margin:0 0 0.5rem;">
+        Paste up to 20 example captions, one per line. Used as style references when caption generation runs with voice matching enabled.
+      </p>
+      <textarea id="voice-profile-textarea" rows="6" style="width:100%;padding:0.5rem;border-radius:0.25rem;background:#1f2937;color:#e5e7eb;border:1px solid #374151;font-family:inherit;font-size:0.85rem;"></textarea>
+      <div style="margin-top:0.5rem;display:flex;gap:0.5rem;align-items:center;">
+        <button id="btn-voice-profile-save" class="primary" type="button">Save voice profile</button>
+        <span id="voice-profile-status" style="font-size:0.85rem;color:#9ca3af;"></span>
+      </div>
+    </div>
+
     <!-- Unified image browser grid (PUB-033) -->
     <div class="panel hidden" id="panel-grid">
       <div class="grid-toolbar">
@@ -2611,6 +2624,49 @@
       }, 5000);
     }
 
+    // PUB-029: voice profile admin editor.
+    function initVoiceProfileEditor() {
+      const ta = document.getElementById("voice-profile-textarea");
+      const btn = document.getElementById("btn-voice-profile-save");
+      const status = document.getElementById("voice-profile-status");
+      if (!ta || !btn) return;
+
+      async function load() {
+        try {
+          const res = await fetch("/api/config/voice-profile");
+          if (!res.ok) return;
+          const body = await res.json();
+          const lines = (body.voice_profile || []).join("\n");
+          ta.value = lines;
+          if (status) status.textContent = body.enabled ? "Voice matching: enabled" : "Voice matching: disabled";
+        } catch (_) {
+          /* admin not logged in or endpoint unavailable */
+        }
+      }
+
+      btn.addEventListener("click", async () => {
+        const lines = ta.value.split("\n").map(s => s.trim()).filter(s => s);
+        try {
+          const res = await fetch("/api/config/voice-profile", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({voice_profile: lines}),
+          });
+          if (!res.ok) {
+            const detail = await res.json().catch(() => ({}));
+            if (status) status.textContent = "Save failed: " + (detail.detail || res.status);
+            return;
+          }
+          if (status) status.textContent = `Saved ${lines.length} example(s).`;
+        } catch (err) {
+          if (status) status.textContent = "Save error: " + err.message;
+        }
+      });
+
+      // Lazy-load on first reveal of the panel
+      load();
+    }
+
     function initGestures() {
       let touchStartX = 0;
       let touchStartY = 0;
@@ -2738,6 +2794,7 @@
       initAdminControls();
       initGridControls();
       initGestures();
+      initVoiceProfileEditor();
 
       window.addEventListener("load", async () => {
         featureConfig = await fetchFeatureConfig();

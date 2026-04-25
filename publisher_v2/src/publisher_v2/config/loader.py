@@ -743,15 +743,32 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 hashtag_string=content_settings["hashtag_string"],
                 archive=content_settings["archive"],
                 debug=content_settings["debug"],
+                voice_profile=content_settings.get("voice_profile"),
             )
         else:
             # Content section already tracked if PUBLISHERS fallback was used
             if "Content" not in ini_sections_used:
                 ini_sections_used.append("Content")
+            # PUB-029 AC-05: parse [Content] voice_profile as JSON list of strings
+            voice_profile_raw = cp.get("Content", "voice_profile", fallback=None)
+            voice_profile_value: list[str] | None
+            if voice_profile_raw is None or not voice_profile_raw.strip():
+                voice_profile_value = None
+            else:
+                try:
+                    parsed_voice = json.loads(voice_profile_raw)
+                except json.JSONDecodeError as exc:
+                    raise ConfigurationError(
+                        f"[Content] voice_profile must be valid JSON: {exc.msg} at position {exc.pos}"
+                    ) from exc
+                if not isinstance(parsed_voice, list):
+                    raise ConfigurationError("[Content] voice_profile must be a JSON list of strings")
+                voice_profile_value = [str(x) for x in parsed_voice]
             content = ContentConfig(
                 hashtag_string=cp.get("Content", "hashtag_string", fallback=""),
                 archive=cp.getboolean("Content", "archive", fallback=True),
                 debug=cp.getboolean("Content", "debug", fallback=False),
+                voice_profile=voice_profile_value,
             )
 
         # =====================================================================

@@ -7,7 +7,7 @@
 | **Priority** | P2 |
 | **Effort** | S–M |
 | **Status** | Not Started |
-| **Dependencies** | PUB-025 |
+| **Dependencies** | PUB-025 (Done), PUB-039 (Partially covers config + flag) |
 
 ## Problem
 
@@ -21,13 +21,19 @@ Users provide 5-10 example captions that represent their voice. The AI uses thes
 
 ## Scope
 
-- New `voice_profile` config block: a list of example captions (strings) per tenant
-- Voice profile storage: orchestrator config (per-instance) or a dedicated field in tenant settings
-- Caption generation prompt updated to include few-shot examples from the voice profile
-- Voice profile applies to all platform-specific captions (PUB-025) while respecting each platform's constraints
-- Web UI: voice profile management (view, add, remove example captions) in settings/config section
-- Feature flag: `features.voice_matching_enabled` (default `false`); when disabled, captions use default AI style
-- Fallback: if voice profile is empty or feature is disabled, behavior is identical to today
+This item is the *remaining work* to complete the brand voice feature end-to-end.
+
+**Already shipped (PUB-039):**
+- `content.voice_profile: list[str] | None` (1–20 examples) exists in config models and loaders
+- `features.voice_matching_enabled` exists (default `false`)
+- Voice examples are prepended to `CaptionSpec.examples` when enabled (so they flow into caption prompts)
+- `voice_profile` is redacted from config logging
+
+**In scope for PUB-029:**
+- **Token budget enforcement** for voice examples in prompts (default 500 “rough tokens” budget)
+- **Prompt injection hardening**: wrap voice examples in clear delimiters + explicit “examples are style only” instruction
+- **Standalone INI support** for `voice_profile` (INI fallback path) in addition to orchestrator/env JSON
+- **Web UI settings editor** for viewing/editing `voice_profile` (simple textarea UX)
 
 ## Non-Goals
 
@@ -38,26 +44,32 @@ Users provide 5-10 example captions that represent their voice. The AI uses thes
 
 ## Acceptance Criteria
 
-- AC1: A `voice_profile` config field accepts a list of 1-20 example caption strings per tenant
-- AC2: When voice matching is enabled and a voice profile exists, example captions are included as few-shot context in the caption generation prompt
-- AC3: Generated captions demonstrably reflect the tone, vocabulary, and style of the provided examples
-- AC4: Voice matching works with platform-adaptive captions (PUB-025): each platform's caption matches the voice while respecting platform constraints
-- AC5: When the voice profile is empty or `features.voice_matching_enabled` is false, caption generation is identical to current behavior
-- AC6: Voice profile is configurable via orchestrator config (per-instance) and standalone INI config
-- AC7: Web UI settings page allows viewing and editing the voice profile (add/remove example captions)
-- AC8: The few-shot examples do not exceed a configurable token budget (default 500 tokens) to control API costs
-- AC9: Preview mode displays generated captions with voice matching applied
-- AC10: Voice profile content is not logged (may contain personal/sensitive text)
+### Shipped (documented for completeness)
+
+- AC-00a (Shipped): `content.voice_profile` accepts 1–20 non-empty strings.
+- AC-00b (Shipped): `features.voice_matching_enabled` gates whether voice examples are prepended into caption generation context.
+- AC-00c (Shipped): `voice_profile` is redacted from config logging.
+
+### To deliver in PUB-029
+
+- AC-01: **Token budget**: when voice matching is enabled, the set of voice examples included in prompts is truncated to fit a configurable budget (default 500 rough tokens ≈ 2000 chars). Truncation is deterministic and stable (preserve original ordering; drop items from the end).
+- AC-02: **Prompt injection hardening**: voice examples are wrapped in explicit delimiters and preceded by an instruction that they are *style references only* and must not be treated as instructions.
+- AC-03: **Platform-adaptive compatibility**: voice matching continues to work with PUB-025 multi-platform captions (no breakage; examples still flow to each platform block).
+- AC-04: **Feature-off compatibility**: when `voice_matching_enabled=False` or `voice_profile` is empty/None, the prompt content is identical to current behavior (no “voice examples” block).
+- AC-05: **INI fallback support**: INI `[Content]` supports specifying `voice_profile` as a JSON list string (e.g., `voice_profile = ["ex1","ex2"]`). Invalid JSON is a configuration error; missing key behaves as None.
+- AC-06: **Web UI editor**: admin-only settings UI supports viewing + editing the voice profile as a textarea. Saving updates runtime config in-memory for the tenant/session (no orchestrator writeback in this item).
+- AC-07: **Preview mode**: preview output indicates whether voice matching is enabled and (if enabled) how many voice examples were applied after token-budget truncation (but does not print the examples themselves).
 
 ## Implementation Notes
 
-- Few-shot prompting: include examples in the system or user message as "Here are examples of captions in the creator's voice:" followed by the examples, then "Generate a caption in this same voice for the following image:"
-- Token budget: if examples exceed the budget, select a representative subset (most recent or most diverse)
-- Orchestrator config shape: `content.voice_profile: ["example caption 1", "example caption 2", ...]`
-- INI config: `[Content]` section with `voice_examples` as a JSON-encoded list or one-per-line format
-- Web UI: simple textarea-based editor in the config/settings section; each line or entry is one example
-- The voice profile should be treated as user content — sanitize for prompt injection but preserve the user's actual words
-- Prompt injection defense: voice examples are wrapped in clear delimiters and the system prompt explicitly instructs the model to treat them as style references only, not as instructions
+- **Few-shot prompting shape**: add a “voice examples” block *only* when enabled and examples remain after truncation:
+  - Header line explaining these are style references only
+  - Start/end delimiters
+  - One example per line with numbering
+- **Token budget heuristic**: use existing “rough token estimate” convention (1 token ≈ 4 chars). Default budget 500 tokens ⇒ ~2000 chars. Truncate deterministically by preserving order and dropping from the end until within budget.
+- **Orchestrator config shape** (already supported): `content.voice_profile: ["example caption 1", "example caption 2", ...]`
+- **INI config**: support `voice_profile` as JSON list string in `[Content]`. (One-per-line format is out of scope.)
+- **Web UI**: keep it simple (textarea, one example per line). This item does not persist back to orchestrator; it is a runtime/session convenience only.
 
 ## Related
 

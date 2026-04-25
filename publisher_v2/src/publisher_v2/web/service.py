@@ -18,6 +18,7 @@ load_dotenv()
 
 from publisher_v2.config.credentials import OpenAICredentials, SMTPCredentials, TelegramCredentials  # noqa: E402
 from publisher_v2.config.loader import load_application_config  # noqa: E402
+from publisher_v2.config.schema import ApplicationConfig  # noqa: E402
 from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import (  # noqa: E402
@@ -31,6 +32,7 @@ from publisher_v2.services.ai import (  # noqa: E402
     CaptionGeneratorOpenAI,
     NullAIService,
     VisionAnalyzerOpenAI,
+    truncate_voice_profile_to_budget,
 )
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
@@ -40,6 +42,20 @@ from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
+
+
+def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
+    """Return voice examples to inject into caption prompts (PUB-029).
+
+    None when voice matching is disabled or the profile is empty/unset; otherwise
+    a token-budget-truncated list (deterministic: order preserved, drop from end).
+    """
+    if not getattr(config.features, "voice_matching_enabled", False):
+        return None
+    profile = getattr(config.content, "voice_profile", None)
+    if not profile:
+        return None
+    return truncate_voice_profile_to_budget(profile)
 
 
 class WebImageService:
@@ -460,10 +476,13 @@ class WebImageService:
         # Generate per-platform captions + sd_caption via centralized AIService helper.
         sd_caption = None
         platform_captions_dict: dict[str, str] | None = None
+        # PUB-029: extract voice examples from config when voice matching is enabled.
+        voice_examples = _select_voice_examples(self.config)
+
         try:
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
                 platform_captions_dict, sd_caption, caption_usages = await ai.create_multi_caption_pair_from_analysis(
-                    analysis, specs
+                    analysis, specs, voice_examples=voice_examples
                 )
                 caption = next(iter(platform_captions_dict.values()), "")
             else:

@@ -226,6 +226,67 @@ class TestEnvFirstContent:
             assert config.content.debug is True
 
 
+class TestIniVoiceProfile:
+    """PUB-029 AC-05: INI [Content] voice_profile = ["a","b"] is parsed."""
+
+    def test_ini_voice_profile_json_list_parsed(self, base_env_vars, empty_env_file, tmp_path):
+        ini_path = tmp_path / "with_voice.ini"
+        ini_path.write_text(
+            """\
+[Dropbox]
+image_folder = /Photos
+
+[Content]
+telegram = false
+instagram = false
+fetlife = false
+voice_profile = ["First example caption.", "Second example caption."]
+"""
+        )
+        with mock.patch.dict(os.environ, base_env_vars, clear=True):
+            config = load_application_config(str(ini_path), empty_env_file)
+            assert config.content.voice_profile == [
+                "First example caption.",
+                "Second example caption.",
+            ]
+
+    def test_ini_voice_profile_missing_yields_none(self, base_env_vars, empty_env_file, tmp_path):
+        ini_path = tmp_path / "no_voice.ini"
+        ini_path.write_text(
+            """\
+[Dropbox]
+image_folder = /Photos
+
+[Content]
+telegram = false
+instagram = false
+fetlife = false
+"""
+        )
+        with mock.patch.dict(os.environ, base_env_vars, clear=True):
+            config = load_application_config(str(ini_path), empty_env_file)
+            assert config.content.voice_profile is None
+
+    def test_ini_voice_profile_invalid_json_raises(self, base_env_vars, empty_env_file, tmp_path):
+        from publisher_v2.core.exceptions import ConfigurationError
+
+        ini_path = tmp_path / "bad_voice.ini"
+        ini_path.write_text(
+            """\
+[Dropbox]
+image_folder = /Photos
+
+[Content]
+telegram = false
+instagram = false
+fetlife = false
+voice_profile = not-valid-json[
+"""
+        )
+        with mock.patch.dict(os.environ, base_env_vars, clear=True), pytest.raises(ConfigurationError):
+            load_application_config(str(ini_path), empty_env_file)
+
+
 class TestEnvFirstCaptionFile:
     """Test CAPTIONFILE_SETTINGS env var takes precedence over INI."""
 

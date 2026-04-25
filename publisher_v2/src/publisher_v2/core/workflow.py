@@ -362,6 +362,13 @@ class WorkflowOrchestrator:
                 except Exception:  # noqa: S110 — graceful degradation per AC7
                     log_json(self.logger, logging.DEBUG, "caption_history_fetch_failed", correlation_id=correlation_id)
 
+                # PUB-029: extract voice examples (truncated to budget) when feature enabled.
+                voice_examples = None
+                if self.config.features.voice_matching_enabled and self.config.content.voice_profile:
+                    from publisher_v2.services.ai import truncate_voice_profile_to_budget
+
+                    voice_examples = truncate_voice_profile_to_budget(self.config.content.voice_profile)
+
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
                     (
@@ -369,7 +376,7 @@ class WorkflowOrchestrator:
                         sd_caption,
                         caption_usages,
                     ) = await self.ai_service.create_multi_caption_pair_from_analysis(
-                        analysis, specs, history=caption_history
+                        analysis, specs, history=caption_history, voice_examples=voice_examples
                     )
                     # Set primary caption from first platform
                     caption = next(iter(platform_captions.values()), "")

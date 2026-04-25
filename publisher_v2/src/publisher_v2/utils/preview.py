@@ -251,6 +251,22 @@ def print_email_confirmation_preview(
             print(f"  Sample tags: {', '.join(tags_sample[:tags_count])}")
 
 
+def print_voice_matching_status(enabled: bool, applied_count: int) -> None:
+    """Report voice-matching status for preview output (PUB-029 AC-07).
+
+    SECURITY: Takes only the applied COUNT, never the example contents.
+    Voice profile contents are sensitive (operator-specific tone references)
+    and must never be printed.
+    """
+    print("\n🎙️  VOICE MATCHING")
+    print("─" * 70)
+    if not enabled:
+        print("  Status:      disabled")
+        return
+    print("  Status:      enabled")
+    print(f"  Examples applied (after token-budget truncation): {applied_count}")
+
+
 def print_config_summary(
     vision_model: str,
     caption_model: str,

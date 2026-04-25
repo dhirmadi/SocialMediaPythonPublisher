@@ -37,6 +37,8 @@ from publisher_v2.web.models import (
     ImageResponse,
     PublishRequest,
     PublishResponse,
+    VoiceProfileResponse,
+    VoiceProfileUpdateRequest,
 )
 from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.routers import library as library_router
@@ -672,6 +674,51 @@ async def api_get_features_config(
         "auth_mode": auth_mode,
         "storage_provider": storage_provider,
     }
+
+
+@app.get("/api/config/voice-profile", response_model=VoiceProfileResponse)
+async def api_get_voice_profile(
+    request: Request,
+    service: WebImageService = Depends(get_request_service),
+) -> VoiceProfileResponse:
+    """PUB-029 AC-06: return current runtime voice profile (admin only)."""
+    require_admin(request)
+    config = service.config
+    return VoiceProfileResponse(
+        voice_profile=config.content.voice_profile,
+        enabled=config.features.voice_matching_enabled,
+    )
+
+
+@app.post("/api/config/voice-profile", response_model=VoiceProfileResponse)
+async def api_set_voice_profile(
+    request: Request,
+    body: VoiceProfileUpdateRequest,
+    service: WebImageService = Depends(get_request_service),
+) -> VoiceProfileResponse:
+    """PUB-029 AC-06: update runtime voice profile in-memory (admin only).
+
+    Updates the active service config for this process; does not persist back
+    to the orchestrator. Empty list clears the profile (stored as ``None``).
+    """
+    require_admin(request)
+    from pydantic import ValidationError as _PydValidation
+
+    from publisher_v2.config.schema import ContentConfig
+
+    new_value: list[str] | None = body.voice_profile if body.voice_profile else None
+    try:
+        # Validate via the schema rules (length, non-empty entries) without mutating yet.
+        ContentConfig(voice_profile=new_value)
+    except _PydValidation as exc:
+        raise HTTPException(status_code=400, detail=f"Invalid voice_profile: {exc.errors()[0].get('msg')}") from exc
+
+    # Mutate in place. ContentConfig is a Pydantic model; assignment works.
+    service.config.content.voice_profile = new_value
+    return VoiceProfileResponse(
+        voice_profile=service.config.content.voice_profile,
+        enabled=service.config.features.voice_matching_enabled,
+    )
 
 
 @app.get("/health")
