@@ -1,6 +1,8 @@
 <!-- docs_v2/08_Epics/08_01_Feature_Request/015_cloud-storage-dropbox.md -->
 
-# Cloud Storage Adapter (Dropbox)
+# Cloud Storage Adapter (Superseded: S3)
+
+> **Note (2026):** This document describes the historical Dropbox-based storage adapter. The active V2 system has replaced Dropbox with **S3-compatible managed storage**. Keep this file as historical context; treat S3 as the source of truth in current docs and implementations.
 
 **ID:** 015  
 **Name:** cloud-storage-dropbox  
@@ -9,7 +11,7 @@
 **Author:** Retroactive Documentation  
 
 ## Summary
-The system requires a remote, persistent source of truth for images and archives to support stateless deployment (e.g., Heroku) and multi-device workflows. This feature implements the `DropboxStorage` adapter, which handles authentication, downloading, metadata extraction for de-duplication, and atomic server-side moves for archiving and curation.
+The system requires a remote, persistent source of truth for images and archives to support stateless deployment (e.g., Heroku) and multi-device workflows. This feature implemented the historical `DropboxStorage` adapter (now superseded by S3-compatible storage), which handled authentication, downloading, metadata extraction for de-duplication, and atomic server-side moves for archiving and curation.
 
 ## Problem Statement
 Running the publisher with local file storage is insufficient for a production workflow because:
@@ -19,13 +21,13 @@ Running the publisher with local file storage is insufficient for a production w
 4.  **De-duplication:** Downloading every image to hash it locally is bandwidth-inefficient; we need to leverage remote metadata.
 
 ## Goals
-- **Remote Source of Truth:** Use Dropbox as the definitive file store for both inbox (pending) and archive (posted) images.
+- **Remote Source of Truth:** Use S3 as the definitive object store for both inbox (pending) and archive (posted) images.
 - **Robustness:** Handle transient network errors, rate limits, and token expiration automatically without operator intervention.
 - **Efficiency:** Use Dropbox `content_hash` for de-duplication to avoid downloading duplicate files.
 - **Sidecar Support:** Treat `.txt` sidecars as first-class citizens that move alongside images during archive/curation.
 
 ## Non-Goals
-- **Multi-Provider Support:** Implementing S3, Google Drive, or Azure Blob Storage is out of scope for V2 (YAGNI).
+- **Multi-Provider Support:** Out of scope for this historical Dropbox adapter (the current system uses S3).
 - **Two-Way Sync:** The system is a consumer (read-move), not a synchronization engine. It does not push local changes back to Dropbox except for sidecar metadata.
 - **UI for File Management:** No web UI for browsing Dropbox; file management is done via the Dropbox native client/web.
 

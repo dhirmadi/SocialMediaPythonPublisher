@@ -15,15 +15,15 @@
 
 ### Problem
 The V2 web interface currently allows an authenticated admin to:
-- View a random image from the configured Dropbox image folder.
+- View a random image from the configured S3 storage.
 - Run AI analysis and caption/sd_caption generation.
 - Publish the image via existing publishers, which archives it on success.
 
 However, there is no first-class curation mechanism to:
 - Mark images as “keep for later” without publishing them.
-- Remove images from the main candidate pool without deleting them or manually moving files in Dropbox.
+- Remove images from the main candidate pool without deleting them or manually moving objects in storage.
 
-Operators must either publish, leave images in place, or manually organize folders in Dropbox, which is slow and error-prone.
+Operators must either publish, leave images in place, or manually organize folders/prefixes in storage, which is slow and error-prone.
 
 ### Goals
 1. Add two admin-only **Keep** and **Remove** actions to the web UI for the currently displayed image.
@@ -39,7 +39,7 @@ Operators must either publish, leave images in place, or manually organize folde
 
 ### Non-Goals
 - Batch/queue-based curation or bulk actions across multiple images.
-- New storage providers or changes to Dropbox as the single source of truth.
+- Changes to the storage backend (assumes S3-compatible managed storage as the source of truth).
 - Changes to sidecar file formats or caption/analysis schemas.
 - CLI-facing curation commands (web-only in this feature).
 - Any destructive delete operation — this feature is move-only.

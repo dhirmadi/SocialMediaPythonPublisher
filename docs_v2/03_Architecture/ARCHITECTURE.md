@@ -15,7 +15,7 @@ Application Layer (Workflow Orchestrator, Use Cases)
 Domain Layer (Models: Image, Caption, Post, Results)
         ↓
 Infrastructure Layer (Adapters)
-  - Storage: DropboxStorage
+  - Storage: StorageProtocol (DropboxStorage / ManagedStorage)
   - AI: VisionAnalyzerOpenAI, CaptionGeneratorOpenAI (OpenAI‑only)
   - Publishers: Instagram, Telegram, Email (pluggable)
         ↓

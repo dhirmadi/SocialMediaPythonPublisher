@@ -1,6 +1,8 @@
 <!-- docs_v2/08_Epics/08_02_Feature_Design/015_cloud-storage-dropbox_design.md -->
 
-# Design: Cloud Storage Adapter (Dropbox)
+# Design: Cloud Storage Adapter (Superseded: S3)
+
+> **Note (2026):** This design describes the historical Dropbox adapter. The active system has replaced Dropbox with **S3-compatible managed storage**. Keep this as historical reference.
 
 ## 1. Summary
 The `DropboxStorage` component adapts the generic `Storage` protocol to the Dropbox API v2. It provides robust, retry-enabled file operations including listing, downloading, uploading (sidecars), and moving (archiving). It serves as the persistent backbone of the application.

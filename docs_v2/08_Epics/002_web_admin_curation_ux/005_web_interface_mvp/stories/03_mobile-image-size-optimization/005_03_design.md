@@ -16,7 +16,7 @@
   - The Web Interface MVP currently serves and renders full-resolution Dropbox images without explicit guidance for mobile/low-bandwidth scenarios. On phones, this can mean unnecessary data transfer, slow loading, and janky interaction, even though the UI is explicitly meant to be mobile-friendly.
 - Goals & Non-goals (scoped to this change).
   - Goals: Reduce effective bandwidth and improve perceived performance for mobile users by constraining rendered image size and, where reasonable, paving the way for smaller image variants—while preserving a good desktop experience and keeping all core image/AI/publish flows unchanged.
-  - Non-goals: Introducing a new image CDN, changing Dropbox as the source of truth, altering sidecar formats, or modifying orchestrator/AI/publisher behavior.
+  - Non-goals: Introducing a new image CDN, changing the S3 storage backend/source of truth, altering sidecar formats, or modifying orchestrator/AI/publisher behavior.
 
 ## 2. Context & Assumptions
 

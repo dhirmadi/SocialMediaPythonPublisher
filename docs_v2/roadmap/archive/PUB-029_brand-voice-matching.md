@@ -6,7 +6,8 @@
 | **Category** | AI |
 | **Priority** | P2 |
 | **Effort** | S–M |
-| **Status** | Not Started |
+| **Status** | Done |
+| **Shipped date** | 2026-04-25 |
 | **Dependencies** | PUB-025 (Done), PUB-039 (Partially covers config + flag) |
 
 ## Problem
@@ -50,7 +51,7 @@ This item is the *remaining work* to complete the brand voice feature end-to-end
 - AC-00b (Shipped): `features.voice_matching_enabled` gates whether voice examples are prepended into caption generation context.
 - AC-00c (Shipped): `voice_profile` is redacted from config logging.
 
-### To deliver in PUB-029
+### Delivered in PUB-029
 
 - AC-01: **Token budget**: when voice matching is enabled, the set of voice examples included in prompts is truncated to fit a configurable budget (default 500 rough tokens ≈ 2000 chars). Truncation is deterministic and stable (preserve original ordering; drop items from the end).
 - AC-02: **Prompt injection hardening**: voice examples are wrapped in explicit delimiters and preceded by an instruction that they are *style references only* and must not be treated as instructions.
@@ -73,5 +74,6 @@ This item is the *remaining work* to complete the brand voice feature end-to-end
 
 ## Related
 
-- [PUB-025: Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md) — the per-platform caption system this enhances with voice consistency
+- [PUB-025: Platform-Adaptive Captions](archive/PUB-025_platform-adaptive-captions.md) — the per-platform caption system this enhances with voice consistency
 - [PUB-001: Caption File](archive/PUB-001_caption-file.md) — original caption generation system
+

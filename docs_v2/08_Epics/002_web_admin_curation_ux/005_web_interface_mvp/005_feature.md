@@ -10,8 +10,8 @@
 
 ## Summary
 Introduce a minimal web interface on top of the existing Social Media Publisher V2 so it can be accessed and controlled from a phone, without changing core behaviors or adding new data stores.  
-The MVP will expose a simple browser-based UI that lets the (single) operator view a random image from the configured Dropbox folder, trigger AI analysis/captioning, and publish the image using the existing publishers.  
-All state continues to live in Dropbox and sidecar files; no MongoDB, streams, or multi-tenant capabilities are introduced in this phase.  
+The MVP will expose a simple browser-based UI that lets the (single) operator view a random image from the configured S3 storage, trigger AI analysis/captioning, and publish the image using the existing publishers.  
+All state continues to live in S3 and sidecar files; no MongoDB, streams, or multi-tenant capabilities are introduced in this phase.  
 The solution must be deployable as a single Heroku web app using the current configuration and async patterns.
 
 ## Problem Statement
@@ -22,7 +22,7 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 
 ## Goals
 - Provide a minimal web UI accessible from a phone that can:
-  - Show a random image from the configured Dropbox folder.
+  - Show a random image from the configured S3 storage.
   - Trigger AI analysis and caption/sd_caption generation for that image.
   - Trigger publishing of that image to configured channels.
 - Reuse the existing V2 orchestration, AI, storage, and sidecar mechanisms without changing their core semantics.
@@ -44,21 +44,21 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
   - Future small teams or collaborators who may use the web UI once it stabilizes.
 
 ## User Stories
-- As an administrator, I want to open a URL on my phone and see a random image from my configured Dropbox folder, so that I can quickly review candidate content without using a terminal.
+- As an administrator, I want to open a URL on my phone and see a random image from my configured S3 storage, so that I can quickly review candidate content without using a terminal.
 - As an administrator, I want to tap a button to run AI analysis and caption/sd_caption generation for the currently shown image, so that I can enrich it with metadata and captions using the existing AI logic.
 - As an administrator, I want to tap a button to publish the currently shown image to the configured platforms, so that I can trigger the full workflow (including archiving and sidecar updates) from the web UI.
 - As an administrator, I want the web UI actions to respect the existing dry/preview/debug behaviors, so that I do not accidentally publish when I intend to preview.
 - As an administrator, I want a minimal safeguard (e.g., simple auth or secret) to prevent casual unauthorized users from triggering analysis or publishing actions.
 
 ## Acceptance Criteria (BDD-style)
-- Given the app is deployed on Heroku with a valid config INI and Dropbox/OpenAI credentials, when I open the root URL (`/`) in a browser, then I see a simple page that can display a single image and buttons for "Next image", "Analyze & caption", and "Publish".
-- Given there is at least one eligible image in the configured Dropbox folder, when I click "Next image", then the backend selects a random image from that folder (respecting existing selection/dedup rules where applicable) and the UI updates to show that image.
+- Given the app is deployed on Heroku with a valid config INI and storage/OpenAI credentials, when I open the root URL (`/`) in a browser, then I see a simple page that can display a single image and buttons for "Next image", "Analyze & caption", and "Publish".
+- Given there is at least one eligible image in the configured S3 storage, when I click "Next image", then the backend selects a random image from that library (respecting existing selection/dedup rules where applicable) and the UI updates to show that image.
 - Given a currently displayed image without existing AI sidecar data, when I click "Analyze & caption", then the backend runs the existing AI analysis and caption/sd_caption generation logic and writes/overwrites the sidecar file, and the UI displays the resulting caption (and optionally key analysis fields) without errors.
 - Given a currently displayed image with a sidecar already present, when I click "Analyze & caption", then the sidecar is updated with the new analysis/caption content and the UI reflects the updated caption.
 - Given a currently displayed image and valid platform configurations, when I click "Publish", then the backend invokes the existing publishers, behaves exactly like the current non-web workflow (including archiving and sidecar movement on success), and the UI shows a clear success/failure summary per platform.
 - Given the system is configured in a dry/preview/debug mode equivalent, when I use the web UI actions, then no external publishing or archiving occurs and the behavior matches the existing CLI semantics for those modes.
 - Given the application is configured with an optional simple protection mechanism (e.g., shared admin secret), when an unauthenticated user accesses `/`, then they can at most see a non-interactive or limited view (configurable) and cannot trigger analysis/publish actions; when a user provides the correct secret, then they can use all admin actions.
-- Given any error occurs during Dropbox, AI, or publishing operations, when I use the web UI, then I see a clear error message and the server logs a structured error event without exposing secrets.
+- Given any error occurs during storage, AI, or publishing operations, when I use the web UI, then I see a clear error message and the server logs a structured error event without exposing secrets.
 
 ## UX / Content Requirements
 - Single-page, mobile-friendly layout with:
@@ -81,13 +81,13 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 - Deployment target is Heroku (or Heroku-like) as a single web dyno:
   - `Procfile` defines a `web` process using an ASGI server like `uvicorn`.
   - Config INI path and secret keys are provided via environment variables.
-- No new databases are introduced; image metadata and captions live in sidecar files in Dropbox as today.
+- No new databases are introduced; image metadata and captions live in sidecar files in S3 as today.
 - The existing `WorkflowOrchestrator`, `DropboxStorage`, `AIService`, publishers, and sidecar builders remain the primary implementation of business logic; the web layer should call into these rather than duplicating logic.
 - The CLI interface (arguments, behavior) must remain backward compatible.
 - Async patterns must be preserved; avoid introducing blocking calls on the main event loop.
 
 ## Dependencies & Integrations
-- Dropbox: continues to be the single storage provider for images and sidecar files in this MVP.
+- S3-compatible managed storage: storage provider for images and sidecar files in this MVP.
 - OpenAI: same models and configuration as in V2 for analysis and caption generation.
 - Existing publishers: Telegram, Email, Instagram classes are reused for web-triggered publishing.
 - Heroku: environment for deployment, including config vars for secrets and config paths.
@@ -155,7 +155,7 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 ## Definition of Done
 - All acceptance criteria are implemented and verified with automated and/or manual tests.
 - Existing CLI workflows remain fully functional and backward compatible.
-- Web endpoints are covered by tests for success and failure paths (Dropbox errors, AI errors, publishing errors).
+- Web endpoints are covered by tests for success and failure paths (storage errors, AI errors, publishing errors).
 - Documentation updated under `docs_v2/08_Epics` and, where appropriate, overview/architecture docs to mention the web interface.
 - A Heroku deployment recipe (including `Procfile`, env vars, and config usage) is documented and verified.
 - Structured logs for web-triggered operations are visible and useful for debugging and monitoring.
@@ -165,6 +165,6 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 - Discussion about next steps after achieving a working CLI-based MVP, focusing on making the system more accessible and extensible.
 - Exploration of various architectural options (enhanced monolith, microservices, event-driven), with a decision to start with a simple web interface rather than a full service split.
 - Clarification that streams, multiple storage providers, and MongoDB-based metadata are desired future capabilities but out of scope for this initial web MVP.
-- Agreement to reuse Dropbox as the source of truth and sidecar `.txt` files for metadata, avoiding additional data stores.
+- Agreement to reuse S3 as the source of truth and sidecar `.txt` files for metadata, avoiding additional data stores.
 - Desire to deploy the solution on Heroku and operate it primarily from a mobile browser, with minimal but sufficient safeguards for publishing actions.
 

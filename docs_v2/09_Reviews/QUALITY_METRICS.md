@@ -86,15 +86,12 @@ uv run pytest --cov=publisher_v2/src/publisher_v2/core --cov-report=term
 ### 2.4 Static Analysis
 
 ```bash
-# Linting
-uv run flake8 publisher_v2/src/
+# Format + lint (ruff)
+uv run ruff format --check .
+uv run ruff check .
 
 # Type checking
 uv run mypy publisher_v2/src/publisher_v2/
-
-# Code formatting verification
-uv run black --check publisher_v2/
-uv run isort --check publisher_v2/
 
 # Security scanning
 uv run bandit -r publisher_v2/src/
@@ -193,9 +190,9 @@ Examples:
 |-------|---------|-----------|
 | Tests Pass | `uv run pytest` | 100% |
 | Coverage | `--cov` | ≥80% overall |
-| Lint | `uv run flake8` | 0 errors |
+| Lint | `uv run ruff check .` | 0 violations |
 | Type Check | `uv run mypy` | 0 errors |
-| Formatting | `uv run black --check` | Clean |
+| Formatting | `uv run ruff format --check .` | Clean |
 
 ### 6.2 Post-Merge Checks (Non-Blocking)
 
@@ -288,7 +285,7 @@ grep -r "class Dummy" publisher_v2/tests/ | wc -l
 echo "dummy class definitions found"
 
 echo "=== Lint Check ==="
-uv run flake8 publisher_v2/src/ --count --statistics 2>&1 | tail -3
+uv run ruff check .
 ```
 
 ### Full Quality Report
@@ -308,7 +305,8 @@ uv run pytest --cov=publisher_v2/src/publisher_v2 \
     -v
 
 # Static analysis
-uv run flake8 publisher_v2/src/
+uv run ruff format --check .
+uv run ruff check .
 uv run mypy publisher_v2/src/publisher_v2/ --ignore-missing-imports
 
 # Security

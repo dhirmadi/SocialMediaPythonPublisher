@@ -1,5 +1,7 @@
 # Feature 018: Thumbnail Preview Optimization
 
+> **Note (2026):** This document describes the original Dropbox-centric thumbnail approach. The active system has replaced Dropbox with **S3-compatible managed storage**, and thumbnail generation is now implemented using the current storage + image pipeline. Keep this as historical context; treat S3 as the storage backend going forward.
+
 **ID:** 018  
 **Name:** thumbnail-preview-optimization  
 **Status:** Shipped  

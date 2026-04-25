@@ -15,7 +15,7 @@
 
 ### Assumptions & Open Questions
 - **Assumptions**:
-  - Images are stored and archived in Dropbox using existing `DropboxStorage` methods.
+  - Images are stored and archived in S3-compatible storage using the existing storage adapter methods.
   - Sidecar `.txt` creation should occur after analysis is available and before archiving/publishing completes (overwriting if exists).
   - PG‑13 constraints are enforced via prompt and light, deterministic sanitization.
   - If SD caption generation fails, the pipeline should still succeed with existing behavior (best-effort, non-blocking).
@@ -28,16 +28,16 @@
 ## 2. Context & Assumptions
 
 - **Current state**:
-  - Vision analysis and caption generation are handled in `publisher_v2/services/ai.py` via `VisionAnalyzerOpenAI` and `CaptionGeneratorOpenAI`. The `WorkflowOrchestrator` coordinates analysis, caption generation, and publishing. Archival occurs via `DropboxStorage.archive_image`.
+  - Vision analysis and caption generation are handled in `publisher_v2/services/ai.py` via `VisionAnalyzerOpenAI` and `CaptionGeneratorOpenAI`. The `WorkflowOrchestrator` coordinates analysis, caption generation, and publishing. Archival occurs via the storage adapter `archive_image`.
   - The analysis JSON currently includes: `description`, `mood`, `tags`, `nsfw`, `safety_labels`.
   - No sidecar text file is produced today, and archive only moves the image file.
 - **Constraints**:
   - Backwards compatibility: all existing outputs must remain identical; add-only change.
   - Rate limiting: reuse existing `AsyncRateLimiter` behavior.
-  - Dropbox: must create the `.txt` in the same folder and move it with the image upon archive.
+  - Storage: must create the `.txt` in the same folder/prefix and move it with the image upon archive.
 - **Dependencies**:
   - OpenAI API availability and configured keys.
-  - Dropbox API for file upload/move.
+  - S3-compatible storage API for object upload/move.
 
 ## 3. Requirements
 
@@ -66,8 +66,8 @@
 - **Components & Responsibilities**
   - `CaptionGeneratorOpenAI.generate_with_sd(analysis, spec)` (updated): Return strict JSON with both `caption` and `sd_caption` in one call. Keep existing `generate()` unchanged for backward compatibility.
   - `AIService` (updated): Provide a helper to use `generate_with_sd` when enabled; otherwise fall back to `generate()`.
-  - `DropboxStorage.write_sidecar_text(folder, filename, text)` (new): Upload `.txt` sidecar for `filename` to `folder`, overwriting if exists.
-  - `DropboxStorage.archive_image_with_sidecar(...)` or enhancement to `archive_image` (updated): Move both image and its `.txt` sidecar if present.
+  - `write_sidecar_text(folder, filename, text)` (new): Upload `.txt` sidecar for `filename` to `folder`, overwriting if exists.
+  - Enhancement to `archive_image` (updated): Move both image and its `.txt` sidecar if present.
   - `WorkflowOrchestrator` (updated): Use single-call caption path, write sidecar, include `sd_caption` in preview.
 
 - **Data Model / Schemas (before/after)**
@@ -81,12 +81,12 @@
 
 - **Error Handling & Retries**
   - Caption single call: strict JSON enforced; on JSON decode error, fallback to extracting `caption` and omit `sd_caption`; retry with softened neutral prompt if model refuses.
-  - Sidecar upload: retry on transient Dropbox errors; on final failure, log but do not fail publish.
+  - Sidecar upload: retry on transient storage errors; on final failure, log but do not fail publish.
   - Archive: attempt to move sidecar; if missing or move fails, log warning; do not fail workflow.
 
 - **Security, Privacy, Compliance**
   - Enforce PG‑13 via prompt constraints and optional sanitization (strip explicit terms). Use neutral terminology (“figure study”, “rope art”, “kinbaku-inspired ropework”), explicitly forbid explicit sexual terms.
-  - No additional secrets or scopes beyond existing OpenAI and Dropbox creds.
+  - No additional secrets or scopes beyond existing OpenAI and storage creds.
 
 ## 5. Detailed Flow
 
@@ -94,7 +94,7 @@
 2. Orchestrator invokes `CaptionGeneratorOpenAI.generate_with_sd(analysis, spec)` which returns strict JSON `{caption, sd_caption}` in a single call.
    - System prompt: fine‑art photography; PG‑13; neutral vocabulary; return strict JSON object with both fields.
    - If refusal or invalid JSON: retry with safer neutral phrasing; on final failure, fall back to `generate()` and omit `sd_caption`.
-3. On success: set `analysis.sd_caption` and call `DropboxStorage.write_sidecar_text(image_folder, image_name, sd_caption)` which uploads `image.txt` with overwrite semantics.
+3. On success: set `analysis.sd_caption` and call `write_sidecar_text(image_folder, image_name, sd_caption)` which uploads `image.txt` with overwrite semantics.
 5. Publish as usual.
 6. On archive: call updated storage method to move both `image` and `image.txt` to the archive folder (autorename behavior consistent).
 7. In preview: include `sd_caption` field in preview output.
@@ -123,18 +123,18 @@
 
 - **Capacity/Cost estimates**
   - No additional LLM calls in the single-call path (same cost as current caption generation).
-  - Dropbox overhead: one small text upload + optional move.
+  - Storage overhead: one small text upload + optional move.
 
 ## 7. Testing Strategy
 
 - **Unit Tests**
   - `CaptionGeneratorOpenAI.generate_with_sd`: strict JSON structure; PG‑13 enforcement; graceful fallback when refused/invalid.
-  - `DropboxStorage.write_sidecar_text`: correct path/name; overwrite behavior; error handling.
+  - `write_sidecar_text`: correct path/name; overwrite behavior; error handling.
   - Archive method: moves both image and sidecar when present; no crash when sidecar missing.
   - `WorkflowOrchestrator`: when enabled, sets `analysis.sd_caption` and calls sidecar write.
 
 - **Integration Tests**
-  - Dry-run with mocked OpenAI/Dropbox verifying sidecar creation and archive call on success.
+  - Dry-run with mocked OpenAI/storage verifying sidecar creation and archive call on success.
   - Preview mode shows `sd_caption` and does not publish.
 
 - **E2E (manual/smoke)**
@@ -155,7 +155,7 @@
 - **Risks with mitigations**
   - JSON compliance risk in single-call response → enforce `response_format={"type":"json_object"}` and add robust parse fallback.
   - Prompt drift producing non-PG‑13 content → tighten system prompt; defensive sanitization for common explicit terms; retries with neutral phrasing.
-  - Archive drift if Dropbox autorename changes target name → move sidecar first using same base name, or compute final archived name and apply to sidecar (see implementation note below).
+  - Archive drift if storage-side renaming changes target name → move sidecar first using same base name, or compute final archived name and apply to sidecar (see implementation note below).
 
 - **Alternatives considered**
   - Two-call approach (caption + sd_caption separately): increases latency and cost; retained as fallback only.
@@ -168,7 +168,7 @@
   1. Add `sd_caption` to `ImageAnalysis` dataclass (optional field). 
   2. Add `generate_with_sd` to `CaptionGeneratorOpenAI` returning strict JSON; update `AIService` to use it when enabled.
   3. Add `sd_caption_enabled`, `sd_caption_single_call_enabled`, `sd_caption_model`, and prompt config with safe defaults.
-  4. Implement `DropboxStorage.write_sidecar_text` (overwrite semantics).
+  4. Implement `write_sidecar_text` (overwrite semantics).
   5. Update archive flow to move sidecar with image. Implementation note: capture the destination name returned by `files_move_v2` for the image and compute/move sidecar path to match, or move sidecar by constructing target name using the same base (accepting autorename divergence as low risk).
   6. Orchestrator integration: use single-call caption path and sidecar write; include in preview output.
   7. Logging instrumentation and docs.

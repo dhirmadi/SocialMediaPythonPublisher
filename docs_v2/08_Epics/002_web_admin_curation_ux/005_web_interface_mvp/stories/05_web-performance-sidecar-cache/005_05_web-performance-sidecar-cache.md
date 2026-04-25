@@ -27,7 +27,7 @@ As a result, common web flows feel slower than necessary and overuse external AP
 
 ## Non-Goals
 - Changing the structure or semantics of the web API request/response payloads.  
-- Introducing new persistent stores or replacing Dropbox as the source of truth.  
+- Introducing new persistent stores or changing the S3 storage backend/source of truth.  
 - Modifying CLI-only behavior or the core workflow’s selection and dedup logic (handled in separate features).
 
 ## Affected Feature & Context

@@ -1,15 +1,15 @@
 # Implementation Specification — Social Media Publisher V2
 
 Version: 2.0  
-Last Updated: December 21, 2025
+Last Updated: April 25, 2026
 
 This document is the ground truth for implementation. An AI coder can build V2 using this spec alone.
 
 ## 1. Environment and Tooling
 - Python 3.12
 - **uv** (primary workflow; `uv run ...` for CLI/test commands)
-- Poetry (supported; repository includes `pyproject.toml` / `poetry.lock`)
-- Dev tools: black, isort, flake8, mypy, pylint, pytest(+asyncio,+cov), safety, bandit
+- Poetry (optional; repository uses `pyproject.toml` + `uv.lock`)
+- Dev tools: ruff (format+lint), mypy, pytest(+asyncio,+cov), bandit, detect-secrets/gitleaks (via pre-commit)
 
 ## 2. Configuration
 See `docs_v2/05_Configuration/CONFIGURATION.md` for the operator-focused guide.
@@ -38,7 +38,7 @@ INI example keys:
 
 ## 3. Domain Models (pydantic)
 - Image: filename, dropbox_path, sha256, temp_link, local_path
-- ImageAnalysis: description, tags[list[str]], mood[str], nsfw[bool], safety_labels[list[str]]
+- ImageAnalysis: description, tags[list[str]], mood[str], nsfw[bool], safety_labels[list[str]], (optional) alt_text[str], plus aesthetic/context fields
 - CaptionSpec: platform[str], style[str], hashtags[str], max_length[int]
 - PublishResult: success[bool], platform[str], post_id[str|None], error[str|None]
 - WorkflowResult: success[bool], image_name[str], caption[str], results[dict[str, PublishResult]], archived[bool]
@@ -49,6 +49,7 @@ Storage (Protocol):
 - async download_image(folder: str, filename: str) -> bytes
 - async get_temporary_link(folder: str, filename: str) -> str
 - async archive_image(folder: str, filename: str, archive_folder: str) -> None
+- (Managed storage) additional library operations for admin UI: list/upload/delete/move objects and read thumbnails
 
 AI (OpenAI only):
 - class VisionAnalyzerOpenAI: async analyze(url_or_bytes: str|bytes) -> ImageAnalysis
@@ -67,9 +68,13 @@ DropboxStorage:
 - Ensure archive folder exists (`files_create_folder_v2` ignore “already exists”)
 - Compute sha256 of bytes on first download; use to prevent duplicates (optional cache JSON)
 
+ManagedStorage:
+- S3-compatible adapter (Cloudflare R2 / AWS S3 / MinIO)
+- Admin library endpoints support list/upload/delete/move (managed instances only)
+
 OpenAI Vision Analyzer:
 - Use Chat Completions or Responses API with vision input
-- Prompt for: concise scene description, entities, tags, mood, safety/nsfw
+- Prompt for: structured scene description, tags, mood, safety/nsfw, plus bounded additional fields used for better captions
 - Output mapped to ImageAnalysis
 
 OpenAI Caption Generator:
@@ -119,6 +124,10 @@ WorkflowOrchestrator.execute():
 ## 9. CLI
 Entrypoint:
 - `uv run publisher_v2 --config path/to.ini [--debug] [--select filename] [--dry-publish] [--preview]`
+
+## 9.1 Web Admin UI (FastAPI)
+- `GET /` serves a small single-page admin UI (HTML + vanilla JS)
+- Key endpoints include random/browse, analyze, publish, curation, and (managed storage only) library CRUD under `/api/library/*`
 
 ## 10. Testing
 - Unit: config loader/validator, prompt builders, caption post‑processor

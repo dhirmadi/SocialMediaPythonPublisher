@@ -38,7 +38,7 @@ Today, caption files contain only a single training caption, losing valuable con
 ## Acceptance Criteria (BDD-style)
 - Given a generated `sd_caption`, when writing `<image>.txt`, then the first line is exactly the `sd_caption` with no trailing inline metadata.
 - Given caption file generation, when metadata is appended, then all metadata lines are prefixed with `# ` and an initial `# ---` separator appears on the next line after the caption.
-- Given metadata output Phase 1, when files are written, then the block includes: `image_file`, `dropbox_file_id` (if available), `dropbox_rev` (if available), `sha1` (or repo-standard hash), `created` (UTC ISO8601), `sd_caption_version`, `model_version`.
+- Given metadata output Phase 1, when files are written, then the block includes: `image_file`, storage identity fields (e.g., `storage_key` and, when available, `etag`/`version_id`), `sha1` (or repo-standard hash), `created` (UTC ISO8601), `sd_caption_version`, `model_version`.
 - Given metadata output Phase 2 (flagged), when enabled, then the block additionally includes contextual fields: `lighting`, `pose`, `materials`, `art_style`, `tags` (JSON array), `moderation` (JSON array).
   - Additionally, when available, the following analysis details are included: `subject`, `camera`, `composition`, `background`, `color_palette`, `aesthetic_terms` (JSON array).
 - Given preview or dry-run mode, when generating outputs, then no files are created or mutated; preview prints show the full caption and metadata block.
@@ -57,8 +57,8 @@ Today, caption files contain only a single training caption, losing valuable con
 
   # ---
   # image_file: IMG_1837.jpg
-  # dropbox_file_id: id:XXXXXXXXXX
-  # dropbox_rev: XXXXXXXX
+  # storage_key: Images/IMG_1837.jpg
+  # etag: "..."
   # sha1: 349a9c91ce52...
   # created: 2025-02-18T11:32:01Z
   # sd_caption_version: v1.0
@@ -82,14 +82,14 @@ Today, caption files contain only a single training caption, losing valuable con
 - No secrets logged; redact any IDs if needed in logs.
 
 ## Dependencies & Integrations
-- Dropbox: file identity fields (`id`, `rev`) and archive move behavior must remain consistent.
+- Storage: file identity fields (e.g., key + etag/version) and archive move behavior must remain consistent.
 - OpenAI: model name/version used for analysis/captioning recorded in metadata.
 - Existing utilities: hashing, preview, logging, and workflow orchestrator hooks.
 
 ## Data Model / Schema
 - Sidecar format only (no DB changes).
 - Phase 1 keys (baseline):
-  - `image_file` (str), `dropbox_file_id` (str, optional), `dropbox_rev` (str, optional), `sha1` (str), `created` (UTC ISO8601), `sd_caption_version` (str), `model_version` (str)
+  - `image_file` (str), storage identity fields (e.g., `storage_key` (optional), `etag` (optional), `version_id` (optional)), `sha1` (str), `created` (UTC ISO8601), `sd_caption_version` (str), `model_version` (str)
 - Phase 2 keys (extended, optional):
   - Baseline: `lighting` (str), `pose` (str), `materials` (str), `art_style` (str), `tags` (JSON array[str]), `moderation` (JSON array[str])
   - Also included when available: `subject` (str), `camera` (str), `composition` (str), `background` (str), `color_palette` (str), `aesthetic_terms` (JSON array[str])
@@ -117,7 +117,7 @@ Today, caption files contain only a single training caption, losing valuable con
 
 ## Risks & Mitigations
 - Some trainers may not ignore commented lines beyond line 1 — Mitigation: keep metadata strictly after line 1; provide a config to disable metadata entirely if needed.
-- Field availability varies (Dropbox IDs) — Mitigation: omit missing fields; document optionality.
+- Field availability varies (storage identity fields) — Mitigation: omit missing fields; document optionality.
 - Schema drift over time — Mitigation: version via `sd_caption_version`; document changes in docs.
 - Content drift into explicit territory — Mitigation: enforce PG‑13 filters; add validation checks.
 

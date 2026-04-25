@@ -9,7 +9,7 @@
 **Author:** User Request  
 
 ## Summary
-This feature adds a feature toggle system that allows operators to enable or disable major application features via environment variables. This enables building and testing new features independently, and provides operational control over feature activation without code changes. The two primary features that can be toggled are "AI Analyze and Caption" and "Publish". The cloud provider integration (storage/Dropbox) is considered the base feature and must always remain enabled.
+This feature adds a feature toggle system that allows operators to enable or disable major application features via environment variables. This enables building and testing new features independently, and provides operational control over feature activation without code changes. The two primary features that can be toggled are "AI Analyze and Caption" and "Publish". Storage integration (S3-compatible managed storage) is considered the base feature and must always remain enabled.
 
 ## Problem Statement
 Currently, all features are always active when the application runs. This makes it difficult to:
@@ -54,7 +54,7 @@ There is no mechanism to control feature activation at runtime without modifying
 - Given both `FEATURE_ANALYZE_CAPTION=false` and `FEATURE_PUBLISH=false` are set, when the workflow executes, then only image selection and storage operations must occur (no AI, no publishing).
 - Given feature toggles are set via environment variables, when the web interface is used, then the same feature toggles must be respected in web API endpoints.
 - Given a feature is disabled via toggle, when preview mode is used, then preview output must reflect the disabled state (e.g., show "Analysis skipped" or "Publish skipped").
-- Given storage/Dropbox operations are attempted to be disabled, when configuration is loaded, then an error must be raised indicating that storage is a required base feature.
+- Given storage operations are attempted to be disabled, when configuration is loaded, then an error must be raised indicating that storage is a required base feature.
 
 ## UX / Content Requirements
 - Feature toggles are controlled via environment variables only (no UI changes required for MVP)
@@ -93,6 +93,6 @@ There is no mechanism to control feature activation at runtime without modifying
 
 ## Notes
 - Feature toggles are distinct from platform enablement flags (telegram_enabled, instagram_enabled, etc.)
-- Storage/Dropbox is considered infrastructure, not a feature, and must always be enabled
+- Storage is considered infrastructure, not a feature, and must always be enabled
 - This feature enables future features to be built with toggle support from the start
 

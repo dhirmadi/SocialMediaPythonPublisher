@@ -11,15 +11,15 @@
 ## Summary
 Add two new admin-only **Keep** and **Remove** curation actions to the V2 web UI and core workflow.  
 When viewing a single image in the web interface (same context as **Analyze** and **Publish**), an authenticated admin can choose:
-- **Keep** → move the current image and its sidecars/metadata into a configurable `folder_keep` subfolder under the main Dropbox image folder.
-- **Remove** → move the current image and its sidecars/metadata into a configurable `folder_remove` subfolder under the main Dropbox image folder (with backward-compatible support for existing `folder_reject` configs).
+- **Keep** → move the current image and its sidecars/metadata into a configurable keep folder under the S3-compatible image prefix.
+- **Remove** → move the current image and its sidecars/metadata into a configurable remove/reject folder under the S3-compatible image prefix (with backward-compatible support for existing `folder_reject` configs).
 These actions must be fully integrated into the existing storage workflow, respect preview/dry-run safety guarantees, and be independently toggleable via feature flags and configuration.
 
 ## Problem Statement
 Today, when reviewing candidate images in the V2 web interface, the only admin actions are **Analyze & caption** and **Publish**.  
 There is no quick way to curate images that should be **kept for later** (e.g., approved for a future posting batch) or **removed from the current candidate pool** without publishing or manually moving files in Dropbox.  
 This makes it hard to:
-- Maintain a clean “to post” folder without manual Dropbox operations.
+- Maintain a clean “to post” folder without manual storage operations.
 - Explicitly mark images as “keep for later” vs. “remove from current selection” when previewing from the web UI.
 - Ensure removed images are not re-selected by the main workflow in the same or future runs.
 
@@ -30,19 +30,19 @@ The existing archive behavior moves successfully published images into an `archi
   - **Keep** → move image + sidecars into a configurable `folder_keep` subfolder.
   - **Remove** → move image + sidecars into a configurable `folder_remove` subfolder (honoring existing `folder_reject` when present).
 - Ensure both actions:
-  - Use existing Dropbox/storage abstractions and server-side moves.
+  - Use existing storage abstractions and server-side moves.
   - Move all relevant sidecars/metadata files along with the image using the same patterns as archive moves.
   - Are gated behind feature flags and config so they can be enabled/disabled independently of Analyze/Publish.
 - Expose Keep/Remove via new admin-only buttons in the web UI next to **Analyze & caption** and **Publish**.
 - Make target folders configurable via INI `[Dropbox]` section and overridable from `.env`, and document them in `CONFIGURATION.md`.
-- Maintain preview/dry-run safety guarantees: in preview/dry modes, do not perform Dropbox moves; instead, log/preview what would happen.
+- Maintain preview/dry-run safety guarantees: in preview/dry modes, do not perform storage moves; instead, log/preview what would happen.
 - Preserve full backward compatibility when the feature is disabled or not configured.
 
 ## Non-Goals
 - Introducing any destructive delete operation; images are always moved, never deleted.
 - Implementing multi-step or batch curation workflows (e.g., queues, bulk actions, or multi-image selection).
 - Changing how Analyze or Publish work beyond integrating with new curation semantics where necessary.
-- Adding new storage providers or changing Dropbox as the source of truth.
+- Changing the storage backend (assumes S3-compatible managed storage).
 - Introducing new persistent databases or changing the sidecar file formats.
 - Providing per-platform or per-publisher-specific curation rules (Keep/Remove operate at the image level only).
 
@@ -64,11 +64,11 @@ The existing archive behavior moves successfully published images into an `archi
 
 ## Acceptance Criteria (BDD-style)
 - **Keep behavior (normal mode)**
-  - Given the web UI shows an image and I am an authenticated admin, and `folder_keep` is configured, when I click **Keep**, then the application uses the existing Dropbox/storage abstraction to perform a server-side move of the image from `[Dropbox].image_folder` into `[Dropbox].image_folder/[Dropbox].folder_keep`, and any associated sidecar/metadata files (caption JSON, SD caption `.txt`, extended analysis JSON, etc.) are moved along with the image following the same patterns as archive moves.
+  - Given the web UI shows an image and I am an authenticated admin, and `folder_keep` is configured, when I click **Keep**, then the application uses the existing storage abstraction to perform a server-side move of the image from the active image prefix into the keep prefix, and any associated sidecar/metadata files (caption JSON, SD caption `.txt`, extended analysis JSON, etc.) are moved along with the image following the same patterns as archive moves.
   - Given Keep succeeds for the current image, when the request completes, then the web UI displays a clear confirmation (e.g., “Moved to keep: {filename} → {folder_keep}”) and advances to the next image in the current selection.
 
 - **Remove behavior (normal mode)**
-  - Given the web UI shows an image and I am an authenticated admin, and `[Dropbox].folder_remove` (or legacy `folder_reject`) is configured, when I click **Remove**, then the application performs a server-side move of the image and associated sidecars from `[Dropbox].image_folder` into `[Dropbox].image_folder/[Dropbox].folder_remove` (or `[Dropbox].folder_reject`), and the removed image is no longer eligible for selection from the main image folder in subsequent runs.
+  - Given the web UI shows an image and I am an authenticated admin, and `folder_remove` (or legacy `folder_reject`) is configured, when I click **Remove**, then the application performs a server-side move of the image and associated sidecars from the active image prefix into the remove prefix, and the removed image is no longer eligible for selection from the main image prefix in subsequent runs.
   - Given Remove succeeds, when the request completes, then the web UI clearly indicates that the image was **moved** (not deleted) and advances to the next image.
 
 - **Preview/dry-run safety**
@@ -94,7 +94,7 @@ The existing archive behavior moves successfully published images into an `archi
   - For Remove, text should emphasize that the image was moved, not deleted (e.g., “Moved to remove folder; not deleted”).
 - Error states:
   - If folders are not configured or the feature is disabled, the UI should either hide the buttons or show a clear, admin-only error message when actions are invoked.
-  - Errors from Dropbox moves should be surfaced as clear, non-technical status messages while maintaining detailed structured logs server-side.
+  - Errors from storage moves should be surfaced as clear, non-technical status messages while maintaining detailed structured logs server-side.
 
 ## Technical Requirements
 - Configuration:

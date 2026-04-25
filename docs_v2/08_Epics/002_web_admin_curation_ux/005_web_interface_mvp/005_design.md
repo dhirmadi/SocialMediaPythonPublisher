@@ -17,7 +17,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 ### Goals
 1. Provide a minimal, phone-accessible web UI for image viewing, AI processing, and publishing.
 2. Reuse 100% of existing V2 orchestration, AI, storage, and publishing logic without duplication.
-3. Deploy as a single Heroku web dyno with no new persistent data stores (Dropbox + sidecars remain source of truth).
+3. Deploy as a single Heroku web dyno with no new persistent data stores (S3 + sidecars remain source of truth).
 4. Maintain full backward compatibility with CLI workflows.
 5. Keep architecture simple and extensible for future enhancements (streams, MongoDB, richer roles).
 
@@ -36,7 +36,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 - **Architecture:** Layered monolith with CLI entrypoint (`app.py`).
 - **Core components:**
   - `WorkflowOrchestrator`: select → analyze → caption → publish → archive.
-  - `DropboxStorage`: list, download, temp link, archive, sidecar operations.
+  - Storage adapter: list, download, temp link, archive, sidecar operations.
   - `AIService` (VisionAnalyzerOpenAI + CaptionGeneratorOpenAI).
   - Publishers: Telegram, Email, Instagram (pluggable).
 - **Configuration:** INI file + `.env` for secrets; Pydantic validation.
@@ -45,13 +45,13 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 
 ### Constraints
 1. Python 3.9–3.12 compatibility (per `pyproject.toml`).
-2. No new databases; Dropbox remains authoritative.
+2. No new databases; S3 remains authoritative.
 3. Async patterns must be preserved (existing code uses `asyncio.to_thread` for blocking SDK calls).
 4. Heroku deployment target (single web dyno).
 5. Existing CLI must remain fully functional and unchanged.
 
 ### Dependencies
-- **External:** Dropbox SDK, OpenAI API, Telegram Bot API, SMTP (Gmail), Instagram (instagrapi).
+- **External:** S3-compatible storage, OpenAI API, Telegram Bot API, SMTP (Gmail), Instagram (instagrapi).
 - **Internal:** All existing V2 services and utilities.
 - **New (web layer only):** FastAPI (recommended), `uvicorn` (ASGI server), optional `python-multipart` for file uploads (future).
 
@@ -76,15 +76,15 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 
 **FR2: Random Image Selection**
 - `GET /api/images/random`:
-  - Lists images from configured Dropbox folder.
+  - Lists images from configured S3 storage.
   - Selects random image (with optional dedup logic).
-  - Returns image metadata + temporary Dropbox URL.
+  - Returns image metadata + temporary URL.
   - Attempts to read existing sidecar; returns parsed caption/sd_caption if present.
 
 **FR3: AI Analysis & Caption Generation**
 - `POST /api/images/{filename}/analyze`:
   - Runs existing AI analysis + caption generation (reusing `AIService`).
-  - Writes/overwrites sidecar file via `DropboxStorage.write_sidecar_text`.
+  - Writes/overwrites sidecar file via `write_sidecar_text`.
   - Returns `ImageAnalysis` + generated caption.
 
 **FR4: Publishing**
@@ -172,7 +172,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 │  │     ┌────────────────────────────────────────┐    │   │
 │  │     │  Existing V2 Services (reused)          │    │   │
 │  │     │  - WorkflowOrchestrator                 │    │   │
-│  │     │  - DropboxStorage                       │    │   │
+│  │     │  - StorageAdapter                       │    │   │
 │  │     │  - AIService (Analyzer + Generator)     │    │   │
 │  │     │  - Publishers (Telegram/Email/IG)       │    │   │
 │  │     │  - SidecarBuilder, StateManager         │    │   │
@@ -186,7 +186,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
          │               │               │
          ▼               ▼               ▼
     ┌─────────┐   ┌──────────┐   ┌──────────┐
-    │ Dropbox │   │  OpenAI  │   │Publishers│
+    │   S3    │   │  OpenAI  │   │Publishers│
     │ (images,│   │  (GPT-4o)│   │(Telegram,│
     │sidecars)│   │          │   │Email, IG)│
     └─────────┘   └──────────┘   └──────────┘
@@ -214,7 +214,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
   - `async def get_random_image() -> ImageResponse`
   - `async def analyze_and_caption(filename: str) -> AnalysisResponse`
   - `async def publish_image(filename: str, platforms: list[str]) -> PublishResponse`
-- Holds references to `DropboxStorage`, `AIService`, `WorkflowOrchestrator`, config.
+- Holds references to storage adapter, `AIService`, `WorkflowOrchestrator`, config.
 
 **4. `publisher_v2.web.models` (Pydantic request/response schemas)**
 - `ImageResponse`, `AnalysisResponse`, `PublishResponse`, `ErrorResponse`.
@@ -232,7 +232,7 @@ The Social Media Publisher V2 currently operates exclusively via CLI, requiring 
 
 - `config.loader`, `config.schema`: Load and validate config (add `WebConfig` section).
 - `core.workflow.WorkflowOrchestrator`: Reused for publish flow.
-- `services.storage.DropboxStorage`: All storage operations.
+- Storage adapter: All storage operations.
 - `services.ai.AIService`: Analysis and caption generation.
 - `services.publishers.*`: All existing publishers.
 - `utils.*`: Logging, state, captions, images, rate limiting.
@@ -309,7 +309,7 @@ class ErrorResponse(BaseModel):
   ```json
   {
     "filename": "image001.jpg",
-    "temp_url": "https://dl.dropboxusercontent.com/...",
+    "temp_url": "https://<storage-temporary-url>/...",
     "sha256": "abc123...",
     "caption": "Existing caption if sidecar present",
     "sd_caption": "Existing SD caption if sidecar present",
@@ -318,7 +318,7 @@ class ErrorResponse(BaseModel):
   }
   ```
 - **Response 404:** `{ "error": "No images found" }`
-- **Response 500:** `{ "error": "Dropbox error", "detail": "..." }`
+- **Response 500:** `{ "error": "Storage error", "detail": "..." }`
 
 #### `POST /api/images/{filename}/analyze`
 - **Request:** None (filename in path).
@@ -372,7 +372,7 @@ class ErrorResponse(BaseModel):
 
 ### Error Handling & Retries
 
-- **Dropbox errors:** Existing `StorageError` caught by web handlers → 500 with sanitized message.
+- **Storage errors:** Existing `StorageError` caught by web handlers → 500 with sanitized message.
 - **AI errors:** Existing `AIServiceError` caught → 500 with sanitized message.
 - **Publishing errors:** Per-platform failures captured in `PublishResult`; returned in response (not thrown).
 - **Retries:** Existing `tenacity` decorators in services remain; web layer does not add extra retries.
@@ -417,10 +417,10 @@ class ErrorResponse(BaseModel):
 4. JavaScript calls GET /api/images/random
 5. Backend:
    a. Loads config from env
-   b. Calls DropboxStorage.list_images(folder)
+   b. Calls storage.list_images(folder)
    c. Selects random image (shuffle, pick first)
-   d. Calls DropboxStorage.get_temporary_link(folder, filename)
-   e. Attempts to read sidecar via DropboxStorage.download_image(folder, filename.replace(ext, '.txt'))
+   d. Calls storage.get_temporary_link(folder, filename)
+   e. Attempts to read sidecar via storage.download_image(folder, filename.replace(ext, '.txt'))
       - If exists: parse and extract caption/sd_caption/metadata
       - If not exists: return has_sidecar=false
    f. Compute SHA256 (optional, if image downloaded for dedup)
@@ -433,12 +433,12 @@ class ErrorResponse(BaseModel):
 ```
 1. JavaScript calls POST /api/images/{filename}/analyze
 2. Backend:
-   a. Calls DropboxStorage.get_temporary_link(folder, filename)
+   a. Calls storage.get_temporary_link(folder, filename)
    b. Calls AIService.analyzer.analyze(temp_link) → ImageAnalysis
    c. Builds CaptionSpec (reusing existing logic from WorkflowOrchestrator)
    d. Calls AIService.generator.generate_with_sd(analysis, spec) → {caption, sd_caption}
    e. Builds sidecar content via utils.captions.build_caption_sidecar(sd_caption, metadata)
-   f. Calls DropboxStorage.write_sidecar_text(folder, filename, content)
+   f. Calls storage.write_sidecar_text(folder, filename, content)
    g. Logs structured event: web_analyze_complete
    h. Return AnalysisResponse
 3. Frontend updates caption display area; shows success message
@@ -555,14 +555,14 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 - Hobby dyno ($7/month) sufficient for MVP (single user, low traffic).
 - Standard-1X ($25/month) for production with higher reliability.
 
-**Dropbox API:**
+**Storage API:**
 - Existing usage; web adds minimal overhead (temp links are cheap).
 
 **OpenAI API:**
 - Same as CLI; cost per analysis/caption unchanged (~$0.01–0.05 per image depending on model).
 
 **Bandwidth:**
-- Heroku: Free tier allows modest traffic; image temp links served by Dropbox (no Heroku bandwidth).
+- Heroku: Free tier allows modest traffic; image temp links served by storage (no Heroku bandwidth).
 
 ---
 
@@ -573,7 +573,7 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 **Target:** `publisher_v2/tests/web/`
 
 1. **`test_web_service.py`:**
-   - Mock `DropboxStorage`, `AIService`, `WorkflowOrchestrator`.
+   - Mock storage adapter, `AIService`, `WorkflowOrchestrator`.
    - Test `WebImageService.get_random_image()`:
      - Returns `ImageResponse` with temp_url.
      - Handles no images (raises or returns None).
@@ -600,7 +600,7 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 
 1. **`test_web_endpoints.py`:**
    - Use FastAPI `TestClient`.
-   - Mock external dependencies (Dropbox, OpenAI).
+   - Mock external dependencies (storage, OpenAI).
    - Test `GET /api/images/random`:
      - Returns 200 with `ImageResponse`.
      - Returns 404 if no images.
@@ -625,10 +625,10 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 1. Deploy to staging Heroku app.
 2. Open UI on phone browser.
 3. Click "Next Image" → verify image loads, caption shown if sidecar exists.
-4. Click "Analyze & Caption" → verify caption generated, displayed, sidecar written (check Dropbox).
-5. Click "Publish" → verify platforms receive post, image archived (check Dropbox `/archive`).
+4. Click "Analyze & Caption" → verify caption generated, displayed, sidecar written (check storage).
+5. Click "Publish" → verify platforms receive post, image archived (check storage `/archive`).
 6. Test auth: access without token → 401; with valid token → 200.
-7. Test error paths: delete image in Dropbox after random selection → 404 on analyze.
+7. Test error paths: delete image in storage after random selection → 404 on analyze.
 
 ### Performance Tests
 
@@ -638,7 +638,7 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
    - `/api/images/random`: P95 < 5s.
    - `/api/images/{filename}/analyze`: P95 < 20s.
    - `/api/images/{filename}/publish`: P95 < 30s.
-2. Run with real Dropbox/OpenAI calls (not mocked) in staging.
+2. Run with real storage/OpenAI calls (not mocked) in staging.
 
 ### Test Cases Mapped to Acceptance Criteria
 
@@ -651,7 +651,7 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 | Click "Publish" → publishers invoked, archive on success | Integration: `test_web_endpoints.py::test_publish` + E2E |
 | Dry/preview mode → no external actions | Unit: mock orchestrator with `dry_publish=True` |
 | Auth enabled → unauthenticated user cannot analyze/publish | Integration: `test_web_auth_integration.py` |
-| Error during Dropbox/AI → clear error message in UI | Integration: mock exception, verify `ErrorResponse` |
+| Error during storage/AI → clear error message in UI | Integration: mock exception, verify `ErrorResponse` |
 
 ---
 
@@ -766,7 +766,7 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 - [ ] All acceptance criteria implemented and verified.
 - [ ] Unit tests: >80% coverage for new web module; all tests pass.
 - [ ] Integration tests: all API endpoints tested with success and error paths.
-- [ ] E2E tests: manual testing on phone browser (iOS + Android) with real Dropbox/OpenAI.
+- [ ] E2E tests: manual testing on phone browser (iOS + Android) with real storage/OpenAI.
 - [ ] CLI regression: existing CLI workflows tested and unchanged.
 - [ ] Documentation:
   - [ ] Feature design doc (this document) approved and stored.

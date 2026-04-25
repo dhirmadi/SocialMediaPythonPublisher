@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Visual status banner ("Uploading — please wait...") in the queue panel
 - Controls automatically re-enabled once upload queue finishes; failed-with-retry state does not lock the UI
 
+### Added - PUB-029: Brand Voice Matching
+- Bounded voice profile injection (500-token default budget) with explicit delimiters and “style references only” instruction to harden against prompt injection
+- Admin-only Web UI editor + API (`GET/POST /api/config/voice-profile`) updates runtime voice profile in-memory (no orchestrator writeback)
+- INI fallback supports `[Content] voice_profile` as JSON list; preview reports voice matching status without printing examples
+
 ### Added - PUB-026: AI Alt Text Generation
 - Vision analysis now includes `alt_text` (≤125 chars, screen-reader style) in the returned `ImageAnalysis`
 - `alt_text` is gated downstream via `features.alt_text_enabled` and flows through publisher context + web `AnalysisResponse`

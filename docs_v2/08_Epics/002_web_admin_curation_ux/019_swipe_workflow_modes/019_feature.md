@@ -54,11 +54,11 @@ The current web interface relies on a "Next Image" button and random image selec
 ## Technical Constraints & Assumptions
 - **No External JS Libraries:** Swipe detection must be implemented in vanilla JS (~30 lines).
 - **Performance:** Review mode must not fetch full metadata for all images; likely need a lightweight list endpoint.
-- **Dropbox:** Listing thousands of files might be slow; we assume the folder size is reasonable (<1000) or we accept initial load latency for Review Mode.
+- **Storage:** Listing thousands of files might be slow; we assume the library size is reasonable (<1000) or we accept initial load latency for Review Mode.
 - **Session:** Mode preference stored in `localStorage`.
 
 ## Dependencies & Integrations
-- **Dropbox API:** Used for listing files.
+- **Storage API:** Used for listing files.
 - **Existing Web Endpoints:** `/api/images/random` (to be augmented or complemented).
 
 ## Data Model / Schema

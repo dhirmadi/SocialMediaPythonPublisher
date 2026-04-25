@@ -1,7 +1,7 @@
 # Non‑Functional Requirements — Social Media Publisher V2
 
 Version: 2.1  
-Last Updated: December 21, 2025
+Last Updated: April 25, 2026
 
 ## 1. Performance
 
@@ -32,9 +32,9 @@ Last Updated: December 21, 2025
 | Core module coverage | ≥ 90% | TBD (derive from coverage report by category) |
 | Services coverage | ≥ 85% | TBD (derive from coverage report by category) |
 | Web layer coverage | ≥ 85% | TBD (derive from coverage report by category) |
-| Test pass rate | 100% | 100% (273/273) |
+| Test pass rate | 100% | 100% (as of `TEST_EXECUTION_REPORT_2025-12-21.md`) |
 | Test warnings | 0 | 0 |
-| Test count | Growing | 273 |
+| Test count | Growing | 273 (as of `TEST_EXECUTION_REPORT_2025-12-21.md`) |
 
 - Lint, type check clean
 - Modular, pluggable publishers
