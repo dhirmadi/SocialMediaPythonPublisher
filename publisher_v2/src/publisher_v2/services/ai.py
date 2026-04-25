@@ -785,6 +785,21 @@ class AIService:
                 pass
         self._rate_limiter = AsyncRateLimiter(rate_per_minute=rate)
 
+    async def create_caption_from_analysis(
+        self, analysis: ImageAnalysis, spec: CaptionSpec
+    ) -> tuple[str, list[AIUsage]]:
+        """Create a single caption from an existing ImageAnalysis and return usage records.
+
+        This is useful for fallback paths that already performed vision analysis and
+        want metering parity with the primary caption-generation flows.
+        """
+        usages: list[AIUsage] = []
+        async with self._rate_limiter:
+            caption, usage = await self.generator.generate(analysis, spec)
+        if usage is not None:
+            usages.append(usage)
+        return caption, usages
+
     async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
         async with self._rate_limiter:
             analysis, _usage = await self.analyzer.analyze(url_or_bytes)

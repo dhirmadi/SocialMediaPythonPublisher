@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-041: Vision Cost Optimization & Richer Caption Inputs
+- Default vision path resizes images to 1024px longest side + `detail: "low"` (~93% token cost reduction on typical DSLR inputs)
+- Configurable quality-escalation fallback to higher resolution + `detail: "high"` on vision parse failure
+- Caption prompts enriched with `lighting`, `composition`, `pose`, `aesthetic_terms`, `color_palette`, `style` from vision analysis (bounded, None-safe)
+- 5 new `OpenAIConfig` fields: `vision_max_dimension`, `vision_detail`, `vision_fallback_enabled`, `vision_fallback_max_dimension`, `vision_fallback_detail`
+- Full backward compatibility: `vision_max_dimension=0` + `vision_detail="high"` restores pre-PUB-041 behavior
+- Structured log events for fallback triggering and fallback result
+
 ### Added - PUB-039: AI Caption Feature Flags & Voice Profile
 - Three new runtime feature flags from orchestrator: `alt_text_enabled`, `smart_hashtags_enabled`, `voice_matching_enabled`
 - `voice_profile` on `ContentConfig` — operator-managed example captions (1–20 strings) for few-shot tone matching

@@ -274,6 +274,29 @@ async def test_ai_service_create_caption_pair_from_analysis_returns_usage_list()
     assert usages[0].response_id == "u1"
 
 
+@pytest.mark.asyncio
+async def test_ai_service_create_caption_from_analysis_returns_usage_list() -> None:
+    """AC-B5: create_caption_from_analysis returns (caption, list[AIUsage])."""
+    from publisher_v2.services.ai import AIService
+
+    gen = MagicMock()
+    usage = AIUsage(response_id="u2", total_tokens=42, prompt_tokens=20, completion_tokens=22)
+    gen.generate = AsyncMock(return_value=("cap-only", usage))
+
+    analyzer = MagicMock()
+    service = AIService.__new__(AIService)
+    service.analyzer = analyzer
+    service.generator = gen
+    service._rate_limiter = AsyncMock()
+    service._rate_limiter.__aenter__ = AsyncMock(return_value=None)
+    service._rate_limiter.__aexit__ = AsyncMock(return_value=None)
+
+    caption, usages = await service.create_caption_from_analysis(_ANALYSIS, _SPEC)
+    assert caption == "cap-only"
+    assert isinstance(usages, list)
+    assert [u.response_id for u in usages] == ["u2"]
+
+
 # --- AC-B6: NullAIService returns empty usage lists ---
 
 

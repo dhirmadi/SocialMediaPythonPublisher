@@ -247,7 +247,9 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
             )
             service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
             service.ai_service.create_caption_pair_from_analysis = AsyncMock(side_effect=Exception("SD caption failed"))  # type: ignore[method-assign, union-attr]
-            service.ai_service.create_caption = AsyncMock(return_value="fallback caption")  # type: ignore[method-assign, union-attr]
+            # PUB-041 follow-up: fallback now uses create_caption_from_analysis (reuses
+            # the already-computed analysis) and returns (caption, list[AIUsage]).
+            service.ai_service.create_caption_from_analysis = AsyncMock(return_value=("fallback caption", []))  # type: ignore[method-assign, union-attr]
 
             result = await service.analyze_and_caption("test.jpg")
 

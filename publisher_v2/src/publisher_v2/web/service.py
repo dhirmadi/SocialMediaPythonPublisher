@@ -480,7 +480,9 @@ class WebImageService:
                 correlation_id=correlation_id,
             )
             # Best-effort fallback to legacy caption-only behaviour
-            caption = await ai.create_caption(temp_link, spec)
+            caption, fallback_usages = await ai.create_caption_from_analysis(analysis, spec)
+            if self._usage_meter and fallback_usages:
+                await self._usage_meter.emit_all(fallback_usages)
 
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:
