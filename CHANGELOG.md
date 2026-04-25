@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-042: Upload Queue — Lock UI During Active Uploads
+- Grid controls (close modal, Escape, overlay click, bulk delete, sort/filter, refresh, select toggle) disabled while uploads are processing
+- Confirmation dialog when attempting to close the modal during active uploads
+- `beforeunload` warning when closing the browser tab during uploads
+- Visual status banner ("Uploading — please wait...") in the queue panel
+- Controls automatically re-enabled once upload queue finishes; failed-with-retry state does not lock the UI
+
 ### Added - PUB-041: Vision Cost Optimization & Richer Caption Inputs
 - Default vision path resizes images to 1024px longest side + `detail: "low"` (~93% token cost reduction on typical DSLR inputs)
 - Configurable quality-escalation fallback to higher resolution + `detail: "high"` on vision parse failure

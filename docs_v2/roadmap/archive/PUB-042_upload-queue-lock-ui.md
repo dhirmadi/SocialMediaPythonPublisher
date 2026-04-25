@@ -7,7 +7,7 @@
 | **Category** | Web UI / UX |
 | **Priority** | P2 |
 | **Effort** | S |
-| **Status** | In Progress |
+| **Status** | Done |
 | **Dependencies** | PUB-036 (upload queue), PUB-037 (multi-select / bulk delete) |
 
 ---

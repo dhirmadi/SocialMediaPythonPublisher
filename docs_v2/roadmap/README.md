@@ -57,7 +57,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **AI Cost & Quality** ||||||
 | PUB-041 | AI / Observability | [Vision Cost Optimization & Richer Caption Inputs](archive/PUB-041_vision-cost-optimization.md) | P0 | M | PUB-025, PUB-034, PUB-039 | Done |
 | **Web UI / UX** ||||||
-| PUB-042 | Web UI / UX | [Upload Queue: Lock UI During Active Uploads](PUB-042_upload-queue-lock-ui.md) | P2 | S | PUB-036, PUB-037 | In Progress |
+| PUB-042 | Web UI / UX | [Upload Queue: Lock UI During Active Uploads](archive/PUB-042_upload-queue-lock-ui.md) | P2 | S | PUB-036, PUB-037 | Done |
 | **Billing & Metering** ||||||
 | PUB-034 | Foundation | [Usage Metering](archive/PUB-034_usage-metering.md) | P1 | S | Orchestrator #14 | Done |
 | **New Platforms** ||||||
