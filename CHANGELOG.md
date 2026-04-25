@@ -14,6 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Visual status banner ("Uploading — please wait...") in the queue panel
 - Controls automatically re-enabled once upload queue finishes; failed-with-retry state does not lock the UI
 
+### Added - PUB-026: AI Alt Text Generation
+- Vision analysis now includes `alt_text` (≤125 chars, screen-reader style) in the returned `ImageAnalysis`
+- `alt_text` is gated downstream via `features.alt_text_enabled` and flows through publisher context + web `AnalysisResponse`
+- Sidecar extended metadata includes `alt_text` when present; CLI preview displays it
+
 ### Added - PUB-041: Vision Cost Optimization & Richer Caption Inputs
 - Default vision path resizes images to 1024px longest side + `detail: "low"` (~93% token cost reduction on typical DSLR inputs)
 - Configurable quality-escalation fallback to higher resolution + `detail: "high"` on vision parse failure

@@ -6,7 +6,8 @@
 | **Category** | AI |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Not Started |
+| **Status** | Done |
+| **Shipped date** | 2026-04-25 |
 | **Dependencies** | PUB-039 (Done — `alt_text_enabled` flag already wired) |
 
 ## Problem
@@ -158,3 +159,4 @@ No special handling needed. Vision analysis already runs in preview mode. Alt te
 ---
 
 2026-04-25 — Spec hardened for Claude Code handoff (Instagram ACs removed per product decision)
+
