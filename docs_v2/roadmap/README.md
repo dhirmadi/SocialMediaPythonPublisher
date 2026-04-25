@@ -55,7 +55,9 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-039 | Config / AI | [AI Caption Feature Flags & Voice Profile](archive/PUB-039_ai-caption-feature-flags.md) | P1 | S | PUB-025, PUB-035 | Done |
 | PUB-040 | Config / Observability | [OpenAI Model Lifecycle Warnings](archive/PUB-040_model-lifecycle-warnings.md) | P1 | S | PUB-022 | Done |
 | **AI Cost & Quality** ||||||
-| PUB-041 | AI / Observability | [Vision Cost Optimization & Richer Caption Inputs](PUB-041_vision-cost-optimization.md) | P0 | M | PUB-025, PUB-034, PUB-039 | Not Started |
+| PUB-041 | AI / Observability | [Vision Cost Optimization & Richer Caption Inputs](archive/PUB-041_vision-cost-optimization.md) | P0 | M | PUB-025, PUB-034, PUB-039 | Done |
+| **Web UI / UX** ||||||
+| PUB-042 | Web UI / UX | [Upload Queue: Lock UI During Active Uploads](PUB-042_upload-queue-lock-ui.md) | P2 | S | PUB-036, PUB-037 | In Progress |
 | **Billing & Metering** ||||||
 | PUB-034 | Foundation | [Usage Metering](archive/PUB-034_usage-metering.md) | P1 | S | Orchestrator #14 | Done |
 | **New Platforms** ||||||

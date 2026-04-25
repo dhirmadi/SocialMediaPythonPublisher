@@ -491,6 +491,27 @@
     .queue-dismiss:hover {
       color: #e5e7eb;
     }
+    /* PUB-042: status banner + uploading-active lock visuals */
+    .queue-status-banner {
+      padding: 0.4rem 0.6rem;
+      margin: 0.25rem 0 0.5rem;
+      background: #1f2937;
+      border-left: 3px solid #f59e0b;
+      color: #fbbf24;
+      font-size: 0.85rem;
+      border-radius: 0.25rem;
+    }
+    .uploading-active .browse-grid,
+    .uploading-active .grid-toolbar,
+    .uploading-active .toolbar-meta,
+    .uploading-active .grid-select-bar {
+      opacity: 0.55;
+    }
+    .uploading-active button[disabled],
+    .uploading-active select[disabled],
+    .uploading-active input[disabled] {
+      cursor: not-allowed;
+    }
     .upload-queue-item {
       display: flex;
       align-items: center;
@@ -765,6 +786,10 @@
           <span id="upload-queue-title">Upload Queue</span>
           <span id="upload-queue-summary" role="status"></span>
           <button id="upload-queue-dismiss" class="queue-dismiss hidden" title="Dismiss queue">&times;</button>
+        </div>
+        <!-- PUB-042: status banner shown while processUploadQueue is running -->
+        <div id="upload-queue-status" class="queue-status-banner hidden" role="status">
+          Uploading — please wait until all files are processed.
         </div>
         <div id="upload-queue-list"></div>
       </div>
@@ -1612,6 +1637,13 @@
     }
 
     async function selectGridItem(fname) {
+      // PUB-042: warn before navigating away while uploads are in flight.
+      if (uploadQueueProcessing) {
+        const ok = confirm(
+          "Uploads are still in progress. Leaving the grid will cancel remaining uploads. Continue?"
+        );
+        if (!ok) return;
+      }
       // One-shot pick: load this specific image, then navigation reverts to
       // random. The grid pointer is not retained.
       setViewState("detail");
@@ -1659,6 +1691,46 @@
     let uploadTimestamps = [];     // timestamps of completed uploads for rate limiting
     let uploadQueueProcessing = false;
     let activeProgressBarEl = null; // direct reference for O(1) progress updates
+
+    // PUB-042: lock the grid panel while uploads are processing.
+    // Disabled controls + status banner + beforeunload guard prevent silent
+    // queue abandonment from refresh, sort/filter changes, tab close, etc.
+    const UPLOAD_LOCK_TARGETS = [
+      "grid-refresh-btn",
+      "grid-sort",
+      "grid-order-toggle",
+      "grid-search",
+      "grid-select-toggle",
+      "grid-delete-selected",
+    ];
+
+    function _uploadBeforeUnloadHandler(e) {
+      e.preventDefault();
+      e.returnValue = "Uploads are still in progress. Closing will cancel remaining uploads.";
+      return e.returnValue;
+    }
+
+    function setUploadLockState(locked) {
+      const gridPanelEl = document.getElementById("panel-grid");
+      const statusBanner = document.getElementById("upload-queue-status");
+      if (locked) {
+        if (gridPanelEl) gridPanelEl.classList.add("uploading-active");
+        if (statusBanner) statusBanner.classList.remove("hidden");
+        for (const id of UPLOAD_LOCK_TARGETS) {
+          const el = document.getElementById(id);
+          if (el) el.disabled = true;
+        }
+        window.addEventListener("beforeunload", _uploadBeforeUnloadHandler);
+      } else {
+        if (gridPanelEl) gridPanelEl.classList.remove("uploading-active");
+        if (statusBanner) statusBanner.classList.add("hidden");
+        for (const id of UPLOAD_LOCK_TARGETS) {
+          const el = document.getElementById(id);
+          if (el) el.disabled = false;
+        }
+        window.removeEventListener("beforeunload", _uploadBeforeUnloadHandler);
+      }
+    }
 
     function enqueueFiles(files) {
       // Clear completed entries from previous batches
@@ -1874,12 +1946,18 @@
 
     async function processUploadQueue() {
       uploadQueueProcessing = true;
+      setUploadLockState(true);
       uploadQueueDismiss.classList.add("hidden");
-      for (const entry of uploadQueue) {
-        if (entry.status !== "queued") continue;
-        await uploadWithRetry(entry);
+      try {
+        for (const entry of uploadQueue) {
+          if (entry.status !== "queued") continue;
+          await uploadWithRetry(entry);
+        }
+      } finally {
+        // Lock must always be cleared, even if a single upload throws unexpectedly.
+        uploadQueueProcessing = false;
+        setUploadLockState(false);
       }
-      uploadQueueProcessing = false;
 
       // Clean up timestamps
       uploadTimestamps = uploadTimestamps.filter(t => Date.now() - t < CLIENT_RATE_LIMIT_WINDOW);
