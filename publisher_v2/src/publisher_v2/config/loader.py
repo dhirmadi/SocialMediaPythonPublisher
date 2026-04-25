@@ -198,6 +198,12 @@ def _load_openai_settings_from_env() -> dict | None:
         "sd_caption_model": parsed.get("sd_caption_model"),
         "sd_caption_system_prompt": parsed.get("sd_caption_system_prompt"),
         "sd_caption_role_prompt": parsed.get("sd_caption_role_prompt"),
+        # PUB-041: vision cost optimization
+        "vision_max_dimension": parsed.get("vision_max_dimension", 1024),
+        "vision_detail": parsed.get("vision_detail", "low"),
+        "vision_fallback_enabled": parsed.get("vision_fallback_enabled", True),
+        "vision_fallback_max_dimension": parsed.get("vision_fallback_max_dimension", 2048),
+        "vision_fallback_detail": parsed.get("vision_fallback_detail", "high"),
     }
 
 
@@ -588,6 +594,12 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
         # OPENAI CONFIG
         # =====================================================================
         openai_settings = _load_openai_settings_from_env()
+        # PUB-041 vision fields default to schema values; only overridden when env-mode in use.
+        vision_max_dimension: int = 1024
+        vision_detail: str = "low"
+        vision_fallback_enabled: bool = True
+        vision_fallback_max_dimension: int = 2048
+        vision_fallback_detail: str = "high"
         if openai_settings:
             # Use OPENAI_SETTINGS env var
             vision_model = openai_settings["vision_model"]
@@ -602,6 +614,11 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             sd_caption_model = openai_settings.get("sd_caption_model")
             sd_caption_system_prompt = openai_settings.get("sd_caption_system_prompt")
             sd_caption_role_prompt = openai_settings.get("sd_caption_role_prompt")
+            vision_max_dimension = int(openai_settings["vision_max_dimension"])
+            vision_detail = openai_settings["vision_detail"]
+            vision_fallback_enabled = bool(openai_settings["vision_fallback_enabled"])
+            vision_fallback_max_dimension = int(openai_settings["vision_fallback_max_dimension"])
+            vision_fallback_detail = openai_settings["vision_fallback_detail"]
             legacy_model = None
         else:
             # Fallback to INI [openAI] section
@@ -646,6 +663,11 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             model=legacy_model,
             system_prompt=system_prompt,
             role_prompt=role_prompt,
+            vision_max_dimension=vision_max_dimension,
+            vision_detail=vision_detail,
+            vision_fallback_enabled=vision_fallback_enabled,
+            vision_fallback_max_dimension=vision_fallback_max_dimension,
+            vision_fallback_detail=vision_fallback_detail,
         )
 
         # =====================================================================

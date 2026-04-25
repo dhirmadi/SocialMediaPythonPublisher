@@ -62,6 +62,12 @@ async def test_vision_analyzer_returns_usage_tuple() -> None:
     import logging
 
     analyzer.logger = logging.getLogger("test")
+    # PUB-041: bypass resize/fallback for legacy URL-based test path
+    analyzer._vision_max_dimension = 0
+    analyzer._vision_detail = "high"
+    analyzer._vision_fallback_enabled = False
+    analyzer._vision_fallback_max_dimension = 0
+    analyzer._vision_fallback_detail = "high"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
@@ -218,6 +224,12 @@ async def test_vision_analyzer_none_usage() -> None:
     import logging
 
     analyzer.logger = logging.getLogger("test")
+    # PUB-041: bypass resize/fallback for legacy URL-based test path
+    analyzer._vision_max_dimension = 0
+    analyzer._vision_detail = "high"
+    analyzer._vision_fallback_enabled = False
+    analyzer._vision_fallback_max_dimension = 0
+    analyzer._vision_fallback_detail = "high"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)

@@ -115,6 +115,36 @@ class OpenAIConfig(BaseModel):
         default=None, description="Advisory lifecycle metadata for caption model"
     )
 
+    # PUB-041: Vision cost optimization
+    vision_max_dimension: int = Field(
+        default=1024,
+        description="Longest side in pixels for vision input. 0 disables resize (legacy: send presigned URL).",
+    )
+    vision_detail: str = Field(
+        default="low",
+        description="OpenAI vision 'detail' parameter (low|high|auto).",
+    )
+    vision_fallback_enabled: bool = Field(
+        default=True,
+        description="Escalate to higher quality vision call when the cheap path fails.",
+    )
+    vision_fallback_max_dimension: int = Field(
+        default=2048,
+        description="Longest side in pixels for the fallback vision call. 0 disables resize on fallback.",
+    )
+    vision_fallback_detail: str = Field(
+        default="high",
+        description="OpenAI vision 'detail' parameter for the fallback call (low|high|auto).",
+    )
+
+    @field_validator("vision_detail", "vision_fallback_detail")
+    @classmethod
+    def validate_vision_detail(cls, v: str) -> str:
+        allowed = {"low", "high", "auto"}
+        if v not in allowed:
+            raise ValueError(f"vision detail must be one of {allowed}, got '{v}'")
+        return v
+
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str | None) -> str | None:

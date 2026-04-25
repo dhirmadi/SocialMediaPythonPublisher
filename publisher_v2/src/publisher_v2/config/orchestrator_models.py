@@ -88,6 +88,12 @@ class OrchestratorAI(BaseModel):
     sd_caption_role_prompt: str | None = None
     vision_model_lifecycle: dict[str, Any] | None = None
     caption_model_lifecycle: dict[str, Any] | None = None
+    # PUB-041: vision cost optimization
+    vision_max_dimension: int | None = None
+    vision_detail: str | None = None
+    vision_fallback_enabled: bool | None = None
+    vision_fallback_max_dimension: int | None = None
+    vision_fallback_detail: str | None = None
 
 
 class OrchestratorCaptionFile(BaseModel):

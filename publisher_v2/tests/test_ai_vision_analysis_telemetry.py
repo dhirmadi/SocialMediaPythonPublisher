@@ -51,6 +51,8 @@ def _build_config() -> OpenAIConfig:
         api_key="sk-test",
         vision_model="gpt-4.1-mini",
         caption_model="gpt-4.1-mini",
+        vision_max_dimension=0,
+        vision_fallback_enabled=False,
     )
 
 

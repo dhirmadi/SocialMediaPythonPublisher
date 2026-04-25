@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import logging
 import os
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal, cast
 
+import httpx
 from openai import AsyncOpenAI
 
 if TYPE_CHECKING:
@@ -23,6 +25,7 @@ from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
+from publisher_v2.utils.images import resize_image_bytes
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
 
@@ -96,6 +99,22 @@ def _extract_usage(resp: object) -> AIUsage | None:
     )
 
 
+def _combine_usages(a: AIUsage | None, b: AIUsage | None) -> AIUsage | None:
+    """Combine two AIUsage records (e.g., primary + fallback). Returns None if both None."""
+    if a is None and b is None:
+        return None
+    if a is None:
+        return b
+    if b is None:
+        return a
+    return AIUsage(
+        response_id=b.response_id or a.response_id,
+        total_tokens=a.total_tokens + b.total_tokens,
+        prompt_tokens=a.prompt_tokens + b.prompt_tokens,
+        completion_tokens=a.completion_tokens + b.completion_tokens,
+    )
+
+
 class VisionAnalyzerOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(api_key=config.api_key)
@@ -104,6 +123,12 @@ class VisionAnalyzerOpenAI:
         # Conservative upper bound for structured JSON response; tuned for expanded analysis schema.
         # Kept small enough to avoid unbounded token growth while allowing all fields to be populated.
         self.max_completion_tokens = getattr(config, "vision_max_completion_tokens", 512)
+        # PUB-041 vision cost optimization
+        self._vision_max_dimension = config.vision_max_dimension
+        self._vision_detail = config.vision_detail
+        self._vision_fallback_enabled = config.vision_fallback_enabled
+        self._vision_fallback_max_dimension = config.vision_fallback_max_dimension
+        self._vision_fallback_detail = config.vision_fallback_detail
 
     @staticmethod
     def _opt_str(v: object) -> str | None:
@@ -112,32 +137,119 @@ class VisionAnalyzerOpenAI:
         s = str(v).strip()
         return s or None
 
+    async def _download_and_resize(self, url: str, max_dimension: int) -> str:
+        """Download image at url and return a base64 JPEG data URL resized to max_dimension."""
+        async with httpx.AsyncClient() as client:
+            resp = await client.get(url, timeout=30.0)
+            resp.raise_for_status()
+        resized = await asyncio.to_thread(resize_image_bytes, resp.content, max_dimension)
+        b64 = base64.b64encode(resized).decode("ascii")
+        return f"data:image/jpeg;base64,{b64}"
+
+    async def _prepare_image_url(self, url: str, max_dimension: int) -> tuple[str, bool]:
+        """Return the image_url string to send to OpenAI plus whether it was resized.
+
+        Done once per analyze chain (NOT inside the OpenAI retry loop) so that
+        transient OpenAI errors do not cause repeat downloads.
+        """
+        if max_dimension > 0:
+            return await self._download_and_resize(url, max_dimension), True
+        return url, False
+
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, AIUsage | None]:
+        """Analyze an image, with optional quality-escalation fallback (PUB-041).
+
+        Behavior:
+        - Primary attempt uses ``vision_max_dimension`` and ``vision_detail`` from config.
+        - On AIServiceError after retries, if ``vision_fallback_enabled`` is True, a
+          single additional attempt is made with the fallback dimensions/detail.
+        - Returns combined ``AIUsage`` (primary + fallback) when fallback fires.
+        - Each chain (primary, fallback) downloads/resizes the source image at most once;
+          OpenAI-side retries reuse the prepared data URL.
+        """
+        if isinstance(url_or_bytes, bytes):
+            raise AIServiceError("Byte input not supported in V2 analysis; provide a temporary URL.")
+        url = url_or_bytes
+
+        primary_usage: AIUsage | None = None
+        try:
+            primary_image_url, primary_resized = await self._prepare_image_url(url, self._vision_max_dimension)
+            result, primary_usage = await self._analyze_core(
+                primary_image_url, self._vision_max_dimension, self._vision_detail, primary_resized
+            )
+            return result, primary_usage
+        except AIServiceError as primary_err:
+            if not self._vision_fallback_enabled:
+                raise
+            log_json(
+                self.logger,
+                logging.WARNING,
+                "vision_fallback_triggered",
+                event="vision_fallback_triggered",
+                original_error=str(primary_err),
+                fallback_max_dimension=self._vision_fallback_max_dimension,
+                fallback_detail=self._vision_fallback_detail,
+            )
+            try:
+                fb_image_url, fb_resized = await self._prepare_image_url(url, self._vision_fallback_max_dimension)
+                fallback_result, fallback_usage = await self._analyze_core(
+                    fb_image_url,
+                    self._vision_fallback_max_dimension,
+                    self._vision_fallback_detail,
+                    fb_resized,
+                )
+            except AIServiceError:
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "vision_fallback_result",
+                    event="vision_fallback_result",
+                    ok=False,
+                    vision_tokens=0,
+                )
+                raise
+            combined = _combine_usages(primary_usage, fallback_usage)
+            log_json(
+                self.logger,
+                logging.INFO,
+                "vision_fallback_result",
+                event="vision_fallback_result",
+                ok=True,
+                vision_tokens=(fallback_usage.total_tokens if fallback_usage else 0),
+            )
+            return fallback_result, combined
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
         wait=wait_exponential(multiplier=1, min=1, max=8),
     )
-    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, AIUsage | None]:
-        """
-        Use OpenAI vision model to produce structured analysis.
-        Accepts a temporary url or image bytes (url recommended).
+    async def _analyze_core(
+        self, image_url: str, max_dimension: int, detail: str, resized: bool
+    ) -> tuple[ImageAnalysis, AIUsage | None]:
+        """Single OpenAI vision attempt (with internal retries on transient errors).
+
+        ``image_url`` is already prepared (either a presigned URL or a data URL);
+        retries reuse the same prepared payload.
         """
         start = time.perf_counter()
         ok = False
         error_type: str | None = None
         try:
-            if isinstance(url_or_bytes, bytes):
-                # For now we only support URLs; bytes support may be added later via data URLs.
-                raise AIServiceError("Byte input not supported in V2 analysis; provide a temporary URL.")
-
             static_cfg = get_static_config().ai_prompts
             system_prompt = static_cfg.vision.system or _DEFAULT_VISION_SYSTEM_PROMPT
             user_prompt = static_cfg.vision.user or _DEFAULT_VISION_USER_PROMPT
 
+            # OpenAI's TypedDict expects detail as Literal["auto","low","high"]; the config
+            # validator already enforces that exact set.
+            image_url_payload: dict[str, str] = {
+                "url": image_url,
+                "detail": cast(Literal["auto", "low", "high"], detail),
+            }
             user_content: list[ChatCompletionContentPartImageParam | ChatCompletionContentPartTextParam] = [
                 ChatCompletionContentPartImageParam(
                     type="image_url",
-                    image_url={"url": url_or_bytes},
+                    image_url=cast(Any, image_url_payload),
                 ),
                 ChatCompletionContentPartTextParam(
                     type="text",
@@ -197,13 +309,17 @@ class VisionAnalyzerOpenAI:
             ai_usage = _extract_usage(resp)
             ok = True
             return analysis, ai_usage
+        except AIServiceError:
+            if error_type is None:
+                error_type = "openai_error"
+            raise
         except Exception as exc:
             if error_type is None:
                 error_type = "openai_error"
             raise AIServiceError(f"OpenAI analysis failed: {exc}") from exc
         finally:
             elapsed_ms = (time.perf_counter() - start) * 1000.0
-            # Emit structured telemetry; avoid logging sensitive payloads.
+            # Emit structured telemetry; avoid logging sensitive payloads (no URLs/data).
             log_json(
                 self.logger,
                 logging.INFO,
@@ -213,6 +329,9 @@ class VisionAnalyzerOpenAI:
                 vision_analysis_ms=elapsed_ms,
                 ok=ok,
                 error_type=error_type,
+                detail=detail,
+                max_dimension=max_dimension,
+                resized=resized,
             )
 
 
@@ -221,6 +340,57 @@ class VisionAnalyzerOpenAI:
 # ---------------------------------------------------------------------------
 
 logger = logging.getLogger("publisher_v2.services.ai")
+
+
+def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> str:
+    """Build a bounded analysis-context string for caption prompts (PUB-041).
+
+    Includes ``description``, ``mood``, ``tags`` always; appends
+    ``lighting``, ``composition``, ``pose``, ``aesthetic_terms`` (capped at 10),
+    ``color_palette``, ``style`` when non-None/non-empty. Excludes sensitive or
+    low-value fields (``nsfw``, ``safety_labels``, ``camera``, ``clothing_or_accessories``,
+    ``background``, ``subject``).
+    """
+
+    def _trunc(s: str | None) -> str | None:
+        if s is None:
+            return None
+        s2 = s.strip()
+        if not s2:
+            return None
+        return s2[:max_field_len]
+
+    parts: list[str] = [
+        f"description='{_trunc(analysis.description) or ''}'",
+        f"mood='{_trunc(analysis.mood) or ''}'",
+        f"tags={analysis.tags}",
+    ]
+
+    lighting = _trunc(analysis.lighting)
+    if lighting:
+        parts.append(f"lighting='{lighting}'")
+
+    composition = _trunc(analysis.composition)
+    if composition:
+        parts.append(f"composition='{composition}'")
+
+    pose = _trunc(analysis.pose)
+    if pose:
+        parts.append(f"pose='{pose}'")
+
+    if analysis.aesthetic_terms:
+        terms = list(analysis.aesthetic_terms[:10])
+        parts.append(f"aesthetic_terms={terms}")
+
+    color_palette = _trunc(analysis.color_palette)
+    if color_palette:
+        parts.append(f"color_palette='{color_palette}'")
+
+    style = _trunc(analysis.style)
+    if style:
+        parts.append(f"style='{style}'")
+
+    return ", ".join(parts)
 
 
 def build_platform_block(index: int, name: str, spec: CaptionSpec) -> str:
@@ -426,7 +596,7 @@ class CaptionGeneratorOpenAI:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             prompt = (
                 f"{self.role_prompt} "
-                f"description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}. "
+                f"{build_analysis_context(analysis)}. "
                 f"Platform={spec.platform}, style={spec.style}."
                 f"{hashtags_clause}"
                 f" Respect max_length={spec.max_length}."
@@ -467,7 +637,7 @@ class CaptionGeneratorOpenAI:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             user_prompt = (
                 f"{self.sd_caption_role_prompt} "
-                f"Analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}. "
+                f"Analysis: {build_analysis_context(analysis)}. "
                 f"Platform={spec.platform}, style={spec.style}. "
                 f"{hashtags_clause} Respect max_length={spec.max_length} for 'caption'. "
                 f"For 'sd_caption', produce PG-13 fine-art phrasing including pose, styling/material, lighting, mood. "
@@ -514,7 +684,7 @@ class CaptionGeneratorOpenAI:
             f"Generate captions for these platforms:\n\n"
             f"{platforms_block}\n\n"
             + (f"{history_block}\n\n" if history_block else "")
-            + f"Image analysis: description='{analysis.description}', mood='{analysis.mood}', tags={analysis.tags}\n\n"
+            + f"Image analysis: {build_analysis_context(analysis)}\n\n"
             + sd_suffix
             + f"Respond with strict JSON containing exactly these keys: {keys_list}"
             + (', "sd_caption"' if sd_suffix else "")

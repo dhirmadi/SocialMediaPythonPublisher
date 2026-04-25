@@ -87,6 +87,49 @@ def _map_lifecycle(lc_dict: dict[str, Any] | None, model_role: str) -> ModelLife
         return None
 
 
+def apply_orchestrator_ai_to_openai_cfg(ai: Any, openai_cfg: OpenAIConfig) -> None:
+    """Map fields from an :class:`OrchestratorAI` payload into an :class:`OpenAIConfig`.
+
+    Mutates ``openai_cfg`` in place. Absent (``None``) fields on ``ai`` leave the
+    corresponding ``openai_cfg`` field at its existing value (typically the schema default).
+
+    PUB-040: lifecycle metadata. PUB-041: vision cost optimization fields.
+    """
+    if ai is None:
+        return
+    if getattr(ai, "vision_model", None):
+        openai_cfg.vision_model = ai.vision_model
+    if getattr(ai, "caption_model", None):
+        openai_cfg.caption_model = ai.caption_model
+    if getattr(ai, "system_prompt", None):
+        openai_cfg.system_prompt = ai.system_prompt
+    if getattr(ai, "role_prompt", None):
+        openai_cfg.role_prompt = ai.role_prompt
+    if getattr(ai, "sd_caption_enabled", None) is not None:
+        openai_cfg.sd_caption_enabled = bool(ai.sd_caption_enabled)
+    if getattr(ai, "sd_caption_single_call_enabled", None) is not None:
+        openai_cfg.sd_caption_single_call_enabled = bool(ai.sd_caption_single_call_enabled)
+    if getattr(ai, "sd_caption_model", None):
+        openai_cfg.sd_caption_model = ai.sd_caption_model
+    if getattr(ai, "sd_caption_system_prompt", None):
+        openai_cfg.sd_caption_system_prompt = ai.sd_caption_system_prompt
+    if getattr(ai, "sd_caption_role_prompt", None):
+        openai_cfg.sd_caption_role_prompt = ai.sd_caption_role_prompt
+    openai_cfg.vision_model_lifecycle = _map_lifecycle(getattr(ai, "vision_model_lifecycle", None), "vision")
+    openai_cfg.caption_model_lifecycle = _map_lifecycle(getattr(ai, "caption_model_lifecycle", None), "caption")
+    # PUB-041 vision cost optimization
+    if getattr(ai, "vision_max_dimension", None) is not None:
+        openai_cfg.vision_max_dimension = int(ai.vision_max_dimension)
+    if getattr(ai, "vision_detail", None) is not None:
+        openai_cfg.vision_detail = ai.vision_detail
+    if getattr(ai, "vision_fallback_enabled", None) is not None:
+        openai_cfg.vision_fallback_enabled = bool(ai.vision_fallback_enabled)
+    if getattr(ai, "vision_fallback_max_dimension", None) is not None:
+        openai_cfg.vision_fallback_max_dimension = int(ai.vision_fallback_max_dimension)
+    if getattr(ai, "vision_fallback_detail", None) is not None:
+        openai_cfg.vision_fallback_detail = ai.vision_fallback_detail
+
+
 def emit_model_lifecycle_warnings(openai_cfg: OpenAIConfig) -> None:
     """Emit structured log warnings for model lifecycle advisories (PUB-040)."""
     for role, lc in [("vision", openai_cfg.vision_model_lifecycle), ("caption", openai_cfg.caption_model_lifecycle)]:
@@ -514,27 +557,7 @@ class OrchestratorConfigSource:
         openai_cfg = OpenAIConfig()
         if cfg.ai and cfg.ai.credentials_ref:
             creds_refs["openai"] = cfg.ai.credentials_ref
-            if cfg.ai.vision_model:
-                openai_cfg.vision_model = cfg.ai.vision_model
-            if cfg.ai.caption_model:
-                openai_cfg.caption_model = cfg.ai.caption_model
-            if cfg.ai.system_prompt:
-                openai_cfg.system_prompt = cfg.ai.system_prompt
-            if cfg.ai.role_prompt:
-                openai_cfg.role_prompt = cfg.ai.role_prompt
-            if cfg.ai.sd_caption_enabled is not None:
-                openai_cfg.sd_caption_enabled = bool(cfg.ai.sd_caption_enabled)
-            if cfg.ai.sd_caption_single_call_enabled is not None:
-                openai_cfg.sd_caption_single_call_enabled = bool(cfg.ai.sd_caption_single_call_enabled)
-            if cfg.ai.sd_caption_model:
-                openai_cfg.sd_caption_model = cfg.ai.sd_caption_model
-            if cfg.ai.sd_caption_system_prompt:
-                openai_cfg.sd_caption_system_prompt = cfg.ai.sd_caption_system_prompt
-            if cfg.ai.sd_caption_role_prompt:
-                openai_cfg.sd_caption_role_prompt = cfg.ai.sd_caption_role_prompt
-            # PUB-040: Map lifecycle metadata
-            openai_cfg.vision_model_lifecycle = _map_lifecycle(cfg.ai.vision_model_lifecycle, "vision")
-            openai_cfg.caption_model_lifecycle = _map_lifecycle(cfg.ai.caption_model_lifecycle, "caption")
+            apply_orchestrator_ai_to_openai_cfg(cfg.ai, openai_cfg)
         else:
             features.analyze_caption_enabled = False
 

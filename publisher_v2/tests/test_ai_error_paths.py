@@ -49,7 +49,7 @@ async def test_analyzer_fallback_non_json(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(
         "publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsBadJSON())
     )
-    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     out, _usage = await analyzer.analyze("http://tmp-url")
     assert isinstance(out, ImageAnalysis)
@@ -63,7 +63,7 @@ async def test_analyzer_fallback_non_json(monkeypatch: pytest.MonkeyPatch) -> No
 
 @pytest.mark.asyncio
 async def test_analyzer_rejects_bytes_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     with pytest.raises(AIServiceError):
         await analyzer.analyze(b"\x01\x02")
@@ -75,7 +75,7 @@ async def test_caption_generate_enforces_length(monkeypatch: pytest.MonkeyPatch)
     monkeypatch.setattr(
         "publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsCaption(long_text))
     )
-    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
     text, _usage = await gen.generate(
@@ -92,7 +92,7 @@ async def test_generate_with_sd_parses_json(monkeypatch: pytest.MonkeyPatch) -> 
         "publisher_v2.services.ai.AsyncOpenAI",
         lambda api_key: _ClientWithCompletions(_CompletionsCaption(json.dumps(payload))),
     )
-    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx")
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
     out, _usage = await gen.generate_with_sd(

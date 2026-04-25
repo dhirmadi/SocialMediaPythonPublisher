@@ -1,6 +1,30 @@
 import asyncio
+from io import BytesIO
 
 from PIL import Image
+
+
+def resize_image_bytes(data: bytes, max_dimension: int, quality: int = 85) -> bytes:
+    """Resize image bytes so the longest side is <= max_dimension. Returns JPEG bytes.
+
+    - Preserves aspect ratio with LANCZOS resampling.
+    - Does NOT upscale images already smaller than max_dimension; they are still
+      re-encoded as JPEG for downstream consistency (PUB-041 AC-04).
+    - Non-RGB modes (RGBA, P, LA, etc.) are converted to RGB before JPEG encoding.
+    """
+    src = Image.open(BytesIO(data))
+    img: Image.Image = src.convert("RGB") if src.mode != "RGB" else src
+
+    w, h = img.size
+    if max_dimension > 0 and max(w, h) > max_dimension:
+        scale = max_dimension / max(w, h)
+        new_w = max(1, round(w * scale))
+        new_h = max(1, round(h * scale))
+        img = img.resize((new_w, new_h), Image.Resampling.LANCZOS)
+
+    buf = BytesIO()
+    img.save(buf, format="JPEG", quality=quality)
+    return buf.getvalue()
 
 
 def ensure_max_width(image_path: str, max_width: int = 1280) -> str:
