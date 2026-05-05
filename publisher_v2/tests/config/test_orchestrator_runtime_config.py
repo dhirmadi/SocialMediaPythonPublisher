@@ -115,8 +115,136 @@ async def test_parses_schema_v2(monkeypatch: pytest.MonkeyPatch) -> None:
     assert rc.credentials_refs is not None
     assert rc.credentials_refs["storage"] == "db-ref"
     assert rc.credentials_refs["openai"] == "oa-ref"
+    assert rc.credentials_refs["smtp"] == "smtp-ref"
     assert calls["runtime"] == 1
     assert calls["resolve"] == 1
+
+
+def _email_publisher_runtime_payload(
+    *,
+    publisher_type: str,
+    recipient: str = "123@upload.fetlife.com",
+    include_email_server: bool = True,
+    from_email: str = "bot@test.com",
+    password_ref: str | None = "smtp-ref",  # noqa: S107  test fixture, opaque ref not a real secret
+) -> dict:
+    config: dict = {
+        "features": {
+            "publish_enabled": True,
+            "analyze_caption_enabled": True,
+            "keep_enabled": True,
+            "remove_enabled": True,
+            "auto_view_enabled": False,
+        },
+        "storage": {
+            "provider": "dropbox",
+            "credentials_ref": "db-ref",
+            "paths": {"root": "/Photos/xxx/2025"},
+        },
+        "publishers": [
+            {
+                "id": "em1",
+                "type": publisher_type,
+                "enabled": True,
+                "credentials_ref": None,
+                "config": {
+                    "recipient": recipient,
+                    "caption_target": "subject",
+                    "subject_mode": "normal",
+                },
+            },
+        ],
+        "ai": {"credentials_ref": "oa-ref", "vision_model": "gpt-4o", "caption_model": "gpt-4o-mini"},
+        "content": {"archive": True, "debug": False, "hashtag_string": "#x"},
+    }
+    if include_email_server:
+        config["email_server"] = {
+            "host": "smtp.test",
+            "port": 587,
+            "use_tls": True,
+            "from_email": from_email,
+            "username": None,
+            "password_ref": password_ref,
+        }
+    return {
+        "schema_version": 2,
+        "tenant": "xxx",
+        "app_type": "publisher_v2",
+        "config_version": "cfgv2",
+        "ttl_seconds": 600,
+        "config": config,
+    }
+
+
+def _email_handler(payload: dict):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/runtime/by-host" and request.method == "POST":
+            return httpx.Response(200, json=payload)
+        if request.url.path == "/v1/credentials/resolve" and request.method == "POST":
+            return httpx.Response(
+                200, json={"provider": "dropbox", "version": "v1", "refresh_token": "rt", "expires_at": None}
+            )
+        return httpx.Response(500, json={"error": "unexpected"})
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_publisher_type_email_enables_email_with_smtp_ref(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC1: publisher type 'email' parses identically to 'fetlife'."""
+    payload = _email_publisher_runtime_payload(publisher_type="email")
+    src = _make_source(httpx.MockTransport(_email_handler(payload)), monkeypatch)
+
+    rc = await src.get_config("xxx.shibari.photo")
+
+    assert rc.config.platforms.email_enabled is True
+    assert rc.config.email is not None
+    assert rc.config.email.recipient == "123@upload.fetlife.com"
+    assert rc.config.email.sender == "bot@test.com"
+    assert rc.config.email.smtp_server == "smtp.test"
+    assert rc.config.email.smtp_port == 587
+    assert rc.config.email.caption_target == "subject"
+    assert rc.config.email.subject_mode == "normal"
+    assert rc.credentials_refs is not None
+    assert rc.credentials_refs.get("smtp") == "smtp-ref"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"recipient": ""},
+        {"from_email": ""},
+        {"password_ref": None},
+    ],
+)
+async def test_publisher_type_email_disabled_when_required_field_missing(
+    monkeypatch: pytest.MonkeyPatch, kwargs: dict
+) -> None:
+    """AC3: missing recipient / from_email / password_ref => email disabled, no smtp ref."""
+    payload = _email_publisher_runtime_payload(publisher_type="email", **kwargs)
+    src = _make_source(httpx.MockTransport(_email_handler(payload)), monkeypatch)
+
+    rc = await src.get_config("xxx.shibari.photo")
+
+    assert rc.config.platforms.email_enabled is False
+    assert rc.config.email is None
+    assert rc.credentials_refs is not None
+    assert "smtp" not in rc.credentials_refs
+
+
+@pytest.mark.asyncio
+async def test_publisher_type_email_disabled_when_email_server_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC4: email_server absent => email_enabled False, no crash."""
+    payload = _email_publisher_runtime_payload(publisher_type="email", include_email_server=False)
+    src = _make_source(httpx.MockTransport(_email_handler(payload)), monkeypatch)
+
+    rc = await src.get_config("xxx.shibari.photo")
+
+    assert rc.config.platforms.email_enabled is False
+    assert rc.config.email is None
+    assert rc.credentials_refs is not None
+    assert "smtp" not in rc.credentials_refs
 
 
 @pytest.mark.asyncio

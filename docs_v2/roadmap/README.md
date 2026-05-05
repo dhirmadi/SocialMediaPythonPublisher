@@ -54,6 +54,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **Orchestrator AI Integration** ||||||
 | PUB-039 | Config / AI | [AI Caption Feature Flags & Voice Profile](archive/PUB-039_ai-caption-feature-flags.md) | P1 | S | PUB-025, PUB-035 | Done |
 | PUB-040 | Config / Observability | [OpenAI Model Lifecycle Warnings](archive/PUB-040_model-lifecycle-warnings.md) | P1 | S | PUB-022 | Done |
+| PUB-043 | Config | [Orchestrator email publisher type](archive/PUB-043_orchestrator-email-publisher-type.md) | P0 | S | PUB-022 | Done |
 | **AI Cost & Quality** ||||||
 | PUB-041 | AI / Observability | [Vision Cost Optimization & Richer Caption Inputs](archive/PUB-041_vision-cost-optimization.md) | P0 | M | PUB-025, PUB-034, PUB-039 | Done |
 | **Web UI / UX** ||||||

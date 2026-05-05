@@ -7,6 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - PUB-043: Orchestrator runtime — email publisher type
+- Schema v2 `_build_app_config_v2` treats orchestrator publisher `type: "email"` the same as `fetlife` for shared `email_server` / SMTP wiring, so tenants with the canonical orchestrator type get `platforms.email_enabled` and `credentials_refs["smtp"]` ([GitHub #69](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/69))
+
 ### Added - PUB-042: Upload Queue — Lock UI During Active Uploads
 - Grid controls (close modal, Escape, overlay click, bulk delete, sort/filter, refresh, select toggle) disabled while uploads are processing
 - Confirmation dialog when attempting to close the modal during active uploads

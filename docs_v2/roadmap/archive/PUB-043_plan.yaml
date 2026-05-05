@@ -1,0 +1,47 @@
+version: 1
+roadmap_id: PUB-043
+summary: Treat orchestrator publisher type "email" identically to "fetlife" in schema v2 config build.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/config/source.py
+    - publisher_v2/tests/config/test_orchestrator_runtime_config.py
+    - docs_v2/roadmap/archive/PUB-043_summary.md
+    - docs_v2/roadmap/archive/PUB-043_plan.yaml
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  - id: AC1
+    desc: type "email" enables email publisher with same fields and smtp creds_ref as fetlife.
+  - id: AC2
+    desc: type "fetlife" continues to work (regression guard, including credentials_refs["smtp"]).
+  - id: AC3
+    desc: type "email" with missing recipient/from_email/password_ref => email_enabled False; no smtp ref.
+  - id: AC4
+    desc: type "email" but email_server omitted from runtime config => email_enabled False, no crash.
+
+tasks:
+  - id: T1
+    desc: Add failing tests for AC1, AC3, AC4; tighten AC2 to assert credentials_refs["smtp"].
+    files:
+      - publisher_v2/tests/config/test_orchestrator_runtime_config.py
+  - id: T2
+    desc: Extend FetLife branch in `_build_app_config_v2` to accept `p.type in ("fetlife", "email")`.
+    files:
+      - publisher_v2/src/publisher_v2/config/source.py
+  - id: T3
+    desc: Run quality gates (ruff format/check, mypy, pytest with coverage).
+  - id: T4
+    desc: Write PUB-043 summary.
+    files:
+      - docs_v2/roadmap/archive/PUB-043_summary.md
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  type_check: uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env
+  tests: uv run pytest -v --tb=short
+  coverage_affected_min: 80
+  coverage_overall_min: 85

@@ -521,8 +521,8 @@ class OrchestratorConfigSource:
                     telegram_cfg = TelegramConfig(bot_token=None, channel_id=channel_id)
                     if p.credentials_ref:
                         creds_refs["telegram"] = p.credentials_ref
-            # FetLife uses shared email_server.password_ref
-            if p.type == "fetlife" and not email_cfg and cfg.email_server and cfg.email_server.password_ref:
+            # FetLife / generic email use shared email_server.password_ref
+            if p.type in ("fetlife", "email") and not email_cfg and cfg.email_server and cfg.email_server.password_ref:
                 recipient = str(p.config.get("recipient") or "").strip()
                 if recipient and cfg.email_server.from_email:
                     email_enabled = True
