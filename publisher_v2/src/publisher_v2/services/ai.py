@@ -53,10 +53,9 @@ def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
     # Look for sentence end followed by space (or end of truncated text)
     # Search all the way to the beginning to find sentence boundaries
     for i in range(target_len - 1, -1, -1):
-        if truncated[i] in ".!?":
-            # Check if this looks like a sentence end (followed by space or at end)
-            if i + 1 >= len(truncated) or truncated[i + 1] == " ":
-                return truncated[: i + 1]
+        # Check if this is a sentence end (. ! ?) followed by space or at end of text
+        if truncated[i] in ".!?" and (i + 1 >= len(truncated) or truncated[i + 1] == " "):
+            return truncated[: i + 1]
 
     # Fall back to word boundary - find last space
     last_space = truncated.rfind(" ")
