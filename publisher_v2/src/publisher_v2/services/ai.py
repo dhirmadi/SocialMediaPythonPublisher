@@ -29,6 +29,43 @@ from publisher_v2.utils.images import resize_image_bytes
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
 
+logger = logging.getLogger("publisher_v2.services.ai")
+
+
+def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
+    """
+    Truncate text to max_length while respecting word boundaries.
+
+    Tries to cut at sentence end (. ! ?) first, then at word boundary.
+    Always leaves room for ellipsis when truncating.
+    """
+    if len(text) <= max_length:
+        return text
+
+    # Leave room for ellipsis
+    target_len = max_length - len(ellipsis)
+    if target_len <= 0:
+        return ellipsis[:max_length]
+
+    truncated = text[:target_len]
+
+    # Try to find a sentence boundary (. ! ?) - search from end backwards
+    # Look for sentence end followed by space (or end of truncated text)
+    # Search all the way to the beginning to find sentence boundaries
+    for i in range(target_len - 1, -1, -1):
+        if truncated[i] in ".!?":
+            # Check if this looks like a sentence end (followed by space or at end)
+            if i + 1 >= len(truncated) or truncated[i + 1] == " ":
+                return truncated[: i + 1]
+
+    # Fall back to word boundary - find last space
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        return truncated[:last_space].rstrip(".,;:!?-") + ellipsis
+
+    # No good boundary found, just cut
+    return truncated.rstrip() + ellipsis
+
 _DEFAULT_VISION_SYSTEM_PROMPT = (
     "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
     "as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end fine-art "
@@ -402,7 +439,12 @@ def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> 
 def build_platform_block(index: int, name: str, spec: CaptionSpec) -> str:
     """Build the prompt block for a single platform, including examples and guidance."""
     ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
-    lines = [f"{index}. {name}: {spec.style}, up to {spec.max_length} chars. {ht}"]
+    # Emphasize hard limit for short-length platforms (email/FetLife subjects)
+    if spec.max_length <= 300:
+        length_instruction = f"STRICT LIMIT: {spec.max_length} characters maximum (this is a hard limit, will be truncated if exceeded)"
+    else:
+        length_instruction = f"up to {spec.max_length} chars"
+    lines = [f"{index}. {name}: {spec.style}, {length_instruction}. {ht}"]
 
     if spec.examples:
         lines.append("   Voice examples (match this tone, DO NOT copy):")
@@ -657,12 +699,17 @@ class CaptionGeneratorOpenAI:
             hashtags_clause = ""
             if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
+            # Emphasize hard limit for short-length platforms
+            if spec.max_length <= 300:
+                length_instruction = f" STRICT CHARACTER LIMIT: {spec.max_length} chars maximum. This is a hard limit - do not exceed."
+            else:
+                length_instruction = f" Respect max_length={spec.max_length}."
             prompt = (
                 f"{self.role_prompt} "
                 f"{build_analysis_context(analysis)}. "
                 f"Platform={spec.platform}, style={spec.style}."
                 f"{hashtags_clause}"
-                f" Respect max_length={spec.max_length}."
+                f"{length_instruction}"
             )
             resp = await self.client.chat.completions.create(
                 model=self.model,
@@ -675,9 +722,19 @@ class CaptionGeneratorOpenAI:
             content = (resp.choices[0].message.content or "").strip()
             if not content:
                 raise AIServiceError("Empty caption generated")
-            # Enforce length
+            # Enforce length with smart truncation
             if len(content) > spec.max_length:
-                content = content[: spec.max_length - 1].rstrip() + "…"
+                original_len = len(content)
+                content = smart_truncate(content, spec.max_length)
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "caption_truncated",
+                    platform=spec.platform,
+                    original_length=original_len,
+                    max_length=spec.max_length,
+                    truncated_length=len(content),
+                )
             return content, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption failed: {exc}") from exc
@@ -698,11 +755,16 @@ class CaptionGeneratorOpenAI:
             hashtags_clause = ""
             if spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
+            # Emphasize hard limit for short-length platforms
+            if spec.max_length <= 300:
+                length_instruction = f"STRICT CHARACTER LIMIT for 'caption': {spec.max_length} chars maximum (hard limit, do not exceed). "
+            else:
+                length_instruction = f"Respect max_length={spec.max_length} for 'caption'. "
             user_prompt = (
                 f"{self.sd_caption_role_prompt} "
                 f"Analysis: {build_analysis_context(analysis)}. "
                 f"Platform={spec.platform}, style={spec.style}. "
-                f"{hashtags_clause} Respect max_length={spec.max_length} for 'caption'. "
+                f"{hashtags_clause} {length_instruction}"
                 f"For 'sd_caption', produce PG-13 fine-art phrasing including pose, styling/material, lighting, mood. "
                 f"Return strict JSON with keys caption, sd_caption."
             )
@@ -721,9 +783,19 @@ class CaptionGeneratorOpenAI:
             sd_caption = str(data.get("sd_caption", "")).strip()
             if not caption:
                 raise AIServiceError("Empty caption in single-call response")
-            # Enforce length for normal caption
+            # Enforce length for normal caption with smart truncation
             if len(caption) > spec.max_length:
-                caption = caption[: spec.max_length - 1].rstrip() + "…"
+                original_len = len(caption)
+                caption = smart_truncate(caption, spec.max_length)
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "caption_truncated",
+                    platform=spec.platform,
+                    original_length=original_len,
+                    max_length=spec.max_length,
+                    truncated_length=len(caption),
+                )
             return {"caption": caption, "sd_caption": sd_caption}, _extract_usage(resp)
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption+sd failed: {exc}") from exc
@@ -770,8 +842,19 @@ class CaptionGeneratorOpenAI:
             if val is None:
                 raise AIServiceError(f"Missing platform '{platform}' in LLM response")
             caption_text = str(val).strip()
-            if len(caption_text) > specs[platform].max_length:
-                caption_text = caption_text[: specs[platform].max_length - 1].rstrip() + "…"
+            max_len = specs[platform].max_length
+            if len(caption_text) > max_len:
+                original_len = len(caption_text)
+                caption_text = smart_truncate(caption_text, max_len)
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "caption_truncated",
+                    platform=platform,
+                    original_length=original_len,
+                    max_length=max_len,
+                    truncated_length=len(caption_text),
+                )
             captions[platform] = caption_text
         return captions
 

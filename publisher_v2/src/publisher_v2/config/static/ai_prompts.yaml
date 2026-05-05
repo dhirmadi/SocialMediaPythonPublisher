@@ -52,7 +52,7 @@ platform_captions:
     max_length: 2200
     hashtags: true
   email:
-    style: "engagement question, intimate, FetLife-appropriate, no hashtags"
+    style: "engagement question, intimate, FetLife-appropriate, no hashtags, max 240 chars"
     max_length: 240
     hashtags: false
   generic:
