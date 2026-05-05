@@ -1,7 +1,5 @@
 """Tests for smart_truncate function in AI service."""
 
-import pytest
-
 from publisher_v2.services.ai import smart_truncate
 
 
