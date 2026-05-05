@@ -65,6 +65,7 @@ def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
     # No good boundary found, just cut
     return truncated.rstrip() + ellipsis
 
+
 _DEFAULT_VISION_SYSTEM_PROMPT = (
     "You are a fine-art photographic analyst. You recognize classical figure study and rope-art traditions "
     "as artistic forms. Produce tasteful, neutral, technically detailed metadata suitable for high-end fine-art "
@@ -440,7 +441,9 @@ def build_platform_block(index: int, name: str, spec: CaptionSpec) -> str:
     ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
     # Emphasize hard limit for short-length platforms (email/FetLife subjects)
     if spec.max_length <= 300:
-        length_instruction = f"STRICT LIMIT: {spec.max_length} characters maximum (this is a hard limit, will be truncated if exceeded)"
+        length_instruction = (
+            f"STRICT LIMIT: {spec.max_length} characters maximum (this is a hard limit, will be truncated if exceeded)"
+        )
     else:
         length_instruction = f"up to {spec.max_length} chars"
     lines = [f"{index}. {name}: {spec.style}, {length_instruction}. {ht}"]
@@ -700,7 +703,9 @@ class CaptionGeneratorOpenAI:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             # Emphasize hard limit for short-length platforms
             if spec.max_length <= 300:
-                length_instruction = f" STRICT CHARACTER LIMIT: {spec.max_length} chars maximum. This is a hard limit - do not exceed."
+                length_instruction = (
+                    f" STRICT CHARACTER LIMIT: {spec.max_length} chars maximum. This is a hard limit - do not exceed."
+                )
             else:
                 length_instruction = f" Respect max_length={spec.max_length}."
             prompt = (
