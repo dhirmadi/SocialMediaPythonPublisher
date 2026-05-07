@@ -123,7 +123,8 @@ class TestBackToGridPosition:
         # Must NOT contain a bare 'gridOffset = 0;' as the only offset logic
         # It should calculate offset from currentFilename position
         assert "browseImageList" in body, "backToGrid should use browseImageList to find image position (Dropbox)"
-        assert "GRID_PAGE_SIZE" in body, "backToGrid should calculate page offset from GRID_PAGE_SIZE"
+        # PUB-044: GRID_PAGE_SIZE constant replaced with dynamic gridPageSize variable.
+        assert "gridPageSize" in body, "backToGrid should calculate page offset from gridPageSize"
 
     def test_back_to_grid_handles_empty_page_fallback(self, managed_admin_client: TestClient) -> None:
         """backToGrid should fall back to page 1 if the calculated offset yields an empty page."""
@@ -138,6 +139,57 @@ class TestBackToGridPosition:
         assert "gridImages.length === 0" in body or "gridImages.length==0" in body, (
             "backToGrid should handle empty page fallback"
         )
+
+
+class TestGridPageSizeSelector:
+    """PUB-044: Configurable grid page size."""
+
+    def test_grid_page_size_select_present(self, managed_admin_client: TestClient) -> None:
+        """AC-01: <select id="grid-page-size"> with options 10/25/50/100 (25 selected)."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        assert 'id="grid-page-size"' in html
+        for value in ("10", "25", "50", "100"):
+            assert f'value="{value}"' in html
+        assert 'value="25" selected' in html
+
+    def test_grid_page_size_in_toolbar_find(self, managed_admin_client: TestClient) -> None:
+        """AC-01: selector lives inside the .toolbar-find zone."""
+        import re
+
+        res = managed_admin_client.get("/")
+        match = re.search(r'<div class="toolbar-find">(.*?)</div>', res.text, re.DOTALL)
+        assert match, "toolbar-find div not found"
+        assert 'id="grid-page-size"' in match.group(1)
+
+    def test_grid_page_size_change_handler_resets_offset_and_persists(self, managed_admin_client: TestClient) -> None:
+        """AC-02 + AC-03: change handler updates state, persists, and refetches."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        assert "localStorage.setItem(GRID_PAGE_SIZE_STORAGE_KEY, String(gridPageSize))" in html
+        assert "pv2_grid_page_size" in html
+
+    def test_grid_page_size_init_validates_localstorage(self, managed_admin_client: TestClient) -> None:
+        """AC-04: init reads localStorage, validates against allowed options."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        assert "GRID_PAGE_SIZE_OPTIONS = [10, 25, 50, 100]" in html
+        assert "GRID_PAGE_SIZE_DEFAULT = 25" in html
+        assert "GRID_PAGE_SIZE_OPTIONS.includes(storedPageSize)" in html
+
+    def test_grid_page_size_old_constant_removed(self, managed_admin_client: TestClient) -> None:
+        """AC-07: hardcoded GRID_PAGE_SIZE = 24 constant is gone."""
+        res = managed_admin_client.get("/")
+        assert "GRID_PAGE_SIZE = 24" not in res.text
+
+    def test_grid_page_size_in_upload_lock_targets(self, managed_admin_client: TestClient) -> None:
+        """AC-06: grid-page-size is locked during uploads/deletes."""
+        import re
+
+        res = managed_admin_client.get("/")
+        match = re.search(r"UPLOAD_LOCK_TARGETS\s*=\s*\[(.*?)\]", res.text, re.DOTALL)
+        assert match, "UPLOAD_LOCK_TARGETS array not found"
+        assert '"grid-page-size"' in match.group(1)
 
 
 class TestPreservedJavaScript:

@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-044: Configurable Grid Page Size
+- Page-size selector in the grid toolbar with options: 10, 25, 50, 100 (default 25)
+- Selection persisted in `localStorage` (`pv2_grid_page_size`), survives page refreshes and sessions
+- Pagination controls (prev/next, page numbers, result count) dynamically adapt to selected page size
+- Selector disabled during upload/delete queue processing (PUB-042 UI lock integration)
+
 ### Fixed - PUB-043: Orchestrator runtime — email publisher type
 - Schema v2 `_build_app_config_v2` treats orchestrator publisher `type: "email"` the same as `fetlife` for shared `email_server` / SMTP wiring, so tenants with the canonical orchestrator type get `platforms.email_enabled` and `credentials_refs["smtp"]` ([GitHub #69](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/69))
 

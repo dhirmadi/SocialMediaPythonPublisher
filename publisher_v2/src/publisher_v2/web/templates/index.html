@@ -775,6 +775,12 @@
             <option value="size">Size</option>
           </select>
           <button id="grid-order-toggle" class="secondary toolbar-order-btn hidden" title="Sort direction">&uarr;</button>
+          <select id="grid-page-size" class="hidden" title="Items per page">
+            <option value="10">10</option>
+            <option value="25" selected>25</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+          </select>
         </div>
         <div class="toolbar-actions">
           <label id="grid-upload-label" class="toolbar-upload hidden">
@@ -920,7 +926,11 @@
     let currentFullUrl = null;  // Store full-size URL for "Full Size" button
 
     // PUB-033 grid state
-    const GRID_PAGE_SIZE = 24;
+    // PUB-044: configurable page size (persisted in localStorage)
+    const GRID_PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+    const GRID_PAGE_SIZE_DEFAULT = 25;
+    const GRID_PAGE_SIZE_STORAGE_KEY = "pv2_grid_page_size";
+    let gridPageSize = GRID_PAGE_SIZE_DEFAULT;
     const BROWSE_CACHE_TTL = 60000;
     let viewState = "detail";
     let gridOffset = 0;
@@ -1386,6 +1396,8 @@
       gridSearch.classList.toggle("hidden", !managed);
       gridSort.classList.toggle("hidden", !managed);
       gridOrderToggle.classList.toggle("hidden", !managed);
+      const gridPageSizeEl = document.getElementById("grid-page-size");
+      if (gridPageSizeEl) gridPageSizeEl.classList.toggle("hidden", !managed);
       const canUpload = managed && isAdmin && featureConfig.library_enabled;
       gridUploadLabel.classList.toggle("hidden", !canUpload);
       // PUB-037: show select toggle only when delete is available
@@ -1480,7 +1492,7 @@
 
     function buildLibraryUrl() {
       const params = new URLSearchParams();
-      params.set("limit", String(GRID_PAGE_SIZE));
+      params.set("limit", String(gridPageSize));
       params.set("offset", String(gridOffset));
       params.set("sort", gridSortValue);
       params.set("order", gridOrderValue);
@@ -1519,7 +1531,7 @@
           }
           gridTotal = browseImageList.length;
           gridTruncated = false;
-          gridImages = browseImageList.slice(gridOffset, gridOffset + GRID_PAGE_SIZE);
+          gridImages = browseImageList.slice(gridOffset, gridOffset + gridPageSize);
         }
         renderGrid();
       } catch (e) {
@@ -1616,17 +1628,17 @@
 
     function renderGridPagination() {
       const total = gridTotal || gridImages.length;
-      const totalPages = Math.max(1, Math.ceil(total / GRID_PAGE_SIZE));
+      const totalPages = Math.max(1, Math.ceil(total / gridPageSize));
       if (totalPages <= 1) {
         gridPagination.classList.add("hidden");
         return;
       }
       gridPagination.classList.remove("hidden");
       gridPrev.disabled = gridOffset === 0;
-      gridNext.disabled = gridOffset + GRID_PAGE_SIZE >= total;
+      gridNext.disabled = gridOffset + gridPageSize >= total;
 
       gridPages.innerHTML = "";
-      const currentPage = Math.floor(gridOffset / GRID_PAGE_SIZE);
+      const currentPage = Math.floor(gridOffset / gridPageSize);
       const range = getPaginationRange(currentPage, totalPages);
       for (const p of range) {
         if (p === "...") {
@@ -1641,7 +1653,7 @@
           btn.className = p === currentPage ? "active" : "secondary";
           btn.textContent = String(p + 1);
           btn.addEventListener("click", () => {
-            gridOffset = p * GRID_PAGE_SIZE;
+            gridOffset = p * gridPageSize;
             fetchGrid();
           });
           gridPages.appendChild(btn);
@@ -1673,7 +1685,7 @@
         // Dropbox: full list is cached client-side — find exact page
         const idx = browseImageList.indexOf(currentFilename);
         if (idx !== -1) {
-          gridOffset = Math.floor(idx / GRID_PAGE_SIZE) * GRID_PAGE_SIZE;
+          gridOffset = Math.floor(idx / gridPageSize) * gridPageSize;
         }
         // else: filename was curated away; keep existing gridOffset
       }
@@ -1712,6 +1724,7 @@
       "grid-refresh-btn",
       "grid-sort",
       "grid-order-toggle",
+      "grid-page-size",
       "grid-search",
       "grid-select-toggle",
       "grid-delete-selected",
@@ -2710,6 +2723,24 @@
     }
 
     function initGridControls() {
+      // PUB-044: restore persisted page size from localStorage and bind change handler.
+      const gridPageSizeEl = document.getElementById("grid-page-size");
+      const storedPageSize = parseInt(localStorage.getItem(GRID_PAGE_SIZE_STORAGE_KEY), 10);
+      gridPageSize = GRID_PAGE_SIZE_OPTIONS.includes(storedPageSize)
+        ? storedPageSize
+        : GRID_PAGE_SIZE_DEFAULT;
+      if (gridPageSizeEl) gridPageSizeEl.value = String(gridPageSize);
+      if (gridPageSizeEl) {
+        gridPageSizeEl.addEventListener("change", (e) => {
+          const next = parseInt(e.target.value, 10);
+          if (!GRID_PAGE_SIZE_OPTIONS.includes(next)) return;
+          gridPageSize = next;
+          localStorage.setItem(GRID_PAGE_SIZE_STORAGE_KEY, String(gridPageSize));
+          gridOffset = 0;
+          fetchGrid();
+        });
+      }
+
       gridRefreshBtn.addEventListener("click", () => {
         gridOffset = 0;
         fetchGrid();
@@ -2757,13 +2788,13 @@
 
       gridPrev.addEventListener("click", () => {
         if (gridOffset === 0) return;
-        gridOffset = Math.max(0, gridOffset - GRID_PAGE_SIZE);
+        gridOffset = Math.max(0, gridOffset - gridPageSize);
         fetchGrid();
       });
       gridNext.addEventListener("click", () => {
         const total = gridTotal || gridImages.length;
-        if (gridOffset + GRID_PAGE_SIZE >= total) return;
-        gridOffset += GRID_PAGE_SIZE;
+        if (gridOffset + gridPageSize >= total) return;
+        gridOffset += gridPageSize;
         fetchGrid();
       });
     }
