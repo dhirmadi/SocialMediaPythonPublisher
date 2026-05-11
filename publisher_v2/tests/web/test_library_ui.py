@@ -140,6 +140,21 @@ class TestBackToGridPosition:
             "backToGrid should handle empty page fallback"
         )
 
+    def test_back_to_grid_preloads_browse_list_before_locating_current_image(
+        self, managed_admin_client: TestClient
+    ) -> None:
+        """GH-59 regression: first browse after random startup must load the list before page lookup."""
+        res = managed_admin_client.get("/")
+        html = res.text
+        import re
+
+        match = re.search(r"async function backToGrid\(\)\s*\{(.*?)\n    \}", html, re.DOTALL)
+        assert match, "backToGrid function not found"
+        body = match.group(1)
+        assert "await ensureBrowseImageListLoaded();" in body, (
+            "backToGrid should preload browseImageList before computing the current image page"
+        )
+
 
 class TestGridPageSizeSelector:
     """PUB-044: Configurable grid page size."""

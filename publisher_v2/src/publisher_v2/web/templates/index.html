@@ -839,11 +839,11 @@
             {{ web_ui_text.admin_dialog.description or "Enter the admin password to enable analysis and publishing." }}
         </p>
         <label style="display: block; margin-bottom: 0.5rem;">Password</label>
-        <input 
-            type="password" 
-            id="admin-password" 
+        <input
+            type="password"
+            id="admin-password"
             placeholder="{{ web_ui_text.admin_dialog.password_placeholder or 'Admin password' }}"
-            style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;" 
+            style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;"
         />
         <div id="login-error" style="color: #ef4444; font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2rem;"></div>
       </div>
@@ -857,7 +857,7 @@
   <script>
     // i18n text injected from static config (YAML → Jinja → JS)
     const TEXT = {{ web_ui_text | tojson }};
-    
+
     const bodyEl = document.body;
     const imgEl = document.getElementById("image");
     const imagePlaceholder = document.getElementById("image-placeholder");
@@ -1221,7 +1221,7 @@
            const response = await fetch(currentFullUrl);
            const blob = await response.blob();
            const file = new File([blob], currentFilename || "image.jpg", { type: blob.type });
-           
+
            if (navigator.canShare({ files: [file] })) {
              await navigator.share({
                files: [file],
@@ -1320,7 +1320,7 @@
       }
 
       const authConfigured = featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password";
-      
+
       // Handle Admin Button Visibility & Type
       if (isAdmin) {
         adminControls.classList.remove("hidden");
@@ -1337,7 +1337,7 @@
         btnBackToGrid.classList.add("hidden");
         btnAdminLogout.classList.add("hidden");
         detailsEl.innerHTML = "<div>Admin-only details are hidden.</div>";
-        
+
         // Only show login buttons if auth is configured
         if (authConfigured) {
             btnAdmin.classList.remove("hidden");
@@ -1500,6 +1500,21 @@
       return `/api/library/objects?${params.toString()}`;
     }
 
+    async function ensureBrowseImageListLoaded(forceRefresh = false) {
+      if (isManagedStorage()) return;
+      const now = Date.now();
+      if (!forceRefresh && browseImageList && (now - browseListTimestamp) <= BROWSE_CACHE_TTL) {
+        return;
+      }
+      const res = await fetch("/api/images/list");
+      if (!res.ok) {
+        throw new Error("Failed to load image list.");
+      }
+      const data = await res.json();
+      browseImageList = data.filenames || data.images || [];
+      browseListTimestamp = now;
+    }
+
     async function fetchGrid() {
       try {
         if (isManagedStorage()) {
@@ -1516,19 +1531,7 @@
           gridTotal = data.total_in_window || 0;
           gridTruncated = !!data.truncated;
         } else {
-          const now = Date.now();
-          if (!browseImageList || (now - browseListTimestamp) > BROWSE_CACHE_TTL) {
-            const res = await fetch("/api/images/list");
-            if (!res.ok) {
-              showToast("Failed to load image list.", "error");
-              gridImages = [];
-              renderGrid();
-              return;
-            }
-            const data = await res.json();
-            browseImageList = data.filenames || data.images || [];
-            browseListTimestamp = now;
-          }
+          await ensureBrowseImageListLoaded();
           gridTotal = browseImageList.length;
           gridTruncated = false;
           gridImages = browseImageList.slice(gridOffset, gridOffset + gridPageSize);
@@ -1681,6 +1684,9 @@
       setViewState("grid");
 
       // GH-59: Open grid on the page containing the currently displayed image
+      if (currentFilename && !isManagedStorage()) {
+        await ensureBrowseImageListLoaded();
+      }
       if (currentFilename && !isManagedStorage() && browseImageList && browseImageList.length > 0) {
         // Dropbox: full list is cached client-side — find exact page
         const idx = browseImageList.indexOf(currentFilename);
@@ -2533,11 +2539,11 @@
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ password }),
         });
-        
+
         if (!res.ok) {
            throw new Error("Invalid password");
         }
-        
+
         // Success
         isAdmin = true;
         modal.classList.add("hidden");
@@ -2587,7 +2593,7 @@
         if (e.key === "Enter") handleAdminLogin();
         if (e.key === "Escape") modal.classList.add("hidden");
       });
-      
+
       // Admin button behavior is now dynamic based on auth_mode (handled in updateAdminUI/init)
       btnAdmin.addEventListener("click", (e) => {
           if (featureConfig.auth_mode === "password") {
@@ -2619,17 +2625,17 @@
       toast.style.boxShadow = "0 4px 6px rgba(0, 0, 0, 0.3)";
       toast.style.opacity = "0";
       toast.style.transition = "opacity 0.3s ease";
-      
+
       if (type === "error") {
         toast.style.backgroundColor = "#ef4444"; // Red
       } else {
         toast.style.backgroundColor = "#3b82f6"; // Blue
       }
-      
+
       toastContainer.appendChild(toast);
       // Fade in
       requestAnimationFrame(() => toast.style.opacity = "1");
-      
+
       // Auto remove
       setTimeout(() => {
         toast.style.opacity = "0";
@@ -2865,5 +2871,3 @@
   </script>
 </body>
 </html>
-
-
