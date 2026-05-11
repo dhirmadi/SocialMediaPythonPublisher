@@ -313,5 +313,3 @@ For each incoming Publisher request:
 7. Resolve credentials when needed:
    - `POST /v1/credentials/resolve` with `X-Tenant` and body `credentials_ref`
 8. Use the resolved Dropbox refresh token to obtain access tokens via Dropbox OAuth (Publisher-held app key/secret), then proceed with the workflow.
-
-

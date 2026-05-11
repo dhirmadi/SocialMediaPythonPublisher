@@ -1,8 +1,8 @@
 # Story 05 — Credential Caching
 
-**Feature ID:** 022  
-**Story ID:** 022-05  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-05
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -19,7 +19,7 @@ Credential resolution via `/v1/credentials/resolve` returns secret material. To 
 
 This story implements the caching layer for resolved credentials.
 
-**Parent feature:** [022_feature.md](../../022_feature.md)  
+**Parent feature:** [022_feature.md](../../022_feature.md)
 **Depends on:** Story 03 (Credential Resolution)
 
 ---
@@ -67,7 +67,7 @@ This story implements the caching layer for resolved credentials.
 class SingleFlight:
     """Coalesce concurrent requests for the same key."""
     _in_flight: Dict[str, asyncio.Task]
-    
+
     async def do(self, key: str, fn: Callable) -> Any:
         if key in self._in_flight:
             return await self._in_flight[key]
@@ -178,24 +178,24 @@ class CredentialCache:
     def __init__(self, default_ttl_seconds: int = 600):
         self._cache: Dict[Tuple[str, str], CacheEntry] = {}
         self._default_ttl = timedelta(seconds=default_ttl_seconds)
-    
+
     def get(self, tenant: str, credentials_ref: str, expected_version: str | None = None) -> CredentialPayload | None:
         key = (tenant, credentials_ref)
         entry = self._cache.get(key)
-        
+
         if entry is None:
             return None
-        
+
         if datetime.utcnow() > entry.expires_at:
             del self._cache[key]
             return None
-        
+
         if expected_version and entry.version != expected_version:
             del self._cache[key]
             return None
-        
+
         return entry.payload
-    
+
     def set(self, tenant: str, credentials_ref: str, payload: CredentialPayload, version: str, ttl: timedelta | None = None):
         key = (tenant, credentials_ref)
         effective_ttl = min(ttl or self._default_ttl, self._default_ttl)
@@ -204,11 +204,11 @@ class CredentialCache:
             expires_at=datetime.utcnow() + effective_ttl,
             version=version
         )
-    
+
     def invalidate(self, tenant: str, credentials_ref: str):
         key = (tenant, credentials_ref)
         self._cache.pop(key, None)
-    
+
     def clear(self):
         self._cache.clear()
 ```
@@ -232,4 +232,3 @@ class CredentialCache:
 | Date | Change |
 |------|--------|
 | 2025-12-24 | Initial story draft |
-

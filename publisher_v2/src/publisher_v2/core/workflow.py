@@ -451,6 +451,7 @@ class WorkflowOrchestrator:
                                 format_caption(
                                     p.platform_name,
                                     platform_captions.get(p.platform_name, caption),
+                                    smart_hashtags=self.config.features.smart_hashtags_enabled,
                                 ),
                                 context=context,
                             )

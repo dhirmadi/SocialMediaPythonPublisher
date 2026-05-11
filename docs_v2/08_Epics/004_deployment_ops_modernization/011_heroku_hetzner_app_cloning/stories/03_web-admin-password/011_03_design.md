@@ -2,13 +2,13 @@
 
 # Story 002 — web-admin-password — Design
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 002  
-**Name:** web-admin-password  
-**Status:** Design Review  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 002
+**Name:** web-admin-password
+**Status:** Design Review
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
@@ -205,5 +205,3 @@ Automated tests for the script remain focused on the pure `update_image_folder` 
 - Script refuses to run in non-dry-run mode without `--password`.
 - New apps created by the script always have `web_admin_pw` set to the CLI-provided value.
 - Dry-run mode remains non-destructive and does not touch config vars.
-
-

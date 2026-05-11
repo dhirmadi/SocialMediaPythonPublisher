@@ -140,7 +140,11 @@ async def main_async() -> int:
             if pub.is_enabled():
                 # Use AI-generated per-platform caption if available, else fall back to generic
                 raw_caption = result.platform_captions.get(pub.platform_name, result.caption)
-                platform_captions[pub.platform_name] = format_caption(pub.platform_name, raw_caption)
+                platform_captions[pub.platform_name] = format_caption(
+                    pub.platform_name,
+                    raw_caption,
+                    smart_hashtags=cfg.features.smart_hashtags_enabled,
+                )
 
         # Compute email subject preview if email is enabled
         email_subject = None

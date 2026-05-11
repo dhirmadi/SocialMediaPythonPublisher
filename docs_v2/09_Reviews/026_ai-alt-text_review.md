@@ -1,8 +1,8 @@
 # PUB-026 — AI Alt Text Generation: Delivery Review
 
-**Roadmap item:** `docs_v2/roadmap/PUB-026_ai-alt-text.md`  
-**Review date:** 2026-04-25  
-**Reviewer:** Product Manager Agent (Cursor)  
+**Roadmap item:** `docs_v2/roadmap/PUB-026_ai-alt-text.md`
+**Review date:** 2026-04-25
+**Reviewer:** Product Manager Agent (Cursor)
 **Verdict:** ✅ **APPROVED**
 
 ---
@@ -53,4 +53,3 @@
 | Web auth (no new endpoints; existing auth unchanged) | ✅ / N/A |
 | Async hygiene | ✅ |
 | Backward compatibility | ✅ |
-

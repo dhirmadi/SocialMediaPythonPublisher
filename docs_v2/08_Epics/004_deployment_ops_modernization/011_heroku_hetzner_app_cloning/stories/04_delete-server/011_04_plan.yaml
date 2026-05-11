@@ -78,5 +78,3 @@ release:
   flags: []
   migration_notes:
     - "Operators can now use --action delete --name <name> to clean up apps and DNS entries created previously and logged in scripts/servers.txt."
-
-

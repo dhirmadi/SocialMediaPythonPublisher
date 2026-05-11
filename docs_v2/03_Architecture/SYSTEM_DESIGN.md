@@ -1,6 +1,6 @@
 # System Design — Social Media Publisher V2
 
-Version: 2.0  
+Version: 2.0
 Last Updated: April 25, 2026
 
 ## 1. Goals and Scope
@@ -35,17 +35,17 @@ Non‑Goals (V2):
 - Orchestrator integration for runtime config + on-demand credential resolution (multi-tenant)
 
 ## 4. Solution Overview (Narrative)
-1) V2 lists candidate images from the configured storage backend, de‑duplicates by hash/capabilities, and selects candidates.  
-2) It obtains a short‑lived URL or streams bytes for analysis (no permanent external hosting).  
-3) Vision LLM extracts structured analysis (description, tags, mood, safety + additional aesthetic fields).  
-4) Caption generation produces platform-adaptive copy and optional sidecar content; prompts are enriched with bounded analysis context.  
-5) Publishers push concurrently; any success counts; failures captured with structured error detail.  
-6) On any success and not in debug/preview, the original asset is archived/moved (with sidecars).  
+1) V2 lists candidate images from the configured storage backend, de‑duplicates by hash/capabilities, and selects candidates.
+2) It obtains a short‑lived URL or streams bytes for analysis (no permanent external hosting).
+3) Vision LLM extracts structured analysis (description, tags, mood, safety + additional aesthetic fields).
+4) Caption generation produces platform-adaptive copy and optional sidecar content; prompts are enriched with bounded analysis context.
+5) Publishers push concurrently; any success counts; failures captured with structured error detail.
+6) On any success and not in debug/preview, the original asset is archived/moved (with sidecars).
 7) Logs are structured with correlation IDs and redaction; metering and warnings (e.g., model lifecycle) are emitted when configured.
 
 Web UI path (admin):
-1) Operator opens the web UI to browse the grid of images.  
-2) Operator can upload (managed storage), search/sort/filter, select an image to view details, run analyze/caption, publish, or curate (keep/remove).  
+1) Operator opens the web UI to browse the grid of images.
+2) Operator can upload (managed storage), search/sort/filter, select an image to view details, run analyze/caption, publish, or curate (keep/remove).
 3) While uploads are processing, the UI locks navigation-affecting controls and warns on tab close to avoid abandoning in-flight uploads.
 
 ## 5. Technology Choices (2025)
@@ -78,5 +78,3 @@ Web UI path (admin):
 - 95%+ caption acceptance without manual edits
 - Zero credential leaks; secrets never logged
 - > 80% automated test coverage on core logic
-
-

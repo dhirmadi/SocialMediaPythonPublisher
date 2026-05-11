@@ -1,20 +1,20 @@
 # Web Interface Admin Controls — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-001  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-11-19  
-**Status:** Design Review  
-**Author:** Evert  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-001
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-11-19
+**Status:** Design Review
+**Author:** Evert
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
 
-- **Problem & context:** The Web Interface MVP currently exposes **Analyze & caption** and **Publish** controls and detailed status information to any user who can access the UI (subject only to HTTP-level auth), which increases the risk of accidental or unauthorized actions and leaks of operational details.  
-- **Change:** Introduce a lightweight **admin mode** backed by a `.env`-configured password (`web_admin_pw`) and a short-lived cookie (<1h) so that only the administrator can trigger analysis/publishing and see detailed status, while captions remain visible to all.  
-- **Goals:** Preserve the existing web architecture (FastAPI app + endpoints + templates), reuse existing auth mechanisms, and keep CLI behavior unchanged, while adding a thin guard layer that aligns with the single-operator assumption.  
+- **Problem & context:** The Web Interface MVP currently exposes **Analyze & caption** and **Publish** controls and detailed status information to any user who can access the UI (subject only to HTTP-level auth), which increases the risk of accidental or unauthorized actions and leaks of operational details.
+- **Change:** Introduce a lightweight **admin mode** backed by a `.env`-configured password (`web_admin_pw`) and a short-lived cookie (<1h) so that only the administrator can trigger analysis/publishing and see detailed status, while captions remain visible to all.
+- **Goals:** Preserve the existing web architecture (FastAPI app + endpoints + templates), reuse existing auth mechanisms, and keep CLI behavior unchanged, while adding a thin guard layer that aligns with the single-operator assumption.
 - **Non-goals:** No new databases, no full user management or multi-role system, no replacement for existing HTTP-level authentication.
 
 ## 2. Context & Assumptions
@@ -246,11 +246,11 @@
 
 ## 7. Risks & Alternatives
 
-- **Risk:** Admin mode is enforced only via a cookie check; if misconfigured, it may not provide strong protection.  
+- **Risk:** Admin mode is enforced only via a cookie check; if misconfigured, it may not provide strong protection.
   **Mitigation:** Treat admin mode as an additional guard on top of existing HTTP auth and document operational expectations clearly; keep `require_admin` centralized and tested.
-- **Risk:** Cookie-based admin sessions could be vulnerable to XSS if any script injection vectors exist.  
+- **Risk:** Cookie-based admin sessions could be vulnerable to XSS if any script injection vectors exist.
   **Mitigation:** Use `HttpOnly` cookies, preserve existing escaping/sanitization practices, and keep inline JS minimal and controlled.
-- **Risk:** Operator confusion when `web_admin_pw` is missing or misconfigured.  
+- **Risk:** Operator confusion when `web_admin_pw` is missing or misconfigured.
   **Mitigation:** Provide explicit UI messaging when admin mode is disabled and surface config expectations in documentation.
 - **Alternatives considered:**
   - **Rely solely on HTTP-level auth (WEB_AUTH_TOKEN/basic):** Stronger from a protocol standpoint, but less convenient for per-device admin toggling and does not provide explicit “admin mode” concept in the UI.
@@ -258,16 +258,15 @@
 
 ## 8. Work Plan (Scoped)
 
-- **Task 1:** Extend web configuration loading to read `web_admin_pw` from `.env` and expose it to the web layer (without logging it).  
-- **Task 2:** Implement admin auth helpers in `publisher_v2/web/auth.py` (password verification, cookie management, `require_admin`).  
-- **Task 3:** Add `POST /api/admin/login` (and optional `GET /api/admin/status`) to `publisher_v2/web/app.py`, wiring in logging and error handling.  
-- **Task 4:** Update `publisher_v2/web/app.py` analyze/publish routes (or dependencies) to enforce `require_admin` when `web_admin_pw` is configured.  
-- **Task 5:** Update `publisher_v2/web/templates/index.html` (and inline JS) to add the Administration UI, admin-mode indicator, and conditional rendering/enabling of admin-only controls and status sections.  
-- **Task 6:** Add unit and integration tests as described in §6; ensure coverage of admin success, failure, expiry, and disabled modes.  
+- **Task 1:** Extend web configuration loading to read `web_admin_pw` from `.env` and expose it to the web layer (without logging it).
+- **Task 2:** Implement admin auth helpers in `publisher_v2/web/auth.py` (password verification, cookie management, `require_admin`).
+- **Task 3:** Add `POST /api/admin/login` (and optional `GET /api/admin/status`) to `publisher_v2/web/app.py`, wiring in logging and error handling.
+- **Task 4:** Update `publisher_v2/web/app.py` analyze/publish routes (or dependencies) to enforce `require_admin` when `web_admin_pw` is configured.
+- **Task 5:** Update `publisher_v2/web/templates/index.html` (and inline JS) to add the Administration UI, admin-mode indicator, and conditional rendering/enabling of admin-only controls and status sections.
+- **Task 6:** Add unit and integration tests as described in §6; ensure coverage of admin success, failure, expiry, and disabled modes.
 - **Task 7:** Update relevant docs (web MVP implementation doc) to mention admin mode, `web_admin_pw`, and expected behavior when admin is disabled.
 
 ## 9. Open Questions
 
-- Should the admin cookie be renewable on activity (sliding expiry) or fixed-duration from login? — Proposed answer: fixed-duration (<1h) to keep behavior simple for MVP.  
-- Should any additional sensitive fields beyond status/results (e.g., correlation IDs) be hidden from non-admins in the UI? — Proposed answer: review and hide any obviously internal identifiers, leaving only user-meaningful messages visible to non-admins.  
-
+- Should the admin cookie be renewable on activity (sliding expiry) or fixed-duration from login? — Proposed answer: fixed-duration (<1h) to keep behavior simple for MVP.
+- Should any additional sensitive fields beyond status/results (e.g., correlation IDs) be hidden from non-admins in the UI? — Proposed answer: review and hide any obviously internal identifiers, leaving only user-meaningful messages visible to non-admins.

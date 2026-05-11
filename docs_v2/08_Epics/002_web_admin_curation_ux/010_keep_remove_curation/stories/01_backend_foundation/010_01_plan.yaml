@@ -103,4 +103,3 @@ quality_gates:
     - keep_remove.tests_config_loader
     - keep_remove.tests_storage_move_with_sidecars
     - keep_remove.tests_orchestrator_curation
-

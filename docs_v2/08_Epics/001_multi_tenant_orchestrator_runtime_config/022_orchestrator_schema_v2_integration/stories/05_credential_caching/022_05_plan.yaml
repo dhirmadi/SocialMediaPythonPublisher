@@ -61,5 +61,3 @@ release:
   feature_flag: "CREDENTIAL_CACHE_ENABLED"
   rollout_strategy: "direct"
   rollback_plan: "Set CREDENTIAL_CACHE_ENABLED=false"
-
-

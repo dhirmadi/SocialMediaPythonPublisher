@@ -1,12 +1,12 @@
 # OpenAI and Metadata Settings — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-05  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_05_openai-metadata-settings.md  
+**Feature ID:** 021
+**Story ID:** 021-05
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_05_openai-metadata-settings.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -274,4 +274,3 @@ if content_json:
 - [ ] OPENAI_API_KEY remains flat env var
 - [ ] Fallback to INI when not set
 - [ ] Unit tests cover all scenarios
-

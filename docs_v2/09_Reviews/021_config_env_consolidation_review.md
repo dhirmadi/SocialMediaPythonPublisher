@@ -1,9 +1,9 @@
 # Feature 021 Review — Config Environment Variable Consolidation
 
-**Date:** December 22, 2025  
-**Reviewer:** QC Engineer  
-**Feature:** 021_config-env-consolidation  
-**Design Version:** 1.0  
+**Date:** December 22, 2025
+**Reviewer:** QC Engineer
+**Feature:** 021_config-env-consolidation
+**Design Version:** 1.0
 **Review Status:** ⚠️ **Conditional Approval — Issues to Address**
 
 ---
@@ -98,7 +98,7 @@ PUBLISHERS='[{"type": "telegram", "bot_token_var": "TELEGRAM_BOT_TOKEN", ...}]'
 
 Or, use the current pattern where secrets stay flat and JSON holds non-secrets only.
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **Action Required:** Yes, before implementation
 
 ---
@@ -136,7 +136,7 @@ OPENAI_SETTINGS='{"vision_model": "gpt-4o", "caption_model": "gpt-4o-mini", "sys
    - JSON for Orchestrator API compatibility
    - Flat vars for manual configuration
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **Action Required:** Design decision needed
 
 ---
@@ -157,7 +157,7 @@ OPENAI_SETTINGS='{"vision_model": "gpt-4o", "caption_model": "gpt-4o-mini", "sys
 CONTENT_SETTINGS='{"hashtag_string": "#art #photography", "archive": true, "debug": false}'
 ```
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **Action Required:** Update design spec
 
 ---
@@ -186,7 +186,7 @@ for entry in publishers_json:
     publishers_by_type[entry["type"]] = entry
 ```
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **Action Required:** Clarify in design, implement explicit handling
 
 ---
@@ -213,7 +213,7 @@ if any(sep in trimmed for sep in ("/", "\\", "..")):
 - Update validation to allow absolute paths when `STORAGE_PATHS` is used
 - Keep strict validation for INI fallback path (backward compatibility)
 
-**Severity:** HIGH  
+**Severity:** HIGH
 **Action Required:** Update design to address validation change
 
 ---
@@ -235,7 +235,7 @@ Define explicit timeline:
 - v2.3: INI support deprecated (warning every startup)
 - v3.0 (or Epic 001): INI support removed
 
-**Severity:** MEDIUM  
+**Severity:** MEDIUM
 **Action Required:** Add timeline to feature spec
 
 ---
@@ -264,7 +264,7 @@ publishers = PublisherEntry.validate_json(os.environ["PUBLISHERS"])
 - Schema validation in one step
 - Type safety guaranteed
 
-**Severity:** MEDIUM  
+**Severity:** MEDIUM
 **Action Required:** Recommend updating Story 01 to use TypeAdapter
 
 ---
@@ -289,7 +289,7 @@ def test_json_max_reasonable_size():
     """JSON up to 32KB parses without issue."""
 ```
 
-**Severity:** MEDIUM  
+**Severity:** MEDIUM
 **Action Required:** Expand test plan
 
 ---
@@ -309,7 +309,7 @@ def test_json_max_reasonable_size():
 - Option A: All plural descriptive (`PUBLISHERS`, `EMAIL_SERVERS`, `STORAGE_PATHS`)
 - Option B: All with `_CONFIG` suffix (`PUBLISHERS_CONFIG`, `EMAIL_CONFIG`, ...)
 
-**Severity:** LOW  
+**Severity:** LOW
 **Action Required:** Consider for consistency
 
 ---
@@ -334,7 +334,7 @@ def test_json_max_reasonable_size():
 
 **Recommendation:** Either add to `required` or document that it references `INSTA_PASSWORD` env var.
 
-**Severity:** LOW  
+**Severity:** LOW
 **Action Required:** Clarify in schema
 
 ---
@@ -419,7 +419,7 @@ Feature 021 addresses **legitimate technical debt** and provides good preparatio
 
 **Key Insight:** The choice to embed secrets in JSON blobs creates operational and security risks that outweigh the consolidation benefits. Keeping secrets as separate environment variables while using JSON for non-secret configuration groups achieves the same consolidation goal with fewer risks.
 
-**Recommendation:** 
+**Recommendation:**
 1. Update design to keep secrets flat (TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD, etc.)
 2. Use JSON for configuration groupings only (STORAGE_PATHS, OPENAI_SETTINGS, etc.)
 3. For PUBLISHERS, reference secrets by convention (bot_token reads from TELEGRAM_BOT_TOKEN)
@@ -427,7 +427,6 @@ Feature 021 addresses **legitimate technical debt** and provides good preparatio
 
 ---
 
-**Review Completed:** December 22, 2025  
-**Next Review:** After design updates addressing R-001 through R-004  
+**Review Completed:** December 22, 2025
+**Next Review:** After design updates addressing R-001 through R-004
 **Maintainer:** QC Engineer
-

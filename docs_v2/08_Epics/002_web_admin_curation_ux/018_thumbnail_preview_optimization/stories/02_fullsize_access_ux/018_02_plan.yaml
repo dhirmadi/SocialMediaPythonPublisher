@@ -151,5 +151,5 @@ implementation_notes: |
   - JavaScript wired up with show/hide logic
   - Uses existing .secondary button styling (fits well in control row)
   - All 228 existing tests continue to pass
-  
+
   Manual testing recommended before marking story as fully complete.

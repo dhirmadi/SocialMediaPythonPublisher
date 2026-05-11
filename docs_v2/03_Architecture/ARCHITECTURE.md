@@ -1,6 +1,6 @@
 # Architecture — Social Media Publisher V2
 
-Version: 2.6  
+Version: 2.6
 Last Updated: December 21, 2025
 
 ## 1. Architecture Pattern
@@ -94,11 +94,11 @@ Migration CLI (PUB-031, standalone tool):
 - Rate limiting per external API.
 
 ## 5. Data Flow (Sequence)
-1) Orchestrator selects candidate image (no duplicate hash, meets filters), preferring Dropbox `content_hash` metadata for de‑duplication and falling back to local SHA256 when needed.  
-2) Storage returns tmp link or bytes.  
-3) Vision analysis extracts description, tags, mood, safety.  
-4) Caption generator produces platform‑aware copy from templates.  
-5) Publishers run in parallel; collect results.  
+1) Orchestrator selects candidate image (no duplicate hash, meets filters), preferring Dropbox `content_hash` metadata for de‑duplication and falling back to local SHA256 when needed.
+2) Storage returns tmp link or bytes.
+3) Vision analysis extracts description, tags, mood, safety.
+4) Caption generator produces platform‑aware copy from templates.
+5) Publishers run in parallel; collect results.
 6) If any success and not debug → archive; cleanup temp; update posted state with SHA256 and, when available, Dropbox `content_hash`; log metrics.
 
 ### Feature Toggle Integration (v2.5+)
@@ -174,5 +174,3 @@ Migration CLI (PUB-031, standalone tool):
 - [Configuration Documentation](../05_Configuration/CONFIGURATION.md)
 - [Feature 012: Central Config & i18n](../08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/012_feature.md)
 - [System Design](./SYSTEM_DESIGN.md)
-
-

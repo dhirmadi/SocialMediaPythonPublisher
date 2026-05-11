@@ -1,6 +1,6 @@
 # Implementation Specification — Social Media Publisher V2
 
-Version: 2.0  
+Version: 2.0
 Last Updated: April 25, 2026
 
 This document is the ground truth for implementation. An AI coder can build V2 using this spec alone.
@@ -102,13 +102,13 @@ EmailPublisher:
 
 ## 6. Orchestrator
 WorkflowOrchestrator.execute():
-1) Validate config; initialize adapters; create correlation_id  
-2) Select image: list images; skip archived; dedup via sha256 cache; choose by strategy (random/oldest)  
-3) Acquire image: download to secure temp file (0600) and get temporary link; cleanup on finally  
-4) Analyze: VisionAnalyzer.analyze(temp_link or bytes)  
-5) Caption: Separate calls: VisionAnalyzer.analyze(...) then CaptionGenerator.generate(...) with platform‑aware spec  
-6) Publish: run enabled publishers in parallel; collect results  
-7) Archive: if any success and not debug → archive_image(...)  
+1) Validate config; initialize adapters; create correlation_id
+2) Select image: list images; skip archived; dedup via sha256 cache; choose by strategy (random/oldest)
+3) Acquire image: download to secure temp file (0600) and get temporary link; cleanup on finally
+4) Analyze: VisionAnalyzer.analyze(temp_link or bytes)
+5) Caption: Separate calls: VisionAnalyzer.analyze(...) then CaptionGenerator.generate(...) with platform‑aware spec
+6) Publish: run enabled publishers in parallel; collect results
+7) Archive: if any success and not debug → archive_image(...)
 8) Return WorkflowResult; log structured summary
 
 ## 7. Reliability
@@ -140,5 +140,3 @@ Entrypoint:
 - Respects per‑platform length constraints (truncate with ellipsis when required)
 - Archives only when any platform succeeded and not in debug
 - Redacts secrets in logs
-
-

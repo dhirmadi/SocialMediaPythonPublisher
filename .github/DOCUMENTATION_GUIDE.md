@@ -119,7 +119,7 @@ SocialMediaPythonPublisher/
 
 ## 🔄 CHANGELOG.md - Special Rules
 
-**Location:** Project root  
+**Location:** Project root
 **Update Frequency:** With every significant change
 
 ### When to Update CHANGELOG.md
@@ -254,11 +254,10 @@ If you're unsure where documentation should go:
 
 ---
 
-**Last Updated:** October 31, 2025  
-**Maintained By:** Project maintainers  
+**Last Updated:** October 31, 2025
+**Maintained By:** Project maintainers
 **Questions?** Open an issue on GitHub
 
 ---
 
 *Remember: Good documentation is as important as good code!* 📚
-

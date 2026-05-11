@@ -1,8 +1,8 @@
 # Story 06 — Tenant Context and Service Lifecycle
 
-**Feature ID:** 022  
-**Story ID:** 022-06  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-06
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -17,7 +17,7 @@ Publisher V2 needs infrastructure for multi-tenant request handling:
 
 This story implements the request lifecycle infrastructure that ties together Stories 01–05.
 
-**Parent feature:** [022_feature.md](../../022_feature.md)  
+**Parent feature:** [022_feature.md](../../022_feature.md)
 **Depends on:** Story 01 (Config Source), Story 03 (Credential Resolution)
 
 ---
@@ -50,33 +50,33 @@ async def tenant_middleware(request: Request, call_next):
     # Skip health endpoints
     if request.url.path.startswith("/health"):
         return await call_next(request)
-    
+
     host = request.headers.get("host", "")
     config_source = get_config_source()
-    
+
     try:
         # Normalize and validate host
         normalized = normalize_host(host)
         if not validate_host(normalized):
             return JSONResponse({"error": "Not found"}, status_code=404)
-        
+
         # Get config (cached)
         tenant_config = await config_source.get_config(normalized)
-        
+
         # Get or create services (cached per-tenant)
         services = await service_factory.get_services(tenant_config)
-        
+
         # Inject into request state
         request.state.host = normalized
         request.state.tenant = tenant_config.tenant
         request.state.config = tenant_config.config
         request.state.services = services
-        
+
     except TenantNotFoundError:
         return JSONResponse({"error": "Not found"}, status_code=404)
     except OrchestratorUnavailableError:
         return JSONResponse({"error": "Service unavailable"}, status_code=503)
-    
+
     return await call_next(request)
 ```
 
@@ -87,38 +87,38 @@ Create factory that manages tenant-scoped service clients:
 ```python
 class TenantServiceFactory:
     """Factory for tenant-scoped service clients."""
-    
+
     _cache: Dict[str, TenantServices]  # tenant -> services
     _max_size: int  # from TENANT_SERVICE_CACHE_MAX_SIZE
-    
+
     async def get_services(self, tenant_config: TenantConfig) -> TenantServices:
         tenant = tenant_config.tenant
-        
+
         # Check cache
         if tenant in self._cache:
             cached = self._cache[tenant]
             if not cached.is_expired():
                 return cached
-        
+
         # Create new services
         services = await self._create_services(tenant_config)
-        
+
         # Cache with LRU eviction
         if len(self._cache) >= self._max_size:
             self._evict_lru()
         self._cache[tenant] = services
-        
+
         return services
-    
+
     async def _create_services(self, tenant_config: TenantConfig) -> TenantServices:
         config_source = get_config_source()
-        
+
         # Resolve storage credential (eager)
         storage_cred = await config_source.get_credentials(
             tenant_config.host,
             tenant_config.credentials_refs["storage"]
         )
-        
+
         # Create Dropbox client
         storage = DropboxStorageService(
             refresh_token=storage_cred.refresh_token,
@@ -126,7 +126,7 @@ class TenantServiceFactory:
             app_secret=os.environ["DROPBOX_APP_SECRET"],
             paths=tenant_config.config.storage.paths,
         )
-        
+
         # Other services created lazily
         return TenantServices(
             storage=storage,
@@ -146,28 +146,28 @@ class TenantServices:
     ai: LazyService[AIService]
     telegram: LazyService[TelegramService]
     email: LazyService[EmailService]
-    
+
     created_at: datetime = field(default_factory=datetime.utcnow)
     ttl_seconds: int = 600  # from config
-    
+
     def is_expired(self) -> bool:
         return datetime.utcnow() > self.created_at + timedelta(seconds=self.ttl_seconds)
 
 
 class LazyService(Generic[T]):
     """Lazy service wrapper - creates service on first access."""
-    
+
     def __init__(self, factory: Callable[[], Awaitable[T]]):
         self._factory = factory
         self._instance: T | None = None
         self._error: Exception | None = None
-    
+
     async def get(self) -> T | None:
         if self._instance is not None:
             return self._instance
         if self._error is not None:
             return None  # Already failed, don't retry
-        
+
         try:
             self._instance = await self._factory()
             return self._instance
@@ -190,11 +190,11 @@ async def health_live():
 async def health_ready():
     """Readiness probe - checks external dependencies."""
     config_source = get_config_source()
-    
+
     if not config_source.is_orchestrated():
         # Env-first mode: always ready
         return {"status": "ok", "mode": "standalone"}
-    
+
     # Orchestrator mode: check connectivity
     try:
         # Use a lightweight check (e.g., cached config exists or can fetch)
@@ -333,4 +333,3 @@ async def analyze_image(request: Request, image_id: str):
 | Date | Change |
 |------|--------|
 | 2025-12-25 | Initial story draft (from PM decision on review issue #41) |
-

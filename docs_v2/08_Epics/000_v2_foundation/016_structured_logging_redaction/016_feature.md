@@ -2,11 +2,11 @@
 
 # Structured Logging & Redaction
 
-**ID:** 016  
-**Name:** structured-logging-redaction  
-**Status:** Shipped  
-**Date:** 2025-11-22  
-**Author:** Retroactive Documentation  
+**ID:** 016
+**Name:** structured-logging-redaction
+**Status:** Shipped
+**Date:** 2025-11-22
+**Author:** Retroactive Documentation
 
 ## Summary
 A centralized logging framework that outputs machine-parseable JSON payloads while strictly enforcing the redaction of sensitive secrets (API keys, tokens) to prevent leaks. This forms the foundation for all observability in the system.
@@ -51,7 +51,7 @@ Standard Python text logging (e.g., `INFO: User logged in`) is hard to parse pro
 - **Feature 007:** This feature provides the mechanism used by "Cross-Cutting Performance Observability".
 
 ## Risks & Mitigations
-- **Risk:** Regex misses a novel secret format.  
+- **Risk:** Regex misses a novel secret format.
   **Mitigation:** Regular review of regex patterns; strict scoping of secrets to environment variables (not hardcoded).
-- **Risk:** JSON serialization failure for complex objects.  
+- **Risk:** JSON serialization failure for complex objects.
   **Mitigation:** `log_json` should handle non-serializable objects gracefully (e.g., `str()`) or developers must pass only serializable primitives.

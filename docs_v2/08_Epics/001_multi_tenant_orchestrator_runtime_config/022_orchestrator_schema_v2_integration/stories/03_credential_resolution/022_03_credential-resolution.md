@@ -1,8 +1,8 @@
 # Story 03 — Credential Resolution
 
-**Feature ID:** 022  
-**Story ID:** 022-03  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-03
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -22,7 +22,7 @@ Publisher V2 must resolve credentials when runtime config includes `credentials_
 - **Critical credentials** (Dropbox/storage): fail fast if resolution fails (503)
 - **Optional credentials** (telegram, openai, smtp): degrade gracefully, disable that feature
 
-**Parent feature:** [022_feature.md](../../022_feature.md)  
+**Parent feature:** [022_feature.md](../../022_feature.md)
 **Depends on:** Story 01 (Config Source Abstraction), Story 02 (Schema V2 Parsing)
 
 ---
@@ -254,4 +254,3 @@ Note: Response shape varies by provider (different secret field names).
 |------|--------|
 | 2025-12-24 | Initial story draft |
 | 2025-12-25 | Clarified FetLife credential handling (uses email_server.password_ref, not per-publisher credentials) |
-

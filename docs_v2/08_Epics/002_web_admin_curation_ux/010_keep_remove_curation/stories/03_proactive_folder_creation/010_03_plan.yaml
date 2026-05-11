@@ -59,4 +59,3 @@ tasks:
 quality_gates:
   tests_required:
     - keep_remove.tests_proactive_creation
-

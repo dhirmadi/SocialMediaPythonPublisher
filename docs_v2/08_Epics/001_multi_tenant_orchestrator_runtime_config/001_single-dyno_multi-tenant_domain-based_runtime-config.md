@@ -1,15 +1,15 @@
 # Epic 001 — Single Dyno Fleet, Multi‑Tenant, Domain‑Based Runtime Config (Orchestrator‑Sourced)
 
-**ID:** 001  
-**Name:** single-dyno-multi-tenant-domain-runtime-config  
-**Status:** Ready for implementation (Contract locked; remaining open questions are non-blocking)  
-**Date:** 2025-12-21  
-**Owner:** Product / Platform  
+**ID:** 001
+**Name:** single-dyno-multi-tenant-domain-runtime-config
+**Status:** Ready for implementation (Contract locked; remaining open questions are non-blocking)
+**Date:** 2025-12-21
+**Owner:** Product / Platform
 **Last updated:** 2025-12-25
 
 ## Summary
 
-Move from “one Heroku app/dyno per tenant” to a **single Heroku app (small dyno fleet)** that serves **hundreds of tenants** via wildcard subdomains (`xxx.shibari.photo`).  
+Move from “one Heroku app/dyno per tenant” to a **single Heroku app (small dyno fleet)** that serves **hundreds of tenants** via wildcard subdomains (`xxx.shibari.photo`).
 Per-tenant behavior is determined by **platform-orchestrator**, which returns **runtime config** for a given host (`Host` header). Publisher V2 becomes a **stateless execution plane** that:
 
 - Resolves tenant from domain
@@ -44,7 +44,7 @@ This epic is the canonical plan for multi-tenant V2.
 
 ## Non‑Goals
 
-- Multi-app routing within a single tenant domain (e.g., `xxx.shibari.photo/appA`).  
+- Multi-app routing within a single tenant domain (e.g., `xxx.shibari.photo/appA`).
   **Decision:** *one app per tenant instance*; app type is determined by orchestrator.
 - Building a public multi-user product with RBAC. We remain “operator/admin vs non-admin”.
 - Replacing Auth0; we keep Auth0 for admin mode.
@@ -129,8 +129,8 @@ Publisher must treat those artifacts as the source of truth for schema v2 fields
 
 ### 1) Runtime config by host (single call)
 
-**Endpoint (example):** `GET /v1/runtime/by-host?host=xxx.shibari.photo`  
-**Auth:** service-to-service bearer token (rotatable)  
+**Endpoint (example):** `GET /v1/runtime/by-host?host=xxx.shibari.photo`
+**Auth:** service-to-service bearer token (rotatable)
 **Response (shape):**
 
 - `tenant`: `"xxx"`
@@ -147,8 +147,8 @@ Publisher must treat those artifacts as the source of truth for schema v2 fields
 
 ### 2) Credential resolution by reference (Option A)
 
-**Endpoint (actual):** `POST /v1/credentials/resolve`  
-**Auth:** service-to-service bearer token  
+**Endpoint (actual):** `POST /v1/credentials/resolve`
+**Auth:** service-to-service bearer token
 **Request requirements (Feature 06 / orchestrator guide):**
 - Header: `X-Tenant: <tenant>` (must match tenant derived from Host)
 - Body: `{ "credentials_ref": "opaque-ref" }`
@@ -369,16 +369,16 @@ Non-admin users must not see admin-only controls (Feature 005/CR-005 guidelines 
 
 ## Risks & Mitigations
 
-- **Risk:** wildcard domain not correctly added to Heroku (DNS works but app rejects host).  
+- **Risk:** wildcard domain not correctly added to Heroku (DNS works but app rejects host).
   **Mitigation:** ensure `*.shibari.photo` is added as a Heroku domain and ACM is enabled.
 
-- **Risk:** Auth0 callback/cookie mismatch across subdomains.  
+- **Risk:** Auth0 callback/cookie mismatch across subdomains.
   **Mitigation:** single callback host + cookie domain `.shibari.photo`; explicit tests.
 
-- **Risk:** orchestrator dependency adds runtime fragility.  
+- **Risk:** orchestrator dependency adds runtime fragility.
   **Mitigation:** TTL caching + safe failure; readiness checks; clear observability.
 
-- **Risk:** provider abstraction adds complexity.  
+- **Risk:** provider abstraction adds complexity.
   **Mitigation:** implement Dropbox via interface first; add providers one-by-one with tight tests.
 
 ## Related Work
@@ -393,5 +393,3 @@ Non-admin users must not see admin-only controls (Feature 005/CR-005 guidelines 
 - Whether to support `www.xxx.shibari.photo` aliasing later.
 - Whether to include tenant-specific admin allowlists (or keep global).
 - Exact error codes for “host bound but wrong app type” (404 vs 409).
-
-

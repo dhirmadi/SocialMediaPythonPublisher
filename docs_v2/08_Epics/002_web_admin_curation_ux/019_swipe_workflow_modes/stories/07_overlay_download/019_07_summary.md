@@ -33,4 +33,3 @@ Moved the "Full Size" download button to a bottom-right overlay on the image and
 
 ## Follow-up Items
 - Monitor if Dropbox CORS headers allow client-side blob fetching in production. If not, a backend proxy route might be needed in a future story.
-

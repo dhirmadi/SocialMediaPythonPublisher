@@ -43,3 +43,5 @@ uv.lock
 # Agent tool scratch files
 agent-tools/
 agent-transcripts/
+# Don't index SpecStory auto-save files, but allow explicit context inclusion via @ references
+.specstory/**

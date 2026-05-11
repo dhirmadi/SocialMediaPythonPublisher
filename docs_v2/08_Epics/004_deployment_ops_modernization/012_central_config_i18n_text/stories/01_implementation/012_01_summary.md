@@ -2,17 +2,17 @@
 
 # Centralized Configuration & Internationalizable Text — Shipped Feature
 
-**Feature ID:** 012  
-**Name:** central-config-i18n-text  
-**Status:** Shipped  
-**Date:** 2025-11-22  
-**Author:** Architecture Team  
+**Feature ID:** 012
+**Name:** central-config-i18n-text
+**Status:** Shipped
+**Date:** 2025-11-22
+**Author:** Architecture Team
 
 ---
 
 ## Summary
 
-This feature introduces a clear configuration model that separates **secrets**, **dynamic configuration**, and **static text/rules** for Publisher V2.  
+This feature introduces a clear configuration model that separates **secrets**, **dynamic configuration**, and **static text/rules** for Publisher V2.
 It adds a small, versioned **static configuration layer** for AI prompts, platform limits, service limits, preview text, and web UI text, while preserving all existing behavior by default when static config is not customized.
 
 ---
@@ -243,5 +243,3 @@ Refer to `docs_v2/05_Configuration/CONFIGURATION.md` for the authoritative, tabu
 - `docs_v2/03_Architecture/ARCHITECTURE.md` → v2.6 (static config architecture)
 - `README.md` → Updated configuration section
 - `CHANGELOG.md` → v2.6.0 release notes
-
-

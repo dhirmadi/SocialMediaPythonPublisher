@@ -1,7 +1,7 @@
 # Configuration Migration Guide — INI to Static Config
 
-**Feature:** 012 (Centralized Configuration)  
-**Date:** 2025-11-22  
+**Feature:** 012 (Centralized Configuration)
+**Date:** 2025-11-22
 **Status:** Recommended Migration
 
 ---
@@ -92,7 +92,7 @@ role_prompt = Using the image analysis...
 - They're specific to FetLife use case
 - Changes require testing, not just config edits
 
-**Recommendation:** 
+**Recommendation:**
 - ✅ **Keep in INI for now** (deployment-specific prompts)
 - 📋 **Future:** Create `ai_prompts.fetlife.yaml` for FetLife-specific prompts
 - 🔄 **Override mechanism:** Load base prompts from YAML, allow INI override
@@ -390,4 +390,3 @@ if ini_has("Email", "caption_target"):
 - [Configuration Reference](../../../../05_Configuration/CONFIGURATION.md)
 - [Feature 012: Central Config & i18n](../../012_feature.md)
 - [Static Config Files](../../../../../publisher_v2/src/publisher_v2/config/static/)
-

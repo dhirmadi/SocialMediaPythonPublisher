@@ -1,10 +1,10 @@
 # Story: Email Server Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-03  
-**Name:** email-server-env-var  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-03
+**Name:** email-server-env-var
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -48,4 +48,3 @@ The `EMAIL_SERVER` provides infrastructure config. Publisher-specific settings (
 
 - Story 01: JSON Parser Infrastructure
 - Note: Story 02 consumes EMAIL_SERVER output when building EmailConfig for FetLife publishers.
-

@@ -34,4 +34,3 @@ tasks:
 
 quality_gates:
   tests_required: [] # UI-only change in JS
-

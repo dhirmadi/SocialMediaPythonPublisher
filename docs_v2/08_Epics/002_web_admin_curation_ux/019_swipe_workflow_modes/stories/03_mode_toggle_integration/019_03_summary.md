@@ -38,4 +38,3 @@ Implemented the UI toggle and frontend logic for switching between "Publish Mode
 
 ## Follow-up Items
 - Implement Story 04 (Position Indicator) to show "X / Y" progress in Review Mode.
-

@@ -2,14 +2,14 @@
 
 # Admin Button Position and Visibility — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-006  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-01-27  
-**Status:** Design Review  
-**Author:** Evert  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/006_admin-button-position-visibility.md  
+**Feature ID:** 005
+**Change ID:** 005-006
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-01-27
+**Status:** Design Review
+**Author:** Evert
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/006_admin-button-position-visibility.md
 **Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
@@ -153,4 +153,3 @@ If issues arise:
 - Both buttons occupy the same position (top right) and never appear simultaneously.
 - Layout remains responsive on mobile devices.
 - No regressions in existing admin login/logout functionality.
-

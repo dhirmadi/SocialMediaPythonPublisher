@@ -2,15 +2,15 @@
 
 # Web UI Admin Visibility & Responsive Layout — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-003  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-11-20  
-**Status:** Design Review  
-**Author:** Evert  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/003_web-ui-admin-visibility-responsive-layout.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-003
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-11-20
+**Status:** Design Review
+**Author:** Evert
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/003_web-ui-admin-visibility-responsive-layout.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
 
@@ -81,10 +81,10 @@
 
 ### 4.2 Components & Responsibilities
 
-- `publisher_v2.web.app`  
+- `publisher_v2.web.app`
   - No major structural changes; continues to define FastAPI app and root route.
   - May be updated to pass additional config/flags into the template context (e.g., whether web auth is enabled, maximum admin session length in minutes).
-- `publisher_v2.web.templates.index.html`  
+- `publisher_v2.web.templates.index.html`
   - Defines responsive layout using CSS (flexbox/grid) for image, controls, admin panel, and Activity section.
   - Adds the admin login modal markup and dark red admin theme styles.
   - Contains JS to:
@@ -92,11 +92,11 @@
     - Toggle visibility of admin sections and buttons.
     - Handle login/logout button behavior and modal interactions.
     - Update the Activity section with the latest action/status only.
-- `publisher_v2.web.auth` (or equivalent auth helper, if present)  
+- `publisher_v2.web.auth` (or equivalent auth helper, if present)
   - Enforces admin-only access at API endpoints as before.
   - Already implements admin-mode helpers based on an `httponly` cookie (`pv2_admin`) with a bounded TTL (default 3600 seconds, configurable via `WEB_ADMIN_COOKIE_TTL_SECONDS` and clamped between 60 and 3600 seconds); no new token formats (JWT, etc.) are required for this change.
   - Remains the single source of truth for admin status; the frontend must treat `/api/admin/status` and admin-protected endpoint responses as authoritative and only use client-side flags (`isAdmin`) as a UX cache.
-- `publisher_v2.utils.logging`  
+- `publisher_v2.utils.logging`
   - No changes to interface; may log new events such as `web_admin_login`, `web_admin_logout`, and `web_admin_session_expired`.
 
 ### 4.3 Auth Layering (Clarified)
@@ -115,14 +115,14 @@
 
 ### 4.3 Data & Contracts
 
-- **HTTP APIs:**  
+- **HTTP APIs:**
   - No breaking changes to existing endpoints:
     - `GET /api/images/random`
     - `POST /api/images/{filename}/analyze`
     - `POST /api/images/{filename}/publish`
     - `GET /health`
   - Authentication remains header-based (Bearer token or Basic Auth) per parent design.
- - **Template context:**  
+ - **Template context:**
  - Root route may pass:
   - `web_auth_enabled: bool` — whether HTTP auth is configured for mutating endpoints, used only for minor UX hints.
   - `admin_mode_available: bool` — derived from `is_admin_configured()`; when `false`, the admin button and admin-only sections must not be rendered at all.
@@ -136,9 +136,9 @@
 
 ### 4.4 Error Handling & Edge Cases
 
-- **Admin login failure:**  
+- **Admin login failure:**
   - Wrong password/token → modal shows a non-specific error message ("Authentication failed") and does not set `isAdmin`; no admin sections are displayed.
-- **Session expiry:**  
+- **Session expiry:**
   - The server enforces expiry via the admin cookie TTL (default 60 minutes, bounded via `WEB_ADMIN_COOKIE_TTL_SECONDS`).
   - On any admin action (e.g., Analyze, Publish, or an explicit `/api/admin/status` check), if the server indicates that admin mode has ended (e.g., `401/403` from an admin-only endpoint or `/api/admin/status` returns `admin=false`):
     - Client: `isAdmin` is cleared, admin sections are hidden, dark red theme is removed.
@@ -217,16 +217,16 @@
 
 ## 7. Risks & Alternatives
 
-- **Risk:** Confusion around how admin session lifetime is enforced.  
+- **Risk:** Confusion around how admin session lifetime is enforced.
   - **Mitigation:** Treat the admin cookie TTL (server-side, via `WEB_ADMIN_COOKIE_TTL_SECONDS`) as the single source of truth; the UI should react to `/api/admin/status` and 401/403 responses instead of implementing its own time calculations.
-- **Risk:** Dark red background may reduce readability or be visually jarring.  
+- **Risk:** Dark red background may reduce readability or be visually jarring.
   - **Mitigation:** Choose a dark red with high contrast and test with common devices; adjust saturation/brightness as needed.
-- **Risk:** Responsive changes may inadvertently hide or misplace important controls on large screens.  
+- **Risk:** Responsive changes may inadvertently hide or misplace important controls on large screens.
   - **Mitigation:** Use mobile-first but test responsively; keep desktop layout similar, just more flexible.
 - **Alternatives:**
-  - **Alt 1:** Keep disabled admin buttons visible to non-admins with a tooltip explaining they are admin-only.  
+  - **Alt 1:** Keep disabled admin buttons visible to non-admins with a tooltip explaining they are admin-only.
     - Rejected per change request, which explicitly wants them hidden.
-  - **Alt 2:** Implement full server-side sessions with a store.  
+  - **Alt 2:** Implement full server-side sessions with a store.
     - Rejected due to no-new-DB constraint and preference for stateless design.
 
 ## 8. Work Plan (Scoped)
@@ -254,5 +254,3 @@
 
 - How exactly is admin authentication currently implemented on the server (pure token vs. Basic-only), and can we align token expiry to exactly 60 minutes to match the UI behavior? — **Resolved:** HTTP auth continues to use `WEB_AUTH_TOKEN` or `WEB_AUTH_USER`/`WEB_AUTH_PASS`, and admin sessions are already enforced via the `pv2_admin` cookie TTL (`WEB_ADMIN_COOKIE_TTL_SECONDS`, default 3600 seconds, clamped between 60 and 3600); the UI should treat this as authoritative and not introduce separate client-side timers for expiry.
 - Should the Activity section display timestamps or only textual status for the current action? — Proposed answer: keep to textual status for MVP; consider timestamps later if needed.
-
-

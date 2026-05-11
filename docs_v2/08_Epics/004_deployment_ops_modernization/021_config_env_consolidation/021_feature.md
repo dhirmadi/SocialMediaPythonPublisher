@@ -1,9 +1,9 @@
 # Configuration Environment Variable Consolidation
 
-**ID:** 021  
-**Name:** config-env-consolidation  
-**Status:** Shipped  
-**Date Completed:** 2025-12-23  
+**ID:** 021
+**Name:** config-env-consolidation
+**Status:** Shipped
+**Date Completed:** 2025-12-23
 **Author:** Product / Platform
 
 ## Summary
@@ -195,21 +195,21 @@ CONTENT_SETTINGS='{"hashtag_string": "#art #photography", "archive": true, "debu
 
 ## Risks & Mitigations
 
-- **Risk**: JSON syntax errors in environment variables cause silent failures  
+- **Risk**: JSON syntax errors in environment variables cause silent failures
   **Mitigation**: Fail fast with clear error messages indicating which variable and the parse error
 
-- **Risk**: Operators confused by dual config systems during transition  
+- **Risk**: Operators confused by dual config systems during transition
   **Mitigation**: Clear documentation, deprecation warnings for INI-based config
 
-- **Risk**: Storage path format mismatch with current relative-path logic  
+- **Risk**: Storage path format mismatch with current relative-path logic
   **Mitigation**: Careful handling in loader; detect absolute vs relative paths and handle accordingly
 
 ## Open Questions
 
-- **Q**: Should we log a deprecation warning when INI-based config is used?  
+- **Q**: Should we log a deprecation warning when INI-based config is used?
   **A**: Yes, emit a warning to encourage migration.
 
-- **Q**: How long to maintain backward compatibility with INI files?  
+- **Q**: How long to maintain backward compatibility with INI files?
   **A**: Versioned deprecation plan:
   - **v2.7**: introduce env consolidation + deprecation warning when INI is used
   - **v2.8**: INI support deprecated (warning on every startup when used)
@@ -242,4 +242,3 @@ When Feature 021 is adopted for the `fetlife` Heroku pipeline, we should stop us
 - Execute the documented migration on the production Heroku `fetlife` pipeline (Story 021-07 runbook).
 - Monitor deprecation warnings during the transition period.
 - After all apps are migrated, remove `FETLIFE_INI`/INI bootstrap code and any remaining deployment reliance on INI files.
-

@@ -2,12 +2,12 @@
 
 # Keep/Remove Curation Controls — Feature Design
 
-**Feature ID:** 010  
-**Feature Name:** keep-remove-curation  
-**Design Version:** 1.0  
-**Date:** 2025-11-21  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Feature ID:** 010
+**Feature Name:** keep-remove-curation
+**Design Version:** 1.0
+**Date:** 2025-11-21
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -695,13 +695,11 @@ This is invoked by `WorkflowOrchestrator.keep_image/remove_image` when `preview_
 
 ## 12. References
 
-- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/010_keep-remove-curation.md`  
-- Configuration Loader: `publisher_v2/src/publisher_v2/config/loader.py`  
-- Configuration Schema: `publisher_v2/src/publisher_v2/config/schema.py`  
-- Storage: `publisher_v2/src/publisher_v2/services/storage.py`  
-- Workflow Orchestrator: `publisher_v2/src/publisher_v2/core/workflow.py`  
-- Web App & Service: `publisher_v2/src/publisher_v2/web/app.py`, `publisher_v2/src/publisher_v2/web/service.py`  
-- Web Models & Auth: `publisher_v2/src/publisher_v2/web/models.py`, `publisher_v2/src/publisher_v2/web/auth.py`  
-- Preview Utilities: `publisher_v2/src/publisher_v2/utils/preview.py`  
-
-
+- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/010_keep-remove-curation.md`
+- Configuration Loader: `publisher_v2/src/publisher_v2/config/loader.py`
+- Configuration Schema: `publisher_v2/src/publisher_v2/config/schema.py`
+- Storage: `publisher_v2/src/publisher_v2/services/storage.py`
+- Workflow Orchestrator: `publisher_v2/src/publisher_v2/core/workflow.py`
+- Web App & Service: `publisher_v2/src/publisher_v2/web/app.py`, `publisher_v2/src/publisher_v2/web/service.py`
+- Web Models & Auth: `publisher_v2/src/publisher_v2/web/models.py`, `publisher_v2/src/publisher_v2/web/auth.py`
+- Preview Utilities: `publisher_v2/src/publisher_v2/utils/preview.py`

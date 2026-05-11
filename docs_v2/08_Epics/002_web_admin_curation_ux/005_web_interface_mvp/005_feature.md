@@ -2,22 +2,22 @@
 
 # Web Interface MVP
 
-**ID:** 005  
-**Name:** web-interface-mvp  
-**Status:** Shipped  
-**Date:** 2025-11-19  
-**Author:** Evert  
+**ID:** 005
+**Name:** web-interface-mvp
+**Status:** Shipped
+**Date:** 2025-11-19
+**Author:** Evert
 
 ## Summary
-Introduce a minimal web interface on top of the existing Social Media Publisher V2 so it can be accessed and controlled from a phone, without changing core behaviors or adding new data stores.  
-The MVP will expose a simple browser-based UI that lets the (single) operator view a random image from the configured S3 storage, trigger AI analysis/captioning, and publish the image using the existing publishers.  
-All state continues to live in S3 and sidecar files; no MongoDB, streams, or multi-tenant capabilities are introduced in this phase.  
+Introduce a minimal web interface on top of the existing Social Media Publisher V2 so it can be accessed and controlled from a phone, without changing core behaviors or adding new data stores.
+The MVP will expose a simple browser-based UI that lets the (single) operator view a random image from the configured S3 storage, trigger AI analysis/captioning, and publish the image using the existing publishers.
+All state continues to live in S3 and sidecar files; no MongoDB, streams, or multi-tenant capabilities are introduced in this phase.
 The solution must be deployable as a single Heroku web app using the current configuration and async patterns.
 
 ## Problem Statement
-Today the system can only be operated via a CLI command on a machine with terminal access, which is inconvenient when the user wants to run workflows from a mobile device.  
-This friction makes it harder to casually preview images, trigger AI analysis/caption generation, and publish content while away from the development machine.  
-The existing architecture already encapsulates image selection, AI processing, sidecar creation, and publishing, but there is no thin, easy-to-use web layer exposing those capabilities.  
+Today the system can only be operated via a CLI command on a machine with terminal access, which is inconvenient when the user wants to run workflows from a mobile device.
+This friction makes it harder to casually preview images, trigger AI analysis/caption generation, and publish content while away from the development machine.
+The existing architecture already encapsulates image selection, AI processing, sidecar creation, and publishing, but there is no thin, easy-to-use web layer exposing those capabilities.
 We need a simple, secure-enough web UI that reuses the current logic, avoids extra infrastructure (like new databases or services), and can be deployed to Heroku.
 
 ## Goals
@@ -129,13 +129,13 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
   - TODO: basic Heroku or external monitoring dashboards to be defined later (e.g., alert on sustained 5xx from the web endpoint).
 
 ## Risks & Mitigations
-- Risk: Web UI may accidentally allow unintended publishing if protections are too weak.  
+- Risk: Web UI may accidentally allow unintended publishing if protections are too weak.
   Mitigation: Require an explicit "publish" action only on the currently shown image, add a simple auth/secret, and preserve dry/preview modes as configurable safe defaults.
-- Risk: Introducing the web layer could accidentally diverge from CLI behavior.  
+- Risk: Introducing the web layer could accidentally diverge from CLI behavior.
   Mitigation: Ensure the web code paths call into `WorkflowOrchestrator` and existing services rather than re-implementing logic; add tests that exercise both CLI and web triggers.
-- Risk: Heroku dyno restarts or config drift may break the app.  
+- Risk: Heroku dyno restarts or config drift may break the app.
   Mitigation: Centralize configuration in environment variables + INI, document deployment steps, and add health-check endpoint.
-- Risk: Latency on mobile networks may make actions feel slow.  
+- Risk: Latency on mobile networks may make actions feel slow.
   Mitigation: Keep UI simple, provide clear loading indicators and status messages; rely on existing retry and rate-limit logic.
 
 ## Open Questions
@@ -145,11 +145,11 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 - Where should the config INI live and how should the web app select it on Heroku? — Proposed answer: Path provided via environment variable; documented in deployment instructions.
 
 ## Milestones
-- M1: Design & wiring  
+- M1: Design & wiring
   - Exit criteria: Chosen web framework; high-level API design for web endpoints; plan for auth and configuration documented.
-- M2: Implementation  
+- M2: Implementation
   - Exit criteria: Web server integrated; endpoints for next image, analyze/caption, and publish implemented; sidecar writing and archiving confirmed to behave identically to CLI flows.
-- M3: Validation & deployment  
+- M3: Validation & deployment
   - Exit criteria: Automated tests for web endpoints; manual end-to-end tests from a phone; Heroku deployment configured and documented; basic logging confirmed in production-like environment.
 
 ## Definition of Done
@@ -167,4 +167,3 @@ We need a simple, secure-enough web UI that reuses the current logic, avoids ext
 - Clarification that streams, multiple storage providers, and MongoDB-based metadata are desired future capabilities but out of scope for this initial web MVP.
 - Agreement to reuse S3 as the source of truth and sidecar `.txt` files for metadata, avoiding additional data stores.
 - Desire to deploy the solution on Heroku and operate it primarily from a mobile browser, with minimal but sufficient safeguards for publishing actions.
-

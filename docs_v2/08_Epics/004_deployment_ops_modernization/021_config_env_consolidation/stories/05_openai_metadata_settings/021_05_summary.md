@@ -1,8 +1,8 @@
 # Story Summary: OpenAI and Metadata Settings
 
-**Feature ID:** 021  
-**Story ID:** 021-05  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-05
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -61,4 +61,3 @@ Implemented helper functions to parse JSON environment variables for OpenAI conf
 - Story Definition: 021_05_openai-metadata-settings.md
 - Story Design: 021_05_design.md
 - Story Plan: 021_05_plan.yaml
-

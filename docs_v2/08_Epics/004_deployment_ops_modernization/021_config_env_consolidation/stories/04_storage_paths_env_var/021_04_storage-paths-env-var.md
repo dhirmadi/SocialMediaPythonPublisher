@@ -1,10 +1,10 @@
 # Story: Storage Paths Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-04  
-**Name:** storage-paths-env-var  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-04
+**Name:** storage-paths-env-var
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -64,4 +64,3 @@ Alignment with Orchestrator API (Epic 001):
 ## Dependencies
 
 - Story 01: JSON Parser Infrastructure
-

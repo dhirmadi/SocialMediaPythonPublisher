@@ -24,4 +24,3 @@ The "target subfolder not configured" error occurs because the configuration sch
         *   Verify that loading an empty/minimal config results in "keep" and "reject" folders.
         *   Verify that explicit values override defaults.
         *   Verify legacy `folder_reject` still works and takes precedence over the default "reject".
-

@@ -2,15 +2,15 @@
 
 # Analysis Performance & Telemetry — Change Design
 
-**Feature ID:** 003  
-**Change ID:** 003-001  
-**Parent Feature:** Expanded Vision Analysis JSON  
-**Design Version:** 1.0  
-**Date:** 2025-11-20  
-**Status:** Design Review  
-**Author:** TODO (Architecture Team)  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/003/001_analysis-performance-telemetry.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/003_expanded-vision-analysis-json_design.md  
+**Feature ID:** 003
+**Change ID:** 003-001
+**Parent Feature:** Expanded Vision Analysis JSON
+**Design Version:** 1.0
+**Date:** 2025-11-20
+**Status:** Design Review
+**Author:** TODO (Architecture Team)
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/003/001_analysis-performance-telemetry.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/003_expanded-vision-analysis-json_design.md
 
 ## 1. Summary
 
@@ -156,5 +156,3 @@
 - What exact p95 latency target should we enforce or document for the configured vision model(s)? — Proposed answer: start with 1500 ms p95 as a working assumption aligned with overall NFRs; refine after collecting baseline measurements.
 - Should token usage fields from OpenAI responses be explicitly logged (if/when exposed) or only inferred from higher-level metrics? — Proposed answer: start by logging them only when cheaply available and clearly non-sensitive; avoid increasing log volume unnecessarily.
 - Do we need a dedicated CI step for analysis performance regression checks, or are periodic manual benchmarks sufficient? — Proposed answer: TODO; revisit once basic telemetry is in place and we have initial baseline data.
-
-

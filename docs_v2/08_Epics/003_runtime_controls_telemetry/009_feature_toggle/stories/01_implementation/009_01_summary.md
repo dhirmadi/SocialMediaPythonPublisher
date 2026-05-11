@@ -2,10 +2,10 @@
 
 # Feature Toggle System — Final Documentation
 
-**Feature ID:** 009  
-**Name:** feature-toggle  
-**Status:** Shipped  
-**Date:** 2025-01-27  
+**Feature ID:** 009
+**Name:** feature-toggle
+**Status:** Shipped
+**Date:** 2025-01-27
 
 ---
 
@@ -62,4 +62,3 @@ Introduced environment-variable-driven feature toggles that allow operators to i
 - Plan: `docs_v2/08_Epics/003_runtime_controls_telemetry/009_feature_toggle/stories/01_implementation/009_01_plan.yaml`
 - Critical Review: `docs_v2/09_Reviews/009_feature-toggle_review.md`
 - Final Doc (this file)
-

@@ -50,4 +50,3 @@ img {
 
 ## 5. Work Plan
 - Task 1: Apply CSS fixes in `index.html`.
-

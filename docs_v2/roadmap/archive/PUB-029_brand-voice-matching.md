@@ -76,4 +76,3 @@ This item is the *remaining work* to complete the brand voice feature end-to-end
 
 - [PUB-025: Platform-Adaptive Captions](archive/PUB-025_platform-adaptive-captions.md) — the per-platform caption system this enhances with voice consistency
 - [PUB-001: Caption File](archive/PUB-001_caption-file.md) — original caption generation system
-

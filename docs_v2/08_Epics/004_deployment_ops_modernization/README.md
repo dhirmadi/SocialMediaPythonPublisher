@@ -11,5 +11,3 @@ This epic groups the operational and deployment improvements that prepare V2 for
 ## Legacy / Misc
 
 - `012_i18n_activation_summary.md` (redirect/legacy pointer)
-
-

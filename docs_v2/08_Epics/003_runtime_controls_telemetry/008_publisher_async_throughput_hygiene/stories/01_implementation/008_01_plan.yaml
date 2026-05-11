@@ -92,5 +92,3 @@ release:
   metrics:
     - "workflow.publish_parallel_ms"
     - "publisher.publish_duration_ms_by_platform"
-
-

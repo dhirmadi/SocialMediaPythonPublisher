@@ -1,8 +1,8 @@
 # Story 01 — Config Source Abstraction
 
-**Feature ID:** 022  
-**Story ID:** 022-01  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-01
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -308,32 +308,32 @@ def normalize_host(host: str) -> str:
 def validate_host(host: str) -> bool:
     """Return False for invalid host shapes."""
     h = normalize_host(host)
-    
+
     # Reject IPv4 literals
     if re.match(r'^\d{1,3}(\.\d{1,3}){3}$', h):
         return False
-    
+
     # Reject IPv6 literals
     if h.startswith('[') or '::' in h or re.match(r'^[0-9a-f:]+$', h):
         return False
-    
+
     # Reject localhost
     if h == 'localhost':
         return False
-    
+
     # Reject www prefix
     if h.startswith('www.'):
         return False
-    
+
     # Reject double-dot / empty label
     if '..' in h or h.startswith('.') or h.endswith('.'):
         return False
-    
+
     return True
 
 def extract_tenant(host: str, base_domain: str = "shibari.photo") -> str:
     """Extract tenant label from host.
-    
+
     Args:
         host: Normalized host (e.g., "xxx.shibari.photo")
         base_domain: Base domain from ORCHESTRATOR_BASE_DOMAIN env var
@@ -356,4 +356,3 @@ def extract_tenant(host: str, base_domain: str = "shibari.photo") -> str:
 | 2025-12-25 | Q2: Changed interface from `tenant` to `host` parameter |
 | 2025-12-25 | Q3/Q4: Added multi-tenant request flow architecture and service client lifecycle |
 | 2025-12-25 | Q5: Added `ENV_ALLOWED_TENANT` for env-first tenant isolation |
-

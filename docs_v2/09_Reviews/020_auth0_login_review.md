@@ -1,9 +1,9 @@
 # Auth0 Login Migration — Critical Architectural Review
 
-**Feature ID:** 020  
-**Feature Name:** auth0-login  
-**Review Date:** 2025-12-09  
-**Reviewer:** Senior Software Architect (AI Agent)  
+**Feature ID:** 020
+**Feature Name:** auth0-login
+**Review Date:** 2025-12-09
+**Reviewer:** Senior Software Architect (AI Agent)
 **Status:** ⚠️ Approved with Critical Fixes Required
 
 ---
@@ -102,8 +102,8 @@ The feature replaces the shared `web_admin_pw` password mechanism with Auth0 OID
    def get_auth_mode() -> str:
        if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
            return "auth0"
-   
-   # routers/auth.py  
+
+   # routers/auth.py
    def ensure_oauth_configured(service: WebImageService) -> bool:
        if not oauth._registry.get("auth0") and service.config.auth0:
            configure_oauth(service.config)
@@ -142,7 +142,7 @@ The feature replaces the shared `web_admin_pw` password mechanism with Auth0 OID
 
 ### 🔴 MUST FIX: Documentation & Test Path Mismatch
 
-**Severity:** Critical  
+**Severity:** Critical
 **Impact:** Tests fail (7 of 11), documentation is incorrect
 
 **Problem:**
@@ -151,7 +151,7 @@ Documentation and tests specify routes at `/api/auth/*`:
 ```markdown
 # From 020_design.md (INCORRECT)
 - GET /api/auth/login  — Redirects to Auth0
-- GET /api/auth/callback — OIDC Callback  
+- GET /api/auth/callback — OIDC Callback
 - GET /api/auth/logout — Unified logout
 ```
 
@@ -195,7 +195,7 @@ response = client.get("/api/auth/login", follow_redirects=False)
 
 ### 🔴 MUST FIX: Test Suite Failures
 
-**Severity:** Critical  
+**Severity:** Critical
 **Impact:** CI/CD will fail, quality gate not met
 
 **Failing Tests (7 of 11):**
@@ -217,7 +217,7 @@ response = client.get("/api/auth/login", follow_redirects=False)
 
 ### 🟡 SHOULD FIX: Documentation Status Drift
 
-**Severity:** Medium  
+**Severity:** Medium
 **Impact:** Confusion for developers and operators
 
 | Document | Stated Status | Actual Status |
@@ -231,7 +231,7 @@ response = client.get("/api/auth/login", follow_redirects=False)
 
 ### 🟡 SHOULD FIX: Frontend Modal Retention
 
-**Severity:** Low  
+**Severity:** Low
 **Impact:** Code clarity, but functionality is correct
 
 Design document states:
@@ -245,7 +245,7 @@ But `index.html` retains the password modal (lines 304-325). This is actually co
 
 ### 🟢 NICE TO HAVE: Session Secret Generation
 
-**Severity:** Low  
+**Severity:** Low
 **Impact:** Developer experience in local/test environments
 
 Current behavior in `app.py`:
@@ -447,6 +447,5 @@ The OAuth/OIDC routes use `/auth/*` (without `/api` prefix):
 
 ---
 
-**Review Status:** ⚠️ **CONDITIONALLY APPROVED**  
+**Review Status:** ⚠️ **CONDITIONALLY APPROVED**
 **Next Steps:** Update tests and documentation to use `/auth/*` paths, verify all tests pass
-

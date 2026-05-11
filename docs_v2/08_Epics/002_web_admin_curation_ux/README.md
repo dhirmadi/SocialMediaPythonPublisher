@@ -9,5 +9,3 @@ This epic groups everything related to **operating Publisher V2 from the web UI*
 - Feature 018: Thumbnail Preview Optimization → `018_thumbnail_preview_optimization/`
 - Feature 019: Swipe Workflow Modes → `019_swipe_workflow_modes/`
 - Feature 020: Auth0 Login → `020_auth0_login/`
-
-

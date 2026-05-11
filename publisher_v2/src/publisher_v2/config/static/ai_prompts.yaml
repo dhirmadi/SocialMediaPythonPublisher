@@ -46,7 +46,7 @@ platform_captions:
   telegram:
     style: "conversational, emoji-friendly, artistic commentary"
     max_length: 4096
-    hashtags: true
+    hashtags: false
   instagram:
     style: "hook-first, hashtags woven naturally, engaging, visual storytelling"
     max_length: 2200
@@ -64,5 +64,3 @@ platform_captions:
 confirmation_tags:
   prompt: "short, lowercase, human-friendly topical nouns as used on FetLife; no hashtags; no emojis"
   default_count: 5
-
-

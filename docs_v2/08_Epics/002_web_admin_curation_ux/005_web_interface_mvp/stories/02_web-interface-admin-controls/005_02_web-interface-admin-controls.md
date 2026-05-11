@@ -1,10 +1,10 @@
 # Web Interface Admin Controls
 
-**Feature ID:** 005  
-**Change ID:** 005-001  
-**Status:** Shipped  
-**Date Completed:** 2025-11-19  
-**Code Branch / PR:** TODO  
+**Feature ID:** 005
+**Change ID:** 005-001
+**Status:** Shipped
+**Date Completed:** 2025-11-19
+**Code Branch / PR:** TODO
 
 ## Summary
 This change adds a lightweight admin-only mode to the Web Interface MVP so that only an administrator can trigger **Analyze & caption** and **Publish** and view detailed status/results, while captions remain visible to all users. Admin mode is unlocked via a shared password from `.env` (`web_admin_pw`) and tracked with a short-lived cookie (<1 hour), and the administrator can explicitly log out to clear admin privileges. The implementation reuses existing FastAPI/web components and HTTP auth, without altering CLI workflows or introducing new data stores.
@@ -26,8 +26,8 @@ This change adds a lightweight admin-only mode to the Web Interface MVP so that 
 This change makes the web UI safer to expose on shared or less-controlled devices by preventing casual users from triggering AI analysis or publishing, and by hiding internal operational details. The single operator can still run the full workflow from their phone or browser with minimal friction, while viewers can safely see images and captions without being able to cause side effects.
 
 ## Technical Overview
-- **Scope of the change:**  
-  - Web interface only: FastAPI app, web auth, web models, HTML template, and web docs.  
+- **Scope of the change:**
+  - Web interface only: FastAPI app, web auth, web models, HTML template, and web docs.
   - No changes to core orchestrator, AI, storage, or CLI entrypoints.
 - **Core flow delta (before vs after):**
   - Before: Any web client that passed HTTP auth (if configured) could hit analyze/publish endpoints and see detailed status/results.
@@ -120,11 +120,11 @@ This change makes the web UI safer to expose on shared or less-controlled device
   - If needed, revert the admin endpoints and template changes while leaving the underlying web MVP intact.
 
 ## Artifacts
-- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls.md  
-- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls_design.md  
-- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls_plan.yaml  
-- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
-- PR: TODO  
+- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls.md
+- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls_design.md
+- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/001_web-interface-admin-controls_plan.yaml
+- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
+- PR: TODO
 
 ## Final Notes
 This story provides a pragmatic, low-complexity safety layer for the Web Interface MVP without changing its core behavior or data model. Future follow-ups could add an explicit “log out of admin mode” control, refine which status fields are considered sensitive, and make cookie TTL/configuration more visible in operator-facing documentation.

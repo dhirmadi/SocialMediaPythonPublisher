@@ -204,5 +204,3 @@ release:
     - web_errors_total
     - web_publish_success_total
     - web_publish_p95_ms
-
-

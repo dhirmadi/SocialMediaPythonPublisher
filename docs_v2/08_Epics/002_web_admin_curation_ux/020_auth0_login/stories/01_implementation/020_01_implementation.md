@@ -48,4 +48,3 @@ Implement the Auth0 OIDC login flow for the Web UI, replacing the existing passw
 ## Dependencies
 - `authlib`
 - `httpx`
-

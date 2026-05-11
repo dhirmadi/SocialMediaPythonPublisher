@@ -32,4 +32,3 @@ Replaced the manual "Publish vs Review" toggle with automatic mode selection bas
 
 ## Follow-up Items
 - None.
-

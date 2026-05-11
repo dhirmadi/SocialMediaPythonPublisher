@@ -210,11 +210,11 @@ All new code should include type hints:
 # Good
 def process_image(image_path: str, quality: int = 85) -> bool:
     """Process an image file.
-    
+
     Args:
         image_path: Path to the image file
         quality: JPEG quality (1-100)
-        
+
     Returns:
         True if successful, False otherwise
     """
@@ -239,23 +239,23 @@ def send_to_platform(
     credentials: dict
 ) -> bool:
     """Send image and caption to a social media platform.
-    
+
     This function handles authentication, image upload, and posting
     to the specified platform.
-    
+
     Args:
         platform: Platform name (instagram, telegram, email)
         image: Path to the image file
         caption: Text caption for the post
         credentials: Dictionary containing platform credentials
-        
+
     Returns:
         True if post was successful, False otherwise
-        
+
     Raises:
         ValueError: If platform is not supported
         ConnectionError: If unable to connect to platform API
-        
+
     Example:
         >>> credentials = {'token': 'abc123'}
         >>> send_to_platform('telegram', 'photo.jpg', 'Hello!', credentials)
@@ -419,20 +419,20 @@ from py_rotator_daily import resize_image, list_images_in_dropbox
 
 class TestImageManager:
     """Tests for image management functions."""
-    
+
     def test_resize_image_maintains_aspect_ratio(self):
         """Test that resize maintains aspect ratio."""
         # Arrange
         original_image = "test_image.jpg"
         expected_width = 1280
-        
+
         # Act
         result = resize_image(original_image)
-        
+
         # Assert
         assert result is not None
         # Add more assertions
-        
+
     @patch('dropbox.Dropbox')
     async def test_list_images_returns_only_images(self, mock_dbx):
         """Test that list_images filters non-image files."""
@@ -442,10 +442,10 @@ class TestImageManager:
             Mock(name='document.pdf'),
             Mock(name='photo.png')
         ])
-        
+
         # Act
         images = await list_images_in_dropbox(mock_dbx, '/test')
-        
+
         # Assert
         assert 'document.pdf' not in images
 ```
@@ -602,4 +602,3 @@ By contributing, you agree that your contributions will be licensed under the sa
 **Thank you for contributing! 🎉**
 
 Your efforts help make this project better for everyone in the community.
-

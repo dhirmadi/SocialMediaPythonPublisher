@@ -96,5 +96,3 @@ release:
   feature_flag: "CONFIG_SOURCE"
   rollout_strategy: "direct"
   rollback_plan: "Set CONFIG_SOURCE=env and remove ORCHESTRATOR_BASE_URL"
-
-

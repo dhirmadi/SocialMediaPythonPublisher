@@ -75,5 +75,3 @@ release:
   flags: []
   migration_notes:
     - "scripts/servers.txt is a local, environment-specific log file and is not committed to version control."
-
-

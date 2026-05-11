@@ -95,4 +95,3 @@ This story implements the core Auth0 OIDC login flow for the Web UI. It replaces
 5. Update `publisher_v2.web.templates.index.html` (Cleanup modal JS, simplified button).
 6. Add tests in `tests/web/test_auth0.py` (Include CSV robust parsing test).
 7. Verify and fix lint/types.
-

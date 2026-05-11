@@ -137,4 +137,3 @@ release:
   strategy: "gradual"
   flags: [ "features.sd_caption_enabled", "features.sd_caption_single_call_enabled" ]
   metrics: [ "sd_caption_success_total", "sd_caption_error_total", "sidecar_upload_error_total", "sd_caption_latency_ms_p95" ]
-

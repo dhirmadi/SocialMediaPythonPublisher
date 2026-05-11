@@ -1,8 +1,8 @@
 # Story Summary: Heroku Pipeline Migration
 
-**Feature ID:** 021  
-**Story ID:** 021-07  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-07
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -95,4 +95,3 @@ After migration, confirm:
 - Story Design: 021_07_design.md
 - Story Plan: 021_07_plan.yaml
 - Configuration Docs: docs_v2/05_Configuration/CONFIGURATION.md
-

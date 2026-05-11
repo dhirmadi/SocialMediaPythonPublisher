@@ -1,9 +1,9 @@
 # Code Review Report - Social Media Python Publisher
 
-**Review Date:** November 7, 2025  
-**Last Updated:** November 7, 2025  
-**Reviewed By:** Code Review System  
-**Application Version:** 1.1 (Post-Improvements)  
+**Review Date:** November 7, 2025
+**Last Updated:** November 7, 2025
+**Reviewed By:** Code Review System
+**Application Version:** 1.1 (Post-Improvements)
 **Lines of Code:** ~430
 
 ---
@@ -96,7 +96,7 @@ smtp_server = smtplib.SMTP(email_config['smtp_server'], email_config['smtp_port'
    - Protects `.env`, `*.ini`, `*session.json`, logs, and more
    - Prevents credential leaks to git
 
-2. **Added .cursorignore** 
+2. **Added .cursorignore**
    - Prevents Cursor AI from indexing sensitive data
    - Protects credentials, configs, sessions, and logs
 
@@ -202,8 +202,8 @@ See sections below for detailed recommendations on remaining issues. For the pla
 
 ### ✅ RESOLVED: Hardcoded Credentials Risk (Was CRITICAL #1)
 
-**File:** `py_rotator_daily.py`, `.gitignore`, `.cursorignore`  
-**Original Severity:** CRITICAL  
+**File:** `py_rotator_daily.py`, `.gitignore`, `.cursorignore`
+**Original Severity:** CRITICAL
 **Current Status:** ✅ **SIGNIFICANTLY IMPROVED**
 
 **What Was Fixed:**
@@ -225,7 +225,7 @@ Add runtime validation to check for placeholder values:
 def validate_no_hardcoded_secrets(config):
     """Ensure no placeholder values are used"""
     dangerous_patterns = ['your_', 'example', 'password123', 'test']
-    
+
     for key, value in config.items():
         if isinstance(value, str):
             for pattern in dangerous_patterns:
@@ -239,7 +239,7 @@ def validate_no_hardcoded_secrets(config):
 
 ### 🔴 CRITICAL #2: Unencrypted Password Storage
 
-**File:** `py_rotator_daily.py`, `.env`  
+**File:** `py_rotator_daily.py`, `.env`
 **Severity:** CRITICAL
 
 **Issue:**
@@ -276,8 +276,8 @@ def get_secure_password(service, username):
 
 ### 🟡 HIGH #3: Instagram API Terms of Service Violation
 
-**File:** `py_rotator_daily.py`  
-**Lines:** 180-213  
+**File:** `py_rotator_daily.py`
+**Lines:** 180-213
 **Severity:** HIGH
 
 **Issue:**
@@ -303,13 +303,13 @@ import requests
 async def post_image_to_instagram_graph_api(page_access_token, image_url, caption):
     """Use official Instagram Graph API"""
     api_url = f"https://graph.facebook.com/v18.0/{instagram_business_account_id}/media"
-    
+
     params = {
         'image_url': image_url,
         'caption': caption,
         'access_token': page_access_token
     }
-    
+
     response = requests.post(api_url, params=params)
     return response.json()
 ```
@@ -318,8 +318,8 @@ async def post_image_to_instagram_graph_api(page_access_token, image_url, captio
 
 ### 🟡 HIGH #4: No Temporary File Cleanup
 
-**File:** `py_rotator_daily.py`  
-**Lines:** 114, 139  
+**File:** `py_rotator_daily.py`
+**Lines:** 114, 139
 **Severity:** HIGH
 
 **Issue:**
@@ -369,8 +369,8 @@ async with temporary_image_file(dbx, image_folder, selected_image_name) as image
 
 ### 🟡 HIGH #5: Missing Input Validation
 
-**File:** `py_rotator_daily.py`  
-**Lines:** 49-78  
+**File:** `py_rotator_daily.py`
+**Lines:** 49-78
 **Severity:** HIGH
 
 **Issue:**
@@ -397,17 +397,17 @@ def read_config(configfile):
 def read_config(configfile):
     """Read and validate configuration"""
     configuration = configparser.ConfigParser()
-    
+
     if not os.path.exists(configfile):
         raise FileNotFoundError(f"Config file not found: {configfile}")
-    
+
     configuration.read(configfile)
-    
+
     config = {
         'image_folder': configuration['Dropbox']['image_folder'],
         # ... other fields
     }
-    
+
     # Validation
     _validate_config(config)
     return config
@@ -419,15 +419,15 @@ def _validate_config(config):
     missing = [field for field in required_fields if not config.get(field)]
     if missing:
         raise ValueError(f"Missing required configuration: {', '.join(missing)}")
-    
+
     # Validate folder path format
     if not config['image_folder'].startswith('/'):
         raise ValueError("image_folder must start with '/'")
-    
+
     # Validate API keys format
     if config.get('openai_api_key') and not config['openai_api_key'].startswith('sk-'):
         raise ValueError("Invalid OpenAI API key format")
-    
+
     # Validate boolean values
     for bool_field in ['run_archive', 'run_telegram', 'run_instagram', 'run_fetlife', 'run_debug']:
         if not isinstance(config.get(bool_field), bool):
@@ -525,7 +525,7 @@ class RateLimiter:
     def __init__(self, calls_per_second):
         self.calls_per_second = calls_per_second
         self.last_call = 0
-    
+
     def wait_if_needed(self):
         elapsed = time() - self.last_call
         min_interval = 1.0 / self.calls_per_second
@@ -645,24 +645,24 @@ from urllib3.util.retry import Retry
 def create_secure_session():
     """Create requests session with security settings"""
     session = requests.Session()
-    
+
     # Retry strategy with exponential backoff
     retry_strategy = Retry(
         total=3,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504]
     )
-    
+
     adapter = HTTPAdapter(max_retries=retry_strategy)
     session.mount("https://", adapter)
     session.mount("http://", adapter)
-    
+
     # Timeout for all requests
     session.timeout = 30
-    
+
     # Verify SSL certificates
     session.verify = True
-    
+
     return session
 ```
 
@@ -772,7 +772,7 @@ async def query_openai(prompt, engine, api_key, systemcontent, rolecontent):
 ```python
 def query_openai(...):
     try:
-        # ... 
+        # ...
         return response.choices[0].message.content  # Returns str
     except openai.APIError as e:
         logging.error(f"An error occurred: {e}")
@@ -815,7 +815,7 @@ def query_openai(...):
    # Line 87 - too long
    response = client.chat.completions.create(messages=[...], model=engine)
    ```
-   
+
    **Fix:**
    ```python
    response = client.chat.completions.create(
@@ -831,7 +831,7 @@ def query_openai(...):
    ```python
    #client.user_agent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)..."
    ```
-   
+
    **Fix:** Remove commented code or document why it's kept
 
 3. **Inconsistent String Quotes**
@@ -860,11 +860,11 @@ def query_openai(...):
    configuration: dict[str | Any, str | int | Any] = read_config(configfile)
    # Should be:
    configuration: Dict[str, Union[str, int, bool]] = read_config(configfile)
-   
+
    # Line 54: Abbreviation
    db_token = ...  # Better: dropbox_token
    db_refresh = ...  # Better: dropbox_refresh_token
-   
+
    # Line 228: Inconsistent naming
    def get_dropbox_client(configfile):  # Parameter is actually config dict, not file
    ```
@@ -912,7 +912,7 @@ def read_config(configfile: Union[str, Path]) -> Dict[str, Union[str, bool, int]
     # ...
 
 async def list_images_in_dropbox(
-    dbx: dropbox.Dropbox, 
+    dbx: dropbox.Dropbox,
     path: str
 ) -> List[str]:
     """Lists all images in a Dropbox folder."""
@@ -972,15 +972,15 @@ def read_config(configfile):
 def read_config(configfile: Union[str, Path]) -> Dict[str, Union[str, bool, int]]:
     """
     Read and parse configuration from INI file and environment variables.
-    
+
     Combines settings from the INI configuration file with sensitive
     credentials stored in environment variables for security.
-    
+
     Args:
         configfile: Path to INI configuration file containing application settings.
-                   Expected sections: Dropbox, Instagram, Email, Content, 
+                   Expected sections: Dropbox, Instagram, Email, Content,
                    Replicate, openAI.
-    
+
     Returns:
         Dictionary containing all configuration values with keys:
         - db_refresh: Dropbox OAuth refresh token
@@ -988,19 +988,19 @@ def read_config(configfile: Union[str, Path]) -> Dict[str, Union[str, bool, int]
         - image_folder: Path to Dropbox folder containing images
         - run_archive: Boolean flag for archiving images
         ... (all other keys documented)
-    
+
     Raises:
         FileNotFoundError: If configfile doesn't exist
         KeyError: If required configuration section/key is missing
         ValueError: If environment variable is missing
-    
+
     Example:
         >>> config = read_config('config/settings.ini')
         >>> print(config['image_folder'])
         '/MyImages/ToPost'
-    
+
     Note:
-        Requires environment variables: DROPBOX_REFRESH_TOKEN, 
+        Requires environment variables: DROPBOX_REFRESH_TOKEN,
         OPENAI_API_KEY, REPLICATE_API_TOKEN, etc.
     """
     configuration = configparser.ConfigParser()
@@ -1070,10 +1070,10 @@ class ImageStorage(Protocol):
     """Protocol for image storage backends"""
     async def list_images(self, folder: str) -> List[str]:
         ...
-    
+
     async def download_image(self, path: str, filename: str) -> bytes:
         ...
-    
+
     async def archive_image(self, source: str, dest: str) -> None:
         ...
 
@@ -1081,7 +1081,7 @@ class CaptionGenerator(Protocol):
     """Protocol for caption generation services"""
     async def analyze_image(self, image_url: str) -> str:
         ...
-    
+
     async def generate_caption(self, description: str) -> str:
         ...
 
@@ -1096,7 +1096,7 @@ class DropboxStorage:
     """Dropbox implementation of ImageStorage"""
     def __init__(self, client: dropbox.Dropbox):
         self.client = client
-    
+
     async def list_images(self, folder: str) -> List[str]:
         return await list_images_in_dropbox(self.client, folder)
 
@@ -1105,7 +1105,7 @@ class OpenAICaptionGenerator:
     def __init__(self, api_key: str, engine: str):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.engine = engine
-    
+
     async def generate_caption(self, description: str) -> str:
         # Implementation
 
@@ -1114,7 +1114,7 @@ class InstagramPublisher(PublishingPlatform):
     def __init__(self, username: str, password: str):
         self.username = username
         self.password = password
-    
+
     async def publish(self, image: bytes, caption: str) -> bool:
         # Implementation
 
@@ -1130,29 +1130,29 @@ class SocialMediaPublisher:
         self.storage = storage
         self.caption_gen = caption_gen
         self.platforms = platforms
-    
+
     async def publish_random_image(self):
         """Main workflow"""
         # Select image
         images = await self.storage.list_images('/images')
         selected = random.choice(images)
-        
+
         # Download
         image_data = await self.storage.download_image('/images', selected)
-        
+
         # Generate caption
         caption = await self.caption_gen.generate_caption(image_data)
-        
+
         # Publish to all platforms
         results = await asyncio.gather(
             *[platform.publish(image_data, caption) for platform in self.platforms],
             return_exceptions=True
         )
-        
+
         # Archive if successful
         if all(results):
             await self.storage.archive_image(selected)
-        
+
         return results
 
 # Usage
@@ -1163,7 +1163,7 @@ async def main():
         InstagramPublisher(username, password),
         TelegramPublisher(bot_token, chat_id)
     ]
-    
+
     publisher = SocialMediaPublisher(storage, caption_gen, platforms)
     await publisher.publish_random_image()
 ```
@@ -1266,7 +1266,7 @@ class AppContext:
 def create_app_context(config_file: str) -> AppContext:
     """Factory for creating application context"""
     config = read_config(config_file)
-    
+
     return AppContext(
         dropbox_client=create_dropbox_client(config),
         openai_client=create_openai_client(config),
@@ -1322,24 +1322,24 @@ if run_instagram:
 async def publish_to_all_platforms(config, image_file, message):
     """Publish to all platforms in parallel"""
     tasks = []
-    
+
     if config['run_telegram']:
         tasks.append(('telegram', send_telegram_message(...)))
-    
+
     if config['run_fetlife']:
         tasks.append(('email', send_email(...)))
-    
+
     if config['run_instagram']:
         tasks.append(('instagram', post_image_to_instagram(...)))
-    
+
     # Run all in parallel
     results = await asyncio.gather(*[task for _, task in tasks], return_exceptions=True)
-    
+
     # Map results to platforms
     success_map = {}
     for (platform, _), result in zip(tasks, results):
         success_map[platform] = not isinstance(result, Exception)
-    
+
     return success_map
 
 # Performance gain: If each takes 2s, saves 4s total
@@ -1417,12 +1417,12 @@ async def download_image_from_dropbox(dbx, path, image_name):
     try:
         _, res = dbx.files_download(os.path.join(path, image_name))
         image_file = os.path.join('/tmp', image_name)
-        
+
         # Stream to disk
         with open(image_file, "wb") as f:
             for chunk in res.iter_content(chunk_size=8192):
                 f.write(chunk)
-        
+
         return image_file
     except dropbox.exceptions.ApiError as e:
         logging.error(f"Dropbox download error: {e}")
@@ -1453,22 +1453,22 @@ class AsyncRateLimiter:
         self.period = period
         self.call_times = deque()
         self.lock = asyncio.Lock()
-    
+
     async def acquire(self):
         """Wait if necessary to stay under rate limit"""
         async with self.lock:
             now = datetime.now()
-            
+
             # Remove old call times outside the period
             while self.call_times and now - self.call_times[0] > self.period:
                 self.call_times.popleft()
-            
+
             # If at limit, wait
             if len(self.call_times) >= self.calls:
                 sleep_time = (self.call_times[0] + self.period - now).total_seconds()
                 await asyncio.sleep(sleep_time)
                 return await self.acquire()
-            
+
             self.call_times.append(now)
 
 # Usage
@@ -1497,7 +1497,7 @@ async def query_openai_with_limit(...):
 3. **Configuration Caching**
    ```python
    from functools import lru_cache
-   
+
    @lru_cache(maxsize=1)
    def read_config_cached(configfile: str) -> Dict:
        """Cache configuration to avoid re-reading"""
@@ -1520,17 +1520,17 @@ async def query_openai_with_limit(...):
    except openai.APIError as e:
        logging.error(f"An error occurred: {e}")
        return []
-   
+
    # Option 2: Return None (line 120)
    except dropbox.exceptions.ApiError as e:
        logging.error(f"Dropbox download error: {e}")
        return None
-   
+
    # Option 3: Silent failure (line 152)
    except dropbox.exceptions.ApiError as e:
        logging.error(f"Dropbox file move error: {e}")
        # No return, function continues
-   
+
    # Option 4: Raise exception (line 205)
    except Exception as e:
        logging.error(f"Failed to login with username and password: {e}")
@@ -1599,7 +1599,7 @@ async def main(configfile):
 # Be specific about what you're catching
 try:
     client.login(USERNAME, PASSWORD)
-except (instagrapi.exceptions.LoginRequired, 
+except (instagrapi.exceptions.LoginRequired,
         instagrapi.exceptions.ChallengeRequired,
         instagrapi.exceptions.BadPassword) as e:
     # Handle specific Instagram errors
@@ -1629,7 +1629,7 @@ async def retry_async(
         except exceptions as e:
             if attempt == max_attempts - 1:
                 raise
-            
+
             wait_time = delay * (backoff ** attempt)
             logging.warning(
                 f"Attempt {attempt + 1} failed: {e}. "
@@ -1672,12 +1672,12 @@ class PublishingJob:
     caption: str
     platforms_completed: List[str]
     created_at: datetime
-    
+
     def save_state(self):
         """Save job state for recovery"""
         with open(f'jobs/{self.image_name}.json', 'w') as f:
             json.dump(asdict(self), f, default=str)
-    
+
     @classmethod
     def load_state(cls, image_name: str):
         """Load job state from disk"""
@@ -1692,16 +1692,16 @@ async def publish_with_recovery(job: PublishingJob, config):
         'instagram': post_image_to_instagram,
         'email': send_email
     }
-    
+
     for platform_name, publish_func in platforms.items():
         # Skip already completed
         if platform_name in job.platforms_completed:
             continue
-        
+
         # Skip disabled
         if not config.get(f'run_{platform_name}'):
             continue
-        
+
         try:
             await publish_func(...)
             job.platforms_completed.append(platform_name)
@@ -1710,7 +1710,7 @@ async def publish_with_recovery(job: PublishingJob, config):
             logging.error(f"Failed to publish to {platform_name}: {e}")
             job.save_state()  # Save state even on failure
             # Continue to other platforms
-    
+
     return job.platforms_completed
 ```
 
@@ -1752,7 +1752,7 @@ class StructuredLogger:
     """Logger that outputs JSON for easy parsing"""
     def __init__(self, name: str):
         self.logger = logging.getLogger(name)
-    
+
     def log(self, level: str, message: str, **kwargs):
         """Log structured data"""
         log_entry = {
@@ -1768,8 +1768,8 @@ class StructuredLogger:
 
 # Usage
 logger = StructuredLogger('socialmedia')
-logger.log('info', 'Image downloaded', 
-           image_name='photo.jpg', 
+logger.log('info', 'Image downloaded',
+           image_name='photo.jpg',
            size_bytes=1234567)
 
 # Configure logging
@@ -1779,12 +1779,12 @@ def setup_logging(log_file='socialmedia.log', level=logging.INFO):
     formatter = logging.Formatter(
         '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
+
     # Console handler
     console = logging.StreamHandler()
     console.setFormatter(formatter)
     console.setLevel(level)
-    
+
     # File handler with rotation
     file_handler = logging.handlers.RotatingFileHandler(
         log_file,
@@ -1793,7 +1793,7 @@ def setup_logging(log_file='socialmedia.log', level=logging.INFO):
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(level)
-    
+
     # Configure root logger
     root = logging.getLogger()
     root.setLevel(level)
@@ -1919,11 +1919,11 @@ class Image:
     dropbox_path: Optional[str] = None
     size_bytes: Optional[int] = None
     temp_link: Optional[str] = None
-    
+
     @property
     def extension(self) -> str:
         return os.path.splitext(self.filename)[1]
-    
+
     def cleanup(self):
         """Remove temporary file"""
         if self.local_path and os.path.exists(self.local_path):
@@ -2076,10 +2076,10 @@ def test_resize_image_large():
     # Create test image
     img = Image.new('RGB', (2000, 1500))
     img.save('/tmp/test_large.jpg')
-    
+
     # Resize
     resized = resize_image('/tmp/test_large.jpg')
-    
+
     # Verify
     with Image.open(resized) as img:
         assert img.width == 1280
@@ -2089,9 +2089,9 @@ def test_resize_image_small():
     """Test that small images aren't enlarged"""
     img = Image.new('RGB', (800, 600))
     img.save('/tmp/test_small.jpg')
-    
+
     resized = resize_image('/tmp/test_small.jpg')
-    
+
     with Image.open(resized) as img:
         assert img.width == 800  # Unchanged
 ```
@@ -2121,7 +2121,7 @@ async def test_list_images(mock_dropbox_client):
     """Test listing images from Dropbox"""
     storage = DropboxStorage(mock_dropbox_client)
     images = await storage.list_images('/test')
-    
+
     assert len(images) == 2
     assert 'image1.jpg' in images
     assert 'image2.jpg' in images
@@ -2139,11 +2139,11 @@ async def test_generate_caption():
         mock_response = Mock()
         mock_response.choices = [Mock(message=Mock(content="Beautiful sunset"))]
         mock_client.return_value.chat.completions.create = AsyncMock(return_value=mock_response)
-        
+
         # Test
         gen = OpenAICaptionGenerator(api_key='test', engine='gpt-3.5-turbo')
         caption = await gen.generate_caption("A sunset scene")
-        
+
         assert caption == "Beautiful sunset"
 ```
 
@@ -2160,21 +2160,21 @@ from src.main import run_workflow
 @pytest.mark.asyncio
 async def test_full_workflow():
     """Test complete workflow with mocked external services"""
-    
+
     # Mock all external services
     with patch('src.services.storage.DropboxStorage') as mock_storage, \
          patch('src.services.ai.OpenAICaptionGenerator') as mock_ai, \
          patch('src.services.publishers.InstagramPublisher') as mock_insta:
-        
+
         # Setup mocks
         mock_storage.return_value.list_images = AsyncMock(return_value=['test.jpg'])
         mock_storage.return_value.download_image = AsyncMock(return_value=b'fake_image_data')
         mock_ai.return_value.generate_caption = AsyncMock(return_value="Test caption")
         mock_insta.return_value.publish = AsyncMock(return_value=True)
-        
+
         # Run workflow
         result = await run_workflow('tests/fixtures/config.ini')
-        
+
         # Verify
         assert result['success'] is True
         mock_storage.return_value.archive_image.assert_called_once()
@@ -2678,7 +2678,7 @@ The Social Media Python Publisher demonstrates solid foundational implementation
 
 ### Overall Assessment
 
-**Current Grade:** B- (Good with Important Issues)  
+**Current Grade:** B- (Good with Important Issues)
 **Potential Grade:** A (Excellent) - With recommended improvements
 
 **Estimated Time to Production-Ready:** 60-80 hours of focused development
@@ -2717,8 +2717,8 @@ Maintainability Index: 65/100 (fair)
 
 ---
 
-**Report Generated:** October 31, 2025  
-**Reviewer:** AI Code Review System  
+**Report Generated:** October 31, 2025
+**Reviewer:** AI Code Review System
 **Version:** 1.0
 
 *For questions or clarifications, please refer to the project repository or maintainer.*

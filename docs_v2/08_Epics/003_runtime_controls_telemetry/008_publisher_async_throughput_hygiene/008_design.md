@@ -14,7 +14,7 @@
 
 ## 1. Summary
 
-**Problem**  
+**Problem**
 Publishers are invoked in parallel via `asyncio.gather`, but some publisher implementations still perform blocking work (notably image resizing with Pillow and non‑async SDKs) directly in the event loop. This risks stalling the loop and eroding the intended concurrency gains in the publish phase.
 
 **Goals**
@@ -336,5 +336,3 @@ Publishers are invoked in parallel via `asyncio.gather`, but some publisher impl
 - Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/008_publisher-async-throughput-hygiene.md`
 - Existing Performance & Telemetry Docs: `docs_v2/08_Epics/007-cross-cutting-performance-observability.md`
 - Orchestrator Implementation: `publisher_v2/core/workflow.py`
-
-

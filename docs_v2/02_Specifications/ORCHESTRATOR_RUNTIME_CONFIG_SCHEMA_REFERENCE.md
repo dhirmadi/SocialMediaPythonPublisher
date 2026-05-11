@@ -1,9 +1,9 @@
 # Orchestrator Runtime Config Schema Reference — Publisher V2 (GUI Validation Contract)
 
-Version: 1.0  
+Version: 1.0
 Last Updated: December 30, 2025
 
-This document is the **canonical, field-level contract** for the **orchestrator-managed runtime configuration** consumed by **Publisher V2**.  
+This document is the **canonical, field-level contract** for the **orchestrator-managed runtime configuration** consumed by **Publisher V2**.
 It is intended for the **orchestrator team** to build an end-user GUI with **explicit validation**.
 
 Scope:
@@ -21,9 +21,9 @@ Not in scope:
 
 ## 1) High-level rules (non-negotiable)
 
-1. **No secrets in runtime config**  
+1. **No secrets in runtime config**
    Runtime config must not contain secret material (OpenAI API keys, refresh tokens, SMTP passwords, Telegram bot tokens).
-2. **Secrets are references**  
+2. **Secrets are references**
    Secrets are delivered only via `/v1/credentials/resolve` using:
    - `credentials_ref` (general secret reference)
    - `password_ref` (SMTP password reference; still resolved via `/v1/credentials/resolve`)
@@ -32,7 +32,7 @@ Not in scope:
    - `fetlife` (implemented via SMTP/email)
 
    Other publisher types may exist in orchestrator, but **Publisher V2 ignores them** today.
-4. **“Enabled” is authoritative**  
+4. **“Enabled” is authoritative**
    The GUI must prevent enabling an item unless all of its required fields are valid.
 
 ---
@@ -86,7 +86,7 @@ Top-level required blocks:
 
 Note:
 
-- Some admin UIs edit individual non-secret blocks (e.g., `ai`, `publishers`, `email_server`) in isolation.  
+- Some admin UIs edit individual non-secret blocks (e.g., `ai`, `publishers`, `email_server`) in isolation.
   This document describes the **full runtime payload** Publisher consumes; the orchestrator’s `/v1/runtime/by-host` response must still include `features` and `storage`.
 
 Additional blocks (schema v2):
@@ -300,7 +300,7 @@ Config fields:
 Required:
 
 - `enabled=true`
-- `credentials_ref=null` (**must be null or omitted**)  
+- `credentials_ref=null` (**must be null or omitted**)
   FetLife does not have a direct secret; SMTP auth is provided via `email_server.password_ref`.
 - `config.recipient` (non-empty string)
 - `email_server` present with `password_ref` + `from_email` + `host`
@@ -427,10 +427,8 @@ The response is provider-discriminated and must include:
 
 ## 6) Canonical references (do not duplicate)
 
-- Service API guide (auth, host normalization, endpoints):  
+- Service API guide (auth, host normalization, endpoints):
   `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
-- Publisher-side mapping + example payload:  
-  `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/022_feature.md`  
+- Publisher-side mapping + example payload:
+  `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/022_feature.md`
   `docs_v2/08_Epics/001_multi_tenant_orchestrator_runtime_config/022_orchestrator_schema_v2_integration/stories/02_schema_v2_parsing/022_02_schema-v2-parsing.md`
-
-

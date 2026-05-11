@@ -1,7 +1,7 @@
 # Story 018-02: Full-Size Access UX — Summary
 
-**Story ID:** 018-02  
-**Status:** Implemented  
+**Story ID:** 018-02
+**Status:** Implemented
 **Implemented:** 2025-12-06
 
 ## Changes Made
@@ -67,4 +67,3 @@ Implementation was straightforward because Story 01 already set up:
 - `temp_url` preserved in API response
 
 The button integrates cleanly with existing button styles and flex layout.
-

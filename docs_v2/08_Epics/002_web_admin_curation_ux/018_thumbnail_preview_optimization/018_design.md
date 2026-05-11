@@ -1,7 +1,7 @@
 # Feature 018: Thumbnail Preview Optimization — Design Document
 
-**Status:** Shipped  
-**Version:** 1.0  
+**Status:** Shipped
+**Version:** 1.0
 **Created:** December 6, 2025
 
 ## 1. Context
@@ -81,9 +81,9 @@ from dropbox.files import (
 )
 
 class DropboxStorage:
-    
+
     # Existing methods unchanged...
-    
+
     @retry(
         reraise=True,
         stop=stop_after_attempt(3),
@@ -98,20 +98,20 @@ class DropboxStorage:
     ) -> bytes:
         """
         Return a thumbnail of the specified image.
-        
+
         Uses Dropbox's server-side thumbnail generation, which is fast and
         avoids downloading the full image. Default size (960×640) produces
         ~30-80KB files suitable for web preview.
-        
+
         Args:
             folder: Dropbox folder path
             filename: Image filename
             size: Thumbnail size enum (default w960h640)
             format: Output format (default JPEG for smaller files)
-        
+
         Returns:
             Thumbnail image bytes
-        
+
         Raises:
             StorageError: If thumbnail generation fails
         """
@@ -125,7 +125,7 @@ class DropboxStorage:
                     mode=ThumbnailMode.fitone_bestfit,
                 )
                 return response.content
-            
+
             return await asyncio.to_thread(_get_thumb)
         except ApiError as exc:
             raise StorageError(f"Failed to get thumbnail for {filename}: {exc}") from exc
@@ -155,17 +155,17 @@ class ImageResponse(BaseModel):
 import urllib.parse
 
 class WebImageService:
-    
+
     async def get_random_image(self) -> ImageResponse:
         images = await self._get_cached_images()
         if not images:
             raise FileNotFoundError("No images found")
-        
+
         import random
         random.shuffle(images)
         selected = images[0]
         folder = self.config.dropbox.image_folder
-        
+
         # CHANGED: Only fetch temp_link and sidecar in parallel
         # Skip full image download for display (performance optimization)
         temp_link_result, sidecar_result = await asyncio.gather(
@@ -173,17 +173,17 @@ class WebImageService:
             self.storage.download_sidecar_if_exists(folder, selected),
             return_exceptions=True,
         )
-        
+
         if isinstance(temp_link_result, Exception):
             raise temp_link_result
         temp_link = temp_link_result
-        
+
         # Parse sidecar (unchanged)
         caption = None
         sd_caption = None
         metadata: Optional[Dict[str, Any]] = None
         has_sidecar = False
-        
+
         if not isinstance(sidecar_result, Exception) and sidecar_result:
             text = sidecar_result.decode("utf-8", errors="ignore")
             view = rehydrate_sidecar_view(text)
@@ -191,10 +191,10 @@ class WebImageService:
             caption = view.get("caption")
             metadata = view.get("metadata")
             has_sidecar = bool(view.get("has_sidecar"))
-        
+
         # NEW: Build thumbnail URL (URL-encode filename for safety)
         thumbnail_url = f"/api/images/{urllib.parse.quote(selected, safe='')}/thumbnail"
-        
+
         return ImageResponse(
             filename=selected,
             temp_url=temp_link,
@@ -205,7 +205,7 @@ class WebImageService:
             metadata=metadata,
             has_sidecar=has_sidecar,
         )
-    
+
     async def get_thumbnail(
         self,
         filename: str,
@@ -213,16 +213,16 @@ class WebImageService:
     ) -> bytes:
         """
         Return thumbnail bytes for the specified image.
-        
+
         Args:
             filename: Image filename
             size: Thumbnail size string (maps to ThumbnailSize enum)
-        
+
         Returns:
             JPEG thumbnail bytes
         """
         from dropbox.files import ThumbnailSize
-        
+
         size_map = {
             "w256h256": ThumbnailSize.w256h256,
             "w480h320": ThumbnailSize.w480h320,
@@ -231,7 +231,7 @@ class WebImageService:
             "w1024h768": ThumbnailSize.w1024h768,
         }
         thumb_size = size_map.get(size, ThumbnailSize.w960h640)
-        
+
         folder = self.config.dropbox.image_folder
         return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 ```
@@ -271,11 +271,11 @@ async def api_get_thumbnail(
 ) -> Response:
     """
     Return a thumbnail of the specified image.
-    
+
     Thumbnails are generated server-side by Dropbox and cached by
     the browser. This provides fast loading for previews while
     full-size images remain accessible via temp_url.
-    
+
     Size options:
     - w256h256: Small icon (256×256)
     - w480h320: Mobile preview (480×320)
@@ -295,10 +295,10 @@ async def api_get_thumbnail(
             require_admin(request)
         except HTTPException:
             raise
-    
+
     try:
         thumb_bytes = await service.get_thumbnail(filename, size=size.value)
-        
+
         web_thumbnail_ms = elapsed_ms(telemetry.start_time)
         response.headers["X-Correlation-ID"] = telemetry.correlation_id
         log_json(
@@ -311,7 +311,7 @@ async def api_get_thumbnail(
             correlation_id=telemetry.correlation_id,
             web_thumbnail_ms=web_thumbnail_ms,
         )
-        
+
         return Response(
             content=thumb_bytes,
             media_type="image/jpeg",
@@ -327,7 +327,7 @@ async def api_get_thumbnail(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Image not found",
             )
-        
+
         web_thumbnail_ms = elapsed_ms(telemetry.start_time)
         log_json(
             logger,
@@ -377,7 +377,7 @@ function showImage(thumbnailUrl, fullUrl, altText) {
   imgEl.src = thumbnailUrl;  // Load thumbnail (fast!)
   imgEl.alt = altText || "Image";
   imgEl.classList.remove("hidden");
-  
+
   // Store full URL for download/view action
   currentFullUrl = fullUrl;
   if (btnFullSize) {
@@ -407,7 +407,7 @@ async function apiGetRandom() {
   disableButtons(true);
   try {
     // ... existing permission checks ...
-    
+
     const res = await fetch("/api/images/random");
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -415,7 +415,7 @@ async function apiGetRandom() {
     }
     const data = await res.json();
     currentFilename = data.filename;
-    
+
     // CHANGED: Use thumbnail_url for display, temp_url for full-size
     const displayUrl = data.thumbnail_url || data.temp_url;
     showImage(
@@ -423,7 +423,7 @@ async function apiGetRandom() {
       data.temp_url,  // Full-size URL stored
       data.caption || data.sd_caption || data.filename
     );
-    
+
     setCaption(data.caption || data.sd_caption || "No caption yet.");
     // ... rest unchanged ...
   } catch (e) {
@@ -523,12 +523,12 @@ async def test_get_thumbnail_returns_bytes():
     mock_response = MagicMock()
     mock_response.content = b"\xff\xd8\xff..."  # JPEG magic bytes
     mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
-    
+
     storage = DropboxStorage(config)
     storage.client = mock_client
-    
+
     result = await storage.get_thumbnail("/folder", "image.jpg")
-    
+
     assert result == b"\xff\xd8\xff..."
     mock_client.files_get_thumbnail_v2.assert_called_once()
 
@@ -551,7 +551,7 @@ from publisher_v2.web.app import app
 def test_thumbnail_endpoint_returns_jpeg():
     """Thumbnail endpoint returns image/jpeg content type."""
     # ... mock service, verify response headers
-    
+
 def test_thumbnail_endpoint_respects_auto_view():
     """Thumbnail endpoint requires admin when AUTO_VIEW disabled."""
     # ... test 401/503 responses
@@ -680,4 +680,3 @@ This feature is implemented through three stories:
 - Adaptive sizing based on viewport
 
 **Implementation Order:** Stories must be implemented in sequence (01 → 02 → 03).
-

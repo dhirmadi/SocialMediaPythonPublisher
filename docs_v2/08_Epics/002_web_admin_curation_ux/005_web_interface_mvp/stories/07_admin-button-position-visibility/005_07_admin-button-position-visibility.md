@@ -2,10 +2,10 @@
 
 # Admin Button Position and Visibility
 
-**Feature ID:** 005  
-**Change ID:** 005-006  
-**Status:** Shipped  
-**Date Completed:** 2025-01-27  
+**Feature ID:** 005
+**Change ID:** 005-006
+**Status:** Shipped
+**Date Completed:** 2025-01-27
 **Code Branch / PR:** admin-button
 
 ## Summary
@@ -60,10 +60,10 @@ Users now have a clearer, more intuitive interface where authentication controls
 - **Backout strategy:** If issues arise, revert the HTML change (move admin button back to `header-left`) and remove admin button visibility logic from `updateAdminUI()` function.
 
 ## Artifacts
-- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/006_admin-button-position-visibility.md  
-- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/006_design.md  
-- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/006_plan.yaml  
-- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/006_admin-button-position-visibility.md
+- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/006_design.md
+- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/006_plan.yaml
+- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 - Code Changes: `publisher_v2/src/publisher_v2/web/templates/index.html`
 
 ## Final Notes

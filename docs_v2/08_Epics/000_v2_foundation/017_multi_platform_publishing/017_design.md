@@ -7,7 +7,7 @@ The Publishing Engine enables parallel distribution of content to multiple socia
 
 ## 2. Context & Assumptions
 - **Current State:** The system supports Telegram, Instagram, and Email (FetLife).
-- **Constraints:** 
+- **Constraints:**
   - Publishing latency matters (sequential publishing to 3+ platforms is too slow).
   - One platform failing (e.g., Instagram API down) is a common scenario and must be handled gracefully.
 
@@ -31,10 +31,10 @@ class Publisher(ABC):
     @property
     @abstractmethod
     def platform_name(self) -> str: ...
-    
+
     @abstractmethod
     def is_enabled(self) -> bool: ...
-    
+
     @abstractmethod
     async def publish(self, image_path: str, caption: str, context: dict = None) -> PublishResult: ...
 ```

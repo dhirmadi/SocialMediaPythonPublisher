@@ -1,7 +1,7 @@
 # Test Warning Fixes — Implementation Summary
 
-**Date:** November 11, 2025  
-**Status:** ✅ COMPLETE — All Warnings Fixed  
+**Date:** November 11, 2025
+**Status:** ✅ COMPLETE — All Warnings Fixed
 **Result:** 0 warnings (down from 12)
 
 **Update (2025-12-21):** The suite has since expanded (273 tests, 92% coverage). For current status, see **`docs_v2/10_Testing/TEST_EXECUTION_REPORT_2025-12-21.md`**.
@@ -28,10 +28,10 @@ All 12 test warnings have been successfully eliminated through targeted fixes:
 
 ### Fix 1: pytest-asyncio Configuration Deprecation (10-12 warnings)
 
-**Problem:**  
+**Problem:**
 `pytest-asyncio` plugin warned that `asyncio_default_fixture_loop_scope` was unset and would be required in version 1.0.
 
-**Solution:**  
+**Solution:**
 Added explicit configuration to `pyproject.toml`:
 
 ```toml
@@ -48,10 +48,10 @@ asyncio_default_fixture_loop_scope = "function"  # NEW LINE
 
 ### Fix 2: datetime.utcnow() Deprecation (12 warnings)
 
-**Problem:**  
+**Problem:**
 `datetime.datetime.utcnow()` is deprecated in Python 3.12 and scheduled for removal. All tests using `WorkflowResult` triggered this warning.
 
-**Solution:**  
+**Solution:**
 Replaced deprecated method with timezone-aware alternative in `core/models.py`:
 
 **Before:**
@@ -81,10 +81,10 @@ finished_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc)
 
 ### Fix 3: Telegram Bot Resource Cleanup
 
-**Problem:**  
+**Problem:**
 `telegram.Bot` instances were not being properly closed, potentially causing resource leaks.
 
-**Solution:**  
+**Solution:**
 Added proper async cleanup in `TelegramPublisher.publish()`:
 
 **Before:**
@@ -128,10 +128,10 @@ async def publish(self, image_path: str, caption: str, context: Optional[dict] =
 
 ### Fix 4: Removed --disable-warnings from pytest config
 
-**Problem:**  
+**Problem:**
 The `--disable-warnings` flag in `pyproject.toml` was suppressing all warnings, making them invisible during normal development.
 
-**Solution:**  
+**Solution:**
 Removed the flag to make warnings visible:
 
 **Before:**
@@ -189,8 +189,8 @@ $ uv run pytest -v
 ============================= 36 passed in 10.52s ==============================
 ```
 
-✅ **All 36 tests passing**  
-✅ **0 warnings**  
+✅ **All 36 tests passing**
+✅ **0 warnings**
 ✅ **No regressions**
 
 ### Coverage Unchanged
@@ -248,17 +248,15 @@ Now that warnings are fixed, the focus shifts to **test coverage expansion** (se
 
 **All 12 test warnings have been eliminated** through minimal, focused changes that improve code quality and future-proof the codebase. The test suite is now **clean** and ready for coverage expansion.
 
-**Time Invested:** ~1 hour  
-**Warnings Fixed:** 12 → 0  
-**Tests Passing:** 36/36  
-**Regressions:** 0  
+**Time Invested:** ~1 hour
+**Warnings Fixed:** 12 → 0
+**Tests Passing:** 36/36
+**Regressions:** 0
 
 ✅ **Success**
 
 ---
 
-**Document Version:** 1.0  
-**Author:** Testing Expert  
+**Document Version:** 1.0
+**Author:** Testing Expert
 **Implementation Date:** November 11, 2025
-
-

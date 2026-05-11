@@ -1,10 +1,10 @@
 # Story: Core Thumbnail Support (MVP)
 
-**Feature ID:** 018  
-**Story ID:** 018-01  
-**Name:** core-thumbnail-support  
-**Status:** Shipped  
-**Date:** 2025-12-06  
+**Feature ID:** 018
+**Story ID:** 018-01
+**Name:** core-thumbnail-support
+**Status:** Shipped
+**Date:** 2025-12-06
 **Parent Feature:** 018_thumbnail_preview_optimization
 
 ## Summary
@@ -159,4 +159,3 @@ thumbnail_bytes = response.content
 - [ ] Structured logging added for thumbnail requests
 - [ ] Manual testing: image loads < 1s on 4G
 - [ ] Docs updated if API contract changes warrant it
-

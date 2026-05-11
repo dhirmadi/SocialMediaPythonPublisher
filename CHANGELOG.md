@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-028: Smart Hashtag Generation
+- AI-generated, image-specific hashtags embedded in caption prompts when `features.smart_hashtags_enabled` is true (default)
+- Vision analysis signals (tags, mood, style, aesthetic_terms) drive hashtag relevance — no additional OpenAI API call
+- Seed hashtags from `content.hashtag_string` merged alongside AI-generated tags
+- Telegram hashtags disabled (`ai_prompts.yaml` `telegram.hashtags: false`) — Telegram captions no longer include hashtag clutter
+- Post-generation cleanup: lowercase, dedup, `#`-prefixed via `normalize_generated_hashtags()`
+- Full backward compatibility: `smart_hashtags_enabled=False` produces byte-identical pre-PUB-028 behavior
+
 ### Added - PUB-044: Configurable Grid Page Size
 - Page-size selector in the grid toolbar with options: 10, 25, 50, 100 (default 25)
 - Selection persisted in `localStorage` (`pv2_grid_page_size`), survives page refreshes and sessions
@@ -341,4 +349,3 @@ If you don't add these settings, the application will default to Gmail settings,
 - Keep this file updated with each release
 - Document breaking changes clearly
 - Include migration guides for major changes
-

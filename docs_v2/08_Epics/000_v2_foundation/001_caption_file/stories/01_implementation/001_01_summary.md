@@ -1,9 +1,9 @@
 # Stable Diffusion Caption File
 
-**Feature ID:** stable-diffusion-caption-file  
-**Status:** Shipped  
-**Date Completed:** TODO  
-**Code Branch / PR:** feature/captionfile (PR: TODO)  
+**Feature ID:** stable-diffusion-caption-file
+**Status:** Shipped
+**Date Completed:** TODO
+**Code Branch / PR:** feature/captionfile (PR: TODO)
 
 ## Summary
 Adds a Stable‑Diffusion‑ready caption alongside existing analysis without changing current outputs. The system generates an `sd_caption` string and writes a `.txt` sidecar next to each image, overwriting on reprocessing and moving with the image on archive. Behavior remains backward‑compatible; preview mode displays the full sidecar (first‑line `sd_caption` plus a commented metadata block) with no side effects.
@@ -113,5 +113,3 @@ Enables immediate use of published photos for model training by emitting high‑
 - Future improvements:
   - Optionally compute final archived image name first to guarantee sidecar name match.
   - Expose success/error counters and latency metrics for observability.
-
-

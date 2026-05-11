@@ -16,5 +16,3 @@ This keeps the documentation navigable as the number of implemented features gro
 - **Epic 002 — Web Admin & Curation UX**: `002_web_admin_curation_ux/`
 - **Epic 003 — Runtime Controls & Telemetry**: `003_runtime_controls_telemetry/`
 - **Epic 004 — Deployment & Ops Modernization (Pre‑Orchestrator)**: `004_deployment_ops_modernization/`
-
-

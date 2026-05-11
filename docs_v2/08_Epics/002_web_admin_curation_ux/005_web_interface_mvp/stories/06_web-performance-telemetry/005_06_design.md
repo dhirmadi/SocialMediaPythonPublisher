@@ -2,15 +2,15 @@
 
 # Web Performance Telemetry — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-005  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-11-20  
-**Status:** Design Review  
-**Author:** TODO  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-005
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-11-20
+**Status:** Design Review
+**Author:** TODO
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
 
@@ -67,10 +67,10 @@
 
 ### 4.2 Components & Responsibilities
 
-- `publisher_v2.utils.logging`  
+- `publisher_v2.utils.logging`
   - **New responsibilities:** provide `now_monotonic()` and `elapsed_ms(start)` helpers using `time.perf_counter()` for stable duration measurement.
   - **Existing responsibilities preserved:** JSON logging with sanitization via `log_json`.
-- `publisher_v2.web.app`  
+- `publisher_v2.web.app`
   - **New:** `RequestTelemetry` dataclass and `get_request_telemetry` dependency to:
     - Derive a `correlation_id` from `X-Request-ID` when present, else generate a UUID4.
     - Capture a monotonic `start_time` for each request.
@@ -78,9 +78,9 @@
     - `/api/images/random`: compute `web_random_image_ms`, emit `web_random_image` / `web_random_image_error` logs, and set `X-Correlation-ID` header.
     - `/api/images/{filename}/analyze`: compute `web_analyze_ms`, emit `web_analyze_complete` / `web_analyze_error` logs, and set `X-Correlation-ID`.
     - `/api/images/{filename}/publish`: compute `web_publish_ms`, emit `web_publish_complete` / `web_publish_error` logs, and set `X-Correlation-ID`.
-- `publisher_v2.web.service.WebImageService`  
+- `publisher_v2.web.service.WebImageService`
   - **Minor change:** `analyze_and_caption` accepts an optional `correlation_id` to attach to its own logs; core behavior and return shapes remain unchanged.
-- `publisher_v2.core.workflow.WorkflowOrchestrator`  
+- `publisher_v2.core.workflow.WorkflowOrchestrator`
   - **Contextual (from cross-cutting telemetry):** emits `workflow_timing` events with per-stage `*_ms` fields and `correlation_id`, which can be used in conjunction with web endpoint timings but is not directly changed by this story’s external contracts.
 
 ### 4.3 Data & Contracts
@@ -184,5 +184,3 @@
 - Should web telemetry be extended to include sub-timings (e.g., Dropbox vs. OpenAI) within the same request? — Proposed answer: defer to cross-cutting telemetry Feature 007; start with total endpoint time only.
 - Should timing fields be part of a more formalized log schema (e.g., a `telemetry` object)? — Proposed answer: not in this change; keep flat fields and revisit once broader observability guidelines are defined.
 - Do we want to expose correlation IDs back to clients beyond the `X-Correlation-ID` header (e.g., in response bodies)? — Proposed answer: no; the header is sufficient for support workflows without changing JSON contracts.
-
-

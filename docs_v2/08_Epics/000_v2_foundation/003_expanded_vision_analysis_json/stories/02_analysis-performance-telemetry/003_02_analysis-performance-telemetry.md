@@ -1,10 +1,10 @@
 # Analysis Performance & Telemetry — Final Story
 
-**Feature ID:** 003  
-**Change ID:** 003-001  
-**Status:** Shipped  
-**Date Completed:** TODO  
-**Code Branch / PR:** TODO  
+**Feature ID:** 003
+**Change ID:** 003-001
+**Status:** Shipped
+**Date Completed:** TODO
+**Code Branch / PR:** TODO
 
 ## Summary
 This change adds explicit performance and observability behavior around `VisionAnalyzerOpenAI` by bounding completion tokens for analysis calls and emitting structured timing telemetry, without altering the existing expanded analysis JSON schema or preview semantics.
@@ -76,5 +76,3 @@ Operators and maintainers can now see how long analysis takes and verify that it
 
 ## Final Notes
 - Future work could add sampling or explicit token-usage logging once usage fields are standardized across clients, and potentially a lightweight CI/perf check keyed off `vision_analysis_ms` if regressions become a concern.
-
-

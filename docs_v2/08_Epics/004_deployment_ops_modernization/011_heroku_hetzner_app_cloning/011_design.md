@@ -2,12 +2,12 @@
 
 # Heroku App Cloning with Hetzner DNS Subdomain Automation — Feature Design
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Design Version:** 1.0  
-**Date:** 2025-11-21  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Design Version:** 1.0
+**Date:** 2025-11-21
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -335,8 +335,6 @@ Key components:
 
 ## 9. References
 
-- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/011_heroku-hetzner-app-cloning.md`  
-- Heroku Platform API docs (apps, config-vars, domains).  
-- Hetzner DNS API docs (zones, records).  
-
-
+- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/011_heroku-hetzner-app-cloning.md`
+- Heroku Platform API docs (apps, config-vars, domains).
+- Hetzner DNS API docs (zones, records).

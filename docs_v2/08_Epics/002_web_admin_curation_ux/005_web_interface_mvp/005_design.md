@@ -1,11 +1,11 @@
 # Web Interface MVP — Feature Design
 
-**Feature ID:** 005  
-**Feature Name:** web-interface-mvp  
-**Design Version:** 1.0  
-**Date:** 2025-11-19  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Feature ID:** 005
+**Feature Name:** web-interface-mvp
+**Design Version:** 1.0
+**Date:** 2025-11-19
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -875,4 +875,3 @@ worker: uv run python -m publisher_v2.app --config /app/configfiles/fetlife.ini
 ---
 
 **End of Feature Design Document**
-

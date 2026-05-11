@@ -2,13 +2,13 @@
 
 # Change Design: Feature Toggle Button Visibility
 
-**Change ID:** 005-007  
-**Change Name:** feature-toggle-button-visibility  
-**Parent Feature:** 005 (web-interface-mvp)  
-**Design Version:** 1.0  
-**Date:** 2025-11-21  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Change ID:** 005-007
+**Change Name:** feature-toggle-button-visibility
+**Parent Feature:** 005 (web-interface-mvp)
+**Design Version:** 1.0
+**Date:** 2025-11-21
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -110,7 +110,7 @@ async def api_get_publishers_config(
 ) -> dict[str, bool]:
     """
     Return enablement state for all configured publishers.
-    
+
     Returns a dict mapping publisher names to enabled state.
     No authentication required (non-sensitive configuration flags).
     """
@@ -187,13 +187,13 @@ async function fetchPublisherConfig() {
 // On page load
 document.addEventListener('DOMContentLoaded', async () => {
     const publisherConfig = await fetchPublisherConfig();
-    
+
     // Store in app state
     window.publisherConfig = publisherConfig;
-    
+
     // Render initial UI
     renderPublisherButtons();
-    
+
     // ... rest of initialization
 });
 ```
@@ -215,24 +215,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 function renderPublisherButtons() {
     const container = document.getElementById('publisher-actions');
     container.innerHTML = ''; // Clear existing buttons
-    
+
     const publisherConfig = window.publisherConfig || {};
-    
+
     if (publisherConfig.telegram) {
         const btn = createButton('Publish to Telegram', 'telegram');
         container.appendChild(btn);
     }
-    
+
     if (publisherConfig.email) {
         const btn = createButton('Publish to Email', 'email');
         container.appendChild(btn);
     }
-    
+
     if (publisherConfig.instagram) {
         const btn = createButton('Publish to Instagram', 'instagram');
         container.appendChild(btn);
     }
-    
+
     // If no publishers enabled, show a message
     if (!publisherConfig.telegram && !publisherConfig.email && !publisherConfig.instagram) {
         container.innerHTML = '<p class="info">No publishers configured</p>';
@@ -363,9 +363,9 @@ def test_get_publishers_config_all_enabled(test_client, mock_service):
     mock_service.config.telegram = TelegramConfig(bot_token="...", channel_id="...")
     mock_service.config.email = EmailConfig(sender="...", recipient="...", password="...")
     mock_service.config.instagram = InstagramConfig(username="...", password="...")
-    
+
     response = test_client.get("/api/config/publishers")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data == {"telegram": True, "email": True, "instagram": True}
@@ -379,9 +379,9 @@ def test_get_publishers_config_partial(test_client, mock_service):
     mock_service.config.telegram = TelegramConfig(bot_token="...", channel_id="...")
     mock_service.config.email = None
     mock_service.config.instagram = None
-    
+
     response = test_client.get("/api/config/publishers")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data == {"telegram": True, "email": False, "instagram": False}
@@ -392,9 +392,9 @@ def test_get_publishers_config_none_enabled(test_client, mock_service):
     mock_service.config.platforms.telegram_enabled = False
     mock_service.config.platforms.email_enabled = False
     mock_service.config.platforms.instagram_enabled = False
-    
+
     response = test_client.get("/api/config/publishers")
-    
+
     assert response.status_code == 200
     data = response.json()
     assert data == {"telegram": False, "email": False, "instagram": False}
@@ -419,14 +419,14 @@ async def test_publisher_button_visibility_workflow():
     """
     # Setup: config with only Telegram enabled
     # ...
-    
+
     # Fetch config
     config_response = test_client.get("/api/config/publishers")
     assert config_response.json() == {"telegram": True, "email": False, "instagram": False}
-    
+
     # Simulate frontend: only render Telegram button
     # (manual verification in browser test)
-    
+
     # Publish via Telegram should work
     publish_response = test_client.post(
         "/api/images/test.jpg/publish",
@@ -434,7 +434,7 @@ async def test_publisher_button_visibility_workflow():
         headers=auth_headers,
     )
     assert publish_response.status_code == 200
-    
+
     # Publish via Email should fail (not configured)
     # (backend validation, not UI visibility)
 ```
@@ -743,4 +743,3 @@ Content-Type: application/json
 ---
 
 **End of Change Design Document**
-

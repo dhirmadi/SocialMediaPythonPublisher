@@ -19,5 +19,3 @@ This documentation set standardizes on **`uv run ...`** in examples.
 ## Open questions (for documentation hygiene)
 
 - Do you want document headers to use a **single versioning scheme** across all docs (or just dates)?
-
-

@@ -4,11 +4,11 @@
 
 > **Note (2026):** This document describes the historical Dropbox-based storage adapter. The active V2 system has replaced Dropbox with **S3-compatible managed storage**. Keep this file as historical context; treat S3 as the source of truth in current docs and implementations.
 
-**ID:** 015  
-**Name:** cloud-storage-dropbox  
-**Status:** Shipped  
-**Date:** 2025-11-22  
-**Author:** Retroactive Documentation  
+**ID:** 015
+**Name:** cloud-storage-dropbox
+**Status:** Shipped
+**Date:** 2025-11-22
+**Author:** Retroactive Documentation
 
 ## Summary
 The system requires a remote, persistent source of truth for images and archives to support stateless deployment (e.g., Heroku) and multi-device workflows. This feature implemented the historical `DropboxStorage` adapter (now superseded by S3-compatible storage), which handled authentication, downloading, metadata extraction for de-duplication, and atomic server-side moves for archiving and curation.
@@ -61,9 +61,9 @@ Running the publisher with local file storage is insufficient for a production w
 - **Workflow Orchestrator:** The primary consumer of this adapter.
 
 ## Risks & Mitigations
-- **Risk:** Token expiry breaks production.  
+- **Risk:** Token expiry breaks production.
   **Mitigation:** Use "Offline Access" (Refresh Token) flow which is valid indefinitely until revoked.
-- **Risk:** Rate limiting by Dropbox.  
+- **Risk:** Rate limiting by Dropbox.
   **Mitigation:** The `tenacity` retry strategy includes exponential backoff.
-- **Risk:** "File not found" race conditions (file deleted by user while bot is running).  
+- **Risk:** "File not found" race conditions (file deleted by user while bot is running).
   **Mitigation:** Specific exception handling for 404s where appropriate (e.g., ignoring missing sidecars).

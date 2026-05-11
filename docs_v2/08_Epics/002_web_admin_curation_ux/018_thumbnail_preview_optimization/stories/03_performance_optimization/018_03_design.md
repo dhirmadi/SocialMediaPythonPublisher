@@ -1,10 +1,10 @@
 # Story 018-03: Performance Optimization — Design
 
-**Story ID:** 018-03  
-**Design Version:** 1.1  
-**Date:** 2025-12-06  
-**Status:** Partially Implemented (Preloading only)  
-**Parent Story:** 018_03_performance_optimization.md  
+**Story ID:** 018-03
+**Design Version:** 1.1
+**Date:** 2025-12-06
+**Status:** Partially Implemented (Preloading only)
+**Parent Story:** 018_03_performance_optimization.md
 **Priority:** Optional
 
 ## 1. Overview
@@ -50,14 +50,14 @@ async function prefetchNextThumbnail() {
     }
     const data = await res.json();
     prefetchedImage = data;
-    
+
     // Prefetch thumbnail via link element (leverages browser cache)
     const link = document.createElement("link");
     link.rel = "prefetch";
     link.as = "image";
     link.href = data.thumbnail_url;
     document.head.appendChild(link);
-    
+
     // Clean up after 30 seconds (prevent DOM bloat)
     setTimeout(() => link.remove(), 30000);
   } catch (e) {
@@ -75,9 +75,9 @@ async function apiGetRandom() {
     prefetchNextThumbnail();  // Start prefetching next
     return;
   }
-  
+
   // ... existing fetch logic for cold start ...
-  
+
   // After displaying, start prefetch for next
   prefetchNextThumbnail();
 }
@@ -109,13 +109,13 @@ web:
 ```python
 class WebImageService:
     VALID_THUMBNAIL_SIZES = {"w256h256", "w480h320", "w640h480", "w960h640", "w1024h768"}
-    
+
     def _get_default_thumbnail_size(self) -> str:
         """Get default thumbnail size from env or config."""
         env_size = os.environ.get("WEB_THUMBNAIL_SIZE", "").strip()
         if env_size in self.VALID_THUMBNAIL_SIZES:
             return env_size
-        
+
         try:
             static = get_static_config()
             cfg_size = static.service_limits.web.thumbnail.default_size
@@ -123,7 +123,7 @@ class WebImageService:
                 return cfg_size
         except (AttributeError, KeyError):
             pass
-        
+
         return "w960h640"  # Fallback default
 ```
 
@@ -191,7 +191,7 @@ function showSkeleton() {
 function showImage(thumbnailUrl, fullUrl, altText) {
   // Show skeleton while loading
   showSkeleton();
-  
+
   // Preload image
   const tempImg = new Image();
   tempImg.onload = () => {
@@ -208,7 +208,7 @@ function showImage(thumbnailUrl, fullUrl, altText) {
     showImagePlaceholder("Error loading image.");
   };
   tempImg.src = thumbnailUrl;
-  
+
   currentFullUrl = fullUrl;
   // ... rest unchanged
 }
@@ -321,4 +321,3 @@ Each optimization is independent and can be rolled back separately:
 4. **Configurable size** (operational flexibility)
 
 Each can be implemented as a separate PR for easier review and rollback.
-

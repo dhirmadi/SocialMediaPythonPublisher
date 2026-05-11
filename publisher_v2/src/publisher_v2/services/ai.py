@@ -438,7 +438,22 @@ def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> 
 
 def build_platform_block(index: int, name: str, spec: CaptionSpec) -> str:
     """Build the prompt block for a single platform, including examples and guidance."""
-    ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
+    if spec.smart_hashtags:
+        if spec.hashtags:
+            ht = (
+                "Generate 3-8 relevant hashtags based on the image analysis "
+                "(tags, mood, style, aesthetic_terms). "
+                "Format: lowercase, #-prefixed, no spaces. Weave them naturally at the end of the caption. "
+                f"Always include these seed hashtags: {spec.hashtags}."
+            )
+        else:
+            ht = (
+                "Generate 3-8 relevant hashtags based on the image analysis "
+                "(tags, mood, style, aesthetic_terms). "
+                "Format: lowercase, #-prefixed, no spaces. Weave them naturally at the end of the caption."
+            )
+    else:
+        ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
     # Emphasize hard limit for short-length platforms (email/FetLife subjects)
     if spec.max_length <= 300:
         length_instruction = (
@@ -699,7 +714,19 @@ class CaptionGeneratorOpenAI:
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
         try:
             hashtags_clause = ""
-            if spec.hashtags:
+            if spec.smart_hashtags:
+                if spec.hashtags:
+                    hashtags_clause = (
+                        " Generate relevant hashtags from the analysis "
+                        "(tags, mood, style, aesthetic_terms); lowercase, #-prefixed, weave at the end. "
+                        f"Always include these seed hashtags: {spec.hashtags}."
+                    )
+                else:
+                    hashtags_clause = (
+                        " Generate 3-8 relevant hashtags from the analysis "
+                        "(tags, mood, style, aesthetic_terms); lowercase, #-prefixed, weave at the end."
+                    )
+            elif spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             # Emphasize hard limit for short-length platforms
             if spec.max_length <= 300:
@@ -757,7 +784,19 @@ class CaptionGeneratorOpenAI:
         """
         try:
             hashtags_clause = ""
-            if spec.hashtags:
+            if spec.smart_hashtags:
+                if spec.hashtags:
+                    hashtags_clause = (
+                        " Generate relevant hashtags from the analysis "
+                        "(tags, mood, style, aesthetic_terms); lowercase, #-prefixed, weave at the end. "
+                        f"Always include these seed hashtags: {spec.hashtags}."
+                    )
+                else:
+                    hashtags_clause = (
+                        " Generate 3-8 relevant hashtags from the analysis "
+                        "(tags, mood, style, aesthetic_terms); lowercase, #-prefixed, weave at the end."
+                    )
+            elif spec.hashtags:
                 hashtags_clause = f" End with these hashtags verbatim: {spec.hashtags}."
             # Emphasize hard limit for short-length platforms
             if spec.max_length <= 300:

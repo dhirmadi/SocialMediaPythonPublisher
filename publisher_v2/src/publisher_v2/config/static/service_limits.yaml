@@ -10,5 +10,3 @@ web:
 
 smtp:
   timeout_seconds: null
-
-

@@ -1,9 +1,9 @@
 # Story 018-02: Full-Size Access UX — Design
 
-**Story ID:** 018-02  
-**Design Version:** 1.1  
-**Date:** 2025-12-06  
-**Status:** Implemented  
+**Story ID:** 018-02
+**Design Version:** 1.1
+**Date:** 2025-12-06
+**Status:** Implemented
 **Parent Story:** 018_02_fullsize_access_ux.md
 
 ## 1. Overview
@@ -92,7 +92,7 @@ function showImage(thumbnailUrl, fullUrl, altText) {
   imgEl.src = thumbnailUrl;
   imgEl.alt = altText || "Image";
   imgEl.classList.remove("hidden");
-  
+
   currentFullUrl = fullUrl;
   // NEW: Show full-size button
   if (btnFullSize) {
@@ -210,4 +210,3 @@ If issues arise:
 5. Optionally keep `web_ui_text.en.yaml` addition (harmless)
 
 The thumbnail display (Story 01) continues to work; users can still access full images via the existing `temp_url` in the API response if needed.
-

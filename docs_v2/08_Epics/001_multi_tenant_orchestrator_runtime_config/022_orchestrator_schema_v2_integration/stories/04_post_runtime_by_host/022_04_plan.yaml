@@ -55,5 +55,3 @@ release:
   feature_flag: "ORCHESTRATOR_PREFER_POST"
   rollout_strategy: "direct"
   rollback_plan: "Set ORCHESTRATOR_PREFER_POST=false"
-
-

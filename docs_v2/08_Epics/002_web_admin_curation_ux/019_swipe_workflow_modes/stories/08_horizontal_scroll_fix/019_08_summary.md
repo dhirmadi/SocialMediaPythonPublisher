@@ -29,4 +29,3 @@ Fixed horizontal scrolling issues on the web interface to ensure reliable swipe 
 
 ## Follow-up Items
 - None.
-

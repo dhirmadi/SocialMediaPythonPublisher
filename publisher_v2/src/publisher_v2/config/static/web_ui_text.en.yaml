@@ -39,5 +39,3 @@ admin_dialog:
   title: "Admin login"
   description: "Enter the admin password to enable analysis and publishing."
   password_placeholder: "Admin password"
-
-

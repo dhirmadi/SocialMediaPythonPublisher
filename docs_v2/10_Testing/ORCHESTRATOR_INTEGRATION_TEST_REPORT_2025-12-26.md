@@ -253,4 +253,3 @@ The integration testing confirms:
 *Report generated: 2025-12-26T09:48:00Z*
 *Test framework: Custom async integration tests + httpx*
 *Publisher version: Feature 022 branch*
-

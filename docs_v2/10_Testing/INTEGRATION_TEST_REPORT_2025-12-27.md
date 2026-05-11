@@ -1,8 +1,8 @@
 # Publisher V2 Integration Test Report
 
-**Date:** 2025-12-27  
-**Test Target:** Simulating requests to `https://vermont.shibari.photo`  
-**Orchestrator:** Local instance at `http://localhost:8089`  
+**Date:** 2025-12-27
+**Test Target:** Simulating requests to `https://vermont.shibari.photo`
+**Orchestrator:** Local instance at `http://localhost:8089`
 **Orchestrator Version:** Feature 17 (Tenant-Scoped Secrets) deployed
 
 ---
@@ -274,7 +274,6 @@ No code changes are required in the Publisher codebase. The integration test con
 
 ---
 
-*Report generated: 2025-12-27T12:17:00Z*  
-*Test framework: Custom async integration tests (Python 3.12 + httpx)*  
+*Report generated: 2025-12-27T12:17:00Z*
+*Test framework: Custom async integration tests (Python 3.12 + httpx)*
 *Publisher version: Feature 022 branch*
-

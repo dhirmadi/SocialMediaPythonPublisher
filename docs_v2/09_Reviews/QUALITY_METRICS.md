@@ -1,7 +1,7 @@
 # Quality Metrics — Social Media Python Publisher V2
 
-**Version:** 1.0  
-**Last Updated:** December 21, 2025  
+**Version:** 1.0
+**Last Updated:** December 21, 2025
 **Purpose:** Single source of truth for project quality standards
 
 ---
@@ -317,8 +317,7 @@ echo "Reports generated. Open htmlcov/index.html for coverage details."
 
 ---
 
-**Document Version:** 1.0  
-**Last Reviewed:** December 21, 2025  
-**Next Review:** March 2026  
+**Document Version:** 1.0
+**Last Reviewed:** December 21, 2025
+**Next Review:** March 2026
 **Maintainer:** QC Engineer
-

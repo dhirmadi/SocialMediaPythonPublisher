@@ -32,7 +32,7 @@ tasks:
       - "Response time < 50ms (in-memory config read)"
       - "No authentication required"
     dependencies: []
-    
+
   - id: "frontend-fetch"
     type: "implementation"
     description: "Add JavaScript function to fetch publisher config on page load"
@@ -46,7 +46,7 @@ tasks:
       - "Handles API errors gracefully (defaults to all true)"
       - "Called on page load"
     dependencies: ["backend-endpoint"]
-    
+
   - id: "frontend-rendering"
     type: "implementation"
     description: "Implement conditional rendering of publisher buttons based on config"
@@ -60,7 +60,7 @@ tasks:
       - "Button click handlers work correctly for visible buttons"
       - "No console errors or rendering glitches"
     dependencies: ["frontend-fetch"]
-    
+
   - id: "unit-tests-endpoint"
     type: "test"
     description: "Add unit tests for new /api/config/publishers endpoint"
@@ -78,7 +78,7 @@ tasks:
       - name: "test_get_publishers_config_enabled_but_not_configured"
         description: "Platform enabled flag true but config object None returns false"
     dependencies: ["backend-endpoint"]
-    
+
   - id: "manual-tests"
     type: "test"
     description: "Execute manual test plan for UI button visibility"
@@ -113,7 +113,7 @@ tasks:
           - "Restart and refresh"
           - "Verify Email visible, Telegram gone"
     dependencies: ["frontend-rendering", "unit-tests-endpoint"]
-    
+
   - id: "update-docs"
     type: "documentation"
     description: "Update architecture docs to mention new endpoint"
@@ -130,19 +130,19 @@ acceptance_criteria:
   - description: "Given Telegram enabled and Email/Instagram disabled, when user loads UI, then only Telegram button visible"
     test_type: "integration"
     priority: "must"
-    
+
   - description: "Given all publishers enabled, when user loads UI, then all buttons visible (no regression)"
     test_type: "integration"
     priority: "must"
-    
+
   - description: "Given all publishers disabled, when user loads UI, then no buttons visible and message shown"
     test_type: "integration"
     priority: "must"
-    
+
   - description: "Given API endpoint fails, when user loads UI, then graceful degradation (show all buttons)"
     test_type: "manual"
     priority: "should"
-    
+
   - description: "Given visible publisher button, when clicked, then publish succeeds (no regression)"
     test_type: "integration"
     priority: "must"
@@ -152,15 +152,15 @@ quality_gates:
     enabled: true
     coverage_delta_min: 0
     rationale: "New endpoint covered by unit tests; frontend covered by manual tests"
-    
+
   linting:
     enabled: true
     must_pass: true
-    
+
   type_checking:
     enabled: true
     must_pass: true
-    
+
   backwards_compatibility:
     enabled: true
     checks:
@@ -175,13 +175,13 @@ release:
     - Cleaner UI with reduced visual clutter
     - Shows "No publishers configured" message when all publishers disabled
     - New endpoint: GET /api/config/publishers returns enablement state
-    
+
   deployment_notes: |
     - No migration required
     - No config changes required
     - Additive API change only (backward compatible)
     - Users may need to refresh browser to see new behavior
-    
+
   rollback_plan: |
     - Revert to previous version if UI rendering issues occur
     - No data migration or state cleanup needed
@@ -193,8 +193,7 @@ risks:
   - risk: "API endpoint failure breaks UI"
     mitigation: "Frontend defaults to showing all buttons on error"
     severity: "low"
-    
+
   - risk: "User confusion if button suddenly missing"
     mitigation: "Show 'No publishers configured' message; document behavior"
     severity: "low"
-

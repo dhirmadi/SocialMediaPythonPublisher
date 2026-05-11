@@ -1,10 +1,10 @@
 # Story: Heroku Pipeline Migration (Stop Using `FETLIFE_INI`)
 
-**Feature ID:** 021  
-**Story ID:** 021-07  
-**Name:** heroku-pipeline-migration  
-**Status:** Shipped  
-**Date:** 2025-12-23  
+**Feature ID:** 021
+**Story ID:** 021-07
+**Name:** heroku-pipeline-migration
+**Status:** Shipped
+**Date:** 2025-12-23
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -172,7 +172,7 @@ The INI file creation step is no longer required when all JSON env vars are set.
 ```bash
 # 1. Set the three required JSON env vars
 heroku config:set STORAGE_PATHS='{"root": "/Photos/MySocialMedia"}' -a YOUR_APP_NAME
-heroku config:set PUBLISHERS='[{"type": "fetlife", "recipient": "user@fetlife.com"}]' -a YOUR_APP_NAME  
+heroku config:set PUBLISHERS='[{"type": "fetlife", "recipient": "user@fetlife.com"}]' -a YOUR_APP_NAME
 heroku config:set OPENAI_SETTINGS='{}' -a YOUR_APP_NAME
 
 # 2. Set EMAIL_SERVER if using email publisher
@@ -292,5 +292,3 @@ heroku config -a YOUR_APP_NAME | grep -E "STORAGE_PATHS|PUBLISHERS|OPENAI_SETTIN
 - [CONFIGURATION.md Section 8: Env-First Configuration](../../../../../05_Configuration/CONFIGURATION.md#8-v2-env-first-configuration-feature-021)
 - [CONFIGURATION.md Section 9: Migration Guide](../../../../../05_Configuration/CONFIGURATION.md#9-migration-guide)
 - [dotenv.v2.example](../../../../../dotenv.v2.example) — Full example `.env` file
-
-

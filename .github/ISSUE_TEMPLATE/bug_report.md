@@ -71,4 +71,3 @@ Steps to reproduce the behavior:
 - Email addresses
 - Personal information
 - File paths that might reveal sensitive information
-

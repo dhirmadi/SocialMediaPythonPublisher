@@ -1,12 +1,12 @@
 # JSON Config Parser Infrastructure — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-01  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_01_json-parser-infrastructure.md  
+**Feature ID:** 021
+**Story ID:** 021-01
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_01_json-parser-infrastructure.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -89,7 +89,7 @@ def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
 
 **`config/loader.py`** (modified):
 - Add `_parse_json_env()` helper
-- Add `_safe_log_config()` helper  
+- Add `_safe_log_config()` helper
 - Add `REDACT_KEYS` constant for default sensitive key names
 
 **`config/types.py`** (new file, optional):
@@ -131,7 +131,7 @@ class StoragePathsConfig(TypedDict, total=False):
 
 # Default keys to redact in logs
 REDACT_KEYS: set[str] = {
-    "password", "secret", "token", 
+    "password", "secret", "token",
     "refresh_token", "bot_token", "api_key"
 }
 ```
@@ -232,4 +232,3 @@ except json.JSONDecodeError as exc:
 - [ ] Unit tests cover all edge cases from testing strategy
 - [ ] No secrets logged in any code path
 - [ ] Code follows existing loader.py patterns
-

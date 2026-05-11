@@ -49,4 +49,3 @@ indent_style = tab
 # Documentation
 [docs/**/*.md]
 trim_trailing_whitespace = false
-

@@ -2,12 +2,12 @@
 
 # Centralized Configuration & Internationalizable Text — Feature Design
 
-**Feature ID:** 012  
-**Feature Name:** central-config-i18n-text  
-**Design Version:** 1.0  
-**Date:** 2025-11-22  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Feature ID:** 012
+**Feature Name:** central-config-i18n-text
+**Design Version:** 1.0
+**Date:** 2025-11-22
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -495,4 +495,3 @@ Changes:
 - Web UI and preview strings are sourced from static text config by default, but remain English and unchanged when config is not customized.
 - Operators have clear documentation separating secrets, dynamic tunables, and static text/rules.
 - Future i18n is achievable by adding `web_ui_text.<locale>.yaml` (and, optionally, `preview_text.<locale>.yaml`) without additional code changes beyond locale selection.
-

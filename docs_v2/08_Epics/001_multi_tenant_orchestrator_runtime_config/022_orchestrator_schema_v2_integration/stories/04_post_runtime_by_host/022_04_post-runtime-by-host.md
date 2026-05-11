@@ -1,8 +1,8 @@
 # Story 04 — POST Runtime By Host
 
-**Feature ID:** 022  
-**Story ID:** 022-04  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-04
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -17,7 +17,7 @@ The orchestrator now supports `POST /v1/runtime/by-host` with JSON body `{ "host
 
 Publisher doesn't rely on intermediary caches (in-process caching), so POST's "not cache-friendly" characteristic is not a concern.
 
-**Parent feature:** [022_feature.md](../../022_feature.md)  
+**Parent feature:** [022_feature.md](../../022_feature.md)
 **Depends on:** Story 02 (Schema V2 Parsing)
 
 ---
@@ -144,7 +144,7 @@ X-Request-Id: <uuid>
 ```python
 class OrchestratorClient:
     _post_supported: bool | None = None  # None = unknown, True = yes, False = 405 received
-    
+
     async def get_runtime_config(self, host: str) -> OrchestratorRuntimeResponse:
         if self._prefer_post and self._post_supported is not False:
             try:
@@ -154,7 +154,7 @@ class OrchestratorClient:
             except MethodNotAllowedError:
                 logger.warning("POST runtime-by-host not supported, falling back to GET")
                 self._post_supported = False
-        
+
         return await self._get_runtime(host)
 ```
 
@@ -170,4 +170,3 @@ class OrchestratorClient:
 | Date | Change |
 |------|--------|
 | 2025-12-24 | Initial story draft |
-

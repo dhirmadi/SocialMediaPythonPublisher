@@ -1,10 +1,10 @@
 # Story: Publishers Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-02  
-**Name:** publishers-env-var  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-02
+**Name:** publishers-env-var
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -48,4 +48,3 @@ FetLife entries must reference `EMAIL_SERVER` for smtp/sender/password (Story 03
 
 - Story 01: JSON Parser Infrastructure (for `_parse_json_env`)
 - Story 03: Email Server (FetLife publisher needs EMAIL_SERVER settings and EMAIL_PASSWORD; implement 03 first or in parallel)
-

@@ -91,4 +91,3 @@ The current admin authentication relies on a shared password (`web_admin_pw`) or
 - M2: Login flow implementation (Redirect + Callback).
 - M3: Email verification and Session handling.
 - M4: UI Updates (Button + Error handling).
-

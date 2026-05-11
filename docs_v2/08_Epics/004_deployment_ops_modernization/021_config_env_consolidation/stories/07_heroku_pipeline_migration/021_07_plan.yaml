@@ -64,7 +64,7 @@ tasks:
       # Before:
       if not os.path.exists(config_file_path):
           raise ConfigurationError(f"Config file not found: {config_file_path}")
-      
+
       # After:
       if not os.path.exists(config_file_path):
           if _has_required_env_config():
@@ -109,4 +109,3 @@ release:
   feature_flag: null
   rollout_strategy: "canary"
   rollback_plan: "Restore FETLIFE_INI and restart"
-

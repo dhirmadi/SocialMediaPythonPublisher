@@ -21,4 +21,3 @@ Add a visual indicator (e.g., "12 / 45") when in Review Mode to show progress th
 
 ## Technical Notes
 - Simple text update in the rendering function.
-

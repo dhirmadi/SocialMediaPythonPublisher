@@ -2,24 +2,24 @@
 
 # Web Interface AUTO_VIEW Anonymous Image Access
 
-**Feature ID:** 005  
-**Change ID:** 005-008  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** Evert  
+**Feature ID:** 005
+**Change ID:** 005-008
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** Evert
 
 ## Summary
 
-Introduce an `AUTO_VIEW` environment flag controlling whether the web UI may display images to unauthenticated / non-admin visitors, or only to logged-in admin users.  
+Introduce an `AUTO_VIEW` environment flag controlling whether the web UI may display images to unauthenticated / non-admin visitors, or only to logged-in admin users.
 When `AUTO_VIEW=true`, the root page may show random images and existing captions to any visitor (subject only to HTTP-level auth if configured); when `AUTO_VIEW=false`, images are only loaded and displayed after the operator has successfully logged into admin mode, preventing casual viewers from seeing image content.
 
 ## Problem Statement
 
-The current Web Interface MVP and follow-up admin-mode changes gate **Analyze & caption**, **Publish**, and detailed status output behind admin mode, but image content itself is always retrievable via `GET /api/images/random`.  
-On shared devices or semi-public deployments, this means that anyone who can reach the URL can see potentially sensitive images, even if they cannot trigger analysis or publishing.  
+The current Web Interface MVP and follow-up admin-mode changes gate **Analyze & caption**, **Publish**, and detailed status output behind admin mode, but image content itself is always retrievable via `GET /api/images/random`.
+On shared devices or semi-public deployments, this means that anyone who can reach the URL can see potentially sensitive images, even if they cannot trigger analysis or publishing.
 The repository needs a simple, environment-driven way to choose between:
 
-- A **private operator-only** mode where images require admin login, and  
+- A **private operator-only** mode where images require admin login, and
 - A **viewer-friendly** mode where images may be safely browsed without logging in.
 
 ## Goals
@@ -45,15 +45,15 @@ The repository needs a simple, environment-driven way to choose between:
 
 ## Acceptance Criteria (BDD-style)
 
-- **AC1 (Default private mode):**  
+- **AC1 (Default private mode):**
   Given `AUTO_VIEW` is unset or set to `false`, when an anonymous user opens `/` and the UI loads, then the page does **not** display any image until the admin has successfully logged in, and the “Next image” action either stays disabled or clearly indicates that admin login is required.
-- **AC2 (Admin-gated images):**  
+- **AC2 (Admin-gated images):**
   Given `AUTO_VIEW=false` and a valid admin password configured, when the operator logs into admin mode, then “Next image” begins working and random images (plus existing captions) are displayed as today.
-- **AC3 (Relaxed viewer mode):**  
+- **AC3 (Relaxed viewer mode):**
   Given `AUTO_VIEW=true`, when an unauthenticated visitor opens `/` and clicks “Next image”, then a random image and its caption (if available) are displayed successfully, without requiring admin login, while analyze/publish/keep/remove actions still require admin mode.
-- **AC4 (Config introspection):**  
+- **AC4 (Config introspection):**
   Given the web UI loads, when it calls the config/features endpoint, then it can determine whether `AUTO_VIEW` is enabled and adjust the initial button state and status messaging accordingly.
-- **AC5 (Backward compatibility):**  
+- **AC5 (Backward compatibility):**
   Given a deployment that does not set `AUTO_VIEW`, when the app is upgraded, then behavior remains equivalent to `AUTO_VIEW=false` (private by default), and all existing tests for admin mode, analysis, publishing, and curation continue to pass.
 
 ## Technical Notes & Constraints
@@ -76,11 +76,11 @@ The repository needs a simple, environment-driven way to choose between:
 
 ## Risks & Mitigations
 
-- **Risk:** Misconfiguration of `AUTO_VIEW` could unintentionally expose images to unauthenticated viewers.  
+- **Risk:** Misconfiguration of `AUTO_VIEW` could unintentionally expose images to unauthenticated viewers.
   **Mitigation:** Default to `AUTO_VIEW=false` (private), clearly document the flag, and ensure tests cover both modes.
-- **Risk:** Inconsistent enforcement between backend and frontend could allow images to be fetched via API even when UI is locked down.  
+- **Risk:** Inconsistent enforcement between backend and frontend could allow images to be fetched via API even when UI is locked down.
   **Mitigation:** Enforce `AUTO_VIEW` at the API level for `GET /api/images/random` and treat UI behavior as an additional UX layer, not the primary guard.
-- **Risk:** Interaction with existing HTTP auth and admin-mode cookies may be confusing.  
+- **Risk:** Interaction with existing HTTP auth and admin-mode cookies may be confusing.
   **Mitigation:** Keep rules simple and clearly documented: admin mode is still required for mutating actions; `AUTO_VIEW` only controls whether random images are visible without admin.
 
 ## Implementation Summary
@@ -107,9 +107,9 @@ The repository needs a simple, environment-driven way to choose between:
 
 ## Artifacts
 
-- Change Request (this document): `docs_v2/08_Epics/08_04_ChangeRequests/005/008_auto-view-anonymous-image-access.md`  
-- Change Design: `docs_v2/08_Epics/08_04_ChangeRequests/005/008_design.md`  
-- Story Plan: `docs_v2/08_Epics/08_04_ChangeRequests/005/008_plan.yaml`  
+- Change Request (this document): `docs_v2/08_Epics/08_04_ChangeRequests/005/008_auto-view-anonymous-image-access.md`
+- Change Design: `docs_v2/08_Epics/08_04_ChangeRequests/005/008_design.md`
+- Story Plan: `docs_v2/08_Epics/08_04_ChangeRequests/005/008_plan.yaml`
 - Code:
   - `publisher_v2/src/publisher_v2/config/schema.py`
   - `publisher_v2/src/publisher_v2/config/loader.py`
@@ -120,6 +120,3 @@ The repository needs a simple, environment-driven way to choose between:
   - `publisher_v2/tests/web/test_publishers_endpoint.py`
   - `publisher_v2/tests/test_config_loader.py`
   - `publisher_v2/tests/test_e2e_performance_telemetry.py`
-
-
-

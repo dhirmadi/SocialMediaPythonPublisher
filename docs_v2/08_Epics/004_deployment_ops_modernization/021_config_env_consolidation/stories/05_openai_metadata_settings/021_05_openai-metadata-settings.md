@@ -1,10 +1,10 @@
 # Story: OpenAI and Metadata Settings
 
-**Feature ID:** 021  
-**Story ID:** 021-05  
-**Name:** openai-metadata-settings  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-05
+**Name:** openai-metadata-settings
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -89,4 +89,3 @@ Note: `OPENAI_API_KEY` remains a separate env var (not in JSON) for security and
 
 - Story 01: JSON Parser Infrastructure
 - Story 02/03: CONFIRMATION_SETTINGS fields are added to EmailConfig (which is instantiated in Story 02 using EMAIL_SERVER from Story 03)
-

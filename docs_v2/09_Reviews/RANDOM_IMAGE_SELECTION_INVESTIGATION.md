@@ -1,8 +1,8 @@
 # Investigation Report: Random Image Selection Perceived Non-Randomness
 
-**Date:** 2026-01-12  
-**Status:** Investigation Complete  
-**Priority:** Medium  
+**Date:** 2026-01-12
+**Status:** Investigation Complete
+**Priority:** Medium
 **Affects:** Web UI random image browsing, CLI publish workflow
 
 ---
@@ -154,17 +154,17 @@ log_json(
 class RecentlyShownBuffer:
     """
     LRU buffer tracking recently-shown images per tenant.
-    
+
     - Configurable buffer size (e.g., 50 images = ~5% of 1000)
     - Images in buffer are excluded from random selection
     - Buffer auto-expires after configurable TTL (e.g., 1 hour)
     """
-    
+
     def __init__(self, max_size: int = 50, ttl_seconds: int = 3600):
         self._buffer: OrderedDict[str, float] = OrderedDict()
         self._max_size = max_size
         self._ttl = ttl_seconds
-    
+
     def add(self, filename: str) -> None:
         """Record that filename was shown."""
         self._evict_expired()
@@ -172,7 +172,7 @@ class RecentlyShownBuffer:
         self._buffer.move_to_end(filename)
         while len(self._buffer) > self._max_size:
             self._buffer.popitem(last=False)
-    
+
     def filter_candidates(self, images: List[str]) -> List[str]:
         """Return images not in recently-shown buffer."""
         self._evict_expired()
@@ -186,14 +186,14 @@ async def get_random_image(self) -> ImageResponse:
     images = await self._get_cached_images()
     if not images:
         raise FileNotFoundError("No images found")
-    
+
     # Exclude recently-shown images
     candidates = self._recently_shown.filter_candidates(images)
     if not candidates:
         # Fallback: if buffer exhausted entire list, reset and pick any
         candidates = images
         self._recently_shown.clear()
-    
+
     import secrets
     selected = secrets.choice(candidates)  # Cryptographic randomness
     self._recently_shown.add(selected)
@@ -229,7 +229,7 @@ selected = secrets.choice(images)
 
 `secrets.SystemRandom` uses OS-level entropy (`/dev/urandom`) and is suitable for security-sensitive selection.
 
-**Effort:** Low (one-line change)  
+**Effort:** Low (one-line change)
 **Impact:** Marginal improvement in true randomness; psychological reassurance
 
 ### Solution 3: Publication History Log File
@@ -344,7 +344,7 @@ def log_publication(
 2. When selecting random image, compute Hamming distance to recently-shown
 3. Deprioritize candidates within similarity threshold
 
-**Complexity:** High (requires pre-processing pipeline)  
+**Complexity:** High (requires pre-processing pipeline)
 **Recommendation:** Defer to future feature; focus on Solutions 1-3 first
 
 ---
@@ -473,5 +473,5 @@ for name, ch in candidate_order:
 
 ---
 
-**Report prepared by:** Engineering Team  
+**Report prepared by:** Engineering Team
 **Next steps:** Create feature spec for Phase 1 implementation

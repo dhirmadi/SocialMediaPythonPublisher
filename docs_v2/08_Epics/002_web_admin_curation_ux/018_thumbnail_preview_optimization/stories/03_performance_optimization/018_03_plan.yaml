@@ -48,7 +48,7 @@ sub_features:
     status: "implemented"
     description: "Prefetch next image thumbnail while viewing current"
     effort: "1-2 hours"
-    
+
   - id: configurable_size
     name: "Configurable Default Size"
     priority: "medium"
@@ -56,7 +56,7 @@ sub_features:
     description: "Allow thumbnail size via env var or static config"
     effort: "1-2 hours"
     reason: "Low priority; hardcoded default works well"
-    
+
   - id: skeleton_loading
     name: "Skeleton Loading"
     priority: "low"
@@ -64,7 +64,7 @@ sub_features:
     description: "Show animated placeholder during thumbnail load"
     effort: "1-2 hours"
     reason: "Thumbnails already load fast; cosmetic polish"
-    
+
   - id: adaptive_sizing
     name: "Adaptive Sizing"
     priority: "medium"
@@ -151,12 +151,12 @@ implementation_notes: |
   the highest impact for the curation workflow. The other sub-features
   (configurable size, skeleton loading, adaptive sizing) were deferred as
   they add complexity with diminishing returns.
-  
+
   Preloading approach:
   - After displaying an image, immediately prefetch next random image
   - Use browser's native <link rel="prefetch"> for thumbnail caching
   - On "Next" click, use prefetched data if available (instant)
   - Clean up prefetch links after 30 seconds to prevent DOM bloat
-  
+
   Also fixed a bug: moved load_dotenv() to module level to prevent
   test interference when tests monkeypatch env vars.

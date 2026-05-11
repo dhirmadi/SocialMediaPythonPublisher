@@ -93,5 +93,3 @@ release:
     - "web_random_image_ms"
     - "web_analyze_ms"
     - "web_publish_ms"
-
-

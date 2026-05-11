@@ -1,7 +1,7 @@
 ## Performance Review — Social Media Publisher V2
 
-**Date**: 2025-11-20  
-**Author**: Senior Architect (AI assistant)  
+**Date**: 2025-11-20
+**Author**: Senior Architect (AI assistant)
 **Scope**: End‑to‑end performance for CLI workflow and FastAPI web interface.
 
 ---
@@ -260,17 +260,15 @@ This plan keeps your existing architecture and contracts intact while giving you
 
 ### 10. Related Features & Change Requests
 
-- **Feature Requests**  
-  - `006_core-workflow-dedup-performance.md` — Core Workflow Dedup Performance (Dropbox `content_hash`-based selection).  
-  - `007_cross-cutting-performance-observability.md` — Cross-Cutting Performance & Observability (shared telemetry patterns).  
+- **Feature Requests**
+  - `006_core-workflow-dedup-performance.md` — Core Workflow Dedup Performance (Dropbox `content_hash`-based selection).
+  - `007_cross-cutting-performance-observability.md` — Cross-Cutting Performance & Observability (shared telemetry patterns).
   - `008_publisher-async-throughput-hygiene.md` — Publisher Async Throughput Hygiene.
 
-- **Change Requests (mapped to existing features)**  
-  - `001/001_sidecars-as-ai-cache.md` — Sidecars as AI Cache (Feature 001).  
-  - `001/002_sd-caption-ai-service-integration.md` — SD Caption AI Service Integration (Feature 001).  
-  - `003/001_analysis-performance-telemetry.md` — Analysis Performance & Telemetry (Feature 003).  
-  - `003/002_preview-verbosity-controls.md` — Preview Verbosity Controls (Feature 003).  
-  - `005/004_web-performance-sidecar-cache.md` — Web Performance & Sidecar Cache (Feature 005).  
+- **Change Requests (mapped to existing features)**
+  - `001/001_sidecars-as-ai-cache.md` — Sidecars as AI Cache (Feature 001).
+  - `001/002_sd-caption-ai-service-integration.md` — SD Caption AI Service Integration (Feature 001).
+  - `003/001_analysis-performance-telemetry.md` — Analysis Performance & Telemetry (Feature 003).
+  - `003/002_preview-verbosity-controls.md` — Preview Verbosity Controls (Feature 003).
+  - `005/004_web-performance-sidecar-cache.md` — Web Performance & Sidecar Cache (Feature 005).
   - `005/005_web-performance-telemetry.md` — Web Performance Telemetry (Feature 005).
-
-

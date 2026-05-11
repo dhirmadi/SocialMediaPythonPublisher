@@ -32,4 +32,3 @@ Moved the "Previous" and "Next" navigation buttons from the control panel to bec
 
 ## Follow-up Items
 - None.
-

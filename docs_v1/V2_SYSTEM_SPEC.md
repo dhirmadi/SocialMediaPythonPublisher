@@ -1,7 +1,7 @@
 # Social Media Python Publisher V2 — System Specification
 
-Version: 2.0  
-Last Updated: November 7, 2025  
+Version: 2.0
+Last Updated: November 7, 2025
 Status: Approved for implementation
 
 ---
@@ -21,11 +21,11 @@ Out-of-scope for V2:
 
 ## 2. Target Runtime and Tooling
 
-- Python: 3.12 (3.11+ acceptable)  
-- Package/Env: Poetry (package-mode=false)  
-- Lint/Format/Types: black, isort, flake8, mypy, pylint  
-- Testing: pytest (+ pytest-asyncio, pytest-cov)  
-- Security: safety, bandit, pre-commit hooks  
+- Python: 3.12 (3.11+ acceptable)
+- Package/Env: Poetry (package-mode=false)
+- Lint/Format/Types: black, isort, flake8, mypy, pylint
+- Testing: pytest (+ pytest-asyncio, pytest-cov)
+- Security: safety, bandit, pre-commit hooks
 
 ---
 
@@ -122,7 +122,7 @@ Telegram:
 - python-telegram-bot 20+; async APIs.
 
 Instagram:
-- Default: Adapter for official Graph API (safer).  
+- Default: Adapter for official Graph API (safer).
 - Optional: instagrapi adapter behind feature flag with prominent disclaimer.
 
 SMTP:
@@ -252,5 +252,3 @@ Orchestrator:
 ## 18. Future Work (Post-V2)
 
 - Video support (ffmpeg), scheduling, analytics dashboard, A/B testing, Twitter/X, Facebook, LinkedIn adapters.
-
-

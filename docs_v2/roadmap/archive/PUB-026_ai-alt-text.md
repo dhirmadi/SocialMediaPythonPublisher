@@ -159,4 +159,3 @@ No special handling needed. Vision analysis already runs in preview mode. Alt te
 ---
 
 2026-04-25 — Spec hardened for Claude Code handoff (Instagram ACs removed per product decision)
-

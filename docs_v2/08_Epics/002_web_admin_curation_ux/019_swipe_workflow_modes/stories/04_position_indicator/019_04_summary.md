@@ -35,4 +35,3 @@ Implemented a position indicator ("X / Y") in the web UI image container to show
 
 ## Follow-up Items
 - None.
-

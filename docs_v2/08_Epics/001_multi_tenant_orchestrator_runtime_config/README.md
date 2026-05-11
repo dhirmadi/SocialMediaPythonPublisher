@@ -18,5 +18,3 @@ This epic contains the plan and contract alignment for orchestrator-sourced runt
   - `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md`
 - Orchestrator runtime config schema reference (GUI validation contract):
   - `docs_v2/02_Specifications/ORCHESTRATOR_RUNTIME_CONFIG_SCHEMA_REFERENCE.md`
-
-

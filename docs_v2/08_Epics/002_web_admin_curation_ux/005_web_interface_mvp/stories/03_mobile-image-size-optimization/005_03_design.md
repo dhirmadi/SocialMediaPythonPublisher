@@ -1,14 +1,14 @@
 # Mobile Image Size Optimization — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-002  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-11-19  
-**Status:** Design Review  
-**Author:** Evert (maintainer)  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/002_mobile-image-size-optimization.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-002
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-11-19
+**Status:** Design Review
+**Author:** Evert (maintainer)
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/002_mobile-image-size-optimization.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
 
@@ -68,19 +68,19 @@
 ### 4.2 Components & Responsibilities
 
 - `publisher_v2.web.templates/index.html`
-  - Changes:  
+  - Changes:
     - Add a dedicated container for the main image with responsive layout rules (e.g., max-width tied to viewport and/or config).
     - Ensure buttons and text layout adjust gracefully around the resized image.
 - `publisher_v2.web.app` / `publisher_v2.web.models`
-  - Changes:  
+  - Changes:
     - Optionally (if we add a config knob), read `WebConfig.max_image_width_px` and expose it to the template rendering context (without affecting API JSON responses).
 - `config.schema.WebConfig` (if extended)
-  - Changes:  
+  - Changes:
     - Add optional, non-breaking field(s) like `max_image_width_px: int = 1280`, scoped to the web UI only.
 
 ### 4.3 Data & Contracts
 
-- API contracts.  
+- API contracts.
   - No changes to `ImageResponse` fields or endpoint paths/methods.
   - `temp_url` remains a direct image URL; any future lower-res variants must still conform to the same meaning (“URL to an image suitable for display”).
 - Config.
@@ -150,9 +150,9 @@
   - Purely CSS-based resizing still downloads the full-resolution file.
     - Mitigation: Accept for this change; evaluate backend-assisted lower-res URLs later if mobile data usage remains a concern.
 - Alternatives considered.
-  - Backend downscaling or different Dropbox renditions.  
+  - Backend downscaling or different Dropbox renditions.
     - Rejected for this change to keep the scope small and avoid additional complexity/processing; left as a potential future enhancement if needed.
-  - User-agent-based device detection and conditional behavior.  
+  - User-agent-based device detection and conditional behavior.
     - Rejected to avoid brittle heuristics; responsive design is simpler and more robust.
 
 ## 8. Work Plan (Scoped)
@@ -165,7 +165,5 @@
 
 ## 9. Open Questions
 
-- Should we introduce `WebConfig.max_image_width_px` now, or hard-code a single default (e.g., 1280px) and add configurability later? — Proposed answer: Start with a hard-coded constant in CSS; add config only if we find a real need during operation.  
+- Should we introduce `WebConfig.max_image_width_px` now, or hard-code a single default (e.g., 1280px) and add configurability later? — Proposed answer: Start with a hard-coded constant in CSS; add config only if we find a real need during operation.
 - Do we want to log any explicit “mobile-friendly image sizing” events (e.g., container width, config value) for observability? — Proposed answer: Likely not for this small change; rely on existing web logs and manual UX checks.
-
-

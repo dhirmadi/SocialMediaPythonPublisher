@@ -92,5 +92,3 @@ release:
     - "web_random_image_latency_p95"
     - "web_analyze_latency_p95"
     - "web_sidecar_cache_hit_ratio"
-
-

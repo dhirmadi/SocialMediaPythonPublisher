@@ -2,11 +2,11 @@
 
 # Feature Toggle System
 
-**ID:** 009  
-**Name:** feature-toggle  
-**Status:** Shipped  
-**Date:** 2025-01-27  
-**Author:** User Request  
+**ID:** 009
+**Name:** feature-toggle
+**Status:** Shipped
+**Date:** 2025-01-27
+**Author:** User Request
 
 ## Summary
 This feature adds a feature toggle system that allows operators to enable or disable major application features via environment variables. This enables building and testing new features independently, and provides operational control over feature activation without code changes. The two primary features that can be toggled are "AI Analyze and Caption" and "Publish". Storage integration (S3-compatible managed storage) is considered the base feature and must always remain enabled.
@@ -76,11 +76,11 @@ There is no mechanism to control feature activation at runtime without modifying
 - Web service layer (`publisher_v2.web.service`, `publisher_v2.web.app`)
 
 ## Risks & Mitigations
-- **Risk:** Breaking existing deployments if toggles default incorrectly  
+- **Risk:** Breaking existing deployments if toggles default incorrectly
   **Mitigation:** Default all toggles to enabled (true) to maintain backward compatibility
-- **Risk:** Confusion about which features can be toggled  
+- **Risk:** Confusion about which features can be toggled
   **Mitigation:** Clear documentation and error messages indicating storage cannot be disabled
-- **Risk:** Web UI showing options for disabled features  
+- **Risk:** Web UI showing options for disabled features
   **Mitigation:** Web UI should respect toggles and hide/disable relevant controls (future enhancement, not in scope for MVP)
 
 ## Open Questions
@@ -95,4 +95,3 @@ There is no mechanism to control feature activation at runtime without modifying
 - Feature toggles are distinct from platform enablement flags (telegram_enabled, instagram_enabled, etc.)
 - Storage is considered infrastructure, not a feature, and must always be enabled
 - This feature enables future features to be built with toggle support from the start
-

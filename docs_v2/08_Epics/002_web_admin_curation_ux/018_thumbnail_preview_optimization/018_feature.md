@@ -2,11 +2,11 @@
 
 > **Note (2026):** This document describes the original Dropbox-centric thumbnail approach. The active system has replaced Dropbox with **S3-compatible managed storage**, and thumbnail generation is now implemented using the current storage + image pipeline. Keep this as historical context; treat S3 as the storage backend going forward.
 
-**ID:** 018  
-**Name:** thumbnail-preview-optimization  
-**Status:** Shipped  
-**Version:** 1.0  
-**Date:** 2025-12-06  
+**ID:** 018
+**Name:** thumbnail-preview-optimization
+**Status:** Shipped
+**Version:** 1.0
+**Date:** 2025-12-06
 **Author:** AI Architect
 
 ## Executive Summary
@@ -148,7 +148,7 @@ Add a new method to `DropboxStorage`:
 from dropbox.files import ThumbnailSize, ThumbnailFormat, ThumbnailMode
 
 class DropboxStorage:
-    
+
     @retry(...)
     async def get_thumbnail(
         self,
@@ -159,7 +159,7 @@ class DropboxStorage:
     ) -> bytes:
         """
         Return a thumbnail of the image using Dropbox's thumbnail API.
-        
+
         Default size w960h640 provides good quality for web preview
         at ~30-80KB per image (vs 5-20MB for originals).
         """
@@ -172,7 +172,7 @@ class DropboxStorage:
                 mode=ThumbnailMode.fitone_bestfit,
             )
             return response.content
-        
+
         return await asyncio.to_thread(_get_thumb)
 ```
 
@@ -191,7 +191,7 @@ async def api_get_thumbnail(
 ) -> Response:
     """
     Return a thumbnail of the specified image.
-    
+
     Size options: w256h256, w480h320, w640h480, w960h640, w1024h768
     """
     thumb_bytes = await service.get_thumbnail(filename, size)
@@ -225,17 +225,17 @@ class ImageResponse(BaseModel):
 
 async def get_random_image(self) -> ImageResponse:
     # ... existing selection logic ...
-    
+
     # Parallel fetch: thumbnail link, sidecar, metadata
     temp_link, sidecar_result = await asyncio.gather(
         self.storage.get_temporary_link(folder, selected),
         self.storage.download_sidecar_if_exists(folder, selected),
         return_exceptions=True,
     )
-    
+
     # Build thumbnail URL (served via our API for caching control)
     thumbnail_url = f"/api/images/{urllib.parse.quote(selected)}/thumbnail"
-    
+
     return ImageResponse(
         filename=selected,
         temp_url=temp_link,
@@ -467,4 +467,3 @@ ThumbnailMode.strict         # Exact size, may crop
 ThumbnailMode.bestfit        # Fit within bounds
 ThumbnailMode.fitone_bestfit # Fit one dimension exactly (recommended)
 ```
-

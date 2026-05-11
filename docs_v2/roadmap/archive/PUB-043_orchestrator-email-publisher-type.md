@@ -50,5 +50,5 @@ Treat publisher type `email` the same as `fetlife` when building email platform 
 
 ---
 
-_2026-05-05 — Spec hardened for Claude Code handoff (GitHub #69)._  
+_2026-05-05 — Spec hardened for Claude Code handoff (GitHub #69)._
 _2026-05-05 — Archived (delivered, verified)._

@@ -48,4 +48,3 @@ tasks:
 quality_gates:
   tests_required:
     - dedup.tests_infrastructure
-

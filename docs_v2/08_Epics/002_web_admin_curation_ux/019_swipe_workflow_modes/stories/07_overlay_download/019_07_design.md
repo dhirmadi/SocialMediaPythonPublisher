@@ -89,4 +89,3 @@ This story moves the "Full Size" button to an overlay on the image and implement
 - Task 1: Update HTML layout (move button, move position indicator).
 - Task 2: Update CSS.
 - Task 3: Update JS logic.
-

@@ -3,7 +3,7 @@
 ## 1. Summary
 
 - **Problem**: We need to output, alongside the existing social-media JSON analysis, a Stable-Diffusion-ready caption and persist it as a `.txt` sidecar file next to the image. Existing outputs/behavior must remain unchanged.
-- **Goals**: 
+- **Goals**:
   - Add `sd_caption` to the in-memory analysis result and to any JSON surfaced in preview/debug, without modifying existing fields.
   - Create/overwrite a `.txt` file (`image.jpg` → `image.txt`) containing only the `sd_caption`.
   - When archiving an image, move its sidecar `.txt` with it.
@@ -165,7 +165,7 @@
 ## 9. Work Plan
 
 - **Milestones & Tasks**
-  1. Add `sd_caption` to `ImageAnalysis` dataclass (optional field). 
+  1. Add `sd_caption` to `ImageAnalysis` dataclass (optional field).
   2. Add `generate_with_sd` to `CaptionGeneratorOpenAI` returning strict JSON; update `AIService` to use it when enabled.
   3. Add `sd_caption_enabled`, `sd_caption_single_call_enabled`, `sd_caption_model`, and prompt config with safe defaults.
   4. Implement `write_sidecar_text` (overwrite semantics).
@@ -201,5 +201,3 @@ low-key studio figure study, single person, female, brown hair, slender figure, 
 - **Example Storage Behavior**
   - Image: `/ImagesToday/image.jpg` → Sidecar: `/ImagesToday/image.txt`
   - Archive: `/ImagesToday/archive/image.jpg` and `/ImagesToday/archive/image.txt`
-
-

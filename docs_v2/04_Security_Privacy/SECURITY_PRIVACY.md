@@ -1,6 +1,6 @@
 # Security & Privacy — Social Media Publisher V2
 
-Version: 2.0  
+Version: 2.0
 Last Updated: April 25, 2026
 
 ## 1. Secrets and Sessions
@@ -28,5 +28,3 @@ Last Updated: April 25, 2026
 ## 5. Compliance‑ready Practices
 - Clear separation between secrets and config
 - Automated checks (safety, bandit) in CI/CD (future)
-
-

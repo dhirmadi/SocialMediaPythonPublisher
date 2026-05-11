@@ -1,9 +1,9 @@
 # Cross-Cutting Performance & Observability
 
-**Feature ID:** 007-cross-cutting-performance-observability  
-**Status:** Shipped  
-**Date Completed:** 2025-11-20  
-**Code Branch / PR:** feature/007-cross-cutting-performance-observability (PR: TODO)  
+**Feature ID:** 007-cross-cutting-performance-observability
+**Status:** Shipped
+**Date Completed:** 2025-11-20
+**Code Branch / PR:** feature/007-cross-cutting-performance-observability (PR: TODO)
 
 ## Summary
 This feature introduces a lightweight, standardized performance telemetry layer across the V2 CLI workflow and web interface, using existing structured logging utilities. It adds stage-level timing fields and correlation IDs so operators can trace and diagnose latency across Dropbox, AI analysis, captioning, sidecar generation, publishing, and web endpoints without changing application behavior.
@@ -89,4 +89,3 @@ The testing strategy extends existing coverage and adds targeted checks for tele
 
 ## Final Notes
 This feature establishes a common pattern for performance telemetry that future work (e.g., captionfile, expanded analysis, web performance tuning) can build upon. Potential follow-ups include per-publisher timing fields, lightweight log-analysis helpers for operators, and optional response headers (e.g., `X-Correlation-ID`) to expose correlation IDs directly to API clients. The current implementation keeps overhead low while making performance behavior significantly more observable.***
-

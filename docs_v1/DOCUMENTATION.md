@@ -1,7 +1,7 @@
 # Social Media Python Publisher - Complete Documentation
 
-**Version:** 1.0  
-**Last Updated:** October 31, 2025  
+**Version:** 1.0
+**Last Updated:** October 31, 2025
 **Status:** Active Development
 
 ---
@@ -1073,29 +1073,29 @@ dbx = get_dropbox_client('key', 'secret', 'refresh_token')
 ```
 1. Image Selection
    └→ Random selection from Dropbox folder
-   
+
 2. Download & Link Generation
    ├→ Download to /tmp/
    └→ Generate temporary shareable link
-   
+
 3. AI Analysis
    ├→ Send link to Replicate BLIP-2
    ├→ Receive caption
    └→ Receive mood analysis
-   
+
 4. Caption Enhancement
    ├→ Combine caption + mood
    ├→ Send to OpenAI GPT
    └→ Receive enhanced caption
-   
+
 5. Caption Formatting
    └→ Append hashtags
-   
+
 6. Distribution (Parallel)
    ├→ Instagram: Post photo + caption
    ├→ Telegram: Resize + send photo + caption
    └→ Email: Attach photo + send caption
-   
+
 7. Archive Management
    └→ Move image to archive folder
 ```
@@ -1240,7 +1240,7 @@ ERROR:root:Failed to send Telegram message: ...
    ```bash
    # For channels (must be admin):
    TELEGRAM_CHANNEL_ID="@your_channel"
-   
+
    # For private chats (get from bot):
    TELEGRAM_CHANNEL_ID="-1001234567890"
    ```
@@ -1251,11 +1251,11 @@ ERROR:root:Failed to send Telegram message: ...
    ```python
    import telegram
    import asyncio
-   
+
    async def test():
        bot = telegram.Bot(token='your_token')
        await bot.send_message(chat_id='@channel', text='Test')
-   
+
    asyncio.run(test())
    ```
 
@@ -1289,7 +1289,7 @@ ERROR:root:Failed to send email: ...
    smtp_server = smtp.gmail.com      # Or your SMTP server
    smtp_port = 587                    # Or 465 for SSL
    ```
-   
+
    Common SMTP settings:
    - Gmail: `smtp.gmail.com:587` (TLS) or `:465` (SSL)
    - Outlook/Office365: `smtp.office365.com:587`
@@ -1299,11 +1299,11 @@ ERROR:root:Failed to send email: ...
 3. **Test SMTP Connection**:
    ```python
    import smtplib
-   
+
    # Use your configured settings
    smtp_server = 'smtp.gmail.com'  # From your config
    smtp_port = 587                  # From your config
-   
+
    server = smtplib.SMTP(smtp_server, smtp_port)
    server.starttls()
    server.login('your-email@provider.com', 'app_password')
@@ -1681,10 +1681,10 @@ async def post_to_twitter(api_key, api_secret, access_token, access_secret, imag
         auth = tweepy.OAuthHandler(api_key, api_secret)
         auth.set_access_token(access_token, access_secret)
         api = tweepy.API(auth)
-        
+
         media = api.media_upload(image_path)
         api.update_status(status=message, media_ids=[media.media_id])
-        
+
         logging.info("Posted to Twitter successfully")
     except Exception as e:
         logging.error(f"Twitter posting failed: {e}")
@@ -1716,17 +1716,17 @@ def add_watermark(image_path, watermark_text):
     """Add watermark to image"""
     img = Image.open(image_path)
     draw = ImageDraw.Draw(img)
-    
+
     # Use a watermark font
     font = ImageFont.truetype("arial.ttf", 36)
-    
+
     # Position watermark at bottom right
     text_width, text_height = draw.textsize(watermark_text, font)
     position = (img.width - text_width - 10, img.height - text_height - 10)
-    
+
     # Add semi-transparent watermark
     draw.text(position, watermark_text, font=font, fill=(255, 255, 255, 128))
-    
+
     watermarked_path = image_path.replace('.jpg', '_watermarked.jpg')
     img.save(watermarked_path)
     return watermarked_path
@@ -1739,10 +1739,10 @@ def crop_for_instagram(image_path):
     """Crop image to Instagram's 4:5 aspect ratio"""
     img = Image.open(image_path)
     width, height = img.size
-    
+
     target_ratio = 4 / 5
     current_ratio = width / height
-    
+
     if current_ratio > target_ratio:
         # Too wide, crop width
         new_width = int(height * target_ratio)
@@ -1753,7 +1753,7 @@ def crop_for_instagram(image_path):
         new_height = int(width / target_ratio)
         top = (height - new_height) // 2
         img = img.crop((0, top, width, top + new_height))
-    
+
     cropped_path = image_path.replace('.jpg', '_cropped.jpg')
     img.save(cropped_path)
     return cropped_path
@@ -1778,7 +1778,7 @@ def log_post_stats(image_name, platforms, caption):
         'caption_length': len(caption),
         'hashtag_count': caption.count('#')
     }
-    
+
     with open('post_stats.json', 'a') as f:
         json.dump(stats, f)
         f.write('\n')
@@ -1843,7 +1843,7 @@ def add_to_queue(image_name, scheduled_time):
         'scheduled_time': scheduled_time.isoformat(),
         'status': 'pending'
     }
-    
+
     with open('post_queue.json', 'a') as f:
         json.dump(queue_item, f)
         f.write('\n')
@@ -1852,7 +1852,7 @@ def process_queue():
     """Process scheduled posts"""
     with open('post_queue.json', 'r') as f:
         queue = [json.loads(line) for line in f]
-    
+
     now = datetime.now()
     for item in queue:
         scheduled = datetime.fromisoformat(item['scheduled_time'])
@@ -1860,7 +1860,7 @@ def process_queue():
             # Process this post
             process_scheduled_post(item['image'])
             item['status'] = 'completed'
-    
+
     # Update queue file
     with open('post_queue.json', 'w') as f:
         for item in queue:
@@ -1881,7 +1881,7 @@ def init_database():
     """Initialize post history database"""
     conn = sqlite3.connect('post_history.db')
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS posts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1892,7 +1892,7 @@ def init_database():
             success BOOLEAN
         )
     ''')
-    
+
     conn.commit()
     conn.close()
 
@@ -1900,12 +1900,12 @@ def log_post(image_name, caption, platforms, success):
     """Log post to database"""
     conn = sqlite3.connect('post_history.db')
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         INSERT INTO posts (image_name, caption, platforms, success)
         VALUES (?, ?, ?, ?)
     ''', (image_name, caption, ','.join(platforms), success))
-    
+
     conn.commit()
     conn.close()
 
@@ -1913,13 +1913,13 @@ def get_post_history(days=30):
     """Retrieve post history"""
     conn = sqlite3.connect('post_history.db')
     cursor = conn.cursor()
-    
+
     cursor.execute('''
         SELECT * FROM posts
         WHERE posted_at >= datetime('now', '-' || ? || ' days')
         ORDER BY posted_at DESC
     ''', (days,))
-    
+
     results = cursor.fetchall()
     conn.close()
     return results
@@ -1945,12 +1945,12 @@ def encrypt_env_file():
     """Encrypt .env file"""
     key = open('secret.key', 'rb').read()
     fernet = Fernet(key)
-    
+
     with open('.env', 'rb') as file:
         original = file.read()
-    
+
     encrypted = fernet.encrypt(original)
-    
+
     with open('.env.encrypted', 'wb') as encrypted_file:
         encrypted_file.write(encrypted)
 
@@ -1958,10 +1958,10 @@ def decrypt_env_file():
     """Decrypt .env file"""
     key = open('secret.key', 'rb').read()
     fernet = Fernet(key)
-    
+
     with open('.env.encrypted', 'rb') as encrypted_file:
         encrypted = encrypted_file.read()
-    
+
     decrypted = fernet.decrypt(encrypted)
     return decrypted.decode()
 ```
@@ -1978,7 +1978,7 @@ import asyncio
 async def post_to_all_platforms_parallel(config, image_file, message):
     """Post to all platforms simultaneously"""
     tasks = []
-    
+
     if config['run_telegram']:
         tasks.append(send_telegram_message(
             config['bot_token'],
@@ -1986,7 +1986,7 @@ async def post_to_all_platforms_parallel(config, image_file, message):
             image_file,
             message
         ))
-    
+
     if config['run_instagram']:
         tasks.append(post_image_to_instagram(
             config['instaname'],
@@ -1994,13 +1994,13 @@ async def post_to_all_platforms_parallel(config, image_file, message):
             image_file,
             message
         ))
-    
+
     if config['run_fetlife']:
         tasks.append(send_email(image_file, message, config))
-    
+
     # Execute all tasks concurrently
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
+
     # Check results
     success = all(not isinstance(r, Exception) for r in results)
     return success
@@ -2128,9 +2128,9 @@ rolecontent = string    # Role prompt prefix
 
 ---
 
-**Document Version**: 1.0  
-**Last Updated**: October 31, 2025  
-**Maintained By**: SocialMediaPythonPublisher Contributors  
+**Document Version**: 1.0
+**Last Updated**: October 31, 2025
+**Maintained By**: SocialMediaPythonPublisher Contributors
 **License**: MIT
 
 ---

@@ -81,21 +81,21 @@ tasks:
           parsed = _parse_json_env("STORAGE_PATHS")
           if parsed is None:
               return None
-          
+
           root = parsed.get("root")
           if not root:
               raise ConfigurationError("STORAGE_PATHS missing required field 'root'")
           if not root.startswith("/"):
               raise ConfigurationError("STORAGE_PATHS.root must be absolute (start with '/')")
           _validate_path_no_traversal(root, "root")
-          
+
           archive = _resolve_path(root, parsed.get("archive", "archive"))
           keep = _resolve_path(root, parsed.get("keep", "keep"))
           remove = _resolve_path(root, parsed.get("remove", "reject"))
-          
+
           for name, path in [("archive", archive), ("keep", keep), ("remove", remove)]:
               _validate_path_no_traversal(path, name)
-          
+
           return {"root": root, "archive": archive, "keep": keep, "remove": remove}
 
   - id: task_04
@@ -130,4 +130,3 @@ release:
   feature_flag: null
   rollout_strategy: "direct"
   rollback_plan: "revert commit"
-

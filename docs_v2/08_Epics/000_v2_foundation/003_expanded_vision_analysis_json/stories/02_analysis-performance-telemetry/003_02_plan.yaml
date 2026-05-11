@@ -79,5 +79,3 @@ release:
   metrics:
     - "vision_analysis_latency_p95"
     - "vision_analysis_error_rate"
-
-

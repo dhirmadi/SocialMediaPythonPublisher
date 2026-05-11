@@ -2,19 +2,19 @@
 
 # Story 002 — web-admin-password — Shipped
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 002  
-**Name:** web-admin-password  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 002
+**Name:** web-admin-password
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
 ## Summary
 
-This story extends the `heroku_hetzner_clone.py` provisioning script so that each newly created Heroku app has an explicit web admin password configured at creation time.  
+This story extends the `heroku_hetzner_clone.py` provisioning script so that each newly created Heroku app has an explicit web admin password configured at creation time.
 It introduces a required CLI parameter `--password` and uses that value to set (or overwrite) the `web_admin_pw` config var on the new app, aligning with the existing web admin auth design that reads `web_admin_pw` from the environment.
 
 ---
@@ -119,9 +119,7 @@ It introduces a required CLI parameter `--password` and uses that value to set (
 
 ## Artifacts
 
-- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password.md`  
-- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_design.md`  
-- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_plan.yaml`  
-- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_story.md`  
-
-
+- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password.md`
+- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_design.md`
+- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_plan.yaml`
+- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/002_web-admin-password_story.md`

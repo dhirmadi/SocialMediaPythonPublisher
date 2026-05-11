@@ -172,5 +172,3 @@ risks:
   - risk: "Inconsistent enforcement between backend and frontend could allow bypass via direct API calls"
     mitigation: "Implement AUTO_VIEW checks in /api/images/random before any business logic; treat UI behavior as an additional guard only"
     severity: "medium"
-
-

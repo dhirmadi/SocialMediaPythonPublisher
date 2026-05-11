@@ -65,4 +65,3 @@ release:
   version: "v2.x.x"
   breaking_changes: false
   migration_notes: "None - UI-only change with no API or behavior changes"
-

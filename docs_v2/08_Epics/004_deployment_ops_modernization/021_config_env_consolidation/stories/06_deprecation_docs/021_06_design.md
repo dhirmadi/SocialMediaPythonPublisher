@@ -1,12 +1,12 @@
 # Deprecation Warnings and Documentation — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-06  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_06_deprecation-docs.md  
+**Feature ID:** 021
+**Story ID:** 021-06
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_06_deprecation-docs.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -168,7 +168,7 @@ log_json(
 # ============================================================
 # Publisher V2 — Environment Configuration (Feature 021)
 # ============================================================
-# 
+#
 # This file shows the consolidated configuration structure.
 # Copy to .env and fill in your values.
 #
@@ -255,4 +255,3 @@ EMAIL_SERVER='{"smtp_server": "smtp.gmail.com", "smtp_port": 587, "sender": "you
 - [ ] Migration guide added to documentation
 - [ ] Unit tests verify deprecation logic
 - [ ] No breaking changes to existing deployments
-

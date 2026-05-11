@@ -21,4 +21,3 @@ When an image is curated (Kept or Removed), it is moved on the server. If the cl
     *   Keep/Remove an image.
     *   Verify list count decreases.
     *   Verify navigation (Next/Prev) skips the moved image.
-

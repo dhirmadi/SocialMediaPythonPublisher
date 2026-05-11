@@ -23,4 +23,3 @@ To enable faster de-duplication, we needed the underlying storage capability to 
 *   **Tests**:
     *   `test_utils_support.py`: Verifies state loading and saving handles both legacy and new formats correctly.
     *   (Implicitly verified via integration tests in Story 02).
-

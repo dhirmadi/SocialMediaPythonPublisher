@@ -1,9 +1,9 @@
 # Story 018-01: Core Thumbnail Support — Design
 
-**Story ID:** 018-01  
-**Design Version:** 1.0  
-**Date:** 2025-12-06  
-**Status:** Shipped  
+**Story ID:** 018-01
+**Design Version:** 1.0
+**Date:** 2025-12-06
+**Status:** Shipped
 **Parent Story:** 018_01_core_thumbnail_support.md
 
 ## 1. Overview
@@ -59,7 +59,7 @@ async def get_thumbnail(
 ) -> bytes:
     """
     Return a thumbnail of the specified image.
-    
+
     Uses Dropbox's server-side thumbnail generation. Default size
     (960×640) produces ~30-80KB files suitable for web preview.
     """
@@ -73,7 +73,7 @@ async def get_thumbnail(
                 mode=ThumbnailMode.fitone_bestfit,
             )
             return response.content
-        
+
         return await asyncio.to_thread(_get_thumb)
     except ApiError as exc:
         raise StorageError(f"Failed to get thumbnail for {filename}: {exc}") from exc
@@ -118,7 +118,7 @@ async def get_thumbnail(
 ) -> bytes:
     """Return thumbnail bytes for the specified image."""
     from dropbox.files import ThumbnailSize
-    
+
     size_map = {
         "w256h256": ThumbnailSize.w256h256,
         "w480h320": ThumbnailSize.w480h320,
@@ -127,7 +127,7 @@ async def get_thumbnail(
         "w1024h768": ThumbnailSize.w1024h768,
     }
     thumb_size = size_map.get(size, ThumbnailSize.w960h640)
-    
+
     folder = self.config.dropbox.image_folder
     return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 ```
@@ -144,29 +144,29 @@ async def get_random_image(self) -> ImageResponse:
     images = await self._get_cached_images()
     if not images:
         raise FileNotFoundError("No images found")
-    
+
     import random
     random.shuffle(images)
     selected = images[0]
     folder = self.config.dropbox.image_folder
-    
+
     # CHANGED: Remove download_image from parallel fetch
     temp_link_result, sidecar_result = await asyncio.gather(
         self.storage.get_temporary_link(folder, selected),
         self.storage.download_sidecar_if_exists(folder, selected),
         return_exceptions=True,
     )
-    
+
     if isinstance(temp_link_result, Exception):
         raise temp_link_result
     temp_link = temp_link_result
-    
+
     # Parse sidecar (unchanged)
     caption = None
     sd_caption = None
     metadata: Optional[Dict[str, Any]] = None
     has_sidecar = False
-    
+
     if not isinstance(sidecar_result, Exception) and sidecar_result:
         text = sidecar_result.decode("utf-8", errors="ignore")
         view = rehydrate_sidecar_view(text)
@@ -174,11 +174,11 @@ async def get_random_image(self) -> ImageResponse:
         caption = view.get("caption")
         metadata = view.get("metadata")
         has_sidecar = bool(view.get("has_sidecar"))
-    
+
     # NEW: Build thumbnail URL
     import urllib.parse
     thumbnail_url = f"/api/images/{urllib.parse.quote(selected, safe='')}/thumbnail"
-    
+
     return ImageResponse(
         filename=selected,
         temp_url=temp_link,
@@ -237,10 +237,10 @@ async def api_get_thumbnail(
             require_admin(request)
         except HTTPException:
             raise
-    
+
     try:
         thumb_bytes = await service.get_thumbnail(filename, size=size.value)
-        
+
         web_thumbnail_ms = elapsed_ms(telemetry.start_time)
         response.headers["X-Correlation-ID"] = telemetry.correlation_id
         log_json(
@@ -253,7 +253,7 @@ async def api_get_thumbnail(
             correlation_id=telemetry.correlation_id,
             web_thumbnail_ms=web_thumbnail_ms,
         )
-        
+
         return Response(
             content=thumb_bytes,
             media_type="image/jpeg",
@@ -269,7 +269,7 @@ async def api_get_thumbnail(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Image not found",
             )
-        
+
         web_thumbnail_ms = elapsed_ms(telemetry.start_time)
         log_json(
             logger,
@@ -300,7 +300,7 @@ function showImage(thumbnailUrl, fullUrl, altText) {
   imgEl.src = thumbnailUrl;  // Load thumbnail (fast!)
   imgEl.alt = altText || "Image";
   imgEl.classList.remove("hidden");
-  
+
   // Store full URL for future use (Story 02 will add button)
   currentFullUrl = fullUrl;
 }
@@ -338,7 +338,7 @@ async function apiGetRandom() {
     }
     const data = await res.json();
     currentFilename = data.filename;
-    
+
     // CHANGED: Use thumbnail_url with fallback to temp_url
     const displayUrl = data.thumbnail_url || data.temp_url;
     showImage(
@@ -346,7 +346,7 @@ async function apiGetRandom() {
       data.temp_url,  // Store full URL
       data.caption || data.sd_caption || data.filename
     );
-    
+
     setCaption(data.caption || data.sd_caption || "No caption yet.");
     const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
     setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
@@ -385,7 +385,7 @@ async def test_get_thumbnail_returns_bytes():
     # Mock files_get_thumbnail_v2 to return fake JPEG
     # Assert return value matches mock content
 
-@pytest.mark.asyncio  
+@pytest.mark.asyncio
 async def test_get_thumbnail_raises_storage_error_on_api_error():
     """get_thumbnail raises StorageError on Dropbox failure."""
     # Mock files_get_thumbnail_v2 to raise ApiError
@@ -472,4 +472,3 @@ No database/storage migration — purely additive changes.
 - `web_thumbnail_ms` — should be < 500ms p99
 - `bytes_served` — should be 30-80KB typically
 - Error rate — should be < 1%
-

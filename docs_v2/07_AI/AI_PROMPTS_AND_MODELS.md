@@ -1,6 +1,6 @@
 # AI Models and Prompting — Social Media Publisher V2
 
-Version: 2.1  
+Version: 2.1
 Last Updated: November 8, 2025
 
 ## 1. Model Strategy (2025)
@@ -86,5 +86,3 @@ Post‑Processing:
 - Set tone via `system_prompt` and `role_prompt` in the INI:
   - Example: “kinky, playful, respectful; consent‑forward; no hashtags or emojis; ≤240 chars; end with an open question”
 - Prompts can be iterated safely with `--preview` to audition variations
-
-

@@ -36,8 +36,8 @@ assignees: ''
 
 <!-- What benefits would this feature provide? -->
 
-- 
-- 
+-
+-
 
 ## Potential Challenges
 
@@ -53,7 +53,7 @@ assignees: ''
 - [ ] Email only
 - [ ] Configuration system
 - [ ] Core workflow
-- [ ] Other: 
+- [ ] Other:
 
 ## Priority
 
@@ -80,4 +80,3 @@ assignees: ''
 - [ ] I can help with testing
 - [ ] I can help with documentation
 - [ ] I would like someone else to implement this
-

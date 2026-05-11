@@ -1,8 +1,8 @@
 # Story Summary: Deprecation Warnings and Documentation
 
-**Feature ID:** 021  
-**Story ID:** 021-06  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-06
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -63,4 +63,3 @@ Implemented deprecation warning logging functions and created comprehensive docu
 - Story Definition: 021_06_deprecation-docs.md
 - Story Design: 021_06_design.md
 - Story Plan: 021_06_plan.yaml
-

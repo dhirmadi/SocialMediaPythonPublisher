@@ -88,5 +88,3 @@ release:
   metrics:
     - "web_random_image_latency_p95"
     - "web_analyze_sd_sidecar_cache_hits"
-
-

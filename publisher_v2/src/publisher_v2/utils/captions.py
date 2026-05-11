@@ -6,6 +6,31 @@ from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import ImageAnalysis
 
 
+def normalize_generated_hashtags(text: str, max_count: int = 30) -> str:
+    """Normalize AI-generated hashtags inside ``text`` (PUB-028).
+
+    Lowercases each ``#tag`` token, deduplicates while preserving first-seen
+    order, and caps the total at ``max_count``. Tokens beyond the cap (and any
+    duplicates) are removed from the output. Non-hashtag text is preserved.
+    """
+    seen: dict[str, str] = {}
+
+    def _replace(match: re.Match[str]) -> str:
+        original = match.group(0)
+        lower = original.lower()
+        if lower in seen:
+            return ""
+        if len(seen) >= max(0, max_count):
+            return ""
+        seen[lower] = lower
+        return lower
+
+    out = re.sub(r"#\w+", _replace, text)
+    # Collapse the whitespace gaps left by removed duplicates / overflow tokens.
+    out = re.sub(r"[ \t]{2,}", " ", out)
+    return out.rstrip()
+
+
 def normalize_tags(raw: list[str], max_count: int) -> list[str]:
     """
     Clean and deduplicate tag strings: strip whitespace, lowercase,
@@ -77,7 +102,7 @@ def _sanitize_for_fetlife(text: str) -> str:
     return text
 
 
-def format_caption(platform: str, caption: str) -> str:
+def format_caption(platform: str, caption: str, smart_hashtags: bool = False) -> str:
     p = platform.lower()
     static_limits = get_static_config().platform_limits
     if p == "instagram":
@@ -93,6 +118,10 @@ def format_caption(platform: str, caption: str) -> str:
         max_len = static_limits.generic.max_caption_length or _MAX_LEN["generic"]
         max_hashtags = None
     formatted = caption.strip()
+    # PUB-028: clean AI-generated hashtags before platform-specific processing.
+    # Email strips all hashtags below, so the normalization is a no-op there.
+    if smart_hashtags:
+        formatted = normalize_generated_hashtags(formatted, max_count=max_hashtags or 30)
     if p == "instagram":
         formatted = _limit_instagram_hashtags(formatted, max_hashtags or 30)
     elif p == "email":

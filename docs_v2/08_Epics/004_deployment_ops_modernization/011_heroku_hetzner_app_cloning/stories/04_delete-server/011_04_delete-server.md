@@ -2,19 +2,19 @@
 
 # Story 003 — delete-server — Shipped
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 003  
-**Name:** delete-server  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 003
+**Name:** delete-server
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
 ## Summary
 
-This story adds a delete flow to the `heroku_hetzner_clone.py` script that allows operators to remove a server by its logical `name`.  
+This story adds a delete flow to the `heroku_hetzner_clone.py` script that allows operators to remove a server by its logical `name`.
 The delete action:
 - Reads `scripts/servers.txt` to find matching entries for the given `name`.
 - Deletes the associated Heroku app(s).
@@ -168,9 +168,7 @@ After a successful delete:
 
 ## Artifacts
 
-- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server.md`  
-- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_design.md`  
-- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_plan.yaml`  
-- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_story.md`  
-
-
+- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server.md`
+- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_design.md`
+- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_plan.yaml`
+- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/003_delete-server_story.md`

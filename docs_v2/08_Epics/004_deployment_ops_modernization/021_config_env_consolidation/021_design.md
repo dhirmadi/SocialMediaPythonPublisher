@@ -1,13 +1,13 @@
 # Configuration Environment Variable Consolidation — Feature Design
 
-**Feature ID:** 021  
-**Design Version:** 1.0  
-**Date:** 2025-12-22  
-**Status:** Shipped  
-**Author:** Platform Team  
+**Feature ID:** 021
+**Design Version:** 1.0
+**Date:** 2025-12-22
+**Status:** Shipped
+**Author:** Platform Team
 **Feature Request:** 021_feature.md
 
-**Implementation Completed:** 2025-12-23  
+**Implementation Completed:** 2025-12-23
 **Implementation Evidence:** See `021_feature.md` → “Completion (Evidence)” and story summaries under `stories/`.
 
 ## 1. Summary
@@ -293,7 +293,7 @@ def load_application_config(
     1. New JSON env vars (PUBLISHERS, EMAIL_SERVER, etc.)
     2. Old individual env vars (SMTP_SERVER, EMAIL_PASSWORD, etc.)
     3. INI file sections
-    
+
     Emits deprecation warning if INI fallback is used.
     """
 ```
@@ -577,4 +577,3 @@ Based on this design, the following implementation stories are required:
 - **Story 06: Deprecation Warnings and Documentation** — Add deprecation logging for INI fallback usage and update operator documentation.
 
 - **Story 07: Heroku Pipeline Migration (Stop Using `FETLIFE_INI`)** — Provide a safe rollout plan and concrete Heroku/local migration instructions so all apps in the `fetlife` pipeline can remove `FETLIFE_INI` and run env-first.
-

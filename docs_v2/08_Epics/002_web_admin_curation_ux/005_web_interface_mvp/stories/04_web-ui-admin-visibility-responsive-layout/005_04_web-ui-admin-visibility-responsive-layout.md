@@ -2,13 +2,13 @@
 
 # Web UI Admin Visibility & Responsive Layout — Change Request
 
-**Feature ID:** 005  
-**Change ID:** 005-003  
-**Name:** web-ui-admin-visibility-responsive-layout  
-**Status:** Proposed  
-**Date:** 2025-11-20  
-**Author:** Evert  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-003
+**Name:** web-ui-admin-visibility-responsive-layout
+**Status:** Proposed
+**Date:** 2025-11-20
+**Author:** Evert
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## Summary
 This change refines the Web Interface MVP UI to be fully responsive and to more clearly separate admin-only controls from general viewing functionality. It introduces an explicit admin login flow via a modal, hides admin and status sections when not authenticated, and converts the existing status display into a dedicated "Activity" area that focuses on the current action only. Analyze/Caption and Publish actions become truly admin-only (hidden when logged out), while the admin button behavior and labeling are updated to reflect login/logout state, and the background switches to a dark red theme when in admin mode. Admin sessions are explicitly short-lived (maximum of one hour) to reduce risk if a session is left unattended.
@@ -29,7 +29,7 @@ The current web UI does not clearly distinguish between admin-only actions and g
 - Implementing multi-user roles or granular permissions beyond a single admin/not-admin distinction.
 
 ## Affected Feature & Context
-- **Parent Feature:** Web Interface MVP  
+- **Parent Feature:** Web Interface MVP
 - **Relevant Sections:**
   - §3. Requirements – FR1 (Web UI Root Endpoint), FR3 (AI Analysis & Caption Generation), FR4 (Publishing)
   - §4. Architecture & Design – Components (`publisher_v2.web.app`, templates) and UI behavior
@@ -80,5 +80,3 @@ The current web UI does not clearly distinguish between admin-only actions and g
 ## Open Questions
 - Should admin session expiry (≤1 hour) be purely time-based since last login, or refreshed on each successful admin action? — Proposed answer: rely on the existing `pv2_admin` cookie TTL (`WEB_ADMIN_COOKIE_TTL_SECONDS`, default 3600s, clamped between 60 and 3600) as the single source of truth, treating it as “no more than one hour since last successful admin authentication” and surfacing expiry to the UI via `/api/admin/status` and 401/403 responses rather than client-side timers.
 - Should the Activity section be hidden entirely when there is no current or recent action, or should it show an explicit "No active activity" placeholder? — Proposed answer: minimal placeholder ("No current activity") is acceptable but not required; implementers can choose based on UI clarity.
-
-

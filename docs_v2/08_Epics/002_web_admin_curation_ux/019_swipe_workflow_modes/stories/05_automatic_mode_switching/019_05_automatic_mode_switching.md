@@ -27,4 +27,3 @@ Remove the manual "Publish vs Review" mode toggle. Instead, automatically determ
 ## Technical Notes
 - `fetchFeatureConfig` is already called early in `initLayout`. Use its result to set `currentMode`.
 - `updateModeUI` should be simplified to just handle button states, not toggle button classes.
-

@@ -1,12 +1,12 @@
 # Email Server Environment Variable — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-03  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_03_email-server-env-var.md  
+**Feature ID:** 021
+**Story ID:** 021-03
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_03_email-server-env-var.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -230,4 +230,3 @@ else:
 - [ ] Returns None when not set (enables fallback)
 - [ ] Unit tests cover all edge cases
 - [ ] Password NOT in EMAIL_SERVER (verified by code review)
-

@@ -40,4 +40,3 @@ Move the "Full Size" (Download) button to be an overlay on the image (bottom cen
 ## UX
 - Button Label: "📥" or "Save".
 - Position: Bottom right or Bottom center.
-

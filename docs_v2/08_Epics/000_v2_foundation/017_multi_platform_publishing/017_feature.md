@@ -2,11 +2,11 @@
 
 # Multi-Platform Publishing Engine
 
-**ID:** 017  
-**Name:** multi-platform-publishing  
-**Status:** Shipped  
-**Date:** 2025-11-22  
-**Author:** Retroactive Documentation  
+**ID:** 017
+**Name:** multi-platform-publishing
+**Status:** Shipped
+**Date:** 2025-11-22
+**Author:** Retroactive Documentation
 
 ## Summary
 The core publishing logic that allows the system to push a single piece of content (Image + Caption) to multiple distinct platforms (Telegram, Instagram, Email) simultaneously, robustly, and in parallel.
@@ -52,7 +52,7 @@ We need to support an arbitrary number of destination platforms. Publishing sequ
 - **Asyncio:** The Python concurrency library used.
 
 ## Risks & Mitigations
-- **Risk:** A slow publisher delays the entire batch.  
+- **Risk:** A slow publisher delays the entire batch.
   **Mitigation:** `asyncio.gather` waits for all, but timeouts can be applied (future improvement) or handled by the underlying library limits.
-- **Risk:** Shared state between publishers.  
+- **Risk:** Shared state between publishers.
   **Mitigation:** Publishers are instantiated independently and should not share state.

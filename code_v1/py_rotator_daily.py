@@ -24,9 +24,9 @@ from email.mime.image import MIMEImage
 """
 Script for managing social media content automation.
 
-This script integrates with various APIs (Dropbox, OpenAI, Telegram, Email, Instagram, etc.) 
-to automate the processing and distribution of social media content. It reads configuration 
-from a specified INI file, interacts with Dropbox for image storage, utilizes AI for content 
+This script integrates with various APIs (Dropbox, OpenAI, Telegram, Email, Instagram, etc.)
+to automate the processing and distribution of social media content. It reads configuration
+from a specified INI file, interacts with Dropbox for image storage, utilizes AI for content
 generation, and posts content to Telegram, Email, and Instagram based on configuration settings.
 
 Functions:
@@ -215,7 +215,7 @@ async def post_image_to_instagram(USERNAME, PASSWORD, image_path, caption):
         logging.error(f"An error occurred while posting: {e}")
         raise e
 
-    
+
 
 
 async def send_telegram_message(bot_token, chat_id, image_file, message):

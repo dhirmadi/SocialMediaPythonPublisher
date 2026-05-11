@@ -32,4 +32,3 @@ Move the "Previous" and "Next" buttons from the bottom control panel to become o
 - `.image-container` needs `position: relative` (already added in Story 04/05).
 - Buttons need `position: absolute`, `top: 0`, `bottom: 0`, `z-index: 10`.
 - Use flexbox or centering for the arrow text within the button.
-

@@ -1,12 +1,12 @@
 # Storage Paths Environment Variable — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-04  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_04_storage-paths-env-var.md  
+**Feature ID:** 021
+**Story ID:** 021-04
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_04_storage-paths-env-var.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -248,4 +248,3 @@ if storage_paths:
 - [ ] Relative paths joined with root correctly
 - [ ] Defaults applied for optional fields
 - [ ] Unit tests cover all edge cases
-

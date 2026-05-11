@@ -2,8 +2,8 @@
 
 ## 1. Summary
 
-**Problem:** The system currently has structured logs and partial correlation IDs, but lacks consistent, end-to-end performance telemetry across CLI workflows and web endpoints. This makes it hard to attribute latency to specific stages (Dropbox, AI, sidecars, publishers, web) and to detect regressions against NFRs.  
-**Goals:** Introduce a lightweight, standardized performance and observability model that (a) adds timing fields for key stages, (b) uses correlation IDs to tie logs together, and (c) is easy to extend for future features without adding heavy infrastructure.  
+**Problem:** The system currently has structured logs and partial correlation IDs, but lacks consistent, end-to-end performance telemetry across CLI workflows and web endpoints. This makes it hard to attribute latency to specific stages (Dropbox, AI, sidecars, publishers, web) and to detect regressions against NFRs.
+**Goals:** Introduce a lightweight, standardized performance and observability model that (a) adds timing fields for key stages, (b) uses correlation IDs to tie logs together, and (c) is easy to extend for future features without adding heavy infrastructure.
 **Non-goals:** Stand up a full observability stack (metrics backend, tracing system), change functional behavior or API contracts for users, or replace feature-specific logging already defined in other change requests (e.g., captionfile, web UI).
 
 ## 2. Context & Assumptions
@@ -29,9 +29,9 @@
 **Assumptions & Open Questions**
 - Assumption: Operators consume logs via existing log aggregation (e.g., Heroku / platform logs) and can derive metrics from JSON fields; no new metrics backend is assumed.
 - Assumption: Adding optional HTTP headers (e.g., `X-Correlation-ID`) is acceptable and considered backward-compatible.
-- Open question: Do we need per-publisher or per-platform timing (e.g., `telegram_publish_ms`) in addition to the aggregate `publish_parallel_ms`?  
+- Open question: Do we need per-publisher or per-platform timing (e.g., `telegram_publish_ms`) in addition to the aggregate `publish_parallel_ms`?
   - For now, we will only implement aggregate publish timings and leave per-publisher timings as a possible future extension.
-- Open question: Should we define a strict log schema/version for performance events?  
+- Open question: Should we define a strict log schema/version for performance events?
   - For now, we will follow the recommended field names and avoid enforcing a global schema version in code.
 
 ## 3. Requirements
@@ -94,7 +94,7 @@
 ### Proposed Architecture (diagram description)
 
 - **CLI path**
-  - `publisher_v2.app` → `WorkflowOrchestrator.execute(...)`  
+  - `publisher_v2.app` → `WorkflowOrchestrator.execute(...)`
   - Within `execute`, we introduce timing capture around major stages (Dropbox image listing, selection, analysis, captioning, sidecar writes, parallel publishing, archive).
   - A final summary log entry (e.g., `"workflow_timing"`) will include the standardized timing fields and `correlation_id`.
 
@@ -322,5 +322,3 @@
   - `docs_v2/08_Epics/08_01_Feature_Request/007_cross-cutting-performance-observability.md`
   - `docs_v2/06_NFRs/NFRS.md`
   - Performance review: `docs_v2/09_Reviews/PERFORMANCE_REVIEW_2025-11.md`
-
-

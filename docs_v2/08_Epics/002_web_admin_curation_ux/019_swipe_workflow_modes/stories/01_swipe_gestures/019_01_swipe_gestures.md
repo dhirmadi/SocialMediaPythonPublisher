@@ -30,4 +30,3 @@ Implement touch swipe gestures on the main image container in the web UI. This i
 ## Technical Notes
 - Use `e.changedTouches[0].screenX` for delta calculation.
 - Add CSS class `.swiping-left` for animation.
-

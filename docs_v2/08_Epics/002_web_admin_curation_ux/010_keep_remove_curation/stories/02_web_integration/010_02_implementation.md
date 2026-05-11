@@ -33,4 +33,3 @@ This story exposes the backend curation capabilities to the Web UI, adding admin
     *   `test_web_keep_remove_service.py`: Verifies service layer delegation and error handling.
     *   `test_web_keep_remove_endpoints.py`: Verifies API security (admin auth) and response codes.
 *   **UX**: Verified that buttons appear only for admins and that the curation flow is smooth (immediate feedback + next image).
-

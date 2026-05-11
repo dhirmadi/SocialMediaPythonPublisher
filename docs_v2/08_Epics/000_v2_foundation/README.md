@@ -12,5 +12,3 @@ This epic groups the **core V2 runtime foundation**: safe preview behavior, side
 - Feature 015: Cloud Storage Dropbox → `015_cloud_storage_dropbox/`
 - Feature 016: Structured Logging Redaction → `016_structured_logging_redaction/`
 - Feature 017: Multi Platform Publishing → `017_multi_platform_publishing/`
-
-

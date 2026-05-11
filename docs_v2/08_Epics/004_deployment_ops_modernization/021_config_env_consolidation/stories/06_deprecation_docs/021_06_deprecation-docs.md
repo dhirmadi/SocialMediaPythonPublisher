@@ -1,10 +1,10 @@
 # Story: Deprecation Warnings and Documentation
 
-**Feature ID:** 021  
-**Story ID:** 021-06  
-**Name:** deprecation-docs  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-06
+**Name:** deprecation-docs
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -72,4 +72,3 @@ Documentation files to update:
 ## Dependencies
 
 - Stories 01-05 (all parsing logic must be complete to know when INI fallback is used)
-

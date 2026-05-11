@@ -60,7 +60,7 @@ def main(env_file):
         update_env(env_file, 'DROPBOX_REFRESH_TOKEN', refresh_token)
 
     dbx = get_dropbox_client(app_key, app_secret, refresh_token)
-    
+
     # Use the dbx client for Dropbox operations here
 
     logging.info("Configuration updated with the new refresh token.")

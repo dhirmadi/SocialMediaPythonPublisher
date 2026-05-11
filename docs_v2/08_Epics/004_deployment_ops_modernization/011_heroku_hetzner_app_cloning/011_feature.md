@@ -2,14 +2,14 @@
 
 # Heroku App Cloning with Hetzner DNS Subdomain Automation
 
-**ID:** 011  
-**Name:** heroku-hetzner-app-cloning  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** User Request  
+**ID:** 011
+**Name:** heroku-hetzner-app-cloning
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** User Request
 
 ## Summary
-Add an automated, scriptable workflow to clone a reference Heroku app (`fetlife-prod`), provision a corresponding custom subdomain on Hetzner DNS under `shibari.photo`, and update per-instance configuration (notably the `image_folder` in the `FETLIFE_INI` config var).  
+Add an automated, scriptable workflow to clone a reference Heroku app (`fetlife-prod`), provision a corresponding custom subdomain on Hetzner DNS under `shibari.photo`, and update per-instance configuration (notably the `image_folder` in the `FETLIFE_INI` config var).
 The workflow should be exposed as a simple CLI tool (Python) suitable for direct use and CI/CD integration, and should be robust, idempotent where possible, and extensible to additional PaaS or DNS providers in the future.
 
 ## Problem Statement
@@ -87,18 +87,16 @@ This manual process is slow, hard to repeat consistently, and scales poorly when
 - Existing `FETLIFE_INI` config var and its `[Dropbox].image_folder` key on the `fetlife-prod` app.
 
 ## Risks & Mitigations
-- **Risk:** Heroku fork/clone semantics may not perfectly replicate all add-ons or configuration, leading to subtle differences between instances.  
+- **Risk:** Heroku fork/clone semantics may not perfectly replicate all add-ons or configuration, leading to subtle differences between instances.
   **Mitigation:** Scope the tool to rely on documented Heroku cloning behavior; document any known limitations and surface clear logs about what was cloned vs. manually configured.
 
-- **Risk:** Misconfigured DNS (wrong CNAME target or subdomain) could lead to inaccessible instances.  
+- **Risk:** Misconfigured DNS (wrong CNAME target or subdomain) could lead to inaccessible instances.
   **Mitigation:** Fetch the canonical DNS target from Heroku’s domains API and avoid hard-coding hostnames; validate that the Hetzner record matches the expected target and log the final mapping.
 
-- **Risk:** Incorrect updates to `FETLIFE_INI` could break the new instance’s Dropbox integration.  
+- **Risk:** Incorrect updates to `FETLIFE_INI` could break the new instance’s Dropbox integration.
   **Mitigation:** Parse and update only the `[Dropbox].image_folder` key, leaving other content untouched; validate that the updated INI parses correctly before setting it on the new app.
 
 ## Open Questions
 - Should the tool support teardown (deleting the Heroku app and DNS record) as a first-class operation, or remain provision-only for now?
 - Should the script support naming conventions or templates for the new app name (e.g., `fetlife-prod-<name>` vs. arbitrary `--app-name`), and how strict should validation be?
 - Should the tool manage SSL certificate provisioning for the new custom domain explicitly, or rely on Heroku’s automatic certificate management?
-
-

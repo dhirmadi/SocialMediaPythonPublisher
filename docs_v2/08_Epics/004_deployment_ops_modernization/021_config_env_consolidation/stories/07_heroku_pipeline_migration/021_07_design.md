@@ -1,12 +1,12 @@
 # Heroku Pipeline Migration — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-07  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_07_heroku-pipeline-migration.md  
+**Feature ID:** 021
+**Story ID:** 021-07
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_07_heroku-pipeline-migration.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -175,10 +175,10 @@ ConfigurationError: Cannot start in env-first mode: missing STORAGE_PATHS, PUBLI
 3. Convert INI to env vars:
    # From [Dropbox] section:
    STORAGE_PATHS='{"root": "<image_folder>", "archive": "<root>/<archive>", ...}'
-   
+
    # From [Content] toggles + sections:
    PUBLISHERS='[...]'
-   
+
    # From [Email]:
    EMAIL_SERVER='{"smtp_server": "...", "smtp_port": ..., "sender": "..."}'
 4. Run app and verify:
@@ -244,4 +244,3 @@ ConfigurationError: Cannot start in env-first mode: missing STORAGE_PATHS, PUBLI
 - [ ] Local migration guide complete
 - [ ] Verified on staging Heroku app
 - [ ] Production apps migrated (or plan documented)
-

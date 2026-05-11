@@ -35,4 +35,3 @@ Implemented touch-based swipe gestures on the image container.
 
 ## Follow-up Items
 - Connect Swipe Right to "Previous" action once Review Mode is implemented (Story 03).
-

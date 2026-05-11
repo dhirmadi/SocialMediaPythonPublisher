@@ -19,7 +19,7 @@ We release security updates for the following versions:
    - Is not officially supported
    - **Recommendation**: Use at your own risk or migrate to official Instagram Graph API
 
-2. **Credential Storage**: 
+2. **Credential Storage**:
    - Application stores credentials in `.env` file
    - Session tokens stored in `instasession.json`
    - **Recommendation**: Implement keyring-based credential storage (see documentation)
@@ -216,8 +216,7 @@ For security concerns, contact:
 
 ---
 
-**Last Updated**: October 31, 2025  
+**Last Updated**: October 31, 2025
 **Version**: 1.0
 
 Thank you for helping keep Social Media Python Publisher secure! 🔒
-

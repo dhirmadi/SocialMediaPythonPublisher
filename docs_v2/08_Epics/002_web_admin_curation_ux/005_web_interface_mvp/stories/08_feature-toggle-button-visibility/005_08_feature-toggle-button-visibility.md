@@ -2,12 +2,12 @@
 
 # Feature Toggle Button Visibility
 
-**Change ID:** 005-007  
-**Change Name:** feature-toggle-button-visibility  
-**Parent Feature:** 005 (web-interface-mvp)  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** Evert  
+**Change ID:** 005-007
+**Change Name:** feature-toggle-button-visibility
+**Parent Feature:** 005 (web-interface-mvp)
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** Evert
 **Shipped:** 2025-11-21
 
 ---
@@ -237,7 +237,7 @@ GET /api/config/publishers HTTP/1.1
 ## Related Changes
 
 - **005-001:** Web Interface Admin Controls
-- **005-003:** Web UI Admin Visibility & Responsive Layout  
+- **005-003:** Web UI Admin Visibility & Responsive Layout
 - **005-006:** Admin Button Position & Visibility
 
 This change extends the pattern of conditional visibility established in these prior changes to cover publisher-specific buttons.

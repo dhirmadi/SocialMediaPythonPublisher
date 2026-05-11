@@ -1,8 +1,8 @@
 # PUB-029 — Brand Voice Matching: Delivery Review
 
-**Roadmap item:** `docs_v2/roadmap/PUB-029_brand-voice-matching.md`  
-**Review date:** 2026-04-25  
-**Reviewer:** Product Manager Agent (Cursor)  
+**Roadmap item:** `docs_v2/roadmap/PUB-029_brand-voice-matching.md`
+**Review date:** 2026-04-25
+**Reviewer:** Product Manager Agent (Cursor)
 **Verdict:** ✅ **APPROVED**
 
 ---
@@ -44,4 +44,3 @@
 | Web auth (admin-only controls hidden/enforced) | ✅ |
 | Async hygiene | ✅ |
 | Backward compatibility | ✅ |
-

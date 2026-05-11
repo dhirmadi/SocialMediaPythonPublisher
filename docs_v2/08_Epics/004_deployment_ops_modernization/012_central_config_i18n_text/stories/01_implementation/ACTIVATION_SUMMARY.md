@@ -1,7 +1,7 @@
 # i18n Capability Activation — Feature 012 Update
 
-**Date:** 2025-11-22  
-**Status:** ✅ Complete and Active  
+**Date:** 2025-11-22
+**Status:** ✅ Complete and Active
 **Tests:** 210/210 passing
 
 ---
@@ -25,7 +25,7 @@ The `index` route now injects web UI text into the template context:
 async def index(request: Request) -> HTMLResponse:
     """
     Render the main HTML page.
-    
+
     Web UI text defaults come from static, non-secret configuration so that
     labels and headings can be tuned or localized without code changes.
     """
@@ -408,4 +408,3 @@ If issues arise with the i18n system:
 - All 210 tests passing
 
 **Next Step:** Create German (`.de.yaml`) translation for Phase 2 multi-language support.
-

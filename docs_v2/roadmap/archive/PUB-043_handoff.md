@@ -1,7 +1,7 @@
 # Implementation Handoff: PUB-043 — Orchestrator runtime — accept publisher type `email`
 
-**Hardened:** 2026-05-05  
-**Status:** Archived (delivered)  
+**Hardened:** 2026-05-05
+**Status:** Archived (delivered)
 **Tracking:** [GitHub #69](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/69)
 
 ## For Claude Code

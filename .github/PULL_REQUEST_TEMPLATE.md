@@ -26,9 +26,9 @@ Fixes #(issue number)
 
 <!-- List the specific changes made in this PR -->
 
-- 
-- 
-- 
+-
+-
+-
 
 ## Testing
 
@@ -37,8 +37,8 @@ Fixes #(issue number)
 - [ ] All existing tests pass
 - [ ] Added new tests for new functionality
 - [ ] Tested manually with the following scenarios:
-  - 
-  - 
+  -
+  -
 
 ## Security Considerations
 
@@ -69,4 +69,3 @@ Fixes #(issue number)
 ## Additional Notes
 
 <!-- Any additional information that reviewers should know -->
-

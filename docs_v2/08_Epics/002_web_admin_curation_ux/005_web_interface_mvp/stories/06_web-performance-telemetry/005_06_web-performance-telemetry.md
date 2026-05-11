@@ -1,10 +1,10 @@
 # Web Performance Telemetry
 
-**Feature ID:** 005  
-**Change ID:** 005-005  
-**Status:** Shipped  
-**Date Completed:** 2025-11-20  
-**Code Branch / PR:** TODO  
+**Feature ID:** 005
+**Change ID:** 005-005
+**Status:** Shipped
+**Date Completed:** 2025-11-20
+**Code Branch / PR:** TODO
 
 ## Summary
 This change adds structured performance telemetry to the Web Interface MVP, focusing on per-endpoint timings and correlation-friendly logging for the main web API calls. It introduces standardized `*_ms` duration fields and correlation IDs in logs for `/api/images/random`, `/api/images/{filename}/analyze`, and `/api/images/{filename}/publish`, without altering any HTTP contracts or business logic.
@@ -63,12 +63,12 @@ Operators and maintainers can now inspect structured logs to understand how long
 - **Backout strategy:** If telemetry ever needs to be disabled, the safest path is to revert the logging changes in `web.app` and `utils.logging` (and, if necessary, the workflow timing block), without touching HTTP contracts or business logic.
 
 ## Artifacts
-- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry.md  
-- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_design.md  
-- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_plan.yaml  
-- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
-- PR: TODO  
+- Change Request: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry.md
+- Change Design: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_design.md
+- Change Plan: docs_v2/08_Epics/08_04_ChangeRequests/005/005_web-performance-telemetry_plan.yaml
+- Parent Feature Design: docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
+- PR: TODO
 
 ## Final Notes
-- The telemetry pattern introduced here (monotonic timers + `correlation_id` + `*_ms` fields) can be reused for future web endpoints and extended as part of the broader cross-cutting observability feature.  
+- The telemetry pattern introduced here (monotonic timers + `correlation_id` + `*_ms` fields) can be reused for future web endpoints and extended as part of the broader cross-cutting observability feature.
 - Sub-timings (e.g., Dropbox vs. OpenAI durations) and richer metrics backends remain future work and should be layered on top of these foundational logs without breaking existing fields or semantics.

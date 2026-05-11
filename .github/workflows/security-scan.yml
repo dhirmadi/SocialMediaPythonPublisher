@@ -20,13 +20,13 @@ jobs:
   security-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: Set up Python
       uses: actions/setup-python@v5
       with:
@@ -36,11 +36,11 @@ jobs:
       uses: astral-sh/setup-uv@v5
       with:
         enable-cache: true
-    
+
     - name: Install dependencies
       run: |
         uv sync --group dev
-    
+
     - name: Run pip-audit (dependency vulnerabilities)
       run: |
         uv run pip-audit -f json -o pip-audit-report.json || true
@@ -49,11 +49,11 @@ jobs:
     - name: Run Safety check (dependency vulnerabilities)
       run: |
         uv run safety check --json || true
-    
+
     - name: Run Bandit (code security issues)
       run: |
         uv run bandit -r . -f json -o bandit-report.json || true
-    
+
     - name: Upload security scan artifacts
       uses: actions/upload-artifact@v4
       if: always()
@@ -62,12 +62,12 @@ jobs:
         path: |
           bandit-report.json
           pip-audit-report.json
-    
+
     - name: Check for secrets in code
       uses: trufflesecurity/trufflehog@main
       with:
         extra_args: --only-verified
-    
+
     - name: Verify .env not committed
       run: |
         if git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$'; then
@@ -78,7 +78,7 @@ jobs:
         else
           echo "✅ No sensitive files found in repository"
         fi
-    
+
     - name: Check file permissions
       run: |
         echo "Checking for world-readable sensitive files..."
@@ -94,13 +94,13 @@ jobs:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
     timeout-minutes: 10
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: Dependency Review
       uses: actions/dependency-review-action@v3
       with:
@@ -109,13 +109,13 @@ jobs:
   secret-scanning:
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
       with:
         fetch-depth: 0
-    
+
     - name: GitGuardian scan
       uses: GitGuardian/ggshield-action@v1
       env:
@@ -124,4 +124,3 @@ jobs:
         GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
       continue-on-error: true
-

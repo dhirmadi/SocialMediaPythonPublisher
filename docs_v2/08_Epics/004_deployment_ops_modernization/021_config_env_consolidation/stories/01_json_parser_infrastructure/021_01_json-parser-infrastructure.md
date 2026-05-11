@@ -1,10 +1,10 @@
 # Story: JSON Config Parser Infrastructure
 
-**Feature ID:** 021  
-**Story ID:** 021-01  
-**Name:** json-parser-infrastructure  
-**Status:** Proposed  
-**Date:** 2025-12-22  
+**Feature ID:** 021
+**Story ID:** 021-01
+**Name:** json-parser-infrastructure
+**Status:** Proposed
+**Date:** 2025-12-22
 **Parent Feature:** 021_config_env_consolidation
 
 ## Summary
@@ -53,4 +53,3 @@ Redaction keys should include: `password`, `secret`, `token`, `refresh_token`, `
 ## Dependencies
 
 - None (foundational story)
-

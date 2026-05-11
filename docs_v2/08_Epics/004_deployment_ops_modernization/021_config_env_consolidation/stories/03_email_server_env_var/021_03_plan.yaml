@@ -55,18 +55,18 @@ tasks:
           parsed = _parse_json_env("EMAIL_SERVER")
           if parsed is None:
               return None
-          
+
           if "sender" not in parsed:
               raise ConfigurationError("EMAIL_SERVER missing required field 'sender'")
-          
+
           smtp_server = parsed.get("smtp_server", "smtp.gmail.com")
           smtp_port = parsed.get("smtp_port", 587)
-          
+
           if not isinstance(smtp_port, int):
               raise ConfigurationError(
                   f"EMAIL_SERVER.smtp_port must be an integer, got {type(smtp_port).__name__}"
               )
-          
+
           return {
               "smtp_server": smtp_server,
               "smtp_port": smtp_port,
@@ -96,4 +96,3 @@ release:
   feature_flag: null
   rollout_strategy: "direct"
   rollback_plan: "revert commit"
-

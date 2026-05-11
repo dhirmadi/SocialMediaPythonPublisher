@@ -1,7 +1,7 @@
 # Social Media Publisher — V2 Documentation Set
 
-Version: 2.3  
-Last Updated: December 30, 2025  
+Version: 2.3
+Last Updated: December 30, 2025
 Status: Canonical docs (live; maintained)
 
 **Canonical entrypoint:** `docs_v2/README.md`
@@ -35,5 +35,3 @@ Notable capabilities:
 
 Utility scripts:
 - A standalone Heroku/Hetzner provisioning script lives under `/scripts/heroku_hetzner_clone.py` to clone the `fetlife-prod` Heroku app, attach a `<name>.shibari.photo` domain, update the `FETLIFE_INI` `image_folder`, and create the matching Hetzner DNS CNAME record. See the script's `--help` output for usage.
-
-

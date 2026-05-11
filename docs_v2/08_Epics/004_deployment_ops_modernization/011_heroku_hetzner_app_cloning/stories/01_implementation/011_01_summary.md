@@ -2,15 +2,15 @@
 
 # Heroku App Cloning with Hetzner DNS Subdomain Automation — Shipped Feature
 
-**ID:** 011  
-**Name:** heroku-hetzner-app-cloning  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** User Request  
+**ID:** 011
+**Name:** heroku-hetzner-app-cloning
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** User Request
 
 ## Summary
 
-This feature adds a standalone Python CLI script under `/scripts` that automates provisioning a new instance of the FetLife publisher Heroku app with a dedicated subdomain and Dropbox image folder.  
+This feature adds a standalone Python CLI script under `/scripts` that automates provisioning a new instance of the FetLife publisher Heroku app with a dedicated subdomain and Dropbox image folder.
 Given a logical instance name (`--name`) and a Dropbox image folder path (`--folder`), the script:
 - Clones the reference Heroku app `fetlife-prod` using the Heroku Platform API.
 - Copies all config vars from the source app and rewrites the `[Dropbox].image_folder` value inside the `FETLIFE_INI` config var for the new app.
@@ -42,11 +42,11 @@ Instead, they can run a single command that performs all of these steps with cle
 
 ## Technical Overview
 
-- **Script location:** `/scripts/heroku_hetzner_clone.py`  
+- **Script location:** `/scripts/heroku_hetzner_clone.py`
 - **Key responsibilities:**
   - Input parsing via `argparse`:
-    - `--action` (optional, default `create`):  
-      - `create` → provision a new app and DNS entry.  
+    - `--action` (optional, default `create`):
+      - `create` → provision a new app and DNS entry.
       - `delete` → delete an existing app/DNS entry based on `servers.txt`.
     - `--name` (required): logical instance identifier; used for:
       - Heroku app name `fetlife-prod-<name>` (unless `--heroku-app-name` is provided).
@@ -153,20 +153,18 @@ Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`Hero
   - Existing deployments continue to run unchanged.
 - Operators can start using the script immediately after it is available in the repo:
   - Ensure `HEROKU_API_TOKEN` and `HETZNER_DNS_API_TOKEN` are set in the environment.
-  - Run (create):  
+  - Run (create):
     - `python scripts/heroku_hetzner_clone.py --name myinstance --folder /Photos/myinstance --password <admin-password>`
-  - Run (delete):  
+  - Run (delete):
     - `python scripts/heroku_hetzner_clone.py --action delete --name myinstance`
 - If any issues arise, simply stop using the script; there is no impact on the core system beyond any apps/DNS records already created (which can be managed manually via Heroku/Hetzner UIs as before).
 
 ## Artifacts
 
-- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/011_heroku-hetzner-app-cloning.md`  
-- Feature Design: `docs_v2/08_Epics/08_02_Feature_Design/011_heroku-hetzner-app-cloning_design.md`  
-- Implementation Plan: `docs_v2/08_Epics/08_03_Feature_plan/011_heroku-hetzner-app-cloning_plan.yaml`  
+- Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/011_heroku-hetzner-app-cloning.md`
+- Feature Design: `docs_v2/08_Epics/08_02_Feature_Design/011_heroku-hetzner-app-cloning_design.md`
+- Implementation Plan: `docs_v2/08_Epics/08_03_Feature_plan/011_heroku-hetzner-app-cloning_plan.yaml`
 - Implementation:
   - Script: `/scripts/heroku_hetzner_clone.py`
   - Tests: `publisher_v2/tests/test_scripts_heroku_hetzner_clone.py`
 - Final Feature Doc: `docs_v2/08_Epics/011_heroku-hetzner-app-cloning.md` (this file)
-
-

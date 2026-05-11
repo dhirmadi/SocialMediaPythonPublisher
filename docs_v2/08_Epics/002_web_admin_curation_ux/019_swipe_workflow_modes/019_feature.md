@@ -99,4 +99,3 @@ The current web interface relies on a "Next Image" button and random image selec
 - Review mode navigates A-Z.
 - Previous button/gesture works in Review mode.
 - Unit and Integration tests for new endpoints.
-

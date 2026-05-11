@@ -1,6 +1,6 @@
 # Non‑Functional Requirements — Social Media Publisher V2
 
-Version: 2.1  
+Version: 2.1
 Last Updated: April 25, 2026
 
 ## 1. Performance
@@ -51,5 +51,3 @@ Last Updated: April 25, 2026
 For detailed quality standards, thresholds, and measurement commands, see:
 - `docs_v2/09_Reviews/QUALITY_METRICS.md` — Single source of truth for all quality targets
 - `docs_v2/10_Testing/README.md` — Test documentation and commands
-
-

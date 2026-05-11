@@ -1,8 +1,8 @@
 # Story Summary: Email Server Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-03  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-03
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -52,4 +52,3 @@ Implemented the `_load_email_server_from_env()` function to parse the `EMAIL_SER
 - Story Definition: 021_03_email-server-env-var.md
 - Story Design: 021_03_design.md
 - Story Plan: 021_03_plan.yaml
-

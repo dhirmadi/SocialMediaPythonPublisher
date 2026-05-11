@@ -121,4 +121,3 @@ release:
   feature_flag: null
   rollout_strategy: "direct"
   rollback_plan: "revert commit"
-

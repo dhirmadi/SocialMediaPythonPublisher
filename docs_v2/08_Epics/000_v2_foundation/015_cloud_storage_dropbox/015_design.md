@@ -9,7 +9,7 @@ The `DropboxStorage` component adapts the generic `Storage` protocol to the Drop
 
 ## 2. Context & Assumptions
 - **Current State:** The system relies on `DropboxStorage` for all file I/O. Local storage is used only for temporary processing.
-- **Constraints:** 
+- **Constraints:**
   - Must work with `dropbox` Python SDK.
   - Must handle `refresh_token` based authentication (long-lived).
   - Must operate within Dropbox API rate limits.

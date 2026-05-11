@@ -2,19 +2,19 @@
 
 # Story 003 — delete-server — Design
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 003  
-**Name:** delete-server  
-**Status:** Design Review  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 003
+**Name:** delete-server
+**Status:** Design Review
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
 ## 1. Summary
 
-This story adds a deletion capability to the `heroku_hetzner_clone.py` script that allows operators to clean up a previously provisioned server by its logical `name`.  
+This story adds a deletion capability to the `heroku_hetzner_clone.py` script that allows operators to clean up a previously provisioned server by its logical `name`.
 The delete flow:
 
 - Looks up the server in `scripts/servers.txt` by name.
@@ -277,5 +277,3 @@ if args.action == "delete":
 - Heroku apps and Hetzner DNS records for that name are cleaned up.
 - `scripts/servers.txt` no longer contains entries for the deleted name.
 - Dry-run clearly communicates intended actions without side effects.
-
-

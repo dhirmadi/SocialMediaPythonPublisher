@@ -1,8 +1,8 @@
 # Story Summary: Core Thumbnail Support (MVP)
 
-**Feature ID:** 018  
-**Story ID:** 018-01  
-**Status:** Shipped  
+**Feature ID:** 018
+**Story ID:** 018-01
+**Status:** Shipped
 **Date Completed:** 2025-12-06
 
 ## Summary
@@ -29,17 +29,17 @@ Implemented the core thumbnail infrastructure using Dropbox's native `files/get_
 - `publisher_v2/src/publisher_v2/services/storage.py`
   - Added imports for Dropbox thumbnail types
   - Added `get_thumbnail()` async method with retry logic
-  
+
 - `publisher_v2/src/publisher_v2/web/models.py`
   - Added `thumbnail_url: Optional[str] = None` to `ImageResponse`
-  
+
 - `publisher_v2/src/publisher_v2/web/service.py`
   - Added `urllib.parse` import
   - Added `get_thumbnail()` method to `WebImageService`
   - Modified `get_random_image()` to:
     - Skip `download_image()` call (no longer computing SHA256 on display)
     - Build and return `thumbnail_url` field
-  
+
 - `publisher_v2/src/publisher_v2/web/app.py`
   - Added `Enum` import
   - Added `ThumbnailSizeParam` enum for validation
@@ -48,7 +48,7 @@ Implemented the core thumbnail infrastructure using Dropbox's native `files/get_
     - Cache-Control headers (1 hour)
     - Structured logging
     - Error handling (404/500)
-  
+
 - `publisher_v2/src/publisher_v2/web/templates/index.html`
   - Added `currentFullUrl` variable for future "Full Size" button
   - Modified `showImage()` to accept both thumbnail and full URLs
@@ -58,10 +58,10 @@ Implemented the core thumbnail infrastructure using Dropbox's native `files/get_
 ### Test Files
 - `publisher_v2/tests/test_storage_thumbnail.py` (new)
   - 6 tests for `DropboxStorage.get_thumbnail()`
-  
+
 - `publisher_v2/tests/test_web_thumbnail_endpoint.py` (new)
   - 12 tests for `/api/images/{filename}/thumbnail` endpoint
-  
+
 - `publisher_v2/tests/web/test_web_service.py` (updated)
   - Updated `test_get_random_image_returns_basic_fields` to expect `sha256=None` and verify `thumbnail_url`
 
@@ -125,4 +125,3 @@ GET /api/images/{filename}/thumbnail?size=w960h640
 - Story Design: `018_01_design.md`
 - Story Plan: `018_01_plan.yaml`
 - Summary: `018_01_summary.md` (this file)
-

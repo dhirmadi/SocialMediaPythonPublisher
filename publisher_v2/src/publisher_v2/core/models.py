@@ -60,6 +60,7 @@ class CaptionSpec:
     max_length: int
     examples: tuple[str, ...] = ()
     guidance: str = ""
+    smart_hashtags: bool = False
 
     @staticmethod
     def for_platforms(config: "ApplicationConfig") -> dict[str, "CaptionSpec"]:
@@ -86,6 +87,9 @@ class CaptionSpec:
         if config.features.voice_matching_enabled and config.content.voice_profile:
             voice_profile_examples = tuple(config.content.voice_profile)
 
+        # PUB-028: smart hashtag generation flag, propagated into every spec
+        smart_hashtags = bool(config.features.smart_hashtags_enabled)
+
         for name, enabled in platform_enabled.items():
             if enabled:
                 style_cfg = registry.get(name, generic)
@@ -99,6 +103,7 @@ class CaptionSpec:
                     max_length=style_cfg.max_length,
                     examples=voice_profile_examples + tuple(style_cfg.examples),
                     guidance=style_cfg.guidance,
+                    smart_hashtags=smart_hashtags,
                 )
 
         if not specs:
@@ -110,6 +115,7 @@ class CaptionSpec:
                     style=fallback.style,
                     hashtags=config.content.hashtag_string,
                     max_length=fallback.max_length,
+                    smart_hashtags=smart_hashtags,
                 )
             else:
                 specs["generic"] = CaptionSpec(
@@ -117,6 +123,7 @@ class CaptionSpec:
                     style="minimal_poetic",
                     hashtags=config.content.hashtag_string,
                     max_length=2200,
+                    smart_hashtags=smart_hashtags,
                 )
 
         return specs

@@ -1,8 +1,8 @@
 # Story Summary: Publishers Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-02  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-02
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -57,4 +57,3 @@ Implemented the `_load_publishers_from_env()` function to parse the `PUBLISHERS`
 - Story Definition: 021_02_publishers-env-var.md
 - Story Design: 021_02_design.md
 - Story Plan: 021_02_plan.yaml
-

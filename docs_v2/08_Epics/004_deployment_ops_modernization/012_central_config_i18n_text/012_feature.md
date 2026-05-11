@@ -2,11 +2,11 @@
 
 # Centralized Configuration & Internationalizable Text
 
-**ID:** 012  
-**Name:** central-config-i18n-text  
-**Status:** Shipped  
-**Date:** 2025-11-22  
-**Author:** User Request  
+**ID:** 012
+**Name:** central-config-i18n-text
+**Status:** Shipped
+**Date:** 2025-11-22
+**Author:** User Request
 
 ## Summary
 The application currently mixes secrets, dynamic behavior flags, and static text across environment variables, INI files, Python code, and the web UI template. This feature introduces a clear configuration model that separates secrets, dynamic runtime configuration, and static text/rules into dedicated layers, with a new static config layer for AI prompts, platform rules, service limits, preview text, and web UI text. The goal is to centralize configuration, make behavior and text tunable without code changes, and prepare the system for future internationalization while preserving all existing behavior by default.
@@ -14,16 +14,16 @@ The application currently mixes secrets, dynamic behavior flags, and static text
 ## Problem Statement
 Configuration and text are currently spread across multiple sources:
 
-- Secrets and some feature toggles are stored in `.env` / process environment  
-- Runtime behavior and platform enablement are configured via INI files under `configfiles/`  
+- Secrets and some feature toggles are stored in `.env` / process environment
+- Runtime behavior and platform enablement are configured via INI files under `configfiles/`
 - AI prompts, platform limits, preview mode labels, and web UI strings are hard-coded in Python and HTML
 
 This leads to several issues:
 
-- Secrets vs non-secrets are not clearly modeled, increasing the risk of accidentally committing sensitive data  
-- Dynamic behavioral toggles are scattered between `.env`, INI, and code, making it hard to understand and change runtime behavior safely  
-- AI prompts and platform rules are hard-coded, so tuning them requires code changes and redeploys  
-- All user-facing text is English-only and lives in code/HTML, making internationalization and content updates difficult  
+- Secrets vs non-secrets are not clearly modeled, increasing the risk of accidentally committing sensitive data
+- Dynamic behavioral toggles are scattered between `.env`, INI, and code, making it hard to understand and change runtime behavior safely
+- AI prompts and platform rules are hard-coded, so tuning them requires code changes and redeploys
+- All user-facing text is English-only and lives in code/HTML, making internationalization and content updates difficult
 - Platform limits (caption length, hashtag limits, resize widths) are brittle and need code updates when platforms change
 
 ## Goals
@@ -87,18 +87,16 @@ This leads to several issues:
 - Existing feature toggle and platform enablement behavior.
 
 ## Risks & Mitigations
-- **Risk:** Overcomplicating configuration and making it harder to understand.  
+- **Risk:** Overcomplicating configuration and making it harder to understand.
   **Mitigation:** Keep the static config layer small and focused, with clear defaults and documentation; avoid introducing deep hierarchies or unnecessary abstractions.
-- **Risk:** Breaking existing behavior if static config loading fails.  
+- **Risk:** Breaking existing behavior if static config loading fails.
   **Mitigation:** Always fall back to safe in-code defaults when static config is missing or invalid; log warnings instead of failing hard.
-- **Risk:** Leaking secrets into new config files by accident.  
+- **Risk:** Leaking secrets into new config files by accident.
   **Mitigation:** Clearly document which variables are secrets and restrict static config files to non-secret prompts, text, and numeric limits only.
-- **Risk:** Making future i18n harder by baking in assumptions.  
+- **Risk:** Making future i18n harder by baking in assumptions.
   **Mitigation:** Design static text config with locale support from the start (e.g., `web_ui_text.en.yaml`), even if only English is implemented initially.
 
 ## Open Questions
 - How should locales be selected in the future (env var, config, HTTP negotiation), and where should that decision live? (Out of scope for this feature; assume a single locale for now.)
 - Should static config support environment-based layering (e.g., base file + per-env override) or rely on full-file replacement per deployment?
 - To what extent should platform rules (like caption formatting or hashtag normalization) be moved into config vs. remaining in code?
-
-

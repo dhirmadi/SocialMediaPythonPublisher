@@ -202,4 +202,3 @@ status:
 	@echo ""
 	@echo "Dependencies:"
 	@uv pip list -q | grep -E "dropbox|openai|telegram|instagrapi" || echo "Dependencies not installed"
-

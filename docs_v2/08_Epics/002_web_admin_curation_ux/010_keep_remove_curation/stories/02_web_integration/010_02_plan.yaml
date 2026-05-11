@@ -92,4 +92,3 @@ quality_gates:
   tests_required:
     - keep_remove.tests_web_service
     - keep_remove.tests_web_endpoints_admin
-

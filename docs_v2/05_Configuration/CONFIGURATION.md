@@ -1,6 +1,6 @@
 # Configuration — Social Media Publisher V2
 
-Version: 2.8  
+Version: 2.8
 Last Updated: December 30, 2025
 
 ---
@@ -18,7 +18,7 @@ This separation enables:
 - Feature flags and deployment customization without code changes
 - AI prompt tuning and internationalization without redeploy
 
-**Default mode (production): Orchestrator-backed configuration**  
+**Default mode (production): Orchestrator-backed configuration**
 In production, Publisher V2 runs in **orchestrator mode** (Epic 001 / Feature 022):
 
 - The orchestrator is the **source of truth** for per-tenant runtime config (non-secret) and credential references.
@@ -88,7 +88,7 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `FEATURE_REMOVE_CURATE` | `true` | When `false`, disables Remove curation action; buttons hidden, `/remove` returns 403. |
 | `AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. |
 
-**Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).  
+**Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).
 **Invalid values:** Raise `ConfigurationError` at startup.
 
 **Note:** Storage/Dropbox integration is always enabled (base feature, cannot be disabled).
@@ -362,7 +362,7 @@ Configuration values are loaded in this order (first found wins):
 When INI fallback is used, the loader emits a warning:
 
 ```
-DEPRECATION: INI-based config is deprecated. Migrate to JSON env vars 
+DEPRECATION: INI-based config is deprecated. Migrate to JSON env vars
 (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.). INI sections used: [Content, Email, openAI]
 ```
 
@@ -430,7 +430,7 @@ heroku config:set EMAIL_SERVER='{"sender": "bot@gmail.com", "smtp_server": "smtp
 #### Migration Steps
 
 1. **Set new config vars** on a canary app (keep `FETLIFE_INI` initially for safety)
-2. **Validate**: 
+2. **Validate**:
    - `/health` returns 200
    - Web UI loads
    - "Random image" works (Dropbox access)
@@ -517,7 +517,7 @@ In multi-tenant mode, the web UI still needs a consistent security posture per `
 
 ### 10.3 Orchestrator-delivered runtime config (non-secret)
 
-Publisher expects these values to come from the orchestrator **runtime config** endpoint (cached by TTL).  
+Publisher expects these values to come from the orchestrator **runtime config** endpoint (cached by TTL).
 **Note:** Publisher prefers **POST** for runtime lookup (Feature 022), with **GET fallback** on 405.
 
 - **`features`**: publish/analyze/keep/remove/auto_view toggles
@@ -553,5 +553,3 @@ Secrets must never be embedded in runtime config payloads and must never be pers
 - [i18n Activation Summary](../08_Epics/004_deployment_ops_modernization/012_central_config_i18n_text/stories/01_implementation/ACTIVATION_SUMMARY.md)
 - [Feature 021: Config Env Consolidation](../08_Epics/004_deployment_ops_modernization/021_config_env_consolidation/021_feature.md)
 - [Architecture Documentation](../03_Architecture/ARCHITECTURE.md)
-
-

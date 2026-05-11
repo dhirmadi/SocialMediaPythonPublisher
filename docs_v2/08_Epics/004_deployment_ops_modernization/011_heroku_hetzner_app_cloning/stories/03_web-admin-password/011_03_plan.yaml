@@ -62,5 +62,3 @@ release:
   flags: []
   migration_notes:
     - "The provisioning script now requires a password via --password and will always set web_admin_pw for new apps."
-
-

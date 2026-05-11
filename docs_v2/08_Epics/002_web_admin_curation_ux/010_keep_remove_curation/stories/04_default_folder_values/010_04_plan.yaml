@@ -47,4 +47,3 @@ tasks:
 quality_gates:
   tests_required:
     - keep_remove.tests_defaults
-

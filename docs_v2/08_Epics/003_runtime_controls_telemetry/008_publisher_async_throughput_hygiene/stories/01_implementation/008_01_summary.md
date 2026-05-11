@@ -1,9 +1,9 @@
 # Publisher Async Throughput Hygiene
 
-**Feature ID:** publisher-async-throughput-hygiene  
-**Status:** Shipped  
-**Date Completed:** 2025-11-20  
-**Code Branch / PR:** TODO  
+**Feature ID:** publisher-async-throughput-hygiene
+**Status:** Shipped
+**Date Completed:** 2025-11-20
+**Code Branch / PR:** TODO
 
 ## Summary
 This feature audits and hardens the async behavior of existing publishers (Email/FetLife, Telegram, Instagram) so that multi-platform publishing fully benefits from asyncio-based concurrency without blocking the event loop. It introduces a small async image helper, standardizes thread-offloading for blocking SDKs, and adds per-publisher telemetry plus tests to validate concurrent execution characteristics.
@@ -63,6 +63,4 @@ All existing tests continue to pass, ensuring no regressions in preview/dry-run 
 - **PR**: TODO
 
 ## Final Notes
-This feature brings publisher implementations in line with the project’s async-first architecture, reducing the risk that hidden blocking work undermines concurrency as more platforms are enabled. Future improvements could include lightweight synthetic benchmarks and dashboards over `publisher_publish` logs, as well as extending the same async hygiene patterns to any new publisher modules introduced later. 
-
-
+This feature brings publisher implementations in line with the project’s async-first architecture, reducing the risk that hidden blocking work undermines concurrency as more platforms are enabled. Future improvements could include lightweight synthetic benchmarks and dashboards over `publisher_publish` logs, as well as extending the same async hygiene patterns to any new publisher modules introduced later.

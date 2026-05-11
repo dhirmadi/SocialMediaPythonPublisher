@@ -39,4 +39,3 @@ Implemented the backend API foundation for Review Mode.
 
 ## Follow-up Items
 - None.
-

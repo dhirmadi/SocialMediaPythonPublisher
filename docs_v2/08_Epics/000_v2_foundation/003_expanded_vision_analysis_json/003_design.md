@@ -2,8 +2,8 @@
 
 ## 1. Summary
 
-Problem: The current image analysis returns minimal fields (description, mood, tags, nsfw, safety_labels), limiting preview fidelity and downstream Stable Diffusion (SD) prompt quality.  
-Goals: Expand the analysis to include optional structured fields (subject, style, lighting, camera, clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette) while preserving strict JSON and backward compatibility. Surface present fields in preview.  
+Problem: The current image analysis returns minimal fields (description, mood, tags, nsfw, safety_labels), limiting preview fidelity and downstream Stable Diffusion (SD) prompt quality.
+Goals: Expand the analysis to include optional structured fields (subject, style, lighting, camera, clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette) while preserving strict JSON and backward compatibility. Surface present fields in preview.
 Non-goals: Change publisher behavior, modify caption generation logic (`sd_caption`), alter storage/archival or de-duplication flows, or switch AI providers.
 
 ## 2. Context & Assumptions
@@ -179,5 +179,3 @@ Glossary
 References
 - Feature Request: `docs_v2/08_Epics/08_01_Feature_Request/003_expanded-vision-analysis-json.md`
 - Existing Design Example: `docs_v2/08_Epics/08_02_Feature_Design/001_captionfile_design.md`
-
-

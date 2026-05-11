@@ -42,4 +42,3 @@ types-setuptools>=69.0.0
 
 # Coverage
 coverage[toml]>=7.4.0
-

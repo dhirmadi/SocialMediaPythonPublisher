@@ -1,7 +1,7 @@
 # Test Analysis and Improvement Proposal
 
-**Date:** November 11, 2025  
-**Status:** Investigation Complete — Action Required  
+**Date:** November 11, 2025
+**Status:** Investigation Complete — Action Required
 **Analyst:** Testing Expert Review
 
 ---
@@ -29,17 +29,17 @@ Implement a **phased test expansion plan** targeting critical business logic fir
 
 ### Warning Category 1: pytest-asyncio Configuration (10-12 occurrences)
 
-**Type:** `PytestDeprecationWarning`  
+**Type:** `PytestDeprecationWarning`
 **Message:**
 ```
 The configuration option "asyncio_default_fixture_loop_scope" is unset.
 The event_loop fixture provided by pytest-asyncio will have 'function' scope...
 ```
 
-**Root Cause:**  
+**Root Cause:**
 `pyproject.toml` sets `asyncio_mode = "auto"` but doesn't specify the `asyncio_default_fixture_loop_scope` option, which will become mandatory in pytest-asyncio 1.0.
 
-**Impact:** Low (functional) / High (noise)  
+**Impact:** Low (functional) / High (noise)
 - Tests work correctly but warnings clutter output
 - Will become hard error in future pytest-asyncio versions
 
@@ -55,17 +55,17 @@ asyncio_default_fixture_loop_scope = "function"  # ADD THIS LINE
 
 ### Warning Category 2: ResourceWarning — Unclosed Transports (1-2 occurrences)
 
-**Type:** `ResourceWarning`  
+**Type:** `ResourceWarning`
 **Message:**
 ```
-/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/selector_events.py:879: 
+/Library/Frameworks/Python.framework/Versions/3.12/lib/python3.12/asyncio/selector_events.py:879:
 ResourceWarning: unclosed transport <_SelectorSocketTransport fd=22>
 ```
 
-**Root Cause:**  
+**Root Cause:**
 Async HTTP clients (likely in `OpenAI` or mock objects) are not being properly closed after tests complete. The `python-telegram-bot` library or OpenAI async client may not be awaiting cleanup.
 
-**Impact:** Medium  
+**Impact:** Medium
 - May leak file descriptors in long test runs
 - Indicates improper async resource management in tests or code
 
@@ -114,7 +114,7 @@ Async HTTP clients (likely in `OpenAI` or mock objects) are not being properly c
 
 #### 1. **app.py (0% coverage) — CLI Entrypoint**
 
-**Why Critical:**  
+**Why Critical:**
 This is the main entrypoint that wires everything together. Bugs here break the entire application.
 
 **Missing Tests:**
@@ -137,7 +137,7 @@ This is the main entrypoint that wires everything together. Bugs here break the 
 
 #### 2. **config/loader.py (0% coverage) — Configuration Loading**
 
-**Why Critical:**  
+**Why Critical:**
 Bad config = application won't start or will crash at runtime. This is the validation gateway.
 
 **Missing Tests:**
@@ -163,7 +163,7 @@ Bad config = application won't start or will crash at runtime. This is the valid
 
 #### 3. **services/publishers/*.py (0% coverage) — All Publishers**
 
-**Why Critical:**  
+**Why Critical:**
 These are the delivery mechanisms — if they fail silently, content never gets published.
 
 **Missing Tests:**
@@ -210,7 +210,7 @@ These are the delivery mechanisms — if they fail silently, content never gets 
 
 #### 4. **services/storage.py (48% coverage, 52 lines missing)**
 
-**Currently Tested:**  
+**Currently Tested:**
 Sidecar file upload and overwrite logic.
 
 **Missing Tests:**
@@ -235,7 +235,7 @@ Sidecar file upload and overwrite logic.
 
 #### 5. **utils/state.py (55% coverage, 15 lines missing)**
 
-**Currently Tested:**  
+**Currently Tested:**
 Basic state access in deduplication tests.
 
 **Missing Tests:**
@@ -257,7 +257,7 @@ Basic state access in deduplication tests.
 
 #### 6. **utils/logging.py (67% coverage, 8 lines missing)**
 
-**Currently Tested:**  
+**Currently Tested:**
 Basic logging setup in integration tests.
 
 **Missing Tests:**
@@ -512,16 +512,15 @@ Follow existing pattern:
 
 The test suite is **stable and well-structured** but **incomplete**. The existing 36 tests demonstrate good patterns (mocking, async handling, clear assertions), but critical modules have **zero coverage**.
 
-**Key Takeaway:**  
+**Key Takeaway:**
 Invest **4-6 days** to expand test coverage from 72% to 90%+, focusing first on the **0% coverage modules** (CLI, config loader, publishers) which represent the highest business risk.
 
-**Next Step:**  
+**Next Step:**
 Get approval for this plan, then execute **Phase 1 (warnings fix)** immediately and **Phase 2 (critical coverage)** in the next sprint.
 
 ---
 
-**Document Version:** 1.0  
-**Author:** Testing Expert  
-**Review Date:** November 11, 2025  
+**Document Version:** 1.0
+**Author:** Testing Expert
+**Review Date:** November 11, 2025
 **Status:** Ready for Review
-

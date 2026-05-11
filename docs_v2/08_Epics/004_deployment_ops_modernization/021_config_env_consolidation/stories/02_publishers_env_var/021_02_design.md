@@ -1,12 +1,12 @@
 # Publishers Environment Variable — Story Design
 
-**Feature ID:** 021  
-**Story ID:** 021-02  
-**Parent Feature:** config_env_consolidation  
-**Design Version:** 1.0  
-**Date:** 2025-12-23  
-**Status:** Design Review  
-**Story Definition:** 021_02_publishers-env-var.md  
+**Feature ID:** 021
+**Story ID:** 021-02
+**Parent Feature:** config_env_consolidation
+**Design Version:** 1.0
+**Date:** 2025-12-23
+**Status:** Design Review
+**Story Definition:** 021_02_publishers-env-var.md
 **Parent Feature Design:** ../../021_design.md
 
 ## 1. Summary
@@ -263,4 +263,3 @@ else:
 - [ ] Fallback to INI when PUBLISHERS not set
 - [ ] Unit tests cover all edge cases
 - [ ] No secrets in logs
-

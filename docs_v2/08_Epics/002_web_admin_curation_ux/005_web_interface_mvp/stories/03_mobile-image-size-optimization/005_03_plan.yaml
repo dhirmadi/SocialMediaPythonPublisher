@@ -66,5 +66,3 @@ release:
   metrics:
     - "web_random_image_latency_p95"
     - "web_random_image_requests_count"
-
-

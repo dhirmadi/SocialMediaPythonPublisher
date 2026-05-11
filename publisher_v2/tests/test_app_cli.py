@@ -51,6 +51,7 @@ def mock_config():
         keep_enabled=True,
         remove_enabled=True,
         auto_view_enabled=False,
+        smart_hashtags_enabled=False,
     )
     content = SimpleNamespace(
         hashtag_string="#test",

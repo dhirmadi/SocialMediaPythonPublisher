@@ -7,7 +7,7 @@ This feature provides a consistent `publisher_v2.utils.logging` module that wrap
 
 ## 2. Context & Assumptions
 - **Current State:** Logging is the primary observability tool.
-- **Constraints:** 
+- **Constraints:**
   - Minimal dependencies (avoid adding large libraries just for logging).
   - Must be thread-safe and async-safe.
 - **Assumptions:**

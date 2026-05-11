@@ -165,4 +165,3 @@ definition_of_done:
   - "All tests pass"
   - "Manual testing confirms < 1s load time on 4G"
   - "No regressions in existing functionality"
-

@@ -87,5 +87,3 @@ release:
     - "web_ui_requests_total"
     - "web_ui_error_rate"
     - "web_ui_admin_actions"
-
-

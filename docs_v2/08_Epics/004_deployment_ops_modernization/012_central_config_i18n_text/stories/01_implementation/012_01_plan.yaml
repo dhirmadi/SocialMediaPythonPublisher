@@ -274,5 +274,3 @@ release:
     - "Static config files are optional; when absent, behavior and text match current defaults."
     - "Operators can override prompts, limits, and text by providing customized YAML files under a configured static config directory."
     - "Secrets remain in environment variables and must never be added to the new static YAML files."
-
-

@@ -23,4 +23,3 @@ With the infrastructure in place, the core `WorkflowOrchestrator` needed to be r
         *   Mocks `list_images_with_hashes` to return known duplicates.
         *   Asserts `download_image` is NOT called for duplicates.
         *   Asserts state is updated correctly on success.
-

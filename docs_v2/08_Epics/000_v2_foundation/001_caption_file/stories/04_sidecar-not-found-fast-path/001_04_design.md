@@ -2,20 +2,20 @@
 
 # Sidecar Not-Found Fast Path — Change Design
 
-**Feature ID:** 001  
-**Change ID:** 001-003  
-**Parent Feature:** Stable Diffusion Caption File  
-**Design Version:** 1.0  
-**Date:** 2025-11-20  
-**Status:** Design Review  
-**Author:** Architecture Team  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/001/003_sidecar-not-found-fast-path.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/001_captionfile_design.md  
+**Feature ID:** 001
+**Change ID:** 001-003
+**Parent Feature:** Stable Diffusion Caption File
+**Design Version:** 1.0
+**Date:** 2025-11-20
+**Status:** Design Review
+**Author:** Architecture Team
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/001/003_sidecar-not-found-fast-path.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/001_captionfile_design.md
 
 ## 1. Summary
 
-- **Problem & context:** The Stable Diffusion caption file feature (001) and its sidecar-as-cache changes (001-001, 001-002) assume sidecars are cheap to read, but the current implementation uses the generic `DropboxStorage.download_image` path with tenacity retries. When a sidecar `.txt` is missing, Dropbox returns a "not found" error that is retried multiple times, adding seconds to key web endpoints (`/api/images/random`, `/api/images/{filename}/analyze`) even though the "no sidecar yet" state is normal.  
-- **Goal of this change:** Introduce a dedicated, sidecar-aware read helper that treats "not found" as an expected, fast-path outcome while preserving robust behavior for genuine transient errors, and wire the web service to use it.  
+- **Problem & context:** The Stable Diffusion caption file feature (001) and its sidecar-as-cache changes (001-001, 001-002) assume sidecars are cheap to read, but the current implementation uses the generic `DropboxStorage.download_image` path with tenacity retries. When a sidecar `.txt` is missing, Dropbox returns a "not found" error that is retried multiple times, adding seconds to key web endpoints (`/api/images/random`, `/api/images/{filename}/analyze`) even though the "no sidecar yet" state is normal.
+- **Goal of this change:** Introduce a dedicated, sidecar-aware read helper that treats "not found" as an expected, fast-path outcome while preserving robust behavior for genuine transient errors, and wire the web service to use it.
 - **Non-goals:** Do not alter sidecar creation, format, or archival semantics defined by Feature 001; do not change AI behavior, prompts, or SD caption generation logic.
 
 ## 2. Context & Assumptions
@@ -71,19 +71,19 @@
 ### 4.2 Components & Responsibilities
 
 - **`publisher_v2.services.storage.DropboxStorage`**
-  - **New helper:** `async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None`  
+  - **New helper:** `async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None`
     - Responsibility: Fast, sidecar-aware read that normalizes "not found" to `None` and allows callers to distinguish between "no sidecar" and other failures.
-  - **New internal helper:** `_is_sidecar_not_found_error(exc: ApiError) -> bool`  
+  - **New internal helper:** `_is_sidecar_not_found_error(exc: ApiError) -> bool`
     - Responsibility: Inspect Dropbox `ApiError` to identify "file not found" conditions for sidecar paths.
 - **`publisher_v2.web.service.WebImageService`**
-  - **`get_random_image`**  
+  - **`get_random_image`**
     - Responsibility change: Use `download_sidecar_if_exists` instead of `download_image` for `.txt` reads in the `asyncio.gather` call; treat `None` as "no sidecar" and continue to prefer sidecar-derived caption/metadata when present.
-  - **`analyze_and_caption`**  
+  - **`analyze_and_caption`**
     - Responsibility change: Replace the `try/except` + `download_image` pattern with a single call to `download_sidecar_if_exists`, falling back to AI analysis when the helper returns `None`.
 - **Tests**
-  - **`publisher_v2/tests/test_dropbox_sidecar.py`**  
+  - **`publisher_v2/tests/test_dropbox_sidecar.py`**
     - Extended to cover `download_sidecar_if_exists` behavior for existing vs. missing sidecars.
-  - **`publisher_v2/tests/web/test_web_service.py`**  
+  - **`publisher_v2/tests/web/test_web_service.py`**
     - Extended to assert that missing sidecars result in no exceptions and that sidecar-backed paths still work as before.
 
 ### 4.3 Data & Contracts
@@ -186,5 +186,3 @@
 
 - Should `download_sidecar_if_exists` be the only supported API for sidecar reads going forward (e.g., should other components be refactored to use it), or is it acceptable to scope its usage to the web layer for now? — Proposed answer: Scope initially to web flows, then refactor other sidecar consumers to use it in follow-up work if needed.
 - Do we need additional structured logging around sidecar read failures (e.g., `sidecar_not_found`, `sidecar_read_error`) for observability, or is the existing web telemetry sufficient? — Proposed answer: Start without new log events; add them only if operational debugging shows a need.
-
-

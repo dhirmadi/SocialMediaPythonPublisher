@@ -2,20 +2,20 @@
 
 # AUTO_VIEW Anonymous Image Access — Change Design
 
-**Feature ID:** 005  
-**Change ID:** 005-008  
-**Parent Feature:** Web Interface MVP  
-**Design Version:** 1.0  
-**Date:** 2025-11-21  
-**Status:** Design Review  
-**Author:** Evert  
-**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/008_auto-view-anonymous-image-access.md  
-**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md  
+**Feature ID:** 005
+**Change ID:** 005-008
+**Parent Feature:** Web Interface MVP
+**Design Version:** 1.0
+**Date:** 2025-11-21
+**Status:** Design Review
+**Author:** Evert
+**Linked Change Request:** docs_v2/08_Epics/08_04_ChangeRequests/005/008_auto-view-anonymous-image-access.md
+**Parent Feature Design:** docs_v2/08_Epics/08_02_Feature_Design/005_web-interface-mvp_design.md
 
 ## 1. Summary
 
-- **Problem & context:** The web interface currently allows anyone who can reach `/` to load a random image via `GET /api/images/random`, regardless of admin login state. Admin mode already protects analysis, publishing, curation, and detailed status, but image content itself may still be sensitive. Operators need a simple way to choose between a strictly private mode (images only for logged-in admin) and a relaxed mode (images visible to any viewer) without altering publishers or orchestrator behavior.  
-- **Change:** Introduce an `AUTO_VIEW` environment flag, surfaced through the existing typed feature configuration and `/api/config/features` endpoint, and enforce it in both the backend (`/api/images/random`) and frontend (Next Image behavior and messaging).  
+- **Problem & context:** The web interface currently allows anyone who can reach `/` to load a random image via `GET /api/images/random`, regardless of admin login state. Admin mode already protects analysis, publishing, curation, and detailed status, but image content itself may still be sensitive. Operators need a simple way to choose between a strictly private mode (images only for logged-in admin) and a relaxed mode (images visible to any viewer) without altering publishers or orchestrator behavior.
+- **Change:** Introduce an `AUTO_VIEW` environment flag, surfaced through the existing typed feature configuration and `/api/config/features` endpoint, and enforce it in both the backend (`/api/images/random`) and frontend (Next Image behavior and messaging).
 - **Goals:** Default to a **private** posture (`AUTO_VIEW=false`) where images require admin login, while still supporting a **viewer-friendly** mode (`AUTO_VIEW=true`) for trusted environments, and keep the implementation small, additive, and consistent with existing web/admin patterns.
 
 ## 2. Context & Assumptions
@@ -206,5 +206,3 @@
 
 - Should `AUTO_VIEW` ever be overridden by an INI-level setting (e.g., `[web] auto_view = true`), or should it remain purely environment-driven for simplicity? — **Proposed answer:** keep it environment-only for MVP; add INI support later if needed.
 - Should `AUTO_VIEW` also affect any future thumbnail or list endpoints (e.g., an image grid) if/when they are added? — **Proposed answer:** yes, conceptually `AUTO_VIEW` governs visibility of image content in general; this should be documented now and enforced for future endpoints in follow-up changes.
-
-

@@ -2,12 +2,12 @@
 
 # Feature Toggle System — Feature Design
 
-**Feature ID:** 009  
-**Feature Name:** feature-toggle  
-**Design Version:** 1.0  
-**Date:** 2025-01-27  
-**Status:** Design Review  
-**Author:** Architecture Team  
+**Feature ID:** 009
+**Feature Name:** feature-toggle
+**Design Version:** 1.0
+**Date:** 2025-01-27
+**Status:** Design Review
+**Author:** Architecture Team
 
 ---
 
@@ -419,4 +419,3 @@ log_json(
 - Configuration Loader: `publisher_v2/src/publisher_v2/config/loader.py`
 - Workflow Orchestrator: `publisher_v2/src/publisher_v2/core/workflow.py`
 - Web Service: `publisher_v2/src/publisher_v2/web/service.py`
-

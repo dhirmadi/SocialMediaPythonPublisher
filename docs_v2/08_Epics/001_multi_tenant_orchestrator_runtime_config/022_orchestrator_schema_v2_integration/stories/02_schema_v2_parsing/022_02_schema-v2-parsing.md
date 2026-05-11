@@ -1,8 +1,8 @@
 # Story 02 — Schema V2 Parsing
 
-**Feature ID:** 022  
-**Story ID:** 022-02  
-**Status:** Shipped  
+**Feature ID:** 022
+**Story ID:** 022-02
+**Status:** Shipped
 **Date:** 2025-12-25
 
 ---
@@ -20,7 +20,7 @@ The orchestrator now returns schema v2 runtime config responses that include add
 
 Publisher V2 must parse both v1 and v2 responses, mapping orchestrator blocks to existing Pydantic models from Feature 021.
 
-**Parent feature:** [022_feature.md](../../022_feature.md)  
+**Parent feature:** [022_feature.md](../../022_feature.md)
 **Depends on:** Story 01 (Config Source Abstraction)
 
 ---
@@ -323,4 +323,3 @@ Add fixtures with sample v1 and v2 response payloads (use issue #31 as canonical
 |------|--------|
 | 2025-12-24 | Initial story draft |
 | 2025-12-25 | Added email server field mapping, publisher enabled filtering, FetLife credential handling clarification |
-

@@ -2,22 +2,22 @@
 
 # Keep/Remove Curation Controls
 
-**ID:** 010  
-**Name:** keep-remove-curation  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** User Request  
+**ID:** 010
+**Name:** keep-remove-curation
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** User Request
 
 ## Summary
-Add two new admin-only **Keep** and **Remove** curation actions to the V2 web UI and core workflow.  
+Add two new admin-only **Keep** and **Remove** curation actions to the V2 web UI and core workflow.
 When viewing a single image in the web interface (same context as **Analyze** and **Publish**), an authenticated admin can choose:
 - **Keep** → move the current image and its sidecars/metadata into a configurable keep folder under the S3-compatible image prefix.
 - **Remove** → move the current image and its sidecars/metadata into a configurable remove/reject folder under the S3-compatible image prefix (with backward-compatible support for existing `folder_reject` configs).
 These actions must be fully integrated into the existing storage workflow, respect preview/dry-run safety guarantees, and be independently toggleable via feature flags and configuration.
 
 ## Problem Statement
-Today, when reviewing candidate images in the V2 web interface, the only admin actions are **Analyze & caption** and **Publish**.  
-There is no quick way to curate images that should be **kept for later** (e.g., approved for a future posting batch) or **removed from the current candidate pool** without publishing or manually moving files in Dropbox.  
+Today, when reviewing candidate images in the V2 web interface, the only admin actions are **Analyze & caption** and **Publish**.
+There is no quick way to curate images that should be **kept for later** (e.g., approved for a future posting batch) or **removed from the current candidate pool** without publishing or manually moving files in Dropbox.
 This makes it hard to:
 - Maintain a clean “to post” folder without manual storage operations.
 - Explicitly mark images as “keep for later” vs. “remove from current selection” when previewing from the web UI.
@@ -133,21 +133,19 @@ The existing archive behavior moves successfully published images into an `archi
 - Existing preview utilities (`publisher_v2.utils.preview`) for non-destructive preview output.
 
 ## Risks & Mitigations
-- **Risk:** Misconfiguration of keep/remove folders could result in images being moved to unexpected paths.  
+- **Risk:** Misconfiguration of keep/remove folders could result in images being moved to unexpected paths.
   **Mitigation:** Validate configuration, document clearly that folders are relative to `[Dropbox].image_folder`, and surface clear error messages/logs when misconfigured.
 
-- **Risk:** Keep/Remove might accidentally perform real Dropbox moves during preview/dry testing.  
+- **Risk:** Keep/Remove might accidentally perform real Dropbox moves during preview/dry testing.
   **Mitigation:** Route curation actions through orchestrator APIs that explicitly check preview/dry flags and delegate to preview utilities instead of storage moves in those modes; add tests for preview/dry behavior.
 
-- **Risk:** Non-admin users could see or trigger curation actions.  
+- **Risk:** Non-admin users could see or trigger curation actions.
   **Mitigation:** Reuse existing HTTP auth + admin cookie checks; hide Keep/Remove buttons entirely for non-admins and return 401/403 for unauthorized calls.
 
-- **Risk:** Backward compatibility with existing configs using `folder_reject` could be broken.  
+- **Risk:** Backward compatibility with existing configs using `folder_reject` could be broken.
   **Mitigation:** Treat `folder_reject` as a backward-compatible alias for `folder_remove` when the latter is not set; add tests to cover this mapping.
 
 ## Open Questions
 - Should Keep/Remove actions update any local deduplication state (hashes) beyond moving the file out of the main folder, or is “no longer present in `image_folder`” sufficient? (Initial assumption: moving out of `image_folder` is sufficient.)
 - Should Keep/Remove be exposed via CLI in addition to the web UI, or remain web-only for now? (Initial assumption: web-only curation in this feature, CLI integration can be a future extension.)
 - Should there be separate feature flags for Keep vs Remove, or a single combined curation flag? (Initial proposal: separate `keep_enabled` and `remove_enabled` flags for maximum flexibility.)
-
-

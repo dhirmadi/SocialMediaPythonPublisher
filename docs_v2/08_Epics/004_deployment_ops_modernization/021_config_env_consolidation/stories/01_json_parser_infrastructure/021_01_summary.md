@@ -1,8 +1,8 @@
 # Story Summary: JSON Config Parser Infrastructure
 
-**Feature ID:** 021  
-**Story ID:** 021-01  
-**Status:** ✅ Shipped  
+**Feature ID:** 021
+**Story ID:** 021-01
+**Status:** ✅ Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -57,4 +57,3 @@ None. This story is the foundation for Stories 02-07.
 - Story Design: `021_01_design.md`
 - Story Plan: `021_01_plan.yaml`
 - Story Summary: `021_01_summary.md`
-

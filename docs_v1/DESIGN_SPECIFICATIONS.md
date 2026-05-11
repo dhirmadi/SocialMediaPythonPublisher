@@ -1,7 +1,7 @@
 # Design Specifications - Social Media Python Publisher
 
-**Document Version:** 2.0  
-**Last Updated:** November 7, 2025  
+**Document Version:** 2.0
+**Last Updated:** November 7, 2025
 **Status:** Active Development
 
 ---
@@ -300,23 +300,23 @@ from pathlib import Path
 
 class ConfigurationManager:
     """Manages application configuration from multiple sources"""
-    
+
     def __init__(self, config_file: Path, env_file: Optional[Path] = None):
         """Initialize configuration manager"""
         pass
-    
+
     def load(self) -> Dict[str, Any]:
         """Load configuration from all sources"""
         pass
-    
+
     def validate(self) -> bool:
         """Validate configuration completeness and correctness"""
         pass
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         """Get configuration value by key"""
         pass
-    
+
     def get_section(self, section: str) -> Dict[str, Any]:
         """Get entire configuration section"""
         pass
@@ -333,7 +333,7 @@ class DropboxConfig(BaseModel):
     refresh_token: str = Field(..., description="OAuth refresh token")
     image_folder: str = Field(..., description="Source image folder path")
     archive_folder: str = Field(default="archive", description="Archive folder name")
-    
+
     @validator('image_folder')
     def validate_folder_path(cls, v):
         if not v.startswith('/'):
@@ -345,7 +345,7 @@ class OpenAIConfig(BaseModel):
     engine: str = Field(default="gpt-3.5-turbo", description="Model to use")
     system_prompt: str = Field(..., description="System prompt for AI")
     role_prompt: str = Field(..., description="Role prompt prefix")
-    
+
     @validator('api_key')
     def validate_api_key(cls, v):
         if not v.startswith('sk-'):
@@ -355,7 +355,7 @@ class OpenAIConfig(BaseModel):
 class ReplicateConfig(BaseModel):
     api_token: str = Field(..., description="Replicate API token")
     model: str = Field(..., description="Replicate model identifier")
-    
+
     @validator('api_token')
     def validate_token(cls, v):
         if not v.startswith('r8_'):
@@ -366,7 +366,7 @@ class PlatformConfig(BaseModel):
     telegram_enabled: bool = False
     instagram_enabled: bool = False
     email_enabled: bool = False
-    
+
 class TelegramConfig(BaseModel):
     bot_token: str = Field(..., description="Telegram bot token")
     channel_id: str = Field(..., description="Channel or chat ID")
@@ -414,44 +414,44 @@ from pathlib import Path
 
 class ImageStorage(Protocol):
     """Protocol for image storage operations"""
-    
+
     async def list_images(self, folder: str) -> List[str]:
         """List all images in a folder"""
         ...
-    
+
     async def download_image(self, folder: str, filename: str) -> bytes:
         """Download image as bytes"""
         ...
-    
+
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         """Get temporary shareable link"""
         ...
-    
-    async def archive_image(self, source_folder: str, filename: str, 
+
+    async def archive_image(self, source_folder: str, filename: str,
                           archive_folder: str) -> None:
         """Move image to archive folder"""
         ...
 
 class DropboxStorage:
     """Dropbox implementation of ImageStorage"""
-    
+
     def __init__(self, client: dropbox.Dropbox, config: DropboxConfig):
         self.client = client
         self.config = config
-    
+
     async def list_images(self, folder: str) -> List[str]:
         """List all images in Dropbox folder"""
         try:
             path = "" if folder == "/" else folder
             result = self.client.files_list_folder(path)
             return [
-                entry.name 
-                for entry in result.entries 
+                entry.name
+                for entry in result.entries
                 if isinstance(entry, dropbox.files.FileMetadata)
             ]
         except dropbox.exceptions.ApiError as e:
             raise StorageError(f"Failed to list images: {e}") from e
-    
+
     async def download_image(self, folder: str, filename: str) -> bytes:
         """Download image from Dropbox"""
         try:
@@ -460,7 +460,7 @@ class DropboxStorage:
             return response.content
         except dropbox.exceptions.ApiError as e:
             raise StorageError(f"Failed to download {filename}: {e}") from e
-    
+
     # ... other methods
 ```
 
@@ -525,9 +525,9 @@ class CaptionGenerator(Protocol):
 
 class AIService:
     """Coordinates AI operations"""
-    
+
     def __init__(
-        self, 
+        self,
         analyzer: ImageAnalyzer,
         generator: CaptionGenerator,
         hashtags: str = ""
@@ -535,27 +535,27 @@ class AIService:
         self.analyzer = analyzer
         self.generator = generator
         self.hashtags = hashtags
-    
+
     async def create_caption(self, image_url: str) -> str:
         """
         Complete workflow: analyze image → generate caption → add hashtags
-        
+
         Args:
             image_url: Publicly accessible URL to image
-        
+
         Returns:
             Complete caption with hashtags
         """
         # Analyze image
         analysis = await self.analyzer.analyze(image_url)
-        
+
         # Generate caption
         caption = await self.generator.generate(analysis.description)
-        
+
         # Add hashtags
         if self.hashtags:
             caption = f"{caption} {self.hashtags}"
-        
+
         return caption
 ```
 
@@ -564,11 +564,11 @@ class AIService:
 ```python
 class ReplicateAnalyzer:
     """Replicate BLIP-2 implementation"""
-    
+
     def __init__(self, api_token: str, model: str):
         self.client = replicate.Client(api_token=api_token)
         self.model = model
-    
+
     async def analyze(self, image_url: str) -> ImageAnalysis:
         """Analyze image using Replicate BLIP-2"""
         # Run caption generation
@@ -576,19 +576,19 @@ class ReplicateAnalyzer:
             self.model,
             input={"image": image_url, "caption": True}
         )
-        
+
         # Run mood analysis
         mood = replicate.run(
             self.model,
             input={
-                "image": image_url, 
+                "image": image_url,
                 "caption": False,
                 "question": "What is the mood for this image?"
             }
         )
-        
+
         description = f"{caption} {mood}"
-        
+
         return ImageAnalysis(
             caption=caption,
             mood=mood,
@@ -597,14 +597,14 @@ class ReplicateAnalyzer:
 
 class OpenAIGenerator:
     """OpenAI GPT implementation"""
-    
-    def __init__(self, api_key: str, engine: str, 
+
+    def __init__(self, api_key: str, engine: str,
                  system_prompt: str, role_prompt: str):
         self.client = openai.AsyncOpenAI(api_key=api_key)
         self.engine = engine
         self.system_prompt = system_prompt
         self.role_prompt = role_prompt
-    
+
     async def generate(self, description: str) -> str:
         """Generate caption using OpenAI"""
         try:
@@ -643,27 +643,27 @@ class PublishResult:
 
 class Publisher(ABC):
     """Abstract base class for publishers"""
-    
+
     @property
     @abstractmethod
     def platform_name(self) -> str:
         """Name of the platform"""
         pass
-    
+
     @abstractmethod
     def is_enabled(self) -> bool:
         """Check if publisher is enabled"""
         pass
-    
+
     @abstractmethod
     async def publish(self, image_path: str, caption: str) -> PublishResult:
         """
         Publish image with caption to platform
-        
+
         Args:
             image_path: Local path to image file
             caption: Caption text
-        
+
         Returns:
             PublishResult with success status and details
         """
@@ -671,34 +671,34 @@ class Publisher(ABC):
 
 class PublishingService:
     """Coordinates publishing to multiple platforms"""
-    
+
     def __init__(self, publishers: List[Publisher]):
         self.publishers = publishers
-    
+
     async def publish_to_all(
-        self, 
-        image_path: str, 
+        self,
+        image_path: str,
         caption: str
     ) -> Dict[str, PublishResult]:
         """
         Publish to all enabled platforms in parallel
-        
+
         Args:
             image_path: Local path to image
             caption: Caption text
-        
+
         Returns:
             Dictionary mapping platform names to results
         """
         # Filter enabled publishers
         enabled = [p for p in self.publishers if p.is_enabled()]
-        
+
         # Publish in parallel
         results = await asyncio.gather(
             *[p.publish(image_path, caption) for p in enabled],
             return_exceptions=True
         )
-        
+
         # Map results to platform names
         result_map = {}
         for publisher, result in zip(enabled, results):
@@ -710,7 +710,7 @@ class PublishingService:
                 )
             else:
                 result_map[publisher.platform_name] = result
-        
+
         return result_map
 ```
 
@@ -719,29 +719,29 @@ class PublishingService:
 ```python
 class InstagramPublisher(Publisher):
     """Instagram publisher implementation"""
-    
+
     def __init__(self, config: InstagramConfig, enabled: bool):
         self.config = config
         self.enabled = enabled
         self.client = None
-    
+
     @property
     def platform_name(self) -> str:
         return "instagram"
-    
+
     def is_enabled(self) -> bool:
         return self.enabled
-    
+
     async def publish(self, image_path: str, caption: str) -> PublishResult:
         """Publish to Instagram"""
         try:
             # Initialize client with session management
             if not self.client:
                 self.client = await self._create_client()
-            
+
             # Upload photo
             media = self.client.photo_upload(image_path, caption)
-            
+
             return PublishResult(
                 success=True,
                 platform=self.platform_name,
@@ -753,12 +753,12 @@ class InstagramPublisher(Publisher):
                 platform=self.platform_name,
                 error=str(e)
             )
-    
+
     async def _create_client(self) -> Client:
         """Create and authenticate Instagram client"""
         client = Client()
         client.delay_range = [1, 3]
-        
+
         # Try loading session
         try:
             client.load_settings(self.config.session_file)
@@ -768,29 +768,29 @@ class InstagramPublisher(Publisher):
             # Fresh login
             client.login(self.config.username, self.config.password)
             client.dump_settings(self.config.session_file)
-        
+
         return client
 
 class TelegramPublisher(Publisher):
     """Telegram publisher implementation"""
-    
+
     def __init__(self, config: TelegramConfig, enabled: bool):
         self.config = config
         self.enabled = enabled
-    
+
     @property
     def platform_name(self) -> str:
         return "telegram"
-    
+
     def is_enabled(self) -> bool:
         return self.enabled
-    
+
     async def publish(self, image_path: str, caption: str) -> PublishResult:
         """Publish to Telegram"""
         try:
             # Resize image for Telegram
             resized_path = self._resize_for_telegram(image_path)
-            
+
             # Send via bot
             bot = telegram.Bot(token=self.config.bot_token)
             with open(resized_path, 'rb') as f:
@@ -799,7 +799,7 @@ class TelegramPublisher(Publisher):
                     photo=f,
                     caption=caption
                 )
-            
+
             return PublishResult(
                 success=True,
                 platform=self.platform_name,
@@ -811,38 +811,38 @@ class TelegramPublisher(Publisher):
                 platform=self.platform_name,
                 error=str(e)
             )
-    
+
     def _resize_for_telegram(self, image_path: str) -> str:
         """Resize image to Telegram's optimal size"""
         from PIL import Image
-        
+
         with Image.open(image_path) as img:
             width, height = img.size
             if width <= 1280:
                 return image_path
-            
+
             new_width = 1280
             new_height = int((new_width / width) * height)
             resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-            
+
             resized_path = image_path.replace('.jpg', '_telegram.jpg')
             resized.save(resized_path)
             return resized_path
 
 class EmailPublisher(Publisher):
     """Email publisher implementation"""
-    
+
     def __init__(self, config: EmailConfig, enabled: bool):
         self.config = config
         self.enabled = enabled
-    
+
     @property
     def platform_name(self) -> str:
         return "email"
-    
+
     def is_enabled(self) -> bool:
         return self.enabled
-    
+
     async def publish(self, image_path: str, caption: str) -> PublishResult:
         """Send via email"""
         try:
@@ -850,22 +850,22 @@ class EmailPublisher(Publisher):
             msg['Subject'] = caption[:50]  # Truncate for subject
             msg['From'] = self.config.sender
             msg['To'] = self.config.recipient
-            
+
             # Attach image
             with open(image_path, 'rb') as f:
                 img = MIMEImage(f.read(), name=os.path.basename(image_path))
                 msg.attach(img)
-            
+
             # Attach caption
             msg.attach(MIMEText(caption))
-            
+
             # Send via SMTP
             server = smtplib.SMTP(self.config.smtp_server, self.config.smtp_port)
             server.starttls()
             server.login(self.config.sender, self.config.password)
             server.sendmail(self.config.sender, self.config.recipient, msg.as_string())
             server.quit()
-            
+
             return PublishResult(
                 success=True,
                 platform=self.platform_name
@@ -901,7 +901,7 @@ class WorkflowResult:
 
 class WorkflowOrchestrator:
     """Orchestrates the complete posting workflow"""
-    
+
     def __init__(
         self,
         config: ApplicationConfig,
@@ -913,7 +913,7 @@ class WorkflowOrchestrator:
         self.storage = storage
         self.ai_service = ai_service
         self.publishing_service = publishing_service
-    
+
     async def execute(self) -> WorkflowResult:
         """
         Execute complete workflow:
@@ -922,7 +922,7 @@ class WorkflowOrchestrator:
         3. Generate caption with AI
         4. Publish to platforms
         5. Archive if successful
-        
+
         Returns:
             WorkflowResult with execution details
         """
@@ -931,18 +931,18 @@ class WorkflowOrchestrator:
             images = await self.storage.list_images(
                 self.config.dropbox.image_folder
             )
-            
+
             if not images:
                 raise WorkflowError("No images found in Dropbox folder")
-            
+
             selected_image = random.choice(images)
-            
+
             # 2. Download image
             image_data = await self.storage.download_image(
                 self.config.dropbox.image_folder,
                 selected_image
             )
-            
+
             # Save to temporary file
             with tempfile.NamedTemporaryFile(
                 suffix=os.path.splitext(selected_image)[1],
@@ -950,26 +950,26 @@ class WorkflowOrchestrator:
             ) as tmp:
                 tmp.write(image_data)
                 tmp_path = tmp.name
-            
+
             try:
                 # 3. Generate temporary link for AI
                 temp_link = await self.storage.get_temporary_link(
                     self.config.dropbox.image_folder,
                     selected_image
                 )
-                
+
                 # 4. Generate caption
                 caption = await self.ai_service.create_caption(temp_link)
-                
+
                 # 5. Publish to platforms
                 publish_results = await self.publishing_service.publish_to_all(
                     tmp_path,
                     caption
                 )
-                
+
                 # 6. Check if any platform succeeded
                 any_success = any(r.success for r in publish_results.values())
-                
+
                 # 7. Archive if successful and not in debug mode
                 archived = False
                 if any_success and self.config.content.archive and not self.config.content.debug:
@@ -979,7 +979,7 @@ class WorkflowOrchestrator:
                         self.config.dropbox.archive_folder
                     )
                     archived = True
-                
+
                 return WorkflowResult(
                     success=any_success,
                     image_name=selected_image,
@@ -987,12 +987,12 @@ class WorkflowOrchestrator:
                     publish_results=publish_results,
                     archived=archived
                 )
-            
+
             finally:
                 # Cleanup temporary file
                 if os.path.exists(tmp_path):
                     os.unlink(tmp_path)
-        
+
         except Exception as e:
             return WorkflowResult(
                 success=False,
@@ -1033,12 +1033,12 @@ class Image:
     temp_link: Optional[str] = None
     size_bytes: Optional[int] = None
     format: Optional[str] = None
-    
+
     @property
     def extension(self) -> str:
         """Get file extension"""
         return os.path.splitext(self.filename)[1]
-    
+
     def cleanup(self):
         """Remove local file if it exists"""
         if self.local_path and os.path.exists(self.local_path):
@@ -1051,7 +1051,7 @@ class Caption:
     raw_analysis: str
     hashtags: str
     generated_at: datetime = field(default_factory=datetime.utcnow)
-    
+
     @property
     def full_text(self) -> str:
         """Get complete caption with hashtags"""
@@ -1069,17 +1069,17 @@ class Post:
     published_at: Optional[datetime] = None
     archived_at: Optional[datetime] = None
     error: Optional[str] = None
-    
+
     def mark_published(self):
         """Mark post as published"""
         self.status = PostStatus.PUBLISHED
         self.published_at = datetime.utcnow()
-    
+
     def mark_failed(self, error: str):
         """Mark post as failed"""
         self.status = PostStatus.FAILED
         self.error = error
-    
+
     def mark_archived(self):
         """Mark post as archived"""
         self.status = PostStatus.ARCHIVED
@@ -1206,7 +1206,7 @@ results = await publishing_service.publish_to_all('/tmp/photo.jpg', 'Caption')
 
 **Authentication:** OAuth2 with refresh token
 
-**Rate Limits:** 
+**Rate Limits:**
 - 200 requests per second per app
 - 600 requests per hour per user
 
@@ -1454,11 +1454,11 @@ from cryptography.fernet import Fernet
 
 class SecureCredentialManager:
     """Manage credentials securely"""
-    
+
     def __init__(self, service_name: str = "socialmedia_publisher"):
         self.service = service_name
         self._cipher = self._init_cipher()
-    
+
     def _init_cipher(self) -> Fernet:
         """Initialize encryption cipher"""
         key = keyring.get_password(self.service, "encryption_key")
@@ -1466,12 +1466,12 @@ class SecureCredentialManager:
             key = Fernet.generate_key().decode()
             keyring.set_password(self.service, "encryption_key", key)
         return Fernet(key.encode())
-    
+
     def store_credential(self, key: str, value: str):
         """Store credential securely"""
         encrypted = self._cipher.encrypt(value.encode())
         keyring.set_password(self.service, key, encrypted.decode())
-    
+
     def get_credential(self, key: str) -> Optional[str]:
         """Retrieve credential securely"""
         encrypted = keyring.get_password(self.service, key)
@@ -1486,29 +1486,29 @@ class SecureCredentialManager:
 ```python
 class SessionManager:
     """Manage platform sessions securely"""
-    
+
     def __init__(self, storage_path: Path, encryption_key: bytes):
         self.storage_path = storage_path
         self.cipher = Fernet(encryption_key)
-    
+
     def save_session(self, platform: str, session_data: dict):
         """Save encrypted session"""
         json_data = json.dumps(session_data)
         encrypted = self.cipher.encrypt(json_data.encode())
-        
+
         session_file = self.storage_path / f"{platform}_session.enc"
         with open(session_file, 'wb') as f:
             f.write(encrypted)
-    
+
     def load_session(self, platform: str) -> Optional[dict]:
         """Load and decrypt session"""
         session_file = self.storage_path / f"{platform}_session.enc"
         if not session_file.exists():
             return None
-        
+
         with open(session_file, 'rb') as f:
             encrypted = f.read()
-        
+
         decrypted = self.cipher.decrypt(encrypted)
         return json.loads(decrypted)
 ```
@@ -1522,28 +1522,28 @@ class SessionManager:
 ```python
 class SecureFileHandler:
     """Handle files with security best practices"""
-    
+
     @staticmethod
     def create_secure_temp_file(suffix: str = '') -> tuple[int, str]:
         """Create temp file with restrictive permissions"""
         fd, path = tempfile.mkstemp(suffix=suffix)
         os.chmod(path, 0o600)  # Owner read/write only
         return fd, path
-    
+
     @staticmethod
     def secure_delete(filepath: str):
         """Overwrite and delete file"""
         if not os.path.exists(filepath):
             return
-        
+
         # Overwrite with random data
         size = os.path.getsize(filepath)
         with open(filepath, 'wb') as f:
             f.write(secrets.token_bytes(size))
-        
+
         # Delete
         os.unlink(filepath)
-    
+
     @contextlib.contextmanager
     def secure_temporary_file(self, suffix: str = ''):
         """Context manager for secure temporary files"""
@@ -1560,14 +1560,14 @@ class SecureFileHandler:
 ```python
 class SecureLogger:
     """Logger that sanitizes sensitive information"""
-    
+
     SENSITIVE_PATTERNS = [
         (r'sk-[A-Za-z0-9]{48}', '[OPENAI_KEY_REDACTED]'),
         (r'r8_[A-Za-z0-9]+', '[REPLICATE_TOKEN_REDACTED]'),
         (r'[0-9]{10}:[A-Za-z0-9_-]{35}', '[TELEGRAM_TOKEN_REDACTED]'),
         (r'"password"\s*:\s*"[^"]*"', '"password": "[REDACTED]"'),
     ]
-    
+
     @classmethod
     def sanitize(cls, message: str) -> str:
         """Remove sensitive information from message"""
@@ -1575,7 +1575,7 @@ class SecureLogger:
         for pattern, replacement in cls.SENSITIVE_PATTERNS:
             sanitized = re.sub(pattern, replacement, sanitized)
         return sanitized
-    
+
     @classmethod
     def safe_log_error(cls, logger: logging.Logger, error: Exception):
         """Log error with sanitization"""
@@ -1590,20 +1590,20 @@ class SecureLogger:
 ```python
 class SecureHTTPClient:
     """HTTP client with security best practices"""
-    
+
     def __init__(self, timeout: int = 30, verify_ssl: bool = True):
         self.session = self._create_session(timeout, verify_ssl)
-    
+
     def _create_session(self, timeout: int, verify_ssl: bool) -> requests.Session:
         """Create secure requests session"""
         session = requests.Session()
-        
+
         # SSL verification
         session.verify = verify_ssl
-        
+
         # Timeout
         session.timeout = timeout
-        
+
         # Retry strategy
         retry_strategy = Retry(
             total=3,
@@ -1611,17 +1611,17 @@ class SecureHTTPClient:
             status_forcelist=[429, 500, 502, 503, 504],
             allowed_methods=["GET", "POST"]
         )
-        
+
         adapter = HTTPAdapter(max_retries=retry_strategy)
         session.mount("https://", adapter)
         session.mount("http://", adapter)
-        
+
         # Security headers
         session.headers.update({
             'User-Agent': 'SocialMediaPublisher/1.0',
             'Accept': 'application/json',
         })
-        
+
         return session
 ```
 
@@ -1732,10 +1732,10 @@ def lambda_handler(event, context):
     try:
         # Initialize orchestrator
         orchestrator = WorkflowOrchestrator.from_env()
-        
+
         # Run workflow
         result = asyncio.run(orchestrator.execute())
-        
+
         return {
             'statusCode': 200 if result.success else 500,
             'body': json.dumps({
@@ -1785,7 +1785,7 @@ from datetime import datetime, timedelta
 
 class CircuitBreaker:
     """Circuit breaker to prevent cascading failures"""
-    
+
     def __init__(
         self,
         failure_threshold: int = 5,
@@ -1798,7 +1798,7 @@ class CircuitBreaker:
         self.failure_count = 0
         self.last_failure_time = None
         self.state = "closed"  # closed, open, half_open
-    
+
     def call(self, func, *args, **kwargs):
         """Execute function with circuit breaker"""
         if self.state == "open":
@@ -1806,7 +1806,7 @@ class CircuitBreaker:
                 self.state = "half_open"
             else:
                 raise CircuitBreakerOpen("Circuit breaker is OPEN")
-        
+
         try:
             result = func(*args, **kwargs)
             self._on_success()
@@ -1814,20 +1814,20 @@ class CircuitBreaker:
         except self.expected_exception as e:
             self._on_failure()
             raise
-    
+
     def _on_success(self):
         """Handle successful call"""
         self.failure_count = 0
         self.state = "closed"
-    
+
     def _on_failure(self):
         """Handle failed call"""
         self.failure_count += 1
         self.last_failure_time = datetime.now()
-        
+
         if self.failure_count >= self.failure_threshold:
             self.state = "open"
-    
+
     def _should_attempt_reset(self) -> bool:
         """Check if enough time has passed to attempt reset"""
         return (
@@ -1844,10 +1844,10 @@ from asyncio import Semaphore
 
 class ServiceBulkhead:
     """Isolate services to prevent cascading failures"""
-    
+
     def __init__(self, max_concurrent: int = 5):
         self.semaphore = Semaphore(max_concurrent)
-    
+
     async def execute(self, coro):
         """Execute coroutine with concurrency limit"""
         async with self.semaphore:
@@ -1874,7 +1874,7 @@ await instagram_bulkhead.execute(
 ```python
 class VideoProcessor:
     """Process videos for social media"""
-    
+
     async def transcode(
         self,
         input_path: str,
@@ -1883,7 +1883,7 @@ class VideoProcessor:
         """Transcode video for platform requirements"""
         # Use ffmpeg for transcoding
         pass
-    
+
     async def generate_thumbnail(
         self,
         video_path: str
@@ -1893,7 +1893,7 @@ class VideoProcessor:
 
 class VideoPublisher(Publisher):
     """Publish videos to platforms"""
-    
+
     async def publish(
         self,
         video_path: str,
@@ -1911,7 +1911,7 @@ from datetime import datetime
 
 class ContentScheduler:
     """Schedule content for future posting"""
-    
+
     def schedule_post(
         self,
         image: Image,
@@ -1920,7 +1920,7 @@ class ContentScheduler:
     ):
         """Schedule a post for future execution"""
         pass
-    
+
     async def process_due_posts(self):
         """Process all posts that are due"""
         pass
@@ -1933,17 +1933,17 @@ class ContentScheduler:
 ```python
 class AnalyticsCollector:
     """Collect posting analytics"""
-    
+
     async def collect_instagram_stats(self, post_id: str) -> dict:
         """Collect Instagram post statistics"""
         # Likes, comments, reach, impressions
         pass
-    
+
     async def collect_telegram_stats(self, post_id: str) -> dict:
         """Collect Telegram post statistics"""
         # Views, forwards
         pass
-    
+
     def generate_report(self, start_date: datetime, end_date: datetime):
         """Generate analytics report"""
         pass
@@ -1954,11 +1954,11 @@ class AnalyticsCollector:
 ```python
 class CaptionTester:
     """A/B test different caption styles"""
-    
+
     def create_variants(self, base_caption: str) -> List[str]:
         """Create caption variants"""
         pass
-    
+
     async def test_captions(
         self,
         image: Image,
@@ -1975,11 +1975,11 @@ class CaptionTester:
 ```python
 class TenantManager:
     """Manage multiple users/organizations"""
-    
+
     def create_tenant(self, tenant_id: str, config: dict):
         """Create new tenant"""
         pass
-    
+
     async def execute_for_tenant(self, tenant_id: str):
         """Execute workflow for specific tenant"""
         pass
@@ -1990,7 +1990,7 @@ class TenantManager:
 ```python
 class MLOptimizer:
     """Use ML to optimize posting"""
-    
+
     async def predict_best_time(
         self,
         content_type: str,
@@ -1998,7 +1998,7 @@ class MLOptimizer:
     ) -> datetime:
         """Predict best time to post"""
         pass
-    
+
     async def optimize_hashtags(
         self,
         image: Image,
@@ -2056,8 +2056,8 @@ Python 3.11+ → asyncio → aiohttp → pydantic → SQLAlchemy → FastAPI (fu
 
 ---
 
-**Document Version:** 1.0  
-**Last Updated:** October 31, 2025  
+**Document Version:** 1.0
+**Last Updated:** October 31, 2025
 **Status:** Living Document - Updated as system evolves
 
 *For questions or clarifications, please refer to the project repository or maintainer.*

@@ -40,24 +40,24 @@
 
 ### Functional Requirements
 
-1. **Metadata-based selection**  
+1. **Metadata-based selection**
    - When selecting an image to post (without an explicit `select_filename`), the workflow should:
      - Use storage metadata (including provider hash/ETag) to determine which images are already posted.
      - Prefer selecting an image whose provider hash/ETag does not appear in the posted state, before downloading any image bytes.
-2. **Efficient “no new images” handling**  
+2. **Efficient “no new images” handling**
    - When all images in the configured storage prefix have already been posted, the workflow must:
      - Detect this condition using metadata and posted state.
      - Return the existing “No new images to post (all duplicates)” error (or equivalent wording) without downloading every file.
-3. **Posted state evolution**  
+3. **Posted state evolution**
    - Extend the posted-hash state to be able to store provider hash/ETag values in addition to legacy SHA256 hashes.
    - Preserve and continue to understand existing state files (list or `{"hashes":[...]}`) without migration failures.
    - Ensure new runs record both the SHA256 hash (for backward compatibility) and the provider hash/ETag when available.
-4. **Selection determinism & compatibility**  
+4. **Selection determinism & compatibility**
    - The selection algorithm must remain logically equivalent to the current behavior:
      - Only images whose content has not been posted before are eligible.
      - Randomization/shuffling order remains acceptable; no new strong ordering guarantees are required.
    - Forced selection via `--select <filename>` must continue to work and should not be blocked by dedup state.
-5. **Preview/dry/debug semantics**  
+5. **Preview/dry/debug semantics**
    - In preview/dry/debug modes:
      - The workflow may still use metadata-based dedup for selection logic.
      - It must not persist updated posted hashes or `content_hash` values.
@@ -220,5 +220,3 @@
     - Rejected to avoid extra files and keep state co-located.
   - Introducing a DB table for posted images:
     - Rejected per repo constraints (no new persistent stores).
-
-

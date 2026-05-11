@@ -1,8 +1,8 @@
 # Story Summary: Storage Paths Environment Variable
 
-**Feature ID:** 021  
-**Story ID:** 021-04  
-**Status:** Shipped  
+**Feature ID:** 021
+**Story ID:** 021-04
+**Status:** Shipped
 **Date Completed:** 2025-12-23
 
 ## Summary
@@ -60,4 +60,3 @@ Implemented the `_load_storage_paths_from_env()` function to parse the `STORAGE_
 - Story Definition: 021_04_storage-paths-env-var.md
 - Story Design: 021_04_design.md
 - Story Plan: 021_04_plan.yaml
-

@@ -216,4 +216,3 @@ release:
     - "Feature toggles default to enabled, so existing deployments continue working without changes."
     - "Operators can opt-in to using toggles by setting FEATURE_ANALYZE_CAPTION and/or FEATURE_PUBLISH environment variables."
     - "No migration required for existing deployments."
-

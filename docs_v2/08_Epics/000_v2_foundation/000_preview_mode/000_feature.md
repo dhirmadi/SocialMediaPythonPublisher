@@ -1,6 +1,6 @@
 # Preview Mode Guide — Publisher V2
 
-Version: 2.2  
+Version: 2.2
 Last Updated: December 21, 2025
 
 ## Overview
@@ -216,11 +216,11 @@ Look at Description, Mood, and Tags - these feed into caption generation.
 
 Preview mode **guarantees** that:
 
-✅ **No Publishing**: Zero API calls to Telegram/Instagram/Email  
-✅ **No Archiving**: Images stay in original Dropbox folder  
-✅ **No State Changes**: Posted image cache not updated  
-✅ **Repeatable**: Same image can be previewed multiple times  
-✅ **Full AI**: Vision analysis and caption generation run for real  
+✅ **No Publishing**: Zero API calls to Telegram/Instagram/Email
+✅ **No Archiving**: Images stay in original Dropbox folder
+✅ **No State Changes**: Posted image cache not updated
+✅ **Repeatable**: Same image can be previewed multiple times
+✅ **Full AI**: Vision analysis and caption generation run for real
 
 ---
 
@@ -286,4 +286,3 @@ After previewing and tuning:
 # After successful previews, publish for real:
 make run-v2 CONFIG=configfiles/fetlife.ini
 ```
-

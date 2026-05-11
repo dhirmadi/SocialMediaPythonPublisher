@@ -2,19 +2,19 @@
 
 # Story 001 — servers-log — Design
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 001  
-**Name:** servers-log  
-**Status:** Design Review  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 001
+**Name:** servers-log
+**Status:** Design Review
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
 ## 1. Summary
 
-This story extends the Heroku/Hetzner provisioning script by adding a small, append-only `servers.txt` log file under the `scripts/` directory.  
+This story extends the Heroku/Hetzner provisioning script by adding a small, append-only `servers.txt` log file under the `scripts/` directory.
 Each successful, non-dry-run execution of `scripts/heroku_hetzner_clone.py` that completes the full provisioning flow will append a single line capturing:
 
 - `name` — CLI `--name` argument (subdomain/app instance identifier).
@@ -169,5 +169,3 @@ This story is strictly additive to feature 011:
 - After a successful provisioning run, `scripts/servers.txt` contains a new line with the expected five fields.
 - `git status` remains clean with respect to `servers.txt`.
 - Dry-run executions do not modify or create `servers.txt`.
-
-

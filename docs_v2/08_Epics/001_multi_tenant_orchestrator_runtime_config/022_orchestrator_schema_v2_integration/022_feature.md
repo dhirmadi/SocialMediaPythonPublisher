@@ -1,10 +1,10 @@
 # Feature 022 — Orchestrator Schema V2 Integration
 
-**ID:** 022  
-**Name:** orchestrator-schema-v2-integration  
-**Status:** Shipped  
-**Date:** 2025-12-24  
-**Author:** Engineering  
+**ID:** 022
+**Name:** orchestrator-schema-v2-integration
+**Status:** Shipped
+**Date:** 2025-12-24
+**Author:** Engineering
 **Epic:** 001 — Multi-Tenant Orchestrator Runtime Config
 
 ---
@@ -177,4 +177,3 @@ Integration testing was performed against a local orchestrator instance (`localh
 | Host Utils | 3 | 3 | 100% |
 
 All 15 acceptance criteria verified. Full report: `docs_v2/10_Testing/ORCHESTRATOR_INTEGRATION_TEST_REPORT_2025-12-26.md`
-

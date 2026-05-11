@@ -100,5 +100,3 @@ release:
   migration_notes:
     - "This feature introduces a standalone provisioning script under /scripts and does not modify the running V2 application."
     - "Operators can adopt the script incrementally; no existing deployments are affected until the script is used."
-
-

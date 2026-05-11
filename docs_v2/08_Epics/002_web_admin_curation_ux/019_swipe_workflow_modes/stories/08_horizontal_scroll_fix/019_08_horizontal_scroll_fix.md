@@ -25,4 +25,3 @@ The issue is likely caused by:
 - No horizontal scrolling on the page body.
 - Swipe gestures do not trigger page scrolling.
 - Metadata/JSON content wraps within the panel.
-

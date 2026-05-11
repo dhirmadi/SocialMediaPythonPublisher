@@ -105,5 +105,3 @@ release:
   metrics:
     - "sd_caption_success_rate"
     - "sd_caption_fallback_rate"
-
-

@@ -2,20 +2,20 @@
 
 # Story 001 — servers-log — Shipped
 
-**Feature ID:** 011  
-**Feature Name:** heroku-hetzner-app-cloning  
-**Story ID:** 001  
-**Name:** servers-log  
-**Status:** Shipped  
-**Date:** 2025-11-21  
-**Author:** Story Workflow  
+**Feature ID:** 011
+**Feature Name:** heroku-hetzner-app-cloning
+**Story ID:** 001
+**Name:** servers-log
+**Status:** Shipped
+**Date:** 2025-11-21
+**Author:** Story Workflow
 
 ---
 
 ## Summary
 
-This story adds a simple, append-only `servers.txt` log file under the `scripts/` directory, updated by the `heroku_hetzner_clone.py` provisioning script.  
-Each successful, non-dry-run provisioning run appends a line containing the logical instance name, Dropbox image folder, Heroku app URL, subdomain URL, and a UTC creation timestamp.  
+This story adds a simple, append-only `servers.txt` log file under the `scripts/` directory, updated by the `heroku_hetzner_clone.py` provisioning script.
+Each successful, non-dry-run provisioning run appends a line containing the logical instance name, Dropbox image folder, Heroku app URL, subdomain URL, and a UTC creation timestamp.
 The log file is ignored by Git so that local environment-specific server lists are never committed to the repository.
 
 ---
@@ -53,7 +53,7 @@ The log file is ignored by Git so that local environment-specific server lists a
 
 ## Behavior
 
-- **On successful provisioning**  
+- **On successful provisioning**
   Running:
 
   ```bash
@@ -95,9 +95,7 @@ The log file is ignored by Git so that local environment-specific server lists a
 
 ## Artifacts
 
-- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log.md`  
-- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_design.md`  
-- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_plan.yaml`  
-- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_story.md`  
-
-
+- Change Request: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log.md`
+- Design: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_design.md`
+- Plan: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_plan.yaml`
+- Shipped Story Doc: `docs_v2/08_Epics/08_04_ChangeRequests/011/001_servers-log_story.md`

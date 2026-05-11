@@ -2,11 +2,11 @@
 
 # Caption File Extended Metadata
 
-**ID:** 004  
-**Name:** caption-file-extended-metadata  
-**Status:** Shipped  
-**Date:** 2025-11-09  
-**Author:** Evert  
+**ID:** 004
+**Name:** caption-file-extended-metadata
+**Status:** Shipped
+**Date:** 2025-11-09
+**Author:** Evert
 
 ## Summary
 Add a structured, comment-prefixed metadata block beneath the first-line Stable Diffusion caption in per-image `.txt` files. The first line remains the pure caption for training compatibility; the appended block captures identity, versioning, analysis context, and artistic descriptors for richer dataset curation, querying, and automation. This preserves existing workflows while enabling downstream analytics and iterative re-captioning.
@@ -143,5 +143,3 @@ Today, caption files contain only a single training caption, losing valuable con
 - Metadata to include identity, versioning, creation timestamps, artistic context (pose, lighting, materials, style), tags, and moderation.
 - Two-phase rollout: Phase 1 (identity/version/timestamps), Phase 2 (contextual fields) with a feature flag.
 - Emphasis on PG‑13 artistic descriptors, backward compatibility, and future-proofing for dataset analytics and automation.
-
-
