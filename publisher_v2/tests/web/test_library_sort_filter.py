@@ -927,3 +927,161 @@ class TestGetScanBudget:
 
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "abc")
         assert _get_scan_budget() == 5000
+
+
+# ---------------------------------------------------------------------------
+# anchor_key: open grid on page containing a specific image
+# ---------------------------------------------------------------------------
+
+# Need more objects to span multiple pages
+DT_A = datetime(2026, 1, 1, tzinfo=UTC)
+
+MANY_S3_OBJECTS = [
+    _make_s3_object(f"tenant/instance/img_{i:03d}.jpg", 1000 + i, DT_A)
+    for i in range(20)
+]
+
+
+class TestAnchorKey:
+    """Grid should open on the page containing the anchor image."""
+
+    def test_anchor_key_returns_correct_page(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """anchor_key=img_015.jpg with limit=5 should return page 4 (offset 15)."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_015.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] == 15
+        names = [obj["key"] for obj in data["objects"]]
+        assert "img_015.jpg" in names
+
+    def test_anchor_key_first_page(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """anchor_key on the first page returns anchor_offset=0."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_002.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] == 0
+        names = [obj["key"] for obj in data["objects"]]
+        assert "img_002.jpg" in names
+
+    def test_anchor_key_not_found_keeps_offset(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """When anchor_key is not in the list, anchor_offset is null and caller's offset is used."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=asc&limit=5&offset=10&anchor_key=nonexistent.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] is None
+        names = [obj["key"] for obj in data["objects"]]
+        assert names[0] == "img_010.jpg"
+
+    def test_anchor_key_respects_sort_order(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """anchor_key with desc order finds the correct page in reversed list."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        # In desc order, img_019 is first and img_000 is last
+        # img_002 would be near the end (index 17 in desc), page = 17 // 5 * 5 = 15
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=desc&limit=5&anchor_key=img_002.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] == 15
+        names = [obj["key"] for obj in data["objects"]]
+        assert "img_002.jpg" in names
+
+    def test_anchor_key_without_value_returns_normal_page(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """No anchor_key param returns anchor_offset=null and uses normal offset."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=asc&limit=5&offset=5",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] is None
+        names = [obj["key"] for obj in data["objects"]]
+        assert names[0] == "img_005.jpg"
+
+    def test_anchor_key_with_filter(
+        self,
+        managed_app: TestClient,
+        admin_headers: dict,
+        admin_cookies: dict,
+        mock_service: MagicMock,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """anchor_key works correctly when combined with a search filter."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+
+        # Filter to "01" matches img_010..img_019 (10 items); anchor img_015 is at index 5
+        res = managed_app.get(
+            "/api/library/objects?sort=name&order=asc&limit=3&q=01&anchor_key=img_015.jpg",
+            headers=admin_headers,
+            cookies=admin_cookies,
+        )
+        assert res.status_code == 200
+        data = res.json()
+        assert data["anchor_offset"] is not None
+        names = [obj["key"] for obj in data["objects"]]
+        assert "img_015.jpg" in names

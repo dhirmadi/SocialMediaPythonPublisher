@@ -83,6 +83,7 @@ class LibraryListResponse(BaseModel):
     cursor: str | None = None
     total_in_window: int = 0
     truncated: bool = False
+    anchor_offset: int | None = None
 
 
 class LibraryUploadResponse(BaseModel):
@@ -226,8 +227,14 @@ async def _list_objects_buffered(
     offset: int,
     limit: int,
     scan_budget: int,
+    anchor_key: str | None = None,
 ) -> dict[str, Any]:
-    """Scan up to scan_budget keys, filter, sort, paginate in memory."""
+    """Scan up to scan_budget keys, filter, sort, paginate in memory.
+
+    When *anchor_key* is provided the offset is overridden to the page
+    containing that filename (same sort/filter), so the grid opens on the
+    page that holds the anchor image.
+    """
     storage: Any = service.storage
     bucket = storage._bucket
     _image_suffixes = (".jpg", ".jpeg", ".png")
@@ -287,8 +294,19 @@ async def _list_objects_buffered(
 
         total_in_window = len(items)
 
+        # When anchor_key is given, find its position and override offset
+        anchor_offset: int | None = None
+        effective_offset = offset
+        if anchor_key:
+            for idx, it in enumerate(items):
+                if it["key"] == anchor_key:
+                    effective_offset = (idx // limit) * limit
+                    anchor_offset = effective_offset
+                    break
+            # anchor not found in window → keep caller-supplied offset
+
         # Paginate
-        page = items[offset : offset + limit]
+        page = items[effective_offset : effective_offset + limit]
 
         # Build response objects (drop last_modified_raw)
         objects = [{"key": it["key"], "size": it["size"], "last_modified": it["last_modified"]} for it in page]
@@ -298,6 +316,7 @@ async def _list_objects_buffered(
             "cursor": None,
             "total_in_window": total_in_window,
             "truncated": truncated,
+            "anchor_offset": anchor_offset,
         }
 
     return await asyncio.to_thread(_scan)
@@ -472,9 +491,16 @@ async def list_objects(
     sort: str = "name",
     order: str = "asc",
     offset: int = 0,
+    anchor_key: str | None = None,
     service: WebImageService = Depends(get_request_service),
 ) -> LibraryListResponse:
-    """List objects under instance prefix (paginated)."""
+    """List objects under instance prefix (paginated).
+
+    When *anchor_key* is provided the server locates the filename within the
+    sorted/filtered result set and returns the page containing it (overriding
+    *offset*).  The computed offset is returned as ``anchor_offset`` so the
+    client can sync its pagination state.
+    """
     await require_auth(request)
     require_admin(request)
     _check_library_available(service)
@@ -495,8 +521,10 @@ async def list_objects(
     else:
         storage_prefix = _library_list_prefix(paths, "")
 
-    # Path selection: use legacy cursor path only when cursor is provided and no new params are used
-    use_buffered = q is not None or sort != "name" or order != "asc" or offset > 0 or cursor is None
+    # anchor_key forces the buffered path (needs full scan + sort to locate)
+    use_buffered = (
+        q is not None or sort != "name" or order != "asc" or offset > 0 or cursor is None or anchor_key is not None
+    )
     use_legacy = not use_buffered and cursor is not None
 
     if use_legacy:
@@ -505,7 +533,9 @@ async def list_objects(
         result["truncated"] = False
     else:
         scan_budget = _get_scan_budget()
-        result = await _list_objects_buffered(service, storage_prefix, q, sort, order, offset, limit, scan_budget)
+        result = await _list_objects_buffered(
+            service, storage_prefix, q, sort, order, offset, limit, scan_budget, anchor_key=anchor_key
+        )
 
     return LibraryListResponse(**result)
 

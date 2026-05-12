@@ -1490,13 +1490,14 @@
     // Unified grid (PUB-033)
     // ---------------------------------------------------------------
 
-    function buildLibraryUrl() {
+    function buildLibraryUrl(anchorKey) {
       const params = new URLSearchParams();
       params.set("limit", String(gridPageSize));
       params.set("offset", String(gridOffset));
       params.set("sort", gridSortValue);
       params.set("order", gridOrderValue);
       if (gridQ) params.set("q", gridQ);
+      if (anchorKey) params.set("anchor_key", anchorKey);
       return `/api/library/objects?${params.toString()}`;
     }
 
@@ -1515,10 +1516,10 @@
       browseListTimestamp = now;
     }
 
-    async function fetchGrid() {
+    async function fetchGrid(anchorKey) {
       try {
         if (isManagedStorage()) {
-          const res = await fetch(buildLibraryUrl());
+          const res = await fetch(buildLibraryUrl(anchorKey));
           if (!res.ok) {
             const err = await res.json().catch(() => ({}));
             showToast(err.detail || "Failed to load images", "error");
@@ -1530,6 +1531,9 @@
           gridImages = (data.objects || []).map((o) => o.key);
           gridTotal = data.total_in_window || 0;
           gridTruncated = !!data.truncated;
+          if (data.anchor_offset != null) {
+            gridOffset = data.anchor_offset;
+          }
         } else {
           await ensureBrowseImageListLoaded();
           gridTotal = browseImageList.length;
@@ -1695,10 +1699,10 @@
         }
         // else: filename was curated away; keep existing gridOffset
       }
-      // Managed storage: gridOffset retains its value from the last grid
-      // interaction — no reset to 0.
 
-      await fetchGrid();
+      // Managed storage: ask the server to locate the current image's page
+      const anchor = (currentFilename && isManagedStorage()) ? currentFilename : null;
+      await fetchGrid(anchor);
 
       // If offset is past the end (images removed since last visit), fall back
       if (gridImages.length === 0 && gridOffset > 0) {
