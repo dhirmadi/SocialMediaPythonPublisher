@@ -10,6 +10,7 @@ import asyncio
 import contextlib
 import io
 import os
+import threading
 from typing import Any, cast
 
 import boto3
@@ -67,6 +68,21 @@ class ManagedStorage:
             config=boto_config,
         )
         self._bucket = config.bucket
+        # PUB-045: R2 storage operation counter (drained by StorageOpsMeter)
+        self._ops_count: int = 0
+        self._ops_lock = threading.Lock()
+
+    def _count_ops(self, n: int = 1) -> None:
+        """Increment the R2 operation counter (thread-safe). PUB-045."""
+        with self._ops_lock:
+            self._ops_count += n
+
+    def drain_ops_count(self) -> int:
+        """Atomically read and reset the operation counter. PUB-045."""
+        with self._ops_lock:
+            count = self._ops_count
+            self._ops_count = 0
+            return count
 
     def _key(self, folder: str, filename: str) -> str:
         """Build an S3 object key from folder + filename."""
@@ -122,6 +138,7 @@ class ManagedStorage:
                 names: list[str] = []
                 paginator = self.client.get_paginator("list_objects_v2")
                 for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                    self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
                         if not ManagedStorage._is_immediate_child_object_key(folder, key):
@@ -149,6 +166,7 @@ class ManagedStorage:
                 out: list[tuple[str, str]] = []
                 paginator = self.client.get_paginator("list_objects_v2")
                 for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                    self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
                         if not ManagedStorage._is_immediate_child_object_key(folder, key):
@@ -174,6 +192,7 @@ class ManagedStorage:
 
             def _download() -> bytes:
                 key = self._key(folder, filename)
+                self._count_ops()  # PUB-045: count each R2 request (including retries)
                 resp = self.client.get_object(Bucket=self._bucket, Key=key)
                 expected_length = resp.get("ContentLength")
                 body = resp["Body"].read()
@@ -223,6 +242,7 @@ class ManagedStorage:
 
             def _meta() -> dict[str, str]:
                 key = self._key(folder, filename)
+                self._count_ops()  # PUB-045: count head_object
                 resp = self.client.head_object(Bucket=self._bucket, Key=key)
                 out: dict[str, str] = {}
                 if resp.get("ETag"):
@@ -246,6 +266,7 @@ class ManagedStorage:
 
             def _upload() -> None:
                 key = self._sidecar_key(folder, filename)
+                self._count_ops()  # PUB-045: count put_object
                 self.client.put_object(
                     Bucket=self._bucket,
                     Key=key,
@@ -268,6 +289,7 @@ class ManagedStorage:
 
             def _download() -> bytes | None:
                 key = self._sidecar_key(folder, filename)
+                self._count_ops()  # PUB-045: count request even on 404 (R2 bills it)
                 try:
                     resp = self.client.get_object(Bucket=self._bucket, Key=key)
                     return cast(bytes, resp["Body"].read())
@@ -294,15 +316,19 @@ class ManagedStorage:
                 src_key = self._key(folder, filename)
                 dst_key = self._key(archive_folder, filename)
                 copy_src = {"Bucket": self._bucket, "Key": src_key}
+                self._count_ops()  # PUB-045: image copy
                 self.client.copy_object(Bucket=self._bucket, Key=dst_key, CopySource=copy_src)
+                self._count_ops()  # PUB-045: image delete
                 self.client.delete_object(Bucket=self._bucket, Key=src_key)
                 # Move sidecar if exists
                 sidecar_src = self._sidecar_key(folder, filename)
                 sidecar_dst = self._sidecar_key(archive_folder, filename)
                 try:
+                    self._count_ops()  # PUB-045: sidecar copy attempt (R2 bills it even on failure)
                     self.client.copy_object(
                         Bucket=self._bucket, Key=sidecar_dst, CopySource={"Bucket": self._bucket, "Key": sidecar_src}
                     )
+                    self._count_ops()  # PUB-045: sidecar delete
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar_src)
                 except ClientError:
                     pass  # Sidecar may not exist
@@ -325,16 +351,20 @@ class ManagedStorage:
                 dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
                 dst_key = self._key(dest_prefix, filename)
                 copy_src = {"Bucket": self._bucket, "Key": src_key}
+                self._count_ops()  # PUB-045: image copy
                 self.client.copy_object(Bucket=self._bucket, Key=dst_key, CopySource=copy_src)
+                self._count_ops()  # PUB-045: image delete
                 self.client.delete_object(Bucket=self._bucket, Key=src_key)
                 # Move sidecar
                 sidecar_src = self._sidecar_key(folder, filename)
                 stem = os.path.splitext(filename)[0]
                 sidecar_dst = self._key(dest_prefix, f"{stem}.txt")
                 try:
+                    self._count_ops()  # PUB-045: sidecar copy attempt
                     self.client.copy_object(
                         Bucket=self._bucket, Key=sidecar_dst, CopySource={"Bucket": self._bucket, "Key": sidecar_src}
                     )
+                    self._count_ops()  # PUB-045: sidecar delete
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar_src)
                 except ClientError:
                     pass  # Sidecar may not exist
@@ -354,9 +384,11 @@ class ManagedStorage:
 
             def _delete() -> None:
                 key = self._key(folder, filename)
+                self._count_ops()  # PUB-045: image delete
                 self.client.delete_object(Bucket=self._bucket, Key=key)
                 sidecar = self._sidecar_key(folder, filename)
                 with contextlib.suppress(ClientError):
+                    self._count_ops()  # PUB-045: sidecar delete attempt
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar)
 
             await asyncio.to_thread(_delete)

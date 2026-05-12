@@ -20,6 +20,7 @@ from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.storage_protocol import StorageProtocol
 
 if TYPE_CHECKING:
+    from publisher_v2.services.storage_ops_meter import StorageOpsMeter
     from publisher_v2.services.usage_meter import UsageMeter
 
 from publisher_v2.utils.captions import (
@@ -55,12 +56,14 @@ class WorkflowOrchestrator:
         ai_service: AIService,
         publishers: list[Publisher],
         usage_meter: UsageMeter | None = None,
+        storage_ops_meter: StorageOpsMeter | None = None,
     ):
         self.config = config
         self.storage = storage
         self.ai_service = ai_service
         self.publishers = publishers
         self._usage_meter = usage_meter
+        self._storage_ops_meter = storage_ops_meter
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
@@ -568,6 +571,10 @@ class WorkflowOrchestrator:
             if tmp_path and os.path.exists(tmp_path):  # noqa: ASYNC240 — fast local FS check in finally cleanup
                 with contextlib.suppress(Exception):
                     os.unlink(tmp_path)
+            # PUB-045: flush R2 storage ops counter even in preview mode (real R2 costs).
+            meter = getattr(self, "_storage_ops_meter", None)
+            if meter is not None:
+                await meter.flush()
 
     def _build_publisher_context(self, analysis: ImageAnalysis | None) -> dict[str, Any] | None:
         if analysis is None:

@@ -34,9 +34,11 @@ from publisher_v2.services.ai import (  # noqa: E402
     VisionAnalyzerOpenAI,
     truncate_voice_profile_to_budget,
 )
+from publisher_v2.services.managed_storage import ManagedStorage  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
 from publisher_v2.services.storage_factory import create_storage  # noqa: E402
+from publisher_v2.services.storage_ops_meter import StorageOpsMeter  # noqa: E402
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
@@ -109,6 +111,11 @@ class WebImageService:
             if client is not None:
                 self._usage_meter = UsageMeter(client=client, tenant_id=runtime.tenant)
 
+        # PUB-045: Build storage ops meter when feature is enabled in orchestrator mode
+        # with ManagedStorage. Standalone mode is unaffected (meter stays None).
+        self._storage_ops_meter: StorageOpsMeter | None = None
+        self._init_storage_ops_meter()
+
         # Keep legacy behavior for standalone mode: orchestrator is ready immediately.
         # In orchestrator mode we build it lazily to allow late-binding publishers/AI.
         if runtime is None:
@@ -138,6 +145,29 @@ class WebImageService:
                 pass
         self._image_cache_ttl_seconds: float = ttl
         self._recently_shown: list[str] = []
+
+    def _init_storage_ops_meter(self) -> None:
+        """PUB-045: build the storage ops meter when conditions are met.
+
+        Meter is only constructed when orchestrator mode is active, an
+        orchestrator client is available, ``ManagedStorage`` is the storage
+        backend, and the feature flag is enabled.
+        """
+        self._storage_ops_meter = None
+        if self._runtime is None or self._config_source is None:
+            return
+        if not getattr(self.config.features, "storage_ops_metering_enabled", False):
+            return
+        if not isinstance(self.storage, ManagedStorage):
+            return
+        client = getattr(self._config_source, "orchestrator_client", None)
+        if client is None:
+            return
+        self._storage_ops_meter = StorageOpsMeter(
+            client=client,
+            tenant_id=self._runtime.tenant,
+            storage=self.storage,
+        )
 
     def _is_orchestrated(self) -> bool:
         return self._runtime is not None and self._config_source is not None
@@ -265,6 +295,7 @@ class WebImageService:
             ai_service,  # type: ignore[arg-type]
             self.publishers,
             usage_meter=self._usage_meter,
+            storage_ops_meter=self._storage_ops_meter,
         )
         return self.orchestrator
 
@@ -384,6 +415,17 @@ class WebImageService:
         return await self.storage.get_thumbnail(folder, filename, size=thumb_size)
 
     async def analyze_and_caption(
+        self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
+    ) -> AnalysisResponse:
+        try:
+            return await self._analyze_and_caption_impl(filename, correlation_id, force_refresh)
+        finally:
+            # PUB-045: flush R2 storage ops counter regardless of outcome.
+            meter = getattr(self, "_storage_ops_meter", None)
+            if meter is not None:
+                await meter.flush()
+
+    async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link

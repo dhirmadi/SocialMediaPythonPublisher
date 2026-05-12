@@ -304,6 +304,10 @@ class FeaturesConfig(BaseModel):
     voice_matching_enabled: bool = Field(
         default=False, description="Enable voice profile injection for caption tone matching"
     )
+    storage_ops_metering_enabled: bool = Field(
+        default=False,
+        description="Emit R2 storage_ops_requests usage events to the orchestrator (PUB-045)",
+    )
 
 
 class WebConfig(BaseModel):

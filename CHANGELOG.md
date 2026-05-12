@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-045: R2 Storage Ops Metering
+- Thread-safe operation counter in `ManagedStorage` tracks all R2 API calls (list, get, put, delete, copy)
+- `StorageOpsMeter` service drains counter and emits `storage_ops_requests` usage events to Orchestrator with idempotent keys (`r2ops:{tenant_id}:{yyyy-mm-dd}:{HH}`)
+- Feature-flagged via `FEATURE_STORAGE_OPS_METERING` (default off)
+- Counter increments before each boto3 call to capture billable failed requests and retries
+- Preview mode (`--preview`) still flushes the counter — R2 operations during preview incur real billable requests (AC-C7)
+
 ### Added - PUB-028: Smart Hashtag Generation
 - AI-generated, image-specific hashtags embedded in caption prompts when `features.smart_hashtags_enabled` is true (default)
 - Vision analysis signals (tags, mood, style, aesthetic_terms) drive hashtag relevance — no additional OpenAI API call

@@ -316,3 +316,205 @@ class TestEnsureFolderExists:
         await storage.ensure_folder_exists("any/path")
         # No S3 calls should be made
         mock_s3_client.assert_not_called()
+
+
+# =============================================================================
+# PUB-045: R2 storage ops counter
+# =============================================================================
+
+
+class TestStorageOpsCounter:
+    """AC-A1..A8: thread-safe R2 operation counter."""
+
+    def test_init_creates_ops_counter_and_lock(self, storage) -> None:
+        """AC-A1: counter attrs exist after construction."""
+        import threading
+
+        assert storage._ops_count == 0
+        assert isinstance(storage._ops_lock, type(threading.Lock()))
+
+    def test_drain_ops_count_returns_and_resets(self, storage) -> None:
+        """AC-A2: drain returns accumulated count and resets to zero."""
+        storage._count_ops()
+        storage._count_ops()
+        storage._count_ops()
+        assert storage.drain_ops_count() == 3
+        assert storage._ops_count == 0
+        assert storage.drain_ops_count() == 0
+
+    def test_drain_ops_count_consecutive_calls(self, storage) -> None:
+        """AC-A2: second drain returns only new increments since previous drain."""
+        storage._count_ops()
+        assert storage.drain_ops_count() == 1
+        storage._count_ops()
+        storage._count_ops()
+        assert storage.drain_ops_count() == 2
+
+    async def test_list_images_increments_counter_per_page(self, storage, mock_s3_client) -> None:
+        """AC-A3: list_images increments once per page returned by the paginator."""
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {"Contents": [{"Key": "folder/a.jpg"}]},
+            {"Contents": [{"Key": "folder/b.jpg"}]},
+            {"Contents": [{"Key": "folder/c.jpg"}]},
+        ]
+        mock_s3_client.get_paginator.return_value = paginator
+        await storage.list_images("folder")
+        assert storage.drain_ops_count() == 3
+
+    async def test_list_images_with_hashes_increments_counter_per_page(self, storage, mock_s3_client) -> None:
+        """AC-A3: paginated list_images_with_hashes increments per page."""
+        paginator = MagicMock()
+        paginator.paginate.return_value = [
+            {"Contents": [{"Key": "folder/a.jpg", "ETag": '"e1"'}]},
+            {"Contents": [{"Key": "folder/b.jpg", "ETag": '"e2"'}]},
+        ]
+        mock_s3_client.get_paginator.return_value = paginator
+        await storage.list_images_with_hashes("folder")
+        assert storage.drain_ops_count() == 2
+
+    async def test_download_image_increments_counter(self, storage, mock_s3_client) -> None:
+        """AC-A3: download_image counts one get_object call."""
+        body = MagicMock()
+        body.read.return_value = b"img"
+        mock_s3_client.get_object.return_value = {"Body": body}
+        await storage.download_image("folder", "a.jpg")
+        assert storage.drain_ops_count() == 1
+
+    async def test_get_file_metadata_increments_counter(self, storage, mock_s3_client) -> None:
+        """AC-A3: head_object call counted."""
+        mock_s3_client.head_object.return_value = {"ETag": '"e"', "LastModified": "now"}
+        await storage.get_file_metadata("folder", "a.jpg")
+        assert storage.drain_ops_count() == 1
+
+    async def test_write_sidecar_increments_counter(self, storage, mock_s3_client) -> None:
+        """AC-A3: put_object call counted."""
+        await storage.write_sidecar_text("folder", "a.jpg", "text")
+        assert storage.drain_ops_count() == 1
+
+    async def test_archive_image_increments_counter_2_to_4(self, storage, mock_s3_client) -> None:
+        """AC-A3: archive_image counts 4 ops when sidecar copy+delete succeed."""
+        await storage.archive_image("folder", "a.jpg", "archive")
+        # copy + delete + copy(sidecar) + delete(sidecar) = 4
+        assert storage.drain_ops_count() == 4
+
+    async def test_archive_image_counts_2_when_sidecar_copy_fails(self, storage, mock_s3_client) -> None:
+        """AC-A3 / AC-A6: failed sidecar copy is still counted (request was made)."""
+        from botocore.exceptions import ClientError
+
+        not_found = ClientError(
+            {
+                "Error": {"Code": "NoSuchKey"},
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 404,
+                    "RequestId": "",
+                    "HostId": "",
+                    "HTTPHeaders": {},
+                    "RetryAttempts": 0,
+                },
+            },
+            "CopyObject",
+        )
+
+        # First copy (image) succeeds, second (sidecar) fails
+        mock_s3_client.copy_object.side_effect = [None, not_found]
+        await storage.archive_image("folder", "a.jpg", "archive")
+        # image copy + image delete + sidecar copy attempt (failed) = 3
+        assert storage.drain_ops_count() == 3
+
+    async def test_move_image_increments_counter_2_to_4(self, storage, mock_s3_client) -> None:
+        """AC-A3: move_image_with_sidecars counts 4 when sidecar move succeeds."""
+        await storage.move_image_with_sidecars("folder", "a.jpg", "keep")
+        assert storage.drain_ops_count() == 4
+
+    async def test_delete_file_increments_counter_1_to_2(self, storage, mock_s3_client) -> None:
+        """AC-A3: delete_file_with_sidecar counts both delete calls."""
+        await storage.delete_file_with_sidecar("folder", "a.jpg")
+        assert storage.drain_ops_count() == 2
+
+    async def test_get_temporary_link_does_not_increment_counter(self, storage, mock_s3_client) -> None:
+        """AC-A4: presigned URL generation is local — no API call, no count."""
+        mock_s3_client.generate_presigned_url.return_value = "https://signed"
+        await storage.get_temporary_link("folder", "a.jpg")
+        assert storage.drain_ops_count() == 0
+
+    async def test_get_thumbnail_does_not_double_count(self, storage, mock_s3_client) -> None:
+        """AC-A5: thumbnail delegates to download_image (counted once)."""
+        import io
+
+        from PIL import Image
+
+        img = Image.new("RGB", (50, 50), color="green")
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG")
+        body = MagicMock()
+        body.read.return_value = buf.getvalue()
+        mock_s3_client.get_object.return_value = {"Body": body}
+
+        from publisher_v2.services.managed_storage import _thumbnail_cache
+
+        _thumbnail_cache.clear()
+        await storage.get_thumbnail("folder", "thumb-uncached.jpg")
+        # Counts only the underlying download_image call, not an extra thumbnail op
+        assert storage.drain_ops_count() == 1
+
+    async def test_download_sidecar_404_still_increments_counter(self, storage, mock_s3_client) -> None:
+        """AC-A6: a 404 sidecar fetch still cost an R2 request, must be counted."""
+        from botocore.exceptions import ClientError
+
+        mock_s3_client.get_object.side_effect = ClientError(
+            {
+                "Error": {"Code": "NoSuchKey"},
+                "ResponseMetadata": {
+                    "HTTPStatusCode": 404,
+                    "RequestId": "",
+                    "HostId": "",
+                    "HTTPHeaders": {},
+                    "RetryAttempts": 0,
+                },
+            },
+            "GetObject",
+        )
+        result = await storage.download_sidecar_if_exists("folder", "missing.jpg")
+        assert result is None
+        assert storage.drain_ops_count() == 1
+
+    def test_counter_thread_safety_concurrent_increments(self, storage) -> None:
+        """AC-A7: concurrent increments lose no count under threading."""
+        import threading
+
+        N_THREADS = 16
+        PER_THREAD = 500
+
+        def worker() -> None:
+            for _ in range(PER_THREAD):
+                storage._count_ops()
+
+        threads = [threading.Thread(target=worker) for _ in range(N_THREADS)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        assert storage.drain_ops_count() == N_THREADS * PER_THREAD
+
+    async def test_retry_counts_each_attempt(self, storage, mock_s3_client, monkeypatch) -> None:
+        """AC-A8: every retried S3 attempt is a real R2 request and must be counted."""
+        from botocore.exceptions import ConnectionError as BotoConnectionError
+
+        # Make tenacity retries instant
+        async def _no_sleep(*_args, **_kwargs):
+            return None
+
+        monkeypatch.setattr("asyncio.sleep", _no_sleep)
+
+        transient = BotoConnectionError(error="transient")  # type: ignore[arg-type]
+        body = MagicMock()
+        body.read.return_value = b"ok"
+
+        # Fail twice, then succeed on third attempt
+        mock_s3_client.get_object.side_effect = [transient, transient, {"Body": body}]
+        result = await storage.download_image("folder", "a.jpg")
+        assert result == b"ok"
+        # 3 attempts -> 3 operations
+        assert storage.drain_ops_count() == 3

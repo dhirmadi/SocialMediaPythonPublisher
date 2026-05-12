@@ -1,0 +1,97 @@
+version: 1
+roadmap_id: PUB-045
+summary: R2 storage ops metering — count R2 API calls in ManagedStorage and emit
+  aggregated storage_ops_requests usage events to the orchestrator.
+
+repo_constraints:
+  allowed_paths:
+    - publisher_v2/src/publisher_v2/services/managed_storage.py
+    - publisher_v2/src/publisher_v2/services/storage_ops_meter.py
+    - publisher_v2/src/publisher_v2/config/schema.py
+    - publisher_v2/src/publisher_v2/config/loader.py
+    - publisher_v2/src/publisher_v2/config/orchestrator_models.py
+    - publisher_v2/src/publisher_v2/web/service.py
+    - publisher_v2/src/publisher_v2/core/workflow.py
+    - publisher_v2/tests/**
+    - docs_v2/roadmap/PUB-045_*
+  excluded_paths:
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  - id: AC-A1
+    description: ManagedStorage has _ops_count and _ops_lock initialized in __init__.
+  - id: AC-A2
+    description: drain_ops_count() atomically reads + resets, returning accumulated count.
+  - id: AC-A3
+    description: Every S3-calling method increments per the operations table.
+  - id: AC-A4
+    description: get_temporary_link does not increment (presigned URL is local).
+  - id: AC-A5
+    description: get_thumbnail does not double-count; delegates to download_image.
+  - id: AC-A6
+    description: 404 sidecar fetch still increments — R2 bills the request.
+  - id: AC-A7
+    description: Counter is thread-safe under concurrent increments.
+  - id: AC-A8
+    description: Retried S3 calls count each attempt.
+  - id: AC-B1
+    description: StorageOpsMeter exists with flush() method.
+  - id: AC-B2
+    description: flush() POSTs metric=storage_ops_requests, unit=requests,
+      source=publisher_storage_ops, quantity=<count>.
+  - id: AC-B3
+    description: Idempotency key shape `r2ops:{tenant}:{yyyy-mm-dd}:{HH}`.
+  - id: AC-B4
+    description: No POST when count is zero.
+  - id: AC-B5
+    description: post_usage exceptions are caught and logged via log_json
+      (event=storage_ops_metering_failed).
+  - id: AC-B6
+    description: flush() never raises.
+  - id: AC-C1
+    description: FEATURE_STORAGE_OPS_METERING env var defaults to false; parsed via
+      parse_bool_env.
+  - id: AC-C2
+    description: Flag off → no StorageOpsMeter constructed.
+  - id: AC-C3
+    description: Flag on + orchestrator mode + ManagedStorage → meter constructed
+      and flush() called.
+  - id: AC-C4
+    description: Standalone mode → meter is None regardless of flag.
+  - id: AC-C5
+    description: WorkflowOrchestrator.execute() calls flush() at the end.
+  - id: AC-C6
+    description: WebImageService.analyze_and_caption() calls flush() after
+      completion (try/finally).
+  - id: AC-C7
+    description: Preview mode still flushes (R2 incurs real costs).
+
+tasks:
+  - id: 1
+    name: "Part A: thread-safe counter in ManagedStorage"
+    files:
+      - publisher_v2/src/publisher_v2/services/managed_storage.py
+      - publisher_v2/tests/test_managed_storage.py
+  - id: 2
+    name: "Part B: StorageOpsMeter service"
+    files:
+      - publisher_v2/src/publisher_v2/services/storage_ops_meter.py
+      - publisher_v2/tests/test_storage_ops_meter.py
+  - id: 3
+    name: "Part C: feature flag and integration"
+    files:
+      - publisher_v2/src/publisher_v2/config/schema.py
+      - publisher_v2/src/publisher_v2/config/loader.py
+      - publisher_v2/src/publisher_v2/config/orchestrator_models.py
+      - publisher_v2/src/publisher_v2/web/service.py
+      - publisher_v2/src/publisher_v2/core/workflow.py
+      - publisher_v2/tests/test_storage_ops_metering_wiring.py
+
+quality_gates:
+  ruff_check: "zero violations"
+  mypy: "zero new errors on changed files"
+  pytest: "all tests pass"
+  coverage:
+    affected_modules_min: 80
+    overall_min: 85

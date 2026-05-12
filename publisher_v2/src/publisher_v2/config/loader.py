@@ -808,6 +808,11 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             voice_matching_enabled=parse_bool_env(
                 os.environ.get("FEATURE_VOICE_MATCHING"), False, var_name="FEATURE_VOICE_MATCHING"
             ),
+            storage_ops_metering_enabled=parse_bool_env(
+                os.environ.get("FEATURE_STORAGE_OPS_METERING"),
+                False,
+                var_name="FEATURE_STORAGE_OPS_METERING",
+            ),
         )
 
     except KeyError as exc:

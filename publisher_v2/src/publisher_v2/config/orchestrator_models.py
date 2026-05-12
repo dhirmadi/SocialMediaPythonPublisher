@@ -33,6 +33,7 @@ class OrchestratorFeatures(BaseModel):
     alt_text_enabled: bool = True
     smart_hashtags_enabled: bool = True
     voice_matching_enabled: bool = False
+    storage_ops_metering_enabled: bool = False
 
 
 class OrchestratorStoragePaths(BaseModel):
