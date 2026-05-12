@@ -43,20 +43,43 @@ class StorageOpsMeter:
     async def flush(self) -> None:
         """Drain the counter and emit to the orchestrator. Never raises."""
         count = self._storage.drain_ops_count()
+        log_json(
+            self._logger,
+            logging.INFO,
+            "storage_ops_flush_attempt",
+            drained_count=count,
+            tenant_id=self._tenant_id,
+        )
         if count <= 0:
             return
         try:
             now = datetime.now(UTC)
+            idem_key = f"r2ops:{self._tenant_id}:{now.strftime('%Y-%m-%d')}:{now.strftime('%H')}"
+            log_json(
+                self._logger,
+                logging.INFO,
+                "storage_ops_flush_posting",
+                quantity=count,
+                idempotency_key=idem_key,
+                tenant_id=self._tenant_id,
+            )
             await self._client.post_usage(
                 tenant_id=self._tenant_id,
                 metric="storage_ops_requests",
                 quantity=count,
                 unit="requests",
-                idempotency_key=f"r2ops:{self._tenant_id}:{now.strftime('%Y-%m-%d')}:{now.strftime('%H')}",
+                idempotency_key=idem_key,
                 occurred_at=now.isoformat(),
                 source="publisher_storage_ops",
             )
-        except Exception:
+            log_json(
+                self._logger,
+                logging.INFO,
+                "storage_ops_flush_ok",
+                quantity=count,
+                tenant_id=self._tenant_id,
+            )
+        except Exception as exc:
             log_json(
                 self._logger,
                 logging.WARNING,
@@ -64,6 +87,7 @@ class StorageOpsMeter:
                 metric="storage_ops_requests",
                 quantity=count,
                 tenant_id=self._tenant_id,
+                error=str(exc),
             )
 
     def start_periodic_flush(self) -> None:
