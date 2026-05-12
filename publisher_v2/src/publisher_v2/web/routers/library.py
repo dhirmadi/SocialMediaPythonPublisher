@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from publisher_v2.config.features import resolve_library_enabled
 from publisher_v2.config.schema import StoragePathConfig
+from publisher_v2.services.managed_storage import ManagedStorage
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.auth import require_admin, require_auth
 from publisher_v2.web.dependencies import get_request_service
@@ -208,6 +209,13 @@ def _get_scan_budget() -> int:
         return 5000
 
 
+def _count_storage_op(service: WebImageService, n: int = 1) -> None:
+    """Increment the R2 ops counter if the storage backend supports it."""
+    storage = service.storage
+    if isinstance(storage, ManagedStorage):
+        storage._count_ops(n)
+
+
 _SORT_KEYS = {
     "name": lambda obj: obj["key"].lower(),
     "last_modified": lambda obj: obj["last_modified_raw"],
@@ -239,6 +247,7 @@ async def _list_objects_buffered(
     bucket = storage._bucket
     _image_suffixes = (".jpg", ".jpeg", ".png")
     sanitized_q = _sanitize_filter(q)
+    count_op = storage._count_ops if isinstance(storage, ManagedStorage) else (lambda n=1: None)
 
     def _scan() -> dict[str, Any]:
         items: list[dict[str, Any]] = []
@@ -258,6 +267,7 @@ async def _list_objects_buffered(
             if continuation:
                 kwargs["ContinuationToken"] = continuation
             resp = storage.client.list_objects_v2(**kwargs)
+            count_op()  # PUB-045: each S3 list page is a billable R2 request
 
             for obj in resp.get("Contents", []):
                 key: str = obj["Key"]
@@ -336,6 +346,7 @@ async def _list_objects_from_storage(
     storage: Any = service.storage
     bucket = storage._bucket
     _image_suffixes = (".jpg", ".jpeg", ".png")
+    count_op = storage._count_ops if isinstance(storage, ManagedStorage) else (lambda n=1: None)
 
     def _list() -> dict[str, Any]:
         objects: list[dict[str, Any]] = []
@@ -354,6 +365,7 @@ async def _list_objects_from_storage(
             if continuation:
                 kwargs["ContinuationToken"] = continuation
             resp = storage.client.list_objects_v2(**kwargs)
+            count_op()  # PUB-045: each S3 list page is a billable R2 request
             for obj in resp.get("Contents", []):
                 key: str = obj["Key"]
                 fname = key.rsplit("/", 1)[-1] if "/" in key else key
@@ -395,6 +407,7 @@ async def _upload_to_storage(service: WebImageService, filename: str, data: byte
         )
 
     await asyncio.to_thread(_upload)
+    _count_storage_op(service)  # PUB-045: put_object
     return {"key": key, "size": len(data)}
 
 
@@ -404,6 +417,8 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
 
+    ops = 0
+
     def _check_exists() -> bool:
         try:
             storage.client.head_object(Bucket=storage._bucket, Key=key)
@@ -412,7 +427,9 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
             return False
 
     exists = await asyncio.to_thread(_check_exists)
+    ops += 1  # head_object
     if not exists:
+        _count_storage_op(service, ops)
         raise FileNotFoundError(f"File not found: {filename}")
 
     # Delete image
@@ -431,6 +448,9 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
         return sidecar_deleted
 
     sidecar_deleted = await asyncio.to_thread(_delete)
+    # head_object check + delete_object + (sidecar head + sidecar delete if found)
+    ops += 2 if not sidecar_deleted else 4
+    _count_storage_op(service, ops)
     return {"deleted": filename, "sidecar_deleted": sidecar_deleted}
 
 
@@ -455,11 +475,14 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
     src_key = f"{source_folder.strip('/')}/{filename}".lstrip("/")
     dst_key = f"{dest_folder.strip('/')}/{filename}".lstrip("/")
 
-    def _move() -> None:
+    def _move() -> int:
         bucket = storage._bucket
+        ops = 0
         # Copy then delete
         storage.client.copy_object(Bucket=bucket, Key=dst_key, CopySource={"Bucket": bucket, "Key": src_key})
+        ops += 1
         storage.client.delete_object(Bucket=bucket, Key=src_key)
+        ops += 1
         # Move sidecar if exists
         stem = os.path.splitext(filename)[0]
         sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")
@@ -468,11 +491,15 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
             storage.client.copy_object(
                 Bucket=bucket, Key=sidecar_dst, CopySource={"Bucket": bucket, "Key": sidecar_src}
             )
+            ops += 1
             storage.client.delete_object(Bucket=bucket, Key=sidecar_src)
+            ops += 1
         except Exception:  # noqa: S110
-            pass  # Sidecar may not exist
+            ops += 1  # failed copy attempt is still a billable R2 request
+        return ops
 
-    await asyncio.to_thread(_move)
+    move_ops = await asyncio.to_thread(_move)
+    _count_storage_op(service, move_ops)
     return {"moved": filename, "destination": target_folder}
 
 

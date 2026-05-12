@@ -51,3 +51,10 @@ class TenantServiceFactory:
             self._data.popitem(last=False)
 
         return svc
+
+    async def shutdown(self) -> None:
+        """Stop periodic metering tasks and flush remaining ops for all cached tenants."""
+        for entry in self._data.values():
+            meter = getattr(entry.service, "_storage_ops_meter", None)
+            if meter is not None:
+                await meter.stop_periodic_flush()

@@ -168,6 +168,7 @@ class WebImageService:
             tenant_id=self._runtime.tenant,
             storage=self.storage,
         )
+        self._storage_ops_meter.start_periodic_flush()
 
     def _is_orchestrated(self) -> bool:
         return self._runtime is not None and self._config_source is not None

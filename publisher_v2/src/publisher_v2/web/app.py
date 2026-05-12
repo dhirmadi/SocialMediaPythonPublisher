@@ -74,7 +74,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown logic (if needed in future)
+    # Shutdown: flush remaining storage ops metrics for all cached tenants
+    from publisher_v2.web.middleware import _tenant_service_factory
+
+    try:
+        factory = _tenant_service_factory()
+        await factory.shutdown()
+    except Exception:
+        _logger = logging.getLogger("publisher_v2.web")
+        _logger.warning("storage_ops_shutdown_flush_failed", exc_info=True)
 
 
 app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=lifespan)
