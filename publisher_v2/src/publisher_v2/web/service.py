@@ -152,11 +152,18 @@ class WebImageService:
         Meter is only constructed when orchestrator mode is active, an
         orchestrator client is available, ``ManagedStorage`` is the storage
         backend, and the feature flag is enabled.
+
+        The flag is checked from both the app config (which covers standalone
+        mode via loader.py and orchestrator mode via runtime config) AND the
+        ``FEATURE_STORAGE_OPS_METERING`` env var as a local override, since
+        the orchestrator runtime response may not include this field yet.
         """
         self._storage_ops_meter = None
         if self._runtime is None or self._config_source is None:
             return
-        if not getattr(self.config.features, "storage_ops_metering_enabled", False):
+        flag_from_config = getattr(self.config.features, "storage_ops_metering_enabled", False)
+        flag_from_env = os.environ.get("FEATURE_STORAGE_OPS_METERING", "").strip().lower() in ("1", "true", "yes", "on")
+        if not flag_from_config and not flag_from_env:
             return
         if not isinstance(self.storage, ManagedStorage):
             return
