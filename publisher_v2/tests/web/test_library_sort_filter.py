@@ -936,10 +936,7 @@ class TestGetScanBudget:
 # Need more objects to span multiple pages
 DT_A = datetime(2026, 1, 1, tzinfo=UTC)
 
-MANY_S3_OBJECTS = [
-    _make_s3_object(f"tenant/instance/img_{i:03d}.jpg", 1000 + i, DT_A)
-    for i in range(20)
-]
+MANY_S3_OBJECTS = [_make_s3_object(f"tenant/instance/img_{i:03d}.jpg", 1000 + i, DT_A) for i in range(20)]
 
 
 class TestAnchorKey:
