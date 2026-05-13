@@ -46,25 +46,33 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
 
 def get_auth0_callback_url(request: Request) -> str | None:
     """
-    Compute the Auth0 callback URL for local development only.
+    Derive the Auth0 callback URL from the incoming request.
 
-    Returns a request-derived URL ONLY for ``localhost``/``127.0.0.1`` so the
-    dev experience works without per-port config. For every other host the
-    callback MUST come from the operator-configured ``auth0_config.callback_url``
-    — deriving it from ``request.url.hostname`` would let an attacker who can
-    spoof the ``Host`` header redirect the OAuth code to an arbitrary URL.
+    With ``--proxy-headers`` enabled on uvicorn, ``request.url.scheme`` reflects
+    the real client-facing scheme (via ``X-Forwarded-Proto``). The Host header
+    on platforms like Heroku is set by the router and is trustworthy. Auth0
+    itself also validates the callback URL against its configured allowlist,
+    so a spoofed Host that doesn't match the Auth0 app config is rejected by
+    the IdP before any code grant is issued.
+
+    For localhost/127.0.0.1 the port is preserved for local dev convenience.
+    For non-local hosts HTTPS is forced as a defence-in-depth measure.
     """
     hostname = request.url.hostname or ""
-    port = request.url.port
-
-    if hostname not in ("localhost", "127.0.0.1"):
+    if not hostname:
         return None
 
-    scheme = request.url.scheme or "http"
-    netloc = hostname
-    if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
-        netloc = f"{hostname}:{port}"
-    return f"{scheme}://{netloc}/auth/callback"
+    port = request.url.port
+    is_local = hostname in ("localhost", "127.0.0.1")
+
+    if is_local:
+        scheme = request.url.scheme or "http"
+        netloc = hostname
+        if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
+            netloc = f"{hostname}:{port}"
+        return f"{scheme}://{netloc}/auth/callback"
+
+    return f"https://{hostname}/auth/callback"
 
 
 @router.get("/login")

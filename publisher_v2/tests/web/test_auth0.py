@@ -180,3 +180,22 @@ def test_get_auth0_callback_url_localhost_preserves_port():
     }
     req = Request(scope)
     assert get_auth0_callback_url(req) == "http://localhost:8089/auth/callback"
+
+
+def test_get_auth0_callback_url_remote_host_forces_https():
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/auth/login",
+        "raw_path": b"/auth/login",
+        "query_string": b"",
+        "headers": [(b"host", b"staging.example.com")],
+        "client": ("10.0.0.1", 50000),
+        "server": ("staging.example.com", 443),
+    }
+    req = Request(scope)
+    assert get_auth0_callback_url(req) == "https://staging.example.com/auth/callback"
