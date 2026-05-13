@@ -77,7 +77,9 @@ def admin_headers() -> dict[str, str]:
 
 @pytest.fixture
 def admin_cookies() -> dict[str, str]:
-    return {"pv2_admin": "1"}
+    from publisher_v2.web.auth import mint_admin_cookie_value
+
+    return {"pv2_admin": mint_admin_cookie_value()}
 
 
 # Sample S3 objects for tests

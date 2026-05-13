@@ -21,6 +21,14 @@ class _DummySMTP:
         self.closed = False
         self.fail = False
 
+    # Context-manager protocol — the publisher now uses ``with smtplib.SMTP(...)``
+    # so QUIT/close always runs even when sendmail raises.
+    def __enter__(self) -> _DummySMTP:
+        return self
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.quit()
+
     def starttls(self) -> None:
         if self.fail:
             raise RuntimeError("tls failure")

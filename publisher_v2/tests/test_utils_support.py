@@ -101,8 +101,11 @@ def test_state_helpers_handle_formats(tmp_path: Path) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "posted.json"
 
+    # Legacy V1 plain-list format is no longer supported (V1 is archived).
+    # A corrupt-shape file now reads as empty rather than auto-migrating —
+    # callers see an empty set and start fresh.
     cache_file.write_text(json.dumps(["legacy"]))
-    assert state.load_posted_hashes() == {"legacy"}
+    assert state.load_posted_hashes() == set()
 
     cache_file.write_text(json.dumps({"hashes": ["one"], "dropbox_content_hashes": ["db1"]}))
     assert state.load_posted_hashes() == {"one"}

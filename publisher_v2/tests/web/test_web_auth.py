@@ -54,8 +54,19 @@ def test_require_auth_basic_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert res.status_code == 200
 
 
-def test_require_auth_disabled_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_require_auth_fails_closed_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-hardening: missing auth backend must NOT silently allow mutating
+    requests. Operators must opt in explicitly via WEB_ALLOW_UNAUTHENTICATED."""
+    for key in ("WEB_ALLOW_UNAUTHENTICATED", "web_admin_pw", "AUTH0_DOMAIN", "AUTH0_CLIENT_ID"):
+        monkeypatch.delenv(key, raising=False)
     client = _make_app({})
     res = client.get("/protected")
-    # When auth is disabled, endpoint should allow access
+    assert res.status_code == 503
+
+
+def test_require_auth_explicit_dev_optout(monkeypatch: pytest.MonkeyPatch) -> None:
+    """WEB_ALLOW_UNAUTHENTICATED=1 is the documented dev escape hatch."""
+    monkeypatch.setenv("WEB_ALLOW_UNAUTHENTICATED", "1")
+    client = _make_app({})
+    res = client.get("/protected")
     assert res.status_code == 200

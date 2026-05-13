@@ -79,7 +79,9 @@ def test_login_redirect_no_config(client, mock_service):
 
 @pytest.mark.asyncio
 async def test_callback_success(client, mock_service, mock_oauth):
-    mock_oauth.auth0.authorize_access_token.return_value = {"userinfo": {"email": "admin@example.com"}}
+    mock_oauth.auth0.authorize_access_token.return_value = {
+        "userinfo": {"email": "admin@example.com", "email_verified": True}
+    }
     app.dependency_overrides[get_request_service] = lambda request=None: mock_service
 
     try:
@@ -93,7 +95,9 @@ async def test_callback_success(client, mock_service, mock_oauth):
 
 @pytest.mark.asyncio
 async def test_callback_email_mismatch(client, mock_service, mock_oauth):
-    mock_oauth.auth0.authorize_access_token.return_value = {"userinfo": {"email": "intruder@example.com"}}
+    mock_oauth.auth0.authorize_access_token.return_value = {
+        "userinfo": {"email": "intruder@example.com", "email_verified": True}
+    }
     app.dependency_overrides[get_request_service] = lambda request=None: mock_service
 
     try:
@@ -108,7 +112,9 @@ async def test_callback_email_mismatch(client, mock_service, mock_oauth):
 @pytest.mark.asyncio
 async def test_callback_email_case_insensitive(client, mock_service, mock_oauth):
     # Test case sensitivity fix
-    mock_oauth.auth0.authorize_access_token.return_value = {"userinfo": {"email": "ADMIN@EXAMPLE.COM"}}
+    mock_oauth.auth0.authorize_access_token.return_value = {
+        "userinfo": {"email": "ADMIN@EXAMPLE.COM", "email_verified": True}
+    }
     app.dependency_overrides[get_request_service] = lambda request=None: mock_service
 
     try:
@@ -135,7 +141,9 @@ async def test_callback_auth0_error(client, mock_service, mock_oauth):
 
 
 def test_logout(client):
-    client.cookies.set("pv2_admin", "1")
+    from publisher_v2.web.auth import mint_admin_cookie_value
+
+    client.cookies.set("pv2_admin", mint_admin_cookie_value())
     response = client.get("/auth/logout", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/"

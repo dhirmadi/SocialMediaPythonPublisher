@@ -20,13 +20,16 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+_CSRF = {"X-Requested-With": "XMLHttpRequest"}
+
+
 def test_keep_remove_require_admin(client: TestClient) -> None:
-    # Without admin cookie, endpoints must be protected (403/404 depending on image existence).
+    # Without auth, 401 (post-hardening) / 403 / 404 are all acceptable.
     res = client.post("/api/images/test.jpg/keep")
-    assert res.status_code in (403, 404)
+    assert res.status_code in (401, 403, 404)
 
     res = client.post("/api/images/test.jpg/remove")
-    assert res.status_code in (403, 404)
+    assert res.status_code in (401, 403, 404)
 
 
 def test_keep_remove_endpoint_success_flow(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -52,10 +55,10 @@ def test_keep_remove_endpoint_success_flow(client: TestClient, monkeypatch: pyte
     svc.config.features.remove_enabled = True
 
     # Keep
-    res = client.post("/api/images/test.jpg/keep")
+    res = client.post("/api/images/test.jpg/keep", headers=_CSRF)
     # When the test image does not exist, implementation may return 404; we only assert no auth error here.
     assert res.status_code in (200, 404)
 
     # Remove
-    res = client.post("/api/images/test.jpg/remove")
+    res = client.post("/api/images/test.jpg/remove", headers=_CSRF)
     assert res.status_code in (200, 404)

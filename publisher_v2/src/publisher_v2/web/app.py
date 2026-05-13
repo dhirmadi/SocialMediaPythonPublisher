@@ -13,7 +13,9 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from publisher_v2.config.source import get_config_source
 from publisher_v2.config.static_loader import get_static_config
+from publisher_v2.core.exceptions import OrchestratorUnavailableError
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic, setup_logging
 from publisher_v2.web.auth import (
     clear_admin_cookie,
@@ -28,6 +30,8 @@ from publisher_v2.web.auth import (
 )
 from publisher_v2.web.dependencies import get_request_service, get_service
 from publisher_v2.web.middleware import tenant_middleware
+from publisher_v2.web.middleware_csrf import CSRFMiddleware
+from publisher_v2.web.middleware_security import SecurityHeadersMiddleware
 from publisher_v2.web.models import (
     AdminLoginRequest,
     AdminStatusResponse,
@@ -41,6 +45,7 @@ from publisher_v2.web.models import (
     VoiceProfileResponse,
     VoiceProfileUpdateRequest,
 )
+from publisher_v2.web.rate_limit import SlidingWindowLimiter, remote_ip
 from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.routers import library as library_router
 from publisher_v2.web.service import WebImageService
@@ -49,8 +54,14 @@ __all__ = [
     "app",
     "get_service",  # legacy import path used by tests and older code
 ]
-from publisher_v2.config.source import get_config_source
-from publisher_v2.core.exceptions import OrchestratorUnavailableError
+
+# Module-level limiters (process-local). Tuned conservatively; documented in
+# README. Brute-force login: 5 attempts per 15 min per IP. Cost endpoints:
+# 10 per minute per IP, 100 per hour per IP (per-admin keys layered on top).
+_LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=5, label="login")
+_ANALYZE_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="analyze/min")
+_ANALYZE_LIMITER_HOUR = SlidingWindowLimiter(window_seconds=3600, max_events=100, label="analyze/hour")
+_PUBLISH_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="publish/min")
 
 
 @asynccontextmanager
@@ -87,6 +98,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await dispose_engine()
     except Exception:
         _logger.warning("caption_history_db_dispose_failed", exc_info=True)
+
+    # Close the shared httpx client used by Vision image downloads.
+    try:
+        from publisher_v2.services._http import aclose_shared_client
+
+        await aclose_shared_client()
+    except Exception:
+        _logger.warning("shared_http_client_close_failed", exc_info=True)
 
     # Shutdown: flush remaining storage ops metrics for all cached tenants
     from publisher_v2.web.middleware import _tenant_service_factory
@@ -155,13 +174,16 @@ def raise_for_service_error(
     """
     Map service-layer exceptions to HTTP responses, with error telemetry.
 
-    Handles FileNotFoundError -> 404, PermissionError -> 403,
-    'not found' in message -> 404, and everything else -> 500.
+    The exception text is kept server-side (logged with correlation_id) and is
+    NOT included in the response body, since exception strings can carry
+    secrets (SMTP auth strings, Telegram URLs with bot tokens, stack frames).
+    The correlation_id is returned so an operator can match an error to logs.
     """
+    # Route by typed exception first — these don't leak sensitive context.
     if isinstance(exc, FileNotFoundError):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
     if isinstance(exc, PermissionError):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=str(exc))
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
     msg = str(exc)
     if "not found" in msg.lower() or "path/not_found" in msg.lower():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
@@ -172,11 +194,15 @@ def raise_for_service_error(
         logger,
         logging.ERROR,
         f"{event_name}_error",
-        error=str(exc),
+        error=msg,
+        error_type=type(exc).__name__,
         correlation_id=telemetry.correlation_id,
         **{f"{event_name}_ms": ms},
     )
-    raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Internal error")
+    raise HTTPException(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        detail=f"Internal error (ref {telemetry.correlation_id})",
+    )
 
 
 # Templates (server-rendered HTML with a small bit of JS)
@@ -197,6 +223,14 @@ if not session_secret:
 # Secure cookies default to True (prod), but can be disabled via env for local dev
 secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
 app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
+
+# Defense-in-depth headers + CSRF protection. Order matters: SecurityHeaders is
+# outermost so even error responses receive headers; CSRF runs after session
+# middleware so it can read cookies if needed.
+
+app.add_middleware(CSRFMiddleware)
+app.add_middleware(SecurityHeadersMiddleware)
+
 app.include_router(auth_router.router)
 app.include_router(library_router.router)
 app.middleware("http")(tenant_middleware)
@@ -302,7 +336,11 @@ async def api_admin_login(
         # Legacy login disabled
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy login not enabled")
 
+    # Brute-force guard: rate-limit by client IP regardless of outcome.
+    _LOGIN_LIMITER.check(remote_ip(request))
+
     if not verify_admin_password(body.password, actual_pass):
+        log_json(logger, logging.WARNING, "admin_login_failed", remote=remote_ip(request))
         # 401 enables the client to re-prompt
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
 
@@ -455,6 +493,11 @@ async def api_analyze_image(
     await require_auth(request)
     if is_admin_configured():
         require_admin(request)
+    # Cost guard: vision + caption calls are expensive. Limit per IP across
+    # both short (per-minute) and long (per-hour) windows.
+    ip = remote_ip(request)
+    _ANALYZE_LIMITER_MIN.check(ip)
+    _ANALYZE_LIMITER_HOUR.check(ip)
     try:
         resp = await service.analyze_and_caption(
             filename,
@@ -483,6 +526,7 @@ async def api_publish_image(
     await require_auth(request)
     if is_admin_configured():
         require_admin(request)
+    _PUBLISH_LIMITER_MIN.check(remote_ip(request))
     platforms = body.platforms if body else None
     raw_caption = body.caption if body else None
     caption_override = raw_caption.strip() if raw_caption and raw_caption.strip() else None

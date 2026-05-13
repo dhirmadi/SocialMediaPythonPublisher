@@ -101,7 +101,12 @@ def patch_retry_wait(monkeypatch: pytest.MonkeyPatch) -> None:
 
 @pytest.fixture
 def patch_httpx_download(monkeypatch: pytest.MonkeyPatch):
-    """Patch httpx.AsyncClient used inside VisionAnalyzerOpenAI to return controlled bytes."""
+    """Patch httpx.AsyncClient used inside VisionAnalyzerOpenAI to return controlled bytes.
+
+    Since the post-hardening Vision path reuses a process-wide shared client
+    (services._http.get_shared_client), the fixture also resets the cached
+    client so each test gets a fresh patched instance.
+    """
 
     def _install(image_bytes: bytes) -> dict[str, Any]:
         calls: dict[str, Any] = {"count": 0, "urls": []}
@@ -130,7 +135,12 @@ def patch_httpx_download(monkeypatch: pytest.MonkeyPatch):
 
         import httpx
 
+        from publisher_v2.services import _http as _shared_http
+
         monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+        # Reset the cached shared client so the next get_shared_client() call
+        # constructs a fresh instance using the patched AsyncClient.
+        monkeypatch.setattr(_shared_http, "_client", None)
         return calls
 
     return _install
@@ -475,7 +485,11 @@ class TestFallback:
             vision_fallback_detail="high",
         )
         # primary 3 retries fail, fallback 1st succeeds
-        primary_err = RuntimeError("primary failed")
+        # Use a retryable error type so the 3 primary retries actually fire
+        # under the post-hardening retry predicate (only transient errors retry).
+        import httpx as _httpx
+
+        primary_err = _httpx.ConnectError("primary failed")
         good = _FakeResp(VALID_VISION_JSON, usage_total=200, resp_id="fallback-resp")
         completions = _install_scripted(
             analyzer,
@@ -501,7 +515,9 @@ class TestFallback:
     ) -> None:
         patch_httpx_download(_make_jpeg(2000, 2000))
         analyzer = _build_analyzer()
-        primary_err = RuntimeError("simulated primary fail")
+        import httpx as _httpx
+
+        primary_err = _httpx.ConnectError("simulated primary fail")
         good = _FakeResp(VALID_VISION_JSON)
         _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 
@@ -517,7 +533,11 @@ class TestFallback:
     async def test_ac09_fallback_disabled_raises_aiservice_error(self, patch_httpx_download, patch_retry_wait) -> None:
         patch_httpx_download(_make_jpeg(2000, 2000))
         analyzer = _build_analyzer(vision_fallback_enabled=False)
-        primary_err = RuntimeError("primary failed")
+        # Use a retryable error type so the 3 primary retries actually fire
+        # under the post-hardening retry predicate (only transient errors retry).
+        import httpx as _httpx
+
+        primary_err = _httpx.ConnectError("primary failed")
         _install_scripted(analyzer, [primary_err, primary_err, primary_err])
 
         with pytest.raises(AIServiceError):
@@ -541,7 +561,11 @@ class TestFallback:
         patch_httpx_download(_make_jpeg(2000, 2000))
         analyzer = _build_analyzer()
         # Fallback succeeds on first attempt of its chain
-        primary_err = RuntimeError("primary failed")
+        # Use a retryable error type so the 3 primary retries actually fire
+        # under the post-hardening retry predicate (only transient errors retry).
+        import httpx as _httpx
+
+        primary_err = _httpx.ConnectError("primary failed")
         good = _FakeResp(VALID_VISION_JSON)
         completions = _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 
@@ -552,7 +576,11 @@ class TestFallback:
     async def test_ac11_returns_combined_usage(self, patch_httpx_download, patch_retry_wait) -> None:
         patch_httpx_download(_make_jpeg(2000, 2000))
         analyzer = _build_analyzer()
-        primary_err = RuntimeError("primary failed")
+        # Use a retryable error type so the 3 primary retries actually fire
+        # under the post-hardening retry predicate (only transient errors retry).
+        import httpx as _httpx
+
+        primary_err = _httpx.ConnectError("primary failed")
         good = _FakeResp(VALID_VISION_JSON, usage_total=300, resp_id="fb-resp")
         _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 

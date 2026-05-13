@@ -19,7 +19,7 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
     ChatCompletionUserMessageParam,
 )
-from tenacity import retry, stop_after_attempt, wait_exponential
+from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
@@ -28,6 +28,59 @@ from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
 from publisher_v2.utils.images import resize_image_bytes
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
+
+
+def _openai_retryable_classes() -> tuple[type[BaseException], ...]:
+    """Return the openai exception classes we consider transient.
+
+    Returns an empty tuple when ``openai`` is absent (test environments that
+    stub the SDK).
+    """
+    try:
+        from openai import APIConnectionError, APITimeoutError, RateLimitError
+    except ImportError:  # pragma: no cover
+        return ()
+    return (RateLimitError, APIConnectionError, APITimeoutError)
+
+
+def _is_retryable_ai_error(exc: BaseException) -> bool:
+    """Predicate: should this exception trigger another OpenAI retry?
+
+    We retry only transient network / server-side failures. Permanent errors
+    (bad request, authentication, JSON-decode failure) burn through the retry
+    budget without changing outcome and run up OpenAI cost, so they
+    short-circuit immediately.
+
+    ``AIServiceError`` is checked against its underlying ``__cause__`` so that
+    wrapped transient errors retry while wrapped permanent ones do not.
+    """
+    if isinstance(exc, AIServiceError):
+        cause = exc.__cause__
+        if cause is None or cause is exc:
+            return False
+        return _is_retryable_ai_error(cause)
+
+    if isinstance(exc, _openai_retryable_classes()):
+        return True
+
+    try:
+        from openai import APIStatusError
+
+        if isinstance(exc, APIStatusError):
+            status_code = getattr(exc, "status_code", None)
+            return status_code is not None and 500 <= int(status_code) < 600
+    except ImportError:  # pragma: no cover
+        pass
+
+    return bool(isinstance(exc, httpx.RequestError))
+
+
+_ai_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception(_is_retryable_ai_error),
+)
 
 logger = logging.getLogger("publisher_v2.services.ai")
 
@@ -236,9 +289,13 @@ class VisionAnalyzerOpenAI:
 
     async def _download_and_resize(self, url: str, max_dimension: int) -> str:
         """Download image at url and return a base64 JPEG data URL resized to max_dimension."""
-        async with httpx.AsyncClient() as client:
-            resp = await client.get(url, timeout=30.0)
-            resp.raise_for_status()
+        # Reuse the shared, keep-alive client so we don't pay TLS handshake
+        # cost on every Vision call.
+        from publisher_v2.services._http import get_shared_client
+
+        client = await get_shared_client()
+        resp = await client.get(url)
+        resp.raise_for_status()
         resized = await asyncio.to_thread(resize_image_bytes, resp.content, max_dimension)
         b64 = base64.b64encode(resized).decode("ascii")
         return f"data:image/jpeg;base64,{b64}"
@@ -316,11 +373,7 @@ class VisionAnalyzerOpenAI:
             )
             return fallback_result, combined
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_ai_retry
     async def _analyze_core(
         self, image_url: str, max_dimension: int, detail: str, resized: bool
     ) -> tuple[ImageAnalysis, AIUsage | None]:
@@ -376,17 +429,16 @@ class VisionAnalyzerOpenAI:
             content = resp.choices[0].message.content or "{}"
             try:
                 data = json.loads(content)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as exc:
+                # Vision should always return JSON because we requested
+                # response_format=json_object. A non-JSON payload means the
+                # model went off-script — fabricating an `analysis` with
+                # description=content[:100] previously caused the model's
+                # raw text (potentially attacker-controlled image overlay
+                # text) to flow into published captions. Surface the error
+                # so the retry layer can decide whether to try again.
                 error_type = "json_decode_error"
-                # Fallback: attempt a best-effort mapping; keep safe defaults
-                data = {
-                    "description": str(content).strip()[:100],
-                    "mood": "unknown",
-                    "tags": [],
-                    "nsfw": False,
-                    "safety_labels": [],
-                    "alt_text": None,
-                }
+                raise AIServiceError("Vision returned non-JSON response") from exc
             analysis = ImageAnalysis(
                 description=str(data.get("description", "")).strip(),
                 mood=str(data.get("mood", "")).strip(),
@@ -441,51 +493,85 @@ class VisionAnalyzerOpenAI:
 logger = logging.getLogger("publisher_v2.services.ai")
 
 
+_INJECTION_MARKERS = (
+    "ignore previous",
+    "ignore prior",
+    "ignore the above",
+    "disregard previous",
+    "disregard prior",
+    "system:",
+    "assistant:",
+    "user:",
+    "</",  # closing markup that might end a fenced block
+    "```",  # markdown fence escape
+)
+
+
+def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
+    """Sanitize a free-text field from the Vision model before re-interpolating it
+    into a caption prompt.
+
+    Vision can faithfully transcribe attacker text embedded in image content
+    (overlay text, file metadata visible in the frame, etc.). When that text
+    later feeds back into the caption-generator prompt, it can hijack the
+    instruction context. We mitigate this by:
+
+      - stripping control characters and line breaks,
+      - replacing known instruction-injection markers,
+      - collapsing whitespace,
+      - capping length.
+    """
+    if s is None:
+        return None
+    cleaned = "".join(ch for ch in s if ch.isprintable() and ch not in ("\n", "\r"))
+    lower = cleaned.lower()
+    for marker in _INJECTION_MARKERS:
+        if marker in lower:
+            idx = lower.find(marker)
+            cleaned = cleaned[:idx] + "[redacted]" + cleaned[idx + len(marker) :]
+            lower = cleaned.lower()
+    cleaned = " ".join(cleaned.split())
+    cleaned = cleaned.strip()
+    if not cleaned:
+        return None
+    return cleaned[:max_len]
+
+
 def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> str:
     """Build a bounded analysis-context string for caption prompts (PUB-041).
 
-    Includes ``description``, ``mood``, ``tags`` always; appends
-    ``lighting``, ``composition``, ``pose``, ``aesthetic_terms`` (capped at 10),
-    ``color_palette``, ``style`` when non-None/non-empty. Excludes sensitive or
-    low-value fields (``nsfw``, ``safety_labels``, ``camera``, ``clothing_or_accessories``,
-    ``background``, ``subject``).
+    Each free-text field is run through ``_sanitize_analysis_field`` so that
+    attacker-controlled content extracted by Vision cannot inject new
+    instructions into the downstream caption prompt.
     """
 
-    def _trunc(s: str | None) -> str | None:
-        if s is None:
-            return None
-        s2 = s.strip()
-        if not s2:
-            return None
-        return s2[:max_field_len]
-
     parts: list[str] = [
-        f"description='{_trunc(analysis.description) or ''}'",
-        f"mood='{_trunc(analysis.mood) or ''}'",
-        f"tags={analysis.tags}",
+        f"description='{_sanitize_analysis_field(analysis.description, max_field_len) or ''}'",
+        f"mood='{_sanitize_analysis_field(analysis.mood, max_field_len) or ''}'",
+        f"tags={[_sanitize_analysis_field(t, max_field_len) for t in analysis.tags if t]}",
     ]
 
-    lighting = _trunc(analysis.lighting)
+    lighting = _sanitize_analysis_field(analysis.lighting, max_field_len)
     if lighting:
         parts.append(f"lighting='{lighting}'")
 
-    composition = _trunc(analysis.composition)
+    composition = _sanitize_analysis_field(analysis.composition, max_field_len)
     if composition:
         parts.append(f"composition='{composition}'")
 
-    pose = _trunc(analysis.pose)
+    pose = _sanitize_analysis_field(analysis.pose, max_field_len)
     if pose:
         parts.append(f"pose='{pose}'")
 
     if analysis.aesthetic_terms:
-        terms = list(analysis.aesthetic_terms[:10])
+        terms = [_sanitize_analysis_field(t, max_field_len) for t in analysis.aesthetic_terms[:10] if t]
         parts.append(f"aesthetic_terms={terms}")
 
-    color_palette = _trunc(analysis.color_palette)
+    color_palette = _sanitize_analysis_field(analysis.color_palette, max_field_len)
     if color_palette:
         parts.append(f"color_palette='{color_palette}'")
 
-    style = _trunc(analysis.style)
+    style = _sanitize_analysis_field(analysis.style, max_field_len)
     if style:
         parts.append(f"style='{style}'")
 
@@ -779,11 +865,7 @@ class CaptionGeneratorOpenAI:
             # Keep current default.
             self.sd_caption_role_prompt = self.sd_caption_role_prompt
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_ai_retry
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
         try:
             hashtags_clause = _build_inline_hashtags_clause(spec)
@@ -836,11 +918,7 @@ class CaptionGeneratorOpenAI:
         except Exception as exc:
             raise AIServiceError(f"OpenAI caption failed: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_ai_retry
     async def generate_with_sd(
         self, analysis: ImageAnalysis, spec: CaptionSpec
     ) -> tuple[dict[str, str], AIUsage | None]:
@@ -1088,11 +1166,7 @@ class CaptionGeneratorOpenAI:
         )
         return (resp.choices[0].message.content or "").strip()
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_ai_retry
     async def generate_multi(
         self,
         analysis: ImageAnalysis,
@@ -1129,11 +1203,7 @@ class CaptionGeneratorOpenAI:
         except Exception as exc:
             raise AIServiceError(f"OpenAI multi-caption failed: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_ai_retry
     async def generate_multi_with_sd(
         self,
         analysis: ImageAnalysis,

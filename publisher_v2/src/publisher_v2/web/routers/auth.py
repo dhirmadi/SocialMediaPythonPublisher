@@ -4,7 +4,6 @@ from authlib.integrations.starlette_client import OAuth
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 
-from publisher_v2.config.host_utils import normalize_host, validate_host
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.auth import clear_admin_cookie, set_admin_cookie
 from publisher_v2.web.dependencies import get_request_service
@@ -47,28 +46,25 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
 
 def get_auth0_callback_url(request: Request) -> str | None:
     """
-    Compute the Auth0 callback URL from the incoming request host.
+    Compute the Auth0 callback URL for local development only.
 
-    - For localhost/127.0.0.1: preserve scheme + port for local dev.
-    - For non-local hosts: force HTTPS and validate host shape to prevent Host header injection.
+    Returns a request-derived URL ONLY for ``localhost``/``127.0.0.1`` so the
+    dev experience works without per-port config. For every other host the
+    callback MUST come from the operator-configured ``auth0_config.callback_url``
+    — deriving it from ``request.url.hostname`` would let an attacker who can
+    spoof the ``Host`` header redirect the OAuth code to an arbitrary URL.
     """
     hostname = request.url.hostname or ""
     port = request.url.port
 
-    is_local = hostname in ("localhost", "127.0.0.1")
-    if is_local:
-        scheme = request.url.scheme or "http"
-        netloc = hostname
-        if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
-            netloc = f"{hostname}:{port}"
-        return f"{scheme}://{netloc}/auth/callback"
-
-    host_norm = normalize_host(hostname)
-    if not validate_host(host_norm):
+    if hostname not in ("localhost", "127.0.0.1"):
         return None
 
-    # Force HTTPS for non-local hosts
-    return f"https://{host_norm}/auth/callback"
+    scheme = request.url.scheme or "http"
+    netloc = hostname
+    if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
+        netloc = f"{hostname}:{port}"
+    return f"{scheme}://{netloc}/auth/callback"
 
 
 @router.get("/login")
@@ -132,10 +128,18 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
             user_info = await oauth.auth0.userinfo(token=token)
 
         email = user_info.get("email")
+        email_verified = user_info.get("email_verified")
 
         if not email:
             log_json(logger, logging.WARNING, "auth_callback_no_email")
             return RedirectResponse(url="/?auth_error=no_email_provided", status_code=status.HTTP_303_SEE_OTHER)
+
+        if email_verified is not True:
+            # Refuse unverified emails — otherwise an attacker can sign up at
+            # the IdP with a target email address and gain admin.
+            log_json(logger, logging.WARNING, "auth_callback_unverified_email", email=email)
+            request.session.clear()
+            return RedirectResponse(url="/?auth_error=email_unverified", status_code=status.HTTP_303_SEE_OTHER)
 
         # Check allowlist (case-insensitive)
         email_lower = email.lower()

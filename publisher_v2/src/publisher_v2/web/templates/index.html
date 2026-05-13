@@ -858,6 +858,41 @@
     // i18n text injected from static config (YAML → Jinja → JS)
     const TEXT = {{ web_ui_text | tojson }};
 
+    // --- Security helpers --------------------------------------------------
+    // Escape HTML so untrusted strings (filenames, JSON, server-supplied text)
+    // can be safely interpolated into innerHTML without XSS risk.
+    function escapeHtml(s) {
+      if (s === undefined || s === null) return "";
+      return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    // Wrap window.fetch so every state-changing request automatically carries
+    // the CSRF marker header. The server-side CSRFMiddleware rejects state-
+    // changing requests that lack `X-Requested-With` (browser-only, since
+    // cross-origin pages cannot set custom request headers without a CORS
+    // preflight). Same-origin GETs are unaffected.
+    (function installCsrfHeader() {
+      const STATE_CHANGING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+      const originalFetch = window.fetch.bind(window);
+      window.fetch = function (input, init) {
+        const method = (init && init.method) || (input && input.method) || "GET";
+        if (STATE_CHANGING.has(method.toUpperCase())) {
+          init = init || {};
+          const headers = new Headers(init.headers || {});
+          if (!headers.has("X-Requested-With")) {
+            headers.set("X-Requested-With", "XMLHttpRequest");
+          }
+          init.headers = headers;
+        }
+        return originalFetch(input, init);
+      };
+    })();
+
     const bodyEl = document.body;
     const imgEl = document.getElementById("image");
     const imagePlaceholder = document.getElementById("image-placeholder");
@@ -1006,7 +1041,7 @@
         );
         setCaption(data.caption || data.sd_caption || "No caption yet.");
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
-        setDetails(`<div><strong>File:</strong> ${data.filename}</div><pre><code>${meta}</code></pre>`);
+        setDetails(`<div><strong>File:</strong> ${escapeHtml(data.filename)}</div><pre><code>${escapeHtml(meta)}</code></pre>`);
         setActivity("Image loaded.");
         // Sync reviewIndex so sequential prev/next has a coherent anchor
         // whenever we land on an image (random fetch, grid pick, etc.).
@@ -1462,7 +1497,7 @@
           nsfw: data.nsfw,
           tags: data.tags
         };
-        setDetails(`<div><strong>Analysis:</strong></div><pre><code>${JSON.stringify(meta, null, 2)}</code></pre>`);
+        setDetails(`<div><strong>Analysis:</strong></div><pre><code>${escapeHtml(JSON.stringify(meta, null, 2))}</code></pre>`);
         setActivity("Analysis complete; caption generated.");
       } catch (e) {
         console.error(e);
@@ -2393,7 +2428,7 @@
           await advanceAfterCurate();
         } else {
           // No platform succeeded — stay on the image so the user can investigate
-          setDetails(`<div><strong>Publish results:</strong></div><pre><code>${results}</code></pre>`);
+          setDetails(`<div><strong>Publish results:</strong></div><pre><code>${escapeHtml(results)}</code></pre>`);
           setActivity("Publish completed but no platforms reported success; see details.");
         }
       } catch (e) {

@@ -103,13 +103,17 @@ async def test_vision_analyzer_missing_alt_text_is_none(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_vision_analyzer_json_decode_error_sets_alt_text_none(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_vision_analyzer_json_decode_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-hardening: non-JSON Vision response surfaces an error instead of
+    fabricating an analysis (previously caused attacker-controlled model
+    output to flow into published captions). See CR-S0-vision-fix."""
+    from publisher_v2.core.exceptions import AIServiceError
+
     monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _make_dummy_client("not-json"))
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
-    analysis, _usage = await analyzer.analyze("http://tmp-url")
-
-    assert analysis.alt_text is None
+    with pytest.raises(AIServiceError):
+        await analyzer.analyze("http://tmp-url")
 
 
 def test_build_metadata_phase2_includes_alt_text_when_present() -> None:

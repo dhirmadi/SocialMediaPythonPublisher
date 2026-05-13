@@ -57,5 +57,8 @@ class InstagramPublisher(Publisher):
             log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name, post_id=post_id or None)
         except Exception as exc:
-            log_publisher_publish(logger, self.platform_name, start, success=False, error=str(exc))
-            return PublishResult(success=False, platform=self.platform_name, error=str(exc))
+            from publisher_v2.services.publishers._sanitize import sanitize_publisher_error
+
+            safe = sanitize_publisher_error(exc)
+            log_publisher_publish(logger, self.platform_name, start, success=False, error=safe)
+            return PublishResult(success=False, platform=self.platform_name, error=safe)

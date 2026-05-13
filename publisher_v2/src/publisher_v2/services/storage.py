@@ -22,6 +22,34 @@ from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
 
 
+def _is_retryable_dropbox_error(exc: BaseException) -> bool:
+    """Predicate: retry on transient Dropbox API errors, never on permanent ones.
+
+    Dropbox 4xx (auth, not_found, conflict) burn retries without changing
+    outcome. Network failures and 5xx are worth retrying.
+    """
+    if isinstance(exc, ApiError):
+        err = getattr(exc, "error", None)
+        # Path-shaped errors (auth, not_found) are permanent — don't retry.
+        return not (err is not None and hasattr(err, "is_path") and err.is_path())
+    # Network and transport-level errors (best-effort detection without
+    # importing requests/httpx eagerly).
+    return type(exc).__name__ in {
+        "ConnectionError",
+        "ConnectTimeout",
+        "ReadTimeout",
+        "Timeout",
+    }
+
+
+_dropbox_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=1, max=8),
+    retry=retry_if_exception(_is_retryable_dropbox_error),
+)
+
+
 def _dropbox_move_destination_dir(folder: str, target_subfolder: str) -> str:
     """Destination directory for curation moves (relative segment or full Dropbox path)."""
     fn = folder.rstrip("/")
@@ -41,11 +69,7 @@ class DropboxStorage:
             app_secret=config.app_secret,
         )
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         """
         Write or overwrite a .txt sidecar beside the image. For 'image.jpg' writes 'image.txt'.
@@ -119,11 +143,7 @@ class DropboxStorage:
                 return None
             raise StorageError(f"Failed to download sidecar for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
         """
         Return minimal Dropbox file metadata for identity/version fields.
@@ -146,11 +166,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to get metadata for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def list_images(self, folder: str) -> list[str]:
         try:
 
@@ -173,11 +189,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to list images: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
         """
         Return image filenames and their Dropbox content_hash where available.
@@ -207,11 +219,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to list images with hashes: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def download_image(self, folder: str, filename: str) -> bytes:
         try:
 
@@ -224,11 +232,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to download {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         try:
 
@@ -241,11 +245,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to get temporary link for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def ensure_folder_exists(self, folder_path: str) -> None:
         """
         Ensure the specified folder exists in Dropbox.
@@ -268,11 +268,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to ensure folder exists {folder_path}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
         """
         Move the image and its .txt sidecar (if present) into a subfolder under the given folder.
@@ -301,11 +297,7 @@ class DropboxStorage:
         except ApiError as exc:
             raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
         """
         Permanently delete an image and its .txt sidecar (if present) from Dropbox.
@@ -355,11 +347,7 @@ class DropboxStorage:
         "png": DbxThumbnailFormat.png,
     }
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-    )
+    @_dropbox_retry
     async def get_thumbnail(
         self,
         folder: str,

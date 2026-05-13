@@ -19,9 +19,13 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
     return TestClient(app)
 
 
+_CSRF = {"X-Requested-With": "XMLHttpRequest"}
+
+
 def test_delete_requires_admin(client: TestClient) -> None:
+    # Without auth credentials, 401 (post-hardening) or 403/404 acceptable.
     res = client.post("/api/images/test.jpg/delete")
-    assert res.status_code in (403, 404)
+    assert res.status_code in (401, 403, 404)
 
 
 def test_delete_endpoint_success_flow(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -39,5 +43,7 @@ def test_delete_endpoint_success_flow(client: TestClient, monkeypatch: pytest.Mo
     monkeypatch.setattr(svc.orchestrator, "delete_image", _fake_delete)
     svc.config.features.delete_enabled = True
 
-    res = client.post("/api/images/test.jpg/delete")
+    # Browser callers send X-Requested-With via the installed fetch wrapper;
+    # the test client must mimic that to satisfy CSRF middleware.
+    res = client.post("/api/images/test.jpg/delete", headers=_CSRF)
     assert res.status_code in (200, 404)

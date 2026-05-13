@@ -38,6 +38,29 @@ from publisher_v2.utils.state import (
 )
 
 
+def _publish_timeout_seconds() -> float:
+    """Default per-publisher timeout. Configurable via env for ops."""
+    raw = os.environ.get("PUBLISH_TIMEOUT_SECONDS")
+    try:
+        v = float(raw) if raw else 120.0
+    except ValueError:
+        v = 120.0
+    return max(5.0, v)
+
+
+def _publish_timeout_for(platform: str, default: float) -> float:
+    """Per-platform override, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
+    key = f"PUBLISH_TIMEOUT_{platform.upper()}_SECONDS"
+    raw = os.environ.get(key)
+    if not raw:
+        return default
+    try:
+        v = float(raw)
+    except ValueError:
+        return default
+    return max(5.0, v)
+
+
 @dataclasses.dataclass(slots=True)
 class _ImageSelection:
     """Bundle returned by _select_image to keep execute() focused on workflow steps."""
@@ -360,8 +383,12 @@ class WorkflowOrchestrator:
                 # PUB-035: Fetch caption history for context intelligence
                 caption_history: dict[str, list[str]] | list[str] | None = None
                 history_cfg = get_static_config().ai_prompts.caption_history
-                try:
-                    if self._caption_store is not None:
+                # Caption history is DB-only post-cleanup. When no caption_store
+                # is configured we pass None — the storage-scan fallback was
+                # removed because it double-listed the folder on every workflow
+                # and added 8 extra GETs per publish on the hot path.
+                if self._caption_store is not None:
+                    try:
                         db_history = await self._caption_store.fetch_recent_by_platform(
                             self._tenant,
                             platforms=list(specs.keys()),
@@ -378,17 +405,14 @@ class WorkflowOrchestrator:
                             total_captions=history_count,
                             correlation_id=correlation_id,
                         )
-                    else:
-                        from publisher_v2.services.ai import fetch_caption_history
-
-                        caption_history = await fetch_caption_history(
-                            self.storage,
-                            self.config.storage_paths.image_folder,
-                            window_size=history_cfg.window_size,
-                            max_tokens_budget=history_cfg.max_tokens_budget,
+                    except Exception:
+                        log_json(
+                            self.logger,
+                            logging.WARNING,
+                            "caption_history_fetch_failed",
+                            correlation_id=correlation_id,
+                            exc_info=True,
                         )
-                except Exception:  # noqa: S110 — graceful degradation
-                    log_json(self.logger, logging.DEBUG, "caption_history_fetch_failed", correlation_id=correlation_id)
 
                 # PUB-029: extract voice examples (truncated to budget) when feature enabled.
                 voice_examples = None
@@ -472,16 +496,20 @@ class WorkflowOrchestrator:
                 if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                     publish_start = now_monotonic()
                     context = self._build_publisher_context(analysis)
+                    timeout = _publish_timeout_seconds()
                     results = await asyncio.gather(
                         *[
-                            p.publish(
-                                tmp_path,
-                                format_caption(
-                                    p.platform_name,
-                                    platform_captions.get(p.platform_name, caption),
-                                    smart_hashtags=self.config.features.smart_hashtags_enabled,
+                            asyncio.wait_for(
+                                p.publish(
+                                    tmp_path,
+                                    format_caption(
+                                        p.platform_name,
+                                        platform_captions.get(p.platform_name, caption),
+                                        smart_hashtags=self.config.features.smart_hashtags_enabled,
+                                    ),
+                                    context=context,
                                 ),
-                                context=context,
+                                timeout=_publish_timeout_for(p.platform_name, timeout),
                             )
                             for p in enabled_publishers
                         ],
@@ -489,9 +517,15 @@ class WorkflowOrchestrator:
                     )
                     publish_parallel_ms = elapsed_ms(publish_start)
                     for pub, res in zip(enabled_publishers, results, strict=True):
-                        if isinstance(res, BaseException):
+                        if isinstance(res, asyncio.TimeoutError):
                             publish_results[pub.platform_name] = PublishResult(
-                                success=False, platform=pub.platform_name, error=str(res)
+                                success=False,
+                                platform=pub.platform_name,
+                                error="publish timeout",
+                            )
+                        elif isinstance(res, BaseException):
+                            publish_results[pub.platform_name] = PublishResult(
+                                success=False, platform=pub.platform_name, error=type(res).__name__
                             )
                         else:
                             publish_results[pub.platform_name] = res
@@ -588,7 +622,20 @@ class WorkflowOrchestrator:
                         correlation_id=correlation_id,
                     )
 
-            # 6. Archive if any success and not debug
+            # 6. Persist "already posted" state BEFORE archive. If the process
+            # crashes between publish and archive, the next workflow run still
+            # sees the hash in the posted set and won't re-publish. The image
+            # stays in the source folder until a (manual) re-run completes
+            # archiving — preferable to double-posting on every platform.
+            if any_success and not self.config.content.debug and not dry_publish and not preview_mode:
+                if selected_hash:
+                    with contextlib.suppress(OSError):
+                        save_posted_hash(selected_hash)
+                if selected_content_hash:
+                    with contextlib.suppress(OSError):
+                        save_posted_content_hash(selected_content_hash)
+
+            # 7. Archive if any success and not debug
             archived = False
             if (
                 any_success
@@ -598,15 +645,27 @@ class WorkflowOrchestrator:
                 and not preview_mode
             ):
                 archive_start = now_monotonic()
-                await self.storage.archive_image(
-                    self.config.storage_paths.image_folder, selected_image, self.config.storage_paths.archive_folder
-                )
+                try:
+                    await self.storage.archive_image(
+                        self.config.storage_paths.image_folder,
+                        selected_image,
+                        self.config.storage_paths.archive_folder,
+                    )
+                    archived = True
+                except Exception:
+                    # Idempotent archive: a previous run may have already moved
+                    # the file (state-saved-then-crash before archive completed
+                    # on disk). Log and continue rather than retrying — the
+                    # image will not be re-published thanks to the saved hash.
+                    log_json(
+                        self.logger,
+                        logging.WARNING,
+                        "workflow_archive_failed",
+                        correlation_id=correlation_id,
+                        image=selected_image,
+                        exc_info=True,
+                    )
                 archive_ms = elapsed_ms(archive_start)
-                archived = True
-                if selected_hash:
-                    save_posted_hash(selected_hash)
-                if selected_content_hash:
-                    save_posted_content_hash(selected_content_hash)
             elif any_success and not preview_mode and not dry_publish:
                 if not self.config.content.archive:
                     skip_reason = "content.archive=false"

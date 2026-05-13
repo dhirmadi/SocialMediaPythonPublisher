@@ -59,10 +59,20 @@ def test_admin_logout_clears_cookie(client: TestClient) -> None:
     assert res.status_code == 200
     assert client.get("/api/admin/status").json()["admin"] is True
 
-    # Logout should clear admin status
-    res = client.post("/api/admin/logout")
+    # Logout (state-changing POST) — browser callers carry X-Requested-With
+    # via the installed fetch wrapper; test client must mimic that to satisfy
+    # the CSRF middleware.
+    res = client.post("/api/admin/logout", headers={"X-Requested-With": "XMLHttpRequest"})
     assert res.status_code == 200
     assert client.get("/api/admin/status").json()["admin"] is False
+
+
+def test_admin_logout_without_csrf_header_is_blocked(client: TestClient) -> None:
+    """POSTing logout from a cross-origin form (no X-Requested-With) is blocked."""
+    res = client.post("/api/admin/login", json={"password": "secret-admin"})
+    assert res.status_code == 200
+    res = client.post("/api/admin/logout")  # no CSRF header
+    assert res.status_code == 403
 
 
 def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -73,9 +83,11 @@ def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("web_admin_pw", "secret-admin")
     client = TestClient(app)
 
-    # Without admin cookie, should be 403 or 404 depending on image existence
+    # Without admin cookie, should be blocked. Post-hardening returns 401
+    # (no credentials) rather than 403 (forbidden); both indicate the route
+    # is properly gated.
     res = client.post("/api/images/test.jpg/analyze")
-    assert res.status_code in (403, 404)
+    assert res.status_code in (401, 403, 404)
 
     res = client.post("/api/images/test.jpg/publish")
-    assert res.status_code in (403, 404)
+    assert res.status_code in (401, 403, 404)

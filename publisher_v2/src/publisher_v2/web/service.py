@@ -331,15 +331,35 @@ class WebImageService:
     async def _get_cached_images(self) -> list[str]:
         """
         Return a cached list of images when within TTL, otherwise refresh from Dropbox.
+
+        The single-flight lock prevents a thundering herd when many concurrent
+        requests miss the cache simultaneously — only one runs ``list_images``
+        and the rest wait for the same result.
         """
         now = time.monotonic()
         if self._image_cache is not None and self._image_cache_expiry is not None and now < self._image_cache_expiry:
             return list(self._image_cache)
-        images = await self.storage.list_images(self.config.storage_paths.image_folder)
-        # Cache even empty lists so we don't hammer Dropbox on empty folders.
-        self._image_cache = list(images)
-        self._image_cache_expiry = now + self._image_cache_ttl_seconds
-        return images
+
+        # Lazy-init the lock — async constructs prefer this so __init__ stays sync.
+        lock = getattr(self, "_image_cache_lock", None)
+        if lock is None:
+            import asyncio as _asyncio
+
+            lock = _asyncio.Lock()
+            self._image_cache_lock = lock
+
+        async with lock:
+            now = time.monotonic()
+            if (
+                self._image_cache is not None
+                and self._image_cache_expiry is not None
+                and now < self._image_cache_expiry
+            ):
+                return list(self._image_cache)
+            images = await self.storage.list_images(self.config.storage_paths.image_folder)
+            self._image_cache = list(images)
+            self._image_cache_expiry = now + self._image_cache_ttl_seconds
+            return images
 
     async def _build_image_response(self, filename: str, temp_link: str) -> ImageResponse:
         """

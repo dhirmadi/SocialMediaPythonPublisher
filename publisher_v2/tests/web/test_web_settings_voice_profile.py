@@ -4,11 +4,14 @@ from __future__ import annotations
 
 from fastapi.testclient import TestClient
 
-from publisher_v2.web.auth import ADMIN_COOKIE_NAME
+from publisher_v2.web.auth import ADMIN_COOKIE_NAME, mint_admin_cookie_value
 
 
 def _admin(client: TestClient) -> TestClient:
-    client.cookies.set(ADMIN_COOKIE_NAME, "1")
+    client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value())
+    # Browser callers send X-Requested-With via the installed fetch wrapper;
+    # CSRF middleware requires it for state-changing requests.
+    client.headers.update({"X-Requested-With": "XMLHttpRequest"})
     return client
 
 

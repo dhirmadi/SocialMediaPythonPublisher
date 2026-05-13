@@ -40,12 +40,12 @@ class DisabledPublisher(BaseDummyPublisher):
 
 @pytest.mark.asyncio
 async def test_dedup_skips_already_posted(monkeypatch, tmp_path):
-    # Seed cache with hash of our content
+    # Seed cache with hash of our content (current dict schema).
     content = b"samebytes"
     h = hashlib.sha256(content).hexdigest()
     cache = _cache_path()
     cache.parent.mkdir(parents=True, exist_ok=True)
-    cache.write_text(json.dumps([h]))
+    cache.write_text(json.dumps({"hashes": [h]}))
 
     cfg = ApplicationConfig(
         dropbox=DropboxConfig(

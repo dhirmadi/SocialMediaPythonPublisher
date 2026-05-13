@@ -66,8 +66,10 @@ def admin_headers() -> dict[str, str]:
 
 @pytest.fixture
 def admin_cookies() -> dict[str, str]:
-    """Admin cookie for admin requests."""
-    return {"pv2_admin": "1"}
+    """Admin cookie for admin requests (signed value)."""
+    from publisher_v2.web.auth import mint_admin_cookie_value
+
+    return {"pv2_admin": mint_admin_cookie_value()}
 
 
 @pytest.fixture
@@ -217,6 +219,27 @@ class TestListObjectsFromStorageImpl:
 # ---------------------------------------------------------------------------
 
 
+def _real_jpeg_bytes() -> bytes:
+    """A real, valid 4×4 JPEG — magic-byte validation rejects non-parseable bytes."""
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (200, 100, 50)).save(buf, format="JPEG")
+    return buf.getvalue()
+
+
+def _real_png_bytes() -> bytes:
+    from io import BytesIO
+
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), (50, 100, 200)).save(buf, format="PNG")
+    return buf.getvalue()
+
+
 class TestUpload:
     """AC10: Upload validates MIME/size, stores in managed storage."""
 
@@ -231,7 +254,7 @@ class TestUpload:
                 "/api/library/upload",
                 headers=admin_headers,
                 cookies=admin_cookies,
-                files={"file": ("test.jpg", b"\xff\xd8\xff" + b"\x00" * 100, "image/jpeg")},
+                files={"file": ("test.jpg", _real_jpeg_bytes(), "image/jpeg")},
             )
 
         assert res.status_code == 200
@@ -248,10 +271,24 @@ class TestUpload:
                 "/api/library/upload",
                 headers=admin_headers,
                 cookies=admin_cookies,
-                files={"file": ("test.png", b"\x89PNG" + b"\x00" * 100, "image/png")},
+                files={"file": ("test.png", _real_png_bytes(), "image/png")},
             )
 
         assert res.status_code == 200
+
+    def test_upload_rejects_invalid_image_magic_bytes(
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Sec H-3: client-supplied Content-Type is no longer trusted — magic
+        bytes must match an allowed format or the upload is rejected."""
+        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+        res = managed_app.post(
+            "/api/library/upload",
+            headers=admin_headers,
+            cookies=admin_cookies,
+            files={"file": ("evil.jpg", b"<script>alert(1)</script>", "image/jpeg")},
+        )
+        assert res.status_code == 415
 
     def test_upload_rejects_disallowed_mime_415(
         self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
@@ -305,7 +342,7 @@ class TestUploadRateLimit:
                     "/api/library/upload",
                     headers=admin_headers,
                     cookies=admin_cookies,
-                    files={"file": (f"img{i}.jpg", b"\xff\xd8\xff" + b"\x00" * 10, "image/jpeg")},
+                    files={"file": (f"img{i}.jpg", _real_jpeg_bytes(), "image/jpeg")},
                 )
                 assert res.status_code == 200, f"Upload {i} failed: {res.json()}"
 
@@ -314,7 +351,7 @@ class TestUploadRateLimit:
                 "/api/library/upload",
                 headers=admin_headers,
                 cookies=admin_cookies,
-                files={"file": ("img11.jpg", b"\xff\xd8\xff" + b"\x00" * 10, "image/jpeg")},
+                files={"file": ("img11.jpg", _real_jpeg_bytes(), "image/jpeg")},
             )
             assert res.status_code == 429
 

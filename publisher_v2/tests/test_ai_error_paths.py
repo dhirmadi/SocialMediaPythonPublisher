@@ -45,20 +45,20 @@ class _ClientWithCompletions:
 
 
 @pytest.mark.asyncio
-async def test_analyzer_fallback_non_json(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_analyzer_non_json_response_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Post-hardening: non-JSON Vision response surfaces an AIServiceError.
+
+    Previously this path fabricated an analysis with ``description=content[:100]``,
+    which let attacker-controlled model output (e.g. overlay text in the image
+    or a jailbroken model) flow into downstream caption generation. The new
+    behavior surfaces the failure so the caller can decide (retry/skip)."""
     monkeypatch.setattr(
         "publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _ClientWithCompletions(_CompletionsBadJSON())
     )
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
-    out, _usage = await analyzer.analyze("http://tmp-url")
-    assert isinstance(out, ImageAnalysis)
-    # Fallback should fill minimal fields
-    assert out.description != ""
-    assert out.mood == "unknown"
-    assert out.tags == []
-    assert out.nsfw is False
-    assert out.safety_labels == []
+    with pytest.raises(AIServiceError):
+        await analyzer.analyze("http://tmp-url")
 
 
 @pytest.mark.asyncio

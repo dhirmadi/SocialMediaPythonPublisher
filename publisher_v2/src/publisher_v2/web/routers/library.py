@@ -60,6 +60,43 @@ def _library_list_prefix(paths: StoragePathConfig, logical: str) -> str:
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png"}
 VALID_TARGET_FOLDERS = {"keep", "remove", "archive", "root"}
 
+# Pillow format names mapped to a trustworthy MIME we will store/serve.
+_PILLOW_FORMAT_TO_MIME: dict[str, str] = {
+    "JPEG": "image/jpeg",
+    "PNG": "image/png",
+}
+
+
+def _verify_image_bytes(data: bytes) -> str:
+    """Validate ``data`` via magic-byte parsing and return the trustworthy MIME.
+
+    Raises HTTPException(415) when the bytes do not parse as an allowed image,
+    matching the contract of ``ALLOWED_MIME_TYPES``.
+    """
+    # Imported lazily — Pillow is heavy and only needed on upload.
+    from io import BytesIO
+
+    from PIL import Image, UnidentifiedImageError
+
+    try:
+        with Image.open(BytesIO(data)) as img:
+            img.verify()
+            fmt = (img.format or "").upper()
+    except (UnidentifiedImageError, OSError, ValueError):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Uploaded file is not a recognized image",
+        ) from None
+
+    mime = _PILLOW_FORMAT_TO_MIME.get(fmt)
+    if mime is None:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported image format: {fmt or 'unknown'}",
+        )
+    return mime
+
+
 # In-memory rate limit stores: {cookie_value: [timestamp, ...]}
 _upload_rate_limit: dict[str, list[float]] = {}
 _delete_rate_limit: dict[str, list[float]] = {}
@@ -131,15 +168,21 @@ def _get_max_upload_bytes() -> int:
 
 
 def _sanitize_filename(filename: str) -> str:
-    """Sanitize upload filename: strip path traversal, normalize unicode."""
-    # Extract just the filename (no directory components)
+    """Sanitize upload filename: strip path traversal, normalize unicode, drop hostile chars."""
     name = PurePosixPath(filename).name
-    # Normalize unicode
     name = unicodedata.normalize("NFC", name)
-    # Remove any remaining path separators
+    # Drop control characters (incl. NUL) and bidi/format characters that
+    # enable deceptive filename rendering (RTL override etc.).
+    name = "".join(ch for ch in name if unicodedata.category(ch) not in {"Cc", "Cf"})
+    # Strip path separators that survived basename extraction (defense in depth).
     name = name.replace("/", "").replace("\\", "")
-    if not name:
+    # Block pure-dot prefixes and parent traversal sequences.
+    if name in {"", ".", ".."} or name.startswith(".."):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+    if name.startswith("."):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid filename")
+    if len(name) > 255:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Filename too long")
     return name
 
 
@@ -599,25 +642,23 @@ async def upload_file(
     require_admin(request)
     _check_library_available(service)
 
-    # Validate MIME type
-    content_type = file.content_type or ""
-    if content_type not in ALLOWED_MIME_TYPES:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=f"Unsupported file type: {content_type}. Allowed: {', '.join(ALLOWED_MIME_TYPES)}",
-        )
+    # Fail fast on size before parsing — protects against zip-bomb-style images.
+    max_bytes = _get_max_upload_bytes()
 
     # Read file data
     data = await file.read()
 
     # Validate size
-    max_bytes = _get_max_upload_bytes()
     if len(data) > max_bytes:
         max_mb = max_bytes // (1024 * 1024)
         raise HTTPException(
             status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
             detail=f"File too large ({len(data)} bytes). Maximum: {max_mb} MB",
         )
+
+    # Validate content via magic bytes (do NOT trust client-supplied Content-Type).
+    # Returns the trustworthy MIME to store on the object.
+    content_type = _verify_image_bytes(data)
 
     # Rate limit
     _check_rate_limit(request)

@@ -93,23 +93,25 @@ async def test_vision_analyzer_logs_timing_success(monkeypatch, caplog) -> None:
 
 @pytest.mark.asyncio
 async def test_vision_analyzer_logs_timing_on_json_error(monkeypatch, caplog) -> None:
+    """Post-hardening: a non-JSON Vision response raises AIServiceError but
+    must still emit a telemetry log so error_type=json_decode_error is visible
+    in dashboards."""
+    from publisher_v2.core.exceptions import AIServiceError
+
     config = _build_config()
     analyzer = VisionAnalyzerOpenAI(config)
 
-    # Force non-JSON content to trigger fallback path
     fake_client = _FakeAsyncOpenAI("not-json")
     monkeypatch.setattr(analyzer, "client", fake_client)
 
     caplog.set_level(logging.INFO, logger="publisher_v2.ai.vision")
 
-    analysis, _usage = await analyzer.analyze("http://example.com/image.jpg")
-    assert isinstance(analysis, ImageAnalysis)
+    with pytest.raises(AIServiceError):
+        await analyzer.analyze("http://example.com/image.jpg")
 
     telemetry_logs = [record for record in caplog.records if "vision_analysis" in getattr(record, "message", "")]
     assert telemetry_logs, "expected telemetry log_json even on JSON error"
-
     payload = json.loads(telemetry_logs[-1].message)
     assert payload.get("event") == "vision_analysis"
-    assert payload.get("ok") is True  # Fallback still produces an ImageAnalysis
-    # json_decode_error should be recorded when fallback was used
-    assert payload.get("error_type") in (None, "json_decode_error")
+    assert payload.get("ok") is False
+    assert payload.get("error_type") == "json_decode_error"
