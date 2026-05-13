@@ -158,6 +158,7 @@ cython_debug/
 # Configuration files with sensitive data
 *.ini
 !*.ini.example
+!publisher_v2/alembic.ini
 configfiles/*.ini
 !configfiles/*.ini.example
 SociaMediaConfig.ini
