@@ -247,7 +247,21 @@ async def _list_objects_buffered(
     bucket = storage._bucket
     _image_suffixes = (".jpg", ".jpeg", ".png")
     sanitized_q = _sanitize_filter(q)
-    count_op = storage._count_ops if isinstance(storage, ManagedStorage) else (lambda n=1: None)
+    is_managed = isinstance(storage, ManagedStorage)
+    count_op = storage._count_ops if is_managed else (lambda n=1: None)
+    _lib_logger = logging.getLogger("publisher_v2.storage_ops_metering")
+    log_json(
+        _lib_logger,
+        logging.INFO,
+        "library_scan_start",
+        is_managed=is_managed,
+        storage_type=type(storage).__name__,
+        storage_id=id(storage),
+        meter_storage_id=id(service._storage_ops_meter._storage)
+        if getattr(service, "_storage_ops_meter", None)
+        else None,
+        has_meter=getattr(service, "_storage_ops_meter", None) is not None,
+    )
 
     def _scan() -> dict[str, Any]:
         items: list[dict[str, Any]] = []
@@ -268,6 +282,13 @@ async def _list_objects_buffered(
                 kwargs["ContinuationToken"] = continuation
             resp = storage.client.list_objects_v2(**kwargs)
             count_op()  # PUB-045: each S3 list page is a billable R2 request
+            log_json(
+                _lib_logger,
+                logging.INFO,
+                "library_scan_page",
+                ops_count=storage._ops_count if is_managed else -1,
+                storage_id=id(storage),
+            )
 
             for obj in resp.get("Contents", []):
                 key: str = obj["Key"]
