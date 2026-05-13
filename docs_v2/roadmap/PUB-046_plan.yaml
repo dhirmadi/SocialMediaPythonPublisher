@@ -1,0 +1,74 @@
+version: 1
+roadmap_id: PUB-046
+summary: |
+  Email caption length control. Switch length instruction from chars to words for
+  short-limit platforms (<=300), add few-shot examples + guidance in ai_prompts.yaml,
+  bound output via max_tokens, lower temperature to 0.5, and replace dumb truncation
+  with an AI condense pass on overshoot. Logs caption_condensed / caption_condense_failed.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/config/static/ai_prompts.yaml
+    - publisher_v2/src/publisher_v2/services/ai.py
+    - publisher_v2/tests/test_ai_email_length_control.py
+    - publisher_v2/tests/test_ai_multi_caption.py
+    - docs_v2/roadmap/PUB-046_plan.yaml
+    - docs_v2/roadmap/PUB-046_summary.md
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  - id: AC-01
+    desc: Email YAML has >=3 examples (each <=240 chars) and non-empty guidance containing 'word'.
+  - id: AC-02
+    desc: build_platform_block emits 'words' for max_length<=300, 'chars' for >300.
+  - id: AC-03
+    desc: Email style contains 'sentence' and 'question'.
+  - id: AC-04
+    desc: generate sets max_tokens=80 for email spec; no max_tokens for telegram spec.
+  - id: AC-05
+    desc: generate_multi sets max_tokens=512 when any spec is short-limit; none otherwise.
+  - id: AC-06
+    desc: Caption calls use temperature=0.5 for short-limit; 0.7 otherwise.
+  - id: AC-07
+    desc: Condense pass replaces overshoot; falls back to smart_truncate when condense still over.
+  - id: AC-08
+    desc: Condense exception swallowed; smart_truncate fallback used.
+  - id: AC-09
+    desc: Structured caption_condensed / caption_condense_failed log events.
+  - id: AC-10
+    desc: Telegram-only paths unaffected (temperature 0.7, no max_tokens).
+  - id: AC-11
+    desc: Existing test_email_style_in_prompt updated to reflect new style.
+  - id: AC-12
+    desc: Tenant prompt patterns documented (Part F in spec).
+
+tasks:
+  - id: T1
+    title: Add examples/guidance + new style to email in ai_prompts.yaml
+    files: [publisher_v2/src/publisher_v2/config/static/ai_prompts.yaml]
+  - id: T2
+    title: Add SHORT_LIMIT_THRESHOLD; word-count instructions in build_platform_block and generate
+    files: [publisher_v2/src/publisher_v2/services/ai.py]
+  - id: T3
+    title: Add max_tokens + temperature selection for all 4 caption methods
+    files: [publisher_v2/src/publisher_v2/services/ai.py]
+  - id: T4
+    title: Add _condense_caption; wire into generate, generate_with_sd, _parse_platform_captions
+    files: [publisher_v2/src/publisher_v2/services/ai.py]
+  - id: T5
+    title: Update test_email_style_in_prompt for new style text
+    files: [publisher_v2/tests/test_ai_multi_caption.py]
+  - id: T6
+    title: New tests in test_ai_email_length_control.py
+    files: [publisher_v2/tests/test_ai_email_length_control.py]
+
+quality_gates:
+  coverage:
+    affected_modules_min: 80
+    overall_min: 85
+  safety:
+    - No new secrets
+    - Preview safety preserved (no new side effects)
+    - Backward compatible (telegram/instagram unchanged)

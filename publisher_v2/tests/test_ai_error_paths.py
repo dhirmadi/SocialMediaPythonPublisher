@@ -35,7 +35,7 @@ class _CompletionsCaption:
     def __init__(self, content: str) -> None:
         self._content = content
 
-    async def create(self, model: str, messages, response_format=None, temperature: float = 0.7):
+    async def create(self, **kwargs):  # accepts max_tokens added in PUB-046
         return _Resp(self._content)
 
 

@@ -212,7 +212,7 @@ class TestPlatformStylesInPrompt:
 
     @pytest.mark.asyncio
     async def test_email_style_in_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC7: Email prompt includes engagement question style."""
+        """AC7 / PUB-046 AC-11: Email prompt reflects new sentence+question style."""
         response = json.dumps({"email": "e"})
         completions = _FakeCompletions(response)
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
@@ -220,13 +220,17 @@ class TestPlatformStylesInPrompt:
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
             "email": CaptionSpec(
-                platform="email", style="engagement question, no hashtags", hashtags="", max_length=240
+                platform="email",
+                style="one intimate sentence + one brief question, FetLife-appropriate, no hashtags",
+                hashtags="",
+                max_length=240,
             )
         }
         _result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
-        user_msg = completions.calls[0]["messages"][-1]["content"]
-        assert "engagement question" in user_msg.lower()
+        user_msg = completions.calls[0]["messages"][-1]["content"].lower()
+        assert "sentence" in user_msg
+        assert "question" in user_msg
 
 
 # --- AC13-15: SD caption integration ---

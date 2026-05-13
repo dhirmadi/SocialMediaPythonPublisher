@@ -34,7 +34,19 @@ from publisher_v2.config.schema import (
     PlatformsConfig,
     StoragePathConfig,
 )
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
+
+
+@pytest.fixture(autouse=True)
+def _bust_static_config_cache() -> Generator[None, None, None]:
+    """Reset the @lru_cache on get_static_config so tests that edit YAML defaults
+    (e.g. PUB-046 platform_captions) don't leak cached state to subsequent tests.
+    """
+    get_static_config.cache_clear()
+    yield
+    get_static_config.cache_clear()
+
 
 # ==============================================================================
 # ENVIRONMENT ISOLATION FIXTURES

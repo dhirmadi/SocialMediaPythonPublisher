@@ -85,7 +85,9 @@ class AIPromptsConfig(BaseModel):
                 hashtags=True,
             ),
             "email": PlatformCaptionStyle(
-                style="engagement question, intimate, FetLife-appropriate, no hashtags", max_length=240, hashtags=False
+                style="one intimate sentence + one brief question, FetLife-appropriate, no hashtags",
+                max_length=240,
+                hashtags=False,
             ),
             "generic": PlatformCaptionStyle(style="minimal_poetic", max_length=2200, hashtags=True),
         },
