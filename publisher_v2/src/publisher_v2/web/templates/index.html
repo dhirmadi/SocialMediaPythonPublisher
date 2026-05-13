@@ -682,7 +682,7 @@
     </div>
     <div class="header-right">
       <span id="env-indicator" class="status"></span>
-      <a id="btn-admin" class="secondary" href="/auth/login" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
+      <a id="btn-admin" class="secondary" href="#" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.admin or "Admin" }}
       </a>
       <a id="btn-admin-logout" class="secondary admin-only hidden" href="/auth/logout" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
@@ -2633,14 +2633,16 @@
         if (e.key === "Escape") modal.classList.add("hidden");
       });
 
-      // Admin button behavior is now dynamic based on auth_mode (handled in updateAdminUI/init)
+      // Admin button behavior is dynamic based on auth_mode.
+      // Default href is "#" — only Auth0 mode navigates via href.
       btnAdmin.addEventListener("click", (e) => {
-          if (featureConfig.auth_mode === "password") {
+          if (featureConfig.auth_mode === "auth0") {
+              window.location.href = "/auth/login";
+          } else if (featureConfig.auth_mode === "password") {
               e.preventDefault();
               toggleAdminModal();
           }
-          // If auth_mode is "auth0", the href handles it.
-          // If "none", nothing happens (or hidden).
+          e.preventDefault();
       });
 
       // Prominent login CTA button (shown when logged out)
