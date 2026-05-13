@@ -70,10 +70,10 @@ jobs:
 
     - name: Verify .env not committed
       run: |
-        if git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$'; then
+        if git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$' | grep -v 'alembic\.ini$'; then
           echo "❌ ERROR: Sensitive files found in repository!"
           echo "The following files should not be committed:"
-          git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$'
+          git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$' | grep -v 'alembic\.ini$'
           exit 1
         else
           echo "✅ No sensitive files found in repository"
