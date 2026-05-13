@@ -11,6 +11,9 @@ import tempfile
 import uuid
 from typing import TYPE_CHECKING, Any
 
+if TYPE_CHECKING:
+    from publisher_v2.db.caption_store import CaptionStore
+
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
@@ -57,6 +60,8 @@ class WorkflowOrchestrator:
         publishers: list[Publisher],
         usage_meter: UsageMeter | None = None,
         storage_ops_meter: StorageOpsMeter | None = None,
+        tenant: str = "default",
+        caption_store: CaptionStore | None = None,
     ):
         self.config = config
         self.storage = storage
@@ -64,6 +69,8 @@ class WorkflowOrchestrator:
         self.publishers = publishers
         self._usage_meter = usage_meter
         self._storage_ops_meter = storage_ops_meter
+        self._tenant = tenant
+        self._caption_store = caption_store
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
@@ -351,18 +358,36 @@ class WorkflowOrchestrator:
                 if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
                     log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
                 # PUB-035: Fetch caption history for context intelligence
-                caption_history: list[str] = []
+                caption_history: dict[str, list[str]] | list[str] | None = None
+                history_cfg = get_static_config().ai_prompts.caption_history
                 try:
-                    from publisher_v2.services.ai import fetch_caption_history
+                    if self._caption_store is not None:
+                        db_history = await self._caption_store.fetch_recent_by_platform(
+                            self._tenant,
+                            platforms=list(specs.keys()),
+                            limit=history_cfg.window_size,
+                        )
+                        caption_history = db_history
+                        history_count = sum(len(v) for v in db_history.values()) if db_history else 0
+                        log_json(
+                            self.logger,
+                            logging.INFO,
+                            "caption_history_fetched",
+                            source="db",
+                            platforms=list(db_history.keys()) if db_history else [],
+                            total_captions=history_count,
+                            correlation_id=correlation_id,
+                        )
+                    else:
+                        from publisher_v2.services.ai import fetch_caption_history
 
-                    history_cfg = get_static_config().ai_prompts.caption_history
-                    caption_history = await fetch_caption_history(
-                        self.storage,
-                        self.config.storage_paths.image_folder,
-                        window_size=history_cfg.window_size,
-                        max_tokens_budget=history_cfg.max_tokens_budget,
-                    )
-                except Exception:  # noqa: S110 — graceful degradation per AC7
+                        caption_history = await fetch_caption_history(
+                            self.storage,
+                            self.config.storage_paths.image_folder,
+                            window_size=history_cfg.window_size,
+                            max_tokens_budget=history_cfg.max_tokens_budget,
+                        )
+                except Exception:  # noqa: S110 — graceful degradation
                     log_json(self.logger, logging.DEBUG, "caption_history_fetch_failed", correlation_id=correlation_id)
 
                 # PUB-029: extract voice examples (truncated to budget) when feature enabled.
@@ -490,7 +515,6 @@ class WorkflowOrchestrator:
                 any_success = self.config.content.debug if self.config.features.publish_enabled else False
 
             # PUB-035: Update sidecar with published caption when caption_override was used
-            # This ensures caption history includes manually-edited captions
             if (
                 any_success
                 and caption_override
@@ -511,6 +535,57 @@ class WorkflowOrchestrator:
                             caption_edited=True,
                             correlation_id=correlation_id,
                         )
+                    )
+
+            # Save published (formatted) captions to DB for caption history
+            if (
+                any_success
+                and self._caption_store is not None
+                and not self.config.content.debug
+                and not dry_publish
+                and not preview_mode
+            ):
+                try:
+                    source = "manual_override" if caption_override else "ai_generated"
+                    # Build the actual published text per platform (after format_caption)
+                    # and track truncation info for GH #73 monitoring.
+                    published_captions: dict[str, str] = {}
+                    truncation_info: dict[str, tuple[bool, int | None]] = {}
+                    for p in enabled_publishers:
+                        raw = platform_captions.get(p.platform_name, caption)
+                        formatted = format_caption(
+                            p.platform_name, raw, smart_hashtags=self.config.features.smart_hashtags_enabled
+                        )
+                        published_captions[p.platform_name] = formatted
+                        if len(formatted) < len(raw):
+                            truncation_info[p.platform_name] = (True, len(raw))
+
+                    caption_model = getattr(getattr(self.ai_service, "generator", None), "model", None)
+                    saved = await self._caption_store.save_captions_batch(
+                        tenant=self._tenant,
+                        captions_by_platform=published_captions,
+                        image_filename=selected_image,
+                        image_sha256=selected_hash or None,
+                        correlation_id=correlation_id,
+                        caption_source=source,
+                        model_version=str(caption_model) if caption_model else None,
+                        truncation_info=truncation_info or None,
+                    )
+                    log_json(
+                        self.logger,
+                        logging.INFO,
+                        "caption_history_saved",
+                        platforms=list(published_captions.keys()),
+                        rows_saved=saved,
+                        truncated_platforms=list(truncation_info.keys()),
+                        correlation_id=correlation_id,
+                    )
+                except Exception:  # noqa: S110 — non-critical, don't break workflow
+                    log_json(
+                        self.logger,
+                        logging.WARNING,
+                        "caption_history_save_failed",
+                        correlation_id=correlation_id,
                     )
 
             # 6. Archive if any success and not debug

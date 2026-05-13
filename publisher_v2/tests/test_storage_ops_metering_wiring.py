@@ -127,6 +127,8 @@ def _build_web_service(
         svc._config_source = None
 
     svc._usage_meter = None
+    svc._caption_store = None
+    svc._tenant = "default"
     # Invoke the post-init hook that builds the meter (Part C wiring).
     svc._init_storage_ops_meter()
     svc.orchestrator = None

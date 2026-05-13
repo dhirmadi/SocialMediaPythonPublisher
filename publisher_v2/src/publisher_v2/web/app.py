@@ -1,3 +1,4 @@
+import json
 import logging
 import os
 import uuid
@@ -72,7 +73,20 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Avoid forcing a full ApplicationConfig load here because orchestrator mode
     # may not have standalone secrets configured at process start.
 
+    # Initialise caption history DB (optional — graceful degradation if not configured)
+    from publisher_v2.db import init_db
+
+    init_db()
+
     yield
+
+    # Shutdown: dispose caption history DB engine
+    from publisher_v2.db import dispose_engine
+
+    try:
+        await dispose_engine()
+    except Exception:
+        _logger.warning("caption_history_db_dispose_failed", exc_info=True)
 
     # Shutdown: flush remaining storage ops metrics for all cached tenants
     from publisher_v2.web.middleware import _tenant_service_factory
@@ -218,25 +232,43 @@ async def health_ready() -> Response:
     Readiness probe:
     - env-first mode: always ready
     - orchestrator mode: requires orchestrator connectivity (404 is acceptable)
+    - caption history DB: checked when configured
     """
     override = (os.environ.get("CONFIG_SOURCE") or "").strip().lower()
-    if override == "env" or not os.environ.get("ORCHESTRATOR_BASE_URL"):
-        # Env-first mode: always ready (no external dependencies).
-        return Response(content='{"status":"ok","mode":"standalone"}', media_type="application/json")
+    is_standalone = override == "env" or not os.environ.get("ORCHESTRATOR_BASE_URL")
 
-    # Orchestrator mode
-    try:
-        source = get_config_source()
-        # OrchestratorConfigSource implements check_connectivity()
-        if hasattr(source, "check_connectivity"):
-            await source.check_connectivity()  # type: ignore[attr-defined]
-        return Response(content='{"status":"ok","mode":"orchestrated"}', media_type="application/json")
-    except OrchestratorUnavailableError:
-        return Response(
-            content='{"status":"not_ready","reason":"orchestrator_unavailable"}',
-            media_type="application/json",
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        )
+    body: dict[str, Any] = {
+        "status": "ok",
+        "mode": "standalone" if is_standalone else "orchestrated",
+    }
+
+    if not is_standalone:
+        try:
+            source = get_config_source()
+            if hasattr(source, "check_connectivity"):
+                await source.check_connectivity()  # type: ignore[attr-defined]
+        except OrchestratorUnavailableError:
+            return Response(
+                content='{"status":"not_ready","reason":"orchestrator_unavailable"}',
+                media_type="application/json",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+    from publisher_v2.db import check_connectivity as db_check
+    from publisher_v2.db import is_db_available
+
+    if is_db_available():
+        db_ok = await db_check()
+        body["caption_history_db"] = "ok" if db_ok else "unavailable"
+        if not db_ok:
+            body["status"] = "degraded"
+            return Response(
+                content=json.dumps(body),
+                media_type="application/json",
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+    return Response(content=json.dumps(body), media_type="application/json")
 
 
 @app.get(

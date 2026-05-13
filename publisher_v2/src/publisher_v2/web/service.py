@@ -27,6 +27,8 @@ from publisher_v2.core.exceptions import (  # noqa: E402
     TenantNotFoundError,
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator  # noqa: E402
+from publisher_v2.db import get_session_factory  # noqa: E402
+from publisher_v2.db.caption_store import CaptionStore  # noqa: E402
 from publisher_v2.services.ai import (  # noqa: E402
     AIService,
     CaptionGeneratorOpenAI,
@@ -116,16 +118,25 @@ class WebImageService:
         self._storage_ops_meter: StorageOpsMeter | None = None
         self._init_storage_ops_meter()
 
+        # Caption history DB store (optional — graceful degradation if no DB)
+        self._caption_store: CaptionStore | None = None
+        sf = get_session_factory()
+        if sf is not None:
+            self._caption_store = CaptionStore(sf)
+
+        self._tenant = runtime.tenant if runtime is not None else "default"
+
         # Keep legacy behavior for standalone mode: orchestrator is ready immediately.
         # In orchestrator mode we build it lazily to allow late-binding publishers/AI.
         if runtime is None:
             if ai_service is None:
-                # Should not happen in standalone mode because OPENAI_API_KEY is required by loader.
                 analyzer = VisionAnalyzerOpenAI(cfg.openai)
                 generator = CaptionGeneratorOpenAI(cfg.openai)
                 ai_service = AIService(analyzer, generator)
                 self.ai_service = ai_service
-            self.orchestrator: WorkflowOrchestrator | None = WorkflowOrchestrator(cfg, storage, ai_service, publishers)
+            self.orchestrator: WorkflowOrchestrator | None = WorkflowOrchestrator(
+                cfg, storage, ai_service, publishers, tenant=self._tenant, caption_store=self._caption_store
+            )
         else:
             self.orchestrator = None
         # Short-lived in-memory cache for Dropbox image listings to avoid
@@ -312,6 +323,8 @@ class WebImageService:
             self.publishers,
             usage_meter=self._usage_meter,
             storage_ops_meter=self._storage_ops_meter,
+            tenant=self._tenant,
+            caption_store=self._caption_store,
         )
         return self.orchestrator
 
@@ -537,10 +550,20 @@ class WebImageService:
         # PUB-029: extract voice examples from config when voice matching is enabled.
         voice_examples = _select_voice_examples(self.config)
 
+        # Fetch caption history for anti-repetition
+        caption_history: dict[str, list[str]] | None = None
+        if self._caption_store is not None:
+            try:
+                caption_history = await self._caption_store.fetch_recent_by_platform(
+                    self._tenant, platforms=list(specs.keys())
+                )
+            except Exception:
+                log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
+
         try:
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
                 platform_captions_dict, sd_caption, caption_usages = await ai.create_multi_caption_pair_from_analysis(
-                    analysis, specs, voice_examples=voice_examples
+                    analysis, specs, history=caption_history, voice_examples=voice_examples
                 )
                 caption = next(iter(platform_captions_dict.values()), "")
             else:

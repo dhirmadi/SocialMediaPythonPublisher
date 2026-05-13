@@ -135,6 +135,8 @@ async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch
     svc = WebImageService.__new__(WebImageService)
     svc.logger = logging.getLogger("test")
     svc._usage_meter = None
+    svc._caption_store = None
+    svc._tenant = "default"
 
     svc.config = SimpleNamespace(
         storage_paths=SimpleNamespace(image_folder="/images"),

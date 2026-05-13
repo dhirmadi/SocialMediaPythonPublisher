@@ -183,7 +183,7 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
         "publisher_v2.app.build_publishers",
         lambda cfg: [mocks["telegram"], mocks["email"], mocks["instagram"]],
     )
-    monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mocks["orchestrator"])
+    monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mocks["orchestrator"])
 
     return mocks
 
@@ -319,7 +319,7 @@ class TestMainAsyncNormalMode:
 
         captured_config = None
 
-        def capture_config(config, storage, ai, publishers):
+        def capture_config(config, storage, ai, publishers, **kwargs):
             nonlocal captured_config
             captured_config = config
             mock = MagicMock()
@@ -489,7 +489,7 @@ class TestPublisherInitialization:
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
         monkeypatch.setattr("publisher_v2.app.build_publishers", track_build_publishers)
-        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
+        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mock_orchestrator)
 
         await main_async()
 
@@ -593,7 +593,7 @@ class TestEmailPreviewPath:
             "publisher_v2.app.build_publishers",
             lambda cfg: [mock_telegram, mock_email_pub, mock_instagram],
         )
-        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
+        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mock_orchestrator)
 
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
@@ -681,7 +681,7 @@ class TestSDCaptionPreviewPath:
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mock_generator)
         monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
         monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
-        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a: mock_orchestrator)
+        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mock_orchestrator)
 
         # Mock preview utilities
         monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)

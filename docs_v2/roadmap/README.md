@@ -63,6 +63,8 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **Billing & Metering** ||||||
 | PUB-034 | Foundation | [Usage Metering](archive/PUB-034_usage-metering.md) | P1 | S | Orchestrator #14 | Done |
 | PUB-045 | Foundation | [R2 Storage Ops Metering](archive/PUB-045_storage-ops-metering.md) | P1 | S | PUB-034, PUB-024, Orchestrator BIL_10 | Done |
+| **AI Quality** ||||||
+| PUB-046 | AI | [Email Caption Length Control](PUB-046_email-caption-length-control.md) | P1 | S | PUB-025, PUB-029, PUB-039 | Not Started |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | — | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | — | Not Started |
