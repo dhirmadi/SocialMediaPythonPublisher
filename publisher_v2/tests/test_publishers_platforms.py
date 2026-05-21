@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email
+from email.header import decode_header
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -89,7 +90,13 @@ async def test_email_publisher_sends_and_confirms(tmp_path: Path, monkeypatch: p
     assert smtp.starttls_called is True
     assert len(smtp.sent_messages) == 2
     assert smtp.sent_messages[1][1] == ("sender@example.com",)  # fallback when no admin emails
-    first_subject = [line for line in smtp.sent_messages[0][2].split("\n") if line.startswith("Subject")][0]
+    # Parse the message and decode the subject header (handles RFC 2047 encoding for emojis)
+    first_msg = email.message_from_string(smtp.sent_messages[0][2])
+    first_subject_raw = first_msg["Subject"]
+    decoded_parts = decode_header(first_subject_raw)
+    first_subject = "".join(
+        part.decode(enc or "utf-8") if isinstance(part, bytes) else part for part, enc in decoded_parts
+    )
     assert "Private: Hello World" in first_subject
     confirm_raw = smtp.sent_messages[1][2]
     confirm_msg = email.message_from_string(confirm_raw)

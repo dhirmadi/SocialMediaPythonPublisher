@@ -1,6 +1,7 @@
 import asyncio
 import logging
 import smtplib
+from email.header import Header
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -65,7 +66,8 @@ class EmailPublisher(Publisher):
 
             def _build_message(to_addrs: str | list[str], subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
-                msg["Subject"] = subject
+                # Use Header for RFC 2047 encoding of non-ASCII chars (emojis, etc.)
+                msg["Subject"] = Header(subject, "utf-8")
                 msg["From"] = config.sender
                 to_header = to_addrs if isinstance(to_addrs, str) else ", ".join(to_addrs)
                 msg["To"] = to_header
