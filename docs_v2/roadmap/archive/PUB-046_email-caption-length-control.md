@@ -6,9 +6,10 @@
 | **Category** | AI |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Not Started |
+| **Status** | Done |
 | **Dependencies** | PUB-025 (Done), PUB-029 (Done), PUB-039 (Done) |
 | **GitHub Issue** | #73 |
+| **Shipped date** | 2026-05-13 |
 
 ---
 

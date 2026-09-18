@@ -1,0 +1,33 @@
+---
+description: "Documentation authoring rules for V2: roadmap items, lifecycle statuses, PUB-NNN naming, and doc contracts. Load when editing docs_v2/ files."
+globs:
+  - "docs_v2/**"
+alwaysApply: false
+---
+
+## Docs authoring (V2)
+
+### Scope
+- `docs_v2/` is canonical documentation.
+- Treat `docs_v1/` as archived; **do not edit** unless explicitly requested.
+
+### Contracts & compatibility
+- If you change user-visible behavior, config semantics, or web/API contracts, update the relevant docs in `docs_v2/` (and keep wording consistent with the implementation).
+- Preserve endpoint contracts described in `docs_v2/03_Architecture/ARCHITECTURE.md` unless a change request explicitly says otherwise.
+
+### Roadmap item conventions
+- Roadmap items live at `docs_v2/roadmap/PUB-NNN_slug.md`. Shipped items move to `docs_v2/roadmap/archive/`.
+- **PUB-NNN naming**: `PUB` prefix + zero-padded 3-digit ID (e.g. `PUB-023`) + kebab-case slug (e.g. `review-then-publish`).
+- **Template**: Title, metadata table (ID, Category, Priority, Effort, Status, Dependencies), Problem, Desired Outcome, Scope, Acceptance Criteria, Implementation Notes, Related.
+- Prefer small, high-signal updates; do not rewrite large sections unless requested.
+- Keep references consistent:
+  - Repo rules: `.cursor/rules/*.mdc` (canonical) and `.cursorrules` (compatibility shim)
+  - V2 code: `publisher_v2/src/publisher_v2/**`
+
+### Roadmap lifecycle
+- **Lifecycle statuses**: Proposal → Not Started → In Progress → Done (plus Deferred, Superseded).
+- **7-stage lifecycle**: CREATE → HARDEN → IMPLEMENT → VERIFY → REVIEW → DEPLOY → ARCHIVE.
+- Use `/product/lifecycle` to see the full guide.
+- Hardened specs include a `PUB-NNN_handoff.md` document that serves as the implementation contract for Claude Code.
+- Shipped items must have: status Done, moved to `docs_v2/roadmap/archive/`, README index updated, CHANGELOG entry.
+

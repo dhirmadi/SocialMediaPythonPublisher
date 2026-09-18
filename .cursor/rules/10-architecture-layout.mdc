@@ -1,0 +1,33 @@
+---
+description: "V2 package layout, module boundaries, and architectural constraints. Load when creating new modules or understanding where code belongs."
+globs:
+  - "publisher_v2/src/publisher_v2/**"
+  - "publisher_v2/tests/**"
+alwaysApply: false
+---
+
+## V2 architecture & layout (authoritative)
+
+### Layout
+- `publisher_v2/src/publisher_v2/app.py`: CLI entrypoint and orchestration wiring
+- `publisher_v2/src/publisher_v2/config/loader.py`: config loading and validation
+- `publisher_v2/src/publisher_v2/config/schema.py`: Pydantic v2 config models
+- `publisher_v2/src/publisher_v2/core/`: exceptions, domain models, workflow orchestrator
+- `publisher_v2/src/publisher_v2/services/`: AI, storage (Dropbox), publishers
+- `publisher_v2/src/publisher_v2/utils/`: captions, images, logging, preview, rate_limit, state
+- `publisher_v2/src/publisher_v2/web/`: FastAPI app, auth helpers, web service layer, templates
+
+Keep new modules consistent with this layout; **do not create parallel V2 trees**.
+
+### Orchestration boundaries
+- Orchestration lives in `WorkflowOrchestrator` (`publisher_v2.core.workflow`).
+- Platform logic belongs in publishers (`publisher_v2.services.publishers.*`) implementing the `Publisher` interface.
+
+### AI integration
+- Use `AIService` composed of `VisionAnalyzerOpenAI` and `CaptionGeneratorOpenAI`.
+- For vision analysis use OpenAI chat completions with `response_format={"type": "json_object"}`.
+- Enforce rate limits via `AsyncRateLimiter` (keep defaults unless asked to change).
+
+### Storage
+- Dropbox is the source of truth; prefer server-side moves to archive.
+

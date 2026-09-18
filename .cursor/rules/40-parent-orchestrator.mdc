@@ -1,0 +1,102 @@
+---
+description: "Context about the parent platform-orchestrator that feeds Publisher V2 runtime config and credentials. Load when working on config loading, credential resolution, service API calls, or cross-project changes."
+globs:
+  - "publisher_v2/src/publisher_v2/config/**"
+  - "publisher_v2/src/publisher_v2/core/workflow*"
+  - "docs_v2/**/orchestrator**"
+  - "docs_v2/**/service-api**"
+alwaysApply: false
+---
+
+# Parent project: Platform Orchestrator
+
+The Publisher V2 runtime is managed by a **Platform Orchestrator** — a separate FastAPI control plane.
+
+## Repo coordinates
+
+- **GitHub**: `dhirmadi/platform-orchestrator` (private)
+- **Local clone**: sibling checkout next to this repo, e.g. `../platform-orchestrator` relative to this repo's parent directory (machine-specific — confirm the actual path with the user rather than assuming one).
+- **Heroku**: deployed as a containerized FastAPI app with Postgres
+
+## How to access orchestrator code
+
+1. **Local files** — if a local clone is available on this machine, read/edit it directly; otherwise ask the user for its path or work from the GitHub API instead.
+2. **GitHub API** — use the `user-github` MCP tools (owner: `dhirmadi`, repo: `platform-orchestrator`) for issues, PRs, commits.
+3. **Heroku** — use the `user-heroku` MCP tools for app info, logs, dynos, Postgres.
+
+## Relationship to Publisher V2
+
+The orchestrator is the **control plane**; Publisher V2 is the **data plane**.
+
+- Orchestrator provisions instances, manages DNS, stores encrypted BYOK secrets, and serves runtime config.
+- Publisher V2 calls back to the orchestrator at startup/runtime to fetch its configuration and resolve credentials.
+- The service-to-service contract is documented in `docs/02_Architecture/publisher-v2-service-api.md` (in the orchestrator repo).
+
+## Service-to-service API (quick reference)
+
+Publisher V2 calls these orchestrator endpoints (under `/v1`, NOT `/api/v1`):
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/v1/runtime/by-host?host=<host>` | GET | Fetch full runtime config (non-secret) for a hostname |
+| `/v1/runtime/by-host` | POST | Same, with host in JSON body (reduces query-string logging) |
+| `/v1/credentials/resolve` | POST | Resolve an opaque `credentials_ref` to actual secret material |
+
+Auth: `Authorization: Bearer <ORCHESTRATOR_SERVICE_TOKEN>` header on every call.
+
+## Orchestrator layout
+
+```
+orchestrator/
+├── main.py              # FastAPI app factory
+├── config.py            # Pydantic Settings (env-driven)
+├── api/
+│   ├── routes.py        # /api/v1/* (admin, Auth0-protected)
+│   ├── service_routes.py# /v1/* (service-to-service, bearer auth)
+│   ├── web.py           # Dashboard UI (Jinja2 + HTMX)
+│   ├── account.py       # Workspace/account settings
+│   └── auth.py          # Auth0 integration
+├── core/
+│   ├── models.py        # Domain models, enums
+│   ├── constants.py     # Shared constants
+│   └── runtime_host.py  # Host normalization + tenant extraction
+├── services/
+│   ├── runtime_config.py          # Runtime config projection
+│   ├── credential_resolution.py   # Secret resolution
+│   ├── credential_refs.py         # Ref management
+│   ├── instances.py               # Instance CRUD
+│   ├── encryption.py              # BYOK secret encryption
+│   ├── tenant_cutover*.py         # Migration/cutover logic
+│   └── workspace_settings.py      # User workspace defaults
+├── db/
+│   └── models.py        # SQLAlchemy async ORM (User, Tenant, Instance, etc.)
+└── ...
+```
+
+Key DB models: `User`, `Tenant`, `Instance`, `InstanceMandate`, `TenantSecrets`, `WorkspaceSecrets`, `CredentialRef`, `Workspace`.
+
+## Orchestrator tooling
+
+Same stack as Publisher: `uv`, `ruff`, `mypy`, `pytest`. Config in `pyproject.toml`.
+
+```bash
+# From the local orchestrator clone
+uv sync --frozen --dev
+uv run uvicorn orchestrator.main:app --reload   # local dev
+uv run pytest -v                                 # tests
+uv run ruff check .                              # lint
+uv run mypy orchestrator                         # type check
+```
+
+## Cross-project changes
+
+When a change spans both repos (e.g., new config field, new credential provider, API contract change):
+
+1. Start from the **orchestrator spec** in `docs/03_Epics/` — it defines the contract.
+2. Update the orchestrator API/models first (the contract owner).
+3. Update Publisher V2 to consume the new contract.
+4. Coordinate PRs — orchestrator must deploy before Publisher consumes new fields.
+
+## Provisioning model
+
+The system runs in `publisher_v2_single_dyno` mode — all instances share one Publisher Heroku app. Instance-specific config lives in orchestrator Postgres and is served via `/v1/runtime/by-host`.

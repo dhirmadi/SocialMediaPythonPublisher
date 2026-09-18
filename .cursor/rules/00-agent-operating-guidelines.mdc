@@ -1,0 +1,46 @@
+---
+description: "Core operating guidelines for all agent work in this repo: safety, TDD, compatibility, tooling."
+globs:
+  - "**/*"
+alwaysApply: true
+---
+
+## Cursor agent operating guidelines (repo-specific)
+
+Shared rules are also defined in `AGENTS.md` (the universal agent standard). This file adds Cursor-specific detail.
+
+### Scope & compatibility
+- **V2 is the source of truth** under `publisher_v2/` and `docs_v2/`. Treat `code_v1/` and `docs_v1/` as archived; **do not edit** unless explicitly requested.
+- **Backward-compatible by default**: do not break CLI flags, web endpoint contracts, or existing config semantics unless the change request explicitly calls for it.
+- **Small, focused edits**: prefer minimal blast-radius changes and avoid wide refactors unless asked.
+
+### Safety & secrets
+- **Never hard-code secrets**. Secrets come from `.env` and INI config; never log or echo secret values.
+- **Preview mode is side-effect free**: must never publish externally, archive, or mutate cache/state.
+- **Web auth is not optional**: do not weaken auth; keep mutating endpoints protected per `publisher_v2.web.auth`.
+
+### Development methodology
+- **Spec-driven**: read the relevant roadmap item in `docs_v2/roadmap/` before writing code. The roadmap item is the contract.
+- **Test-driven (TDD)**: write or update tests **before** implementation. Tests codify the spec'd behavior.
+- **When tests fail**: never blindly adjust tests. Determine whether the test or the code is wrong by checking the roadmap item. Fix whichever side is incorrect.
+
+### Anti-hallucination
+- **Verify before importing**: if you're unsure whether a package, module, or API exists, search the codebase or `pyproject.toml` first. Do not invent packages.
+- **No placeholder code**: every function and class must be complete. Never leave `# TODO: implement` or `pass` as stubs.
+- **Check existing patterns**: before adding a new utility, search for an existing one. Duplication is a defect.
+
+### How to change code here
+- Prefer **search first**, then make **surgical edits** in-place following existing patterns.
+- Keep async flows non-blocking; wrap blocking SDK calls using `asyncio.to_thread` when needed.
+- Keep logs structured and redacted using `publisher_v2.utils.logging.log_json`.
+
+### Tooling
+- **Formatter & linter**: `ruff` (config in `pyproject.toml [tool.ruff]`). Use `ruff format` to format and `ruff check --fix` to auto-fix lint issues.
+- **Type checker**: `mypy` (config in `pyproject.toml [tool.mypy]`).
+- **Package manager**: `uv` (`pyproject.toml` + `uv.lock`). Add deps with `uv add <pkg>`, dev deps with `uv add --group dev <pkg>`.
+
+### Quality bar
+- Add/update tests under `publisher_v2/tests/` for new behavior or bug fixes (focus on high-signal tests).
+- Run `uv run ruff check` before committing; keep zero lint violations in changed files.
+- Coverage gates: ≥80% on affected modules, ≥85% overall.
+

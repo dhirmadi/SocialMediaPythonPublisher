@@ -223,10 +223,6 @@ Desktop.ini
 .classpath
 .settings/
 
-# Cursor AI
-.cursor/
-# Note: .cursorignore should be committed to share ignore rules with team
-
 # Backup files
 *.bak
 *.backup
@@ -262,13 +258,21 @@ bandit-report.*
 safety-report.*
 
 # ----------------------------------------------------------------------------
-# IDE / Editor artifacts (Cursor, VSCode, JetBrains)
+# IDE / Editor artifacts (VSCode, JetBrains)
 # ----------------------------------------------------------------------------
-.cursor/
 .specstory/
 .vscode/
 .idea/
-# Note: .cursorignore and .cursorindexingignore are tracked (shared with team)
+
+# ----------------------------------------------------------------------------
+# Cursor AI configuration
+# ----------------------------------------------------------------------------
+# Track shared config (rules/, commands/); ignore everything else under
+# .cursor/ (local indexes, caches, personal settings/mcp.json that may hold
+# secrets). .cursorignore and .cursorindexingignore are tracked separately.
+.cursor/*
+!.cursor/rules
+!.cursor/commands
 
 # ----------------------------------------------------------------------------
 # Claude Code configuration
@@ -278,11 +282,6 @@ safety-report.*
 !.claude/**
 .claude/settings.local.json
 CLAUDE.local.md
-
-# ----------------------------------------------------------------------------
-# Legacy — .cursorrules replaced by AGENTS.md + .cursor/rules/*.mdc
-# ----------------------------------------------------------------------------
-.cursorrules
 
 # ----------------------------------------------------------------------------
 # OS and local scripts

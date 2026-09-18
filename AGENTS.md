@@ -77,6 +77,26 @@ Two-tool lifecycle: Cursor (product management) + Claude Code (implementation).
 
 **Lifecycle**: CREATE → HARDEN → IMPLEMENT → VERIFY → REVIEW → DEPLOY → ARCHIVE.
 
+This is the **only** authoritative lifecycle. `.cursor/commands/_archived/` holds
+an older, superseded system (`roles/`, `feature/`, `stories/`) where Cursor itself
+authored specs and implementation code — retired because it duplicated and
+contradicted the two-tool split above. Do not resurrect it without explicit
+instruction.
+
+### Required MCP servers (for the roles/commands that use them)
+
+Not committed to this repo (MCP servers are configured per-user/machine), but the
+following are assumed available by name in various commands:
+
+| MCP server | Used by |
+|------------|---------|
+| GitHub | `/github/commit`, `/product/deploy`, issue tracking referenced throughout `docs_v2/roadmap/` |
+| Heroku | `/experts/heroku`, `/product/deploy` staging/production checks |
+| Auth0 (optional) | `/experts/auth0`, if/when Auth0-based web login is in scope |
+
+Set these up in your own Cursor/Claude Code MCP config before running the
+commands above; there is no project-level `.cursor/mcp.json` or `.mcp.json`.
+
 ## Security rules
 
 - Never hard-code secrets. Secrets come from `.env` and INI config files.

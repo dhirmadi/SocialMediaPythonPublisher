@@ -1,0 +1,30 @@
+---
+description: "FastAPI web UI security, admin auth, cookie TTL, and responsive design rules. Load when editing web routes, auth, templates, or admin endpoints."
+globs:
+  - "publisher_v2/src/publisher_v2/web/**"
+  - "publisher_v2/src/publisher_v2/web/templates/**"
+  - "publisher_v2/tests/**web**"
+alwaysApply: false
+---
+
+## Web UI & admin/security rules (do not regress)
+
+### Entry point & layering
+- `publisher_v2.web.app` hosts the FastAPI app and routes; keep routes thin and delegate to existing services/orchestrator.
+- The UI is a **single-page** template: `publisher_v2.web.templates.index.html` (vanilla JS + CSS, no build toolchain).
+
+### Admin visibility & protections
+- Admin-only controls (analyze, publish, status/admin panels) must **not be visible** to non-admin users; hide entirely rather than disable.
+- Admin mode requires **both**:
+  - HTTP auth (`WEB_AUTH_TOKEN` Bearer or `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic), and
+  - an active admin cookie managed by `publisher_v2.web.auth` (e.g., `pv2_admin`).
+- Admin cookie TTL is enforced server-side via `WEB_ADMIN_COOKIE_TTL_SECONDS` (clamped 60–3600s).
+- The server is the source of truth: `/api/admin/status` and 401/403 must clear admin state client-side.
+
+### Responsiveness & UX
+- Mobile-first: no horizontal scrolling for core actions on common smartphone widths (~320–768px).
+- Preserve the admin dark-red theme and keep contrast accessible where feasible.
+
+### Contracts
+- Preserve documented endpoint contracts in `docs_v2/03_Architecture/ARCHITECTURE.md` and `docs_v2/roadmap/`.
+

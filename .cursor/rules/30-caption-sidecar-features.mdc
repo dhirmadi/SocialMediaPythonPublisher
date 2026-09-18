@@ -1,0 +1,27 @@
+---
+description: "Caption and sidecar schema stability rules. Load when editing caption generation, metadata fields, sidecar files, or vision analysis output."
+globs:
+  - "publisher_v2/src/publisher_v2/**caption**"
+  - "publisher_v2/src/publisher_v2/**sidecar**"
+  - "publisher_v2/src/publisher_v2/utils/**"
+  - "publisher_v2/src/publisher_v2/services/ai*"
+  - "publisher_v2/src/publisher_v2/core/models*"
+  - "publisher_v2/tests/**caption**"
+  - "publisher_v2/tests/**sidecar**"
+alwaysApply: false
+---
+
+## Caption & sidecar rules (do not break)
+
+### Stable Diffusion caption output
+- Keep existing JSON fields untouched; **add** `sd_caption` (do not rename or repurpose existing fields).
+- Write `<image>.txt` alongside the image containing **only** `sd_caption`.
+- Overwrite on reprocessing; ensure it moves with the image on archive.
+- Style: PG-13 fine-art; include pose, styling/material, lighting, mood.
+
+### Expanded metadata & sidecars
+- Respect existing sidecar schemas and extended analysis fields:
+  - `docs_v2/roadmap/archive/PUB-003_expanded-vision-analysis.md`
+  - `docs_v2/roadmap/archive/PUB-004_caption-extended-metadata.md`
+- Do not change field names/semantics without updating specs, tests, and migration notes.
+

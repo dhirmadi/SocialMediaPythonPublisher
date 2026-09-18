@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added - PUB-046: Email Caption Length Control
+- Few-shot `examples` and word-count `guidance` added to the email platform prompt (`ai_prompts.yaml`)
+- Caption length instructions switched from character counts to word counts for platforms with `max_length <= 300` — LLMs follow word limits far more reliably than character limits
+- `max_tokens` ceilings and lower temperature (`0.5`) applied to short-limit caption calls to reduce overshoot
+- Two-pass condense fallback: on overshoot, a second API call shortens the caption while preserving tone and the trailing engagement question, before falling back to mechanical `smart_truncate`
+- Structured `caption_condensed` / `caption_condense_failed` telemetry events
+
 ### Added - PUB-045: R2 Storage Ops Metering
 - Thread-safe operation counter in `ManagedStorage` tracks all R2 API calls (list, get, put, delete, copy)
 - `StorageOpsMeter` service drains counter and emits `storage_ops_requests` usage events to Orchestrator with idempotent keys (`r2ops:{tenant_id}:{yyyy-mm-dd}:{HH}`)

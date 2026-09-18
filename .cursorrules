@@ -1,0 +1,57 @@
+## Cursor Repo Rules — Social Media Python Publisher (V2)
+
+This repo uses **Cursor's scoped rules** in `.cursor/rules/*.mdc` as the **canonical** source of truth.
+
+This `.cursorrules` file remains as a **compatibility shim** for older Cursor setups and for humans skimming the key constraints.
+
+---
+
+### Non-negotiables (high-signal)
+- **V2 is source of truth**: work in `publisher_v2/` + `docs_v2/`. Treat `code_v1/` + `docs_v1/` as archived.
+- **Spec-driven development**: read the relevant roadmap item in `docs_v2/roadmap/` before writing code. The roadmap item is the contract.
+- **Test-driven development (TDD)**: write tests before implementation. Tests codify the spec'd behavior.
+- **When tests fail**: never blindly adjust tests. Check the spec — fix the code if the test is right, fix the test only if the test itself is genuinely wrong.
+- **Backwards-compatible by default**: do not break CLI flags, endpoint contracts, or config semantics unless explicitly requested.
+- **Preview mode is side-effect free**: never publish, archive, or mutate cache/state.
+- **Secrets**: never hard-code or log tokens/passwords/keys; use `.env` + INI config.
+- **Web admin security**: do not weaken auth; admin requires HTTP auth + server-enforced admin cookie TTL.
+- **Async hygiene**: avoid blocking work in async paths; use `asyncio.to_thread` when needed.
+
+---
+
+### Tooling
+- **Formatter & linter**: `ruff` (replaces black, isort, flake8, pylint). Config in `pyproject.toml` under `[tool.ruff]`.
+- **Type checker**: `mypy`. Config in `pyproject.toml` under `[tool.mypy]`.
+- **Package manager**: `uv` (lock file: `uv.lock`).
+
+---
+
+### Where the detailed rules live
+- **Agent operating guidelines**: `.cursor/rules/00-agent-operating-guidelines.mdc`
+- **Architecture/layout**: `.cursor/rules/10-architecture-layout.mdc`
+- **Docs authoring**: `.cursor/rules/15-docs-v2-authoring.mdc`
+- **Web UI/admin security**: `.cursor/rules/20-web-ui-admin-security.mdc`
+- **Caption/sidecar features**: `.cursor/rules/30-caption-sidecar-features.mdc`
+- **Parent orchestrator**: `.cursor/rules/40-parent-orchestrator.mdc`
+
+---
+
+### Development workflow (flat roadmap, two-tool lifecycle)
+- **Roadmap model**: flat items at `docs_v2/roadmap/PUB-NNN_slug.md`; shipped items in `docs_v2/roadmap/archive/`
+- **Cursor** owns: CREATE (`/product/propose-item`), HARDEN (`/product/harden`), REVIEW (`/product/review-delivery`), DEPLOY (`/product/deploy`), ARCHIVE (`/product/archive`)
+- **Claude Code** owns: IMPLEMENT (`/implement`), VERIFY (`/verify`)
+- Lifecycle: CREATE → HARDEN → IMPLEMENT → VERIFY → REVIEW → DEPLOY → ARCHIVE (7 stages)
+
+### Agents
+- **Product Manager**: `.cursor/commands/product/_agent.md` — roadmap ownership, lifecycle orchestration
+
+### Quick commands (most common)
+- Install: `uv sync`
+- Format + lint fix: `make format` (runs `ruff format` + `ruff check --fix`)
+- Lint: `make lint` (runs `ruff check`)
+- Tests: `uv run pytest -v` (or `make test`)
+- CLI preview: `make preview-v2 CONFIG=configfiles/fetlife.ini`
+- Propose item: `/product/propose-item`
+- Roadmap: `/product/roadmap`
+- Status: `/product/status`
+- Lifecycle guide: `/product/lifecycle`
