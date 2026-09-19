@@ -180,17 +180,14 @@ class WebImageService:
         orchestrator client is available, ``ManagedStorage`` is the storage
         backend, and the feature flag is enabled.
 
-        The flag is checked from both the app config (which covers standalone
-        mode via loader.py and orchestrator mode via runtime config) AND the
-        ``FEATURE_STORAGE_OPS_METERING`` env var as a local override, since
-        the orchestrator runtime response may not include this field yet.
+        The flag comes from the app config only (#97 stage 1): loader.py in
+        standalone mode, runtime config in orchestrator mode. The previous
+        ``FEATURE_STORAGE_OPS_METERING`` env re-read is gone.
         """
         self._storage_ops_meter = None
         if self._runtime is None or self._config_source is None:
             return
-        flag_from_config = getattr(self.config.features, "storage_ops_metering_enabled", False)
-        flag_from_env = os.environ.get("FEATURE_STORAGE_OPS_METERING", "").strip().lower() in ("1", "true", "yes", "on")
-        if not flag_from_config and not flag_from_env:
+        if not getattr(self.config.features, "storage_ops_metering_enabled", False):
             return
         if not isinstance(self.storage, ManagedStorage):
             return
@@ -208,8 +205,6 @@ class WebImageService:
             logging.INFO,
             "storage_ops_meter_initialized",
             tenant_id=self._runtime.tenant,
-            flag_from_config=flag_from_config,
-            flag_from_env=flag_from_env,
         )
 
     def _is_orchestrated(self) -> bool:

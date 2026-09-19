@@ -807,10 +807,8 @@ async def api_get_features_config(
     # Determine auth mode
     auth_mode = get_auth_mode()
 
-    # Resolve library_enabled dynamically (auto-enabled for managed storage)
-    from publisher_v2.config.features import resolve_library_enabled
-
-    library_enabled = resolve_library_enabled(service.config)
+    # #97 stage 1: resolved at config load (env override, else auto for managed storage)
+    library_enabled = service.config.features.library_enabled
 
     storage_provider = "managed" if service.config.managed is not None else "dropbox"
 

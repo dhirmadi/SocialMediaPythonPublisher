@@ -18,7 +18,6 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
-from publisher_v2.config.features import resolve_library_enabled
 from publisher_v2.config.schema import StoragePathConfig
 from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json
@@ -173,7 +172,7 @@ class LibraryMoveResponse(BaseModel):
 
 def _check_library_available(service: WebImageService) -> None:
     """Raise 404 if library is not available for this instance."""
-    if service.config.managed is None or not resolve_library_enabled(service.config):
+    if service.config.managed is None or not service.config.features.library_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Library not available for Dropbox instances",

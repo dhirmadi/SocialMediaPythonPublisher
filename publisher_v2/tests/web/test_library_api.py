@@ -570,9 +570,9 @@ class TestFeaturesEndpoint:
     ) -> None:
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        # Mock resolve_library_enabled at the source module
-        with patch("publisher_v2.config.features.resolve_library_enabled", return_value=True):
-            res = managed_app.get("/api/config/features")
+        # #97 stage 1: endpoint reads the loader-populated flag directly
+        # (managed_app fixture sets features.library_enabled = True)
+        res = managed_app.get("/api/config/features")
 
         assert res.status_code == 200
         data = res.json()
