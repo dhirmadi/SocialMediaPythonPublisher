@@ -10,6 +10,10 @@
 | **Shipped date** | 2026-04-25 |
 | **Dependencies** | PUB-039 (Done — `alt_text_enabled` flag already wired) |
 
+## User Story
+
+As a publisher operator, I want each published image to have AI-generated alt text describing what it depicts, so that platforms like Bluesky and Mastodon receive accessible descriptions for screen reader users without any extra API cost.
+
 ## Problem
 
 Published images have no alt text. Bluesky requires an `alt` field on embedded images (`app.bsky.embed.images`), Mastodon's media API has a `description` field, and the Fediverse community strongly expects alt text. Accessibility regulations increasingly require it. Our vision analysis already produces a rich structured description of every image (subject, lighting, composition, mood), but none of this is surfaced as alt text. We are sitting on the data and not using it.

@@ -11,6 +11,10 @@
 
 ---
 
+## User Story
+
+As an admin, I want to choose how many images are shown per page in the grid (10, 25, 50, or 100) with my choice remembered across sessions, so that I can browse large libraries without excessive pagination or view a denser grid when I prefer it.
+
 ## Problem
 
 The image gallery grid is hardcoded to 24 items per page (`GRID_PAGE_SIZE = 24` in `index.html`). Users with large libraries must click through many pages to browse their images, while users with smaller libraries may prefer a denser view. There is no way to change the page size.

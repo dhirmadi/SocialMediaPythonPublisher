@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want image selection to use Dropbox's native content-hash metadata for deduplication instead of downloading every candidate, so that runs stay fast and low-bandwidth even as the image library grows.
+
 ## Problem
 
 The core workflow performed image de-duplication by downloading candidate images from Dropbox and computing local hashes, which did not scale as the image library grew. For large folders or many previously posted images, this resulted in unnecessary downloads, increased latency, and higher bandwidth usage, even when the final result was "no new images". There was no feature-level specification for a more efficient selection and dedup approach.

@@ -13,6 +13,10 @@
 
 ---
 
+## User Story
+
+As a publisher operator curating content, I want to toggle alt-text, smart hashtag, and voice-matching feature flags per instance and have my voice profile examples flow into caption generation, so that I control which AI caption features are active and get captions that sound like me.
+
 ## Problem
 
 The platform orchestrator shipped **AI_01** — runtime projection + tenant UI for AI caption controls. The orchestrator now projects three new feature flags and an optional `voice_profile` array in the runtime config payload. Publisher V2 does not yet parse or honor these fields, meaning:

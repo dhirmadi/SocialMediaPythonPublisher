@@ -8,6 +8,7 @@ Scope:
 - Credential resolution by opaque reference (**secret**) — Feature 06
 - Service auth rotation + rate limiting — Feature 07
 - Audit logging expectations + safe logging surfaces — Feature 08
+- Usage/billing metering ingest (**push-based**, publisher-initiated) — orchestrator roadmap #14 (PUB-034, PUB-045)
 
 Status note:
 
@@ -255,6 +256,57 @@ Even though `version` is a hash, treat it as **sensitive-adjacent** and avoid lo
 - Keep in memory only as long as needed (process memory).
 - Prefer caching in memory keyed by `(tenant, credentials_ref, version)` only if you have a strong reason; otherwise resolve on-demand.
 - Always honor `no-store` semantics: do not write to caches that persist beyond process lifetime.
+
+---
+
+## 5.5) Usage/billing metering endpoint (orchestrator roadmap #14; PUB-034, PUB-045)
+
+This endpoint records **billable consumption** so the orchestrator can debit the workspace
+wallet and enforce credit-entitlement gates on `/v1/credentials/resolve`. It is **push-based**:
+Publisher calls it after work completes; the orchestrator does not poll Publisher for usage.
+
+### Request
+
+- **Method**: `POST`
+- **Path**: `/v1/billing/usage`
+- **Headers**: `Authorization: Bearer <token>` (no `X-Tenant` header — `tenant_id` is in the body)
+- **Body**:
+
+```json
+{
+  "tenant_id": "xxx",
+  "source": "publisher",
+  "idempotency_key": "resp_abc123",
+  "metric": "ai_tokens",
+  "quantity": 1234,
+  "unit": "tokens",
+  "occurred_at": "2026-09-19T08:00:00+00:00"
+}
+```
+
+### Known metrics emitted by Publisher V2
+
+| Metric | Unit | Source | Emitted when |
+|---|---|---|---|
+| `ai_tokens` | `tokens` | `publisher` | After every successful OpenAI vision-analysis or caption-generation call (including the PUB-046 condense pass); `idempotency_key` is the OpenAI response id, so a retried call safely debits once |
+| `storage_ops_requests` | `requests` | `publisher_storage_ops` | Periodically (every 5 minutes) and once per `WorkflowOrchestrator.execute()` call (including preview runs), draining an in-memory R2 request counter on `ManagedStorage`; only when `features.storage_ops_metering_enabled=true`; `idempotency_key` is `r2ops:<tenant>:<date>:<hour>` |
+
+### Status codes
+
+- `200`: usage recorded (idempotent — a duplicate `idempotency_key` returns `200` without a
+  second debit; Publisher treats this as success)
+- `403`: missing/invalid service token
+- `404`: unknown tenant
+- `422`: rejected — malformed body or unknown `metric`
+- `429` / `5xx`: retryable (Publisher retries via the shared `_request_with_retry` path)
+
+### Publisher handling guidance
+
+- Usage emission is **fire-and-forget**: any failure (including exhausted retries) is logged
+  (`usage_metering_failed` / `storage_ops_metering_failed`) and swallowed. A metering failure
+  must never fail the underlying workflow, publish, or preview run.
+- Never log the full request body at `INFO` with high cardinality; log `metric`, `quantity`,
+  and `tenant_id` only.
 
 ---
 

@@ -9,6 +9,10 @@
 | **Status** | Not Started |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want to publish images with captions and NSFW self-labeling to Bluesky via the AT Protocol, so that I can reach Bluesky's growing audience with properly labeled artistic nude and kink content, expanding my distribution beyond Telegram, Instagram, and Email.
+
 ## Problem
 
 The publisher supports three platforms: Telegram, Instagram, and Email. Bluesky is a growing decentralized social network with an open API (AT Protocol) that requires no app review, no OAuth dance, and no rate-limit negotiation. It is the most accessible new platform to add, and its absence is a visible gap compared to 2026 scheduling tools that support 8+ platforms. The publisher architecture (PUB-017) was designed for exactly this: "Adding a new platform should only require adding a new class file."

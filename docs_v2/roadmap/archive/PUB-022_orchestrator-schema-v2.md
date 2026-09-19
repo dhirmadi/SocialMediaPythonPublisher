@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-021 |
 
+## User Story
+
+As a platform maintainer, I want Publisher V2 to parse the orchestrator's schema v2 config and resolve per-tenant credentials securely, so that each tenant gets its own AI, publisher, and email settings without leaking secrets in logs.
+
 ## Problem
 
 Publisher V2 supported env-first standalone mode and partial orchestrator v1 mode (config.features + config.storage only). The orchestrator shipped schema v2 with expanded runtime config (publishers, email_server, ai, etc.) and multi-secret credential resolution. Publisher could not obtain per-tenant AI, publisher, or email config; could not resolve per-tenant OpenAI keys, Telegram tokens, or SMTP passwords; and query-string logging risk remained for runtime lookups.

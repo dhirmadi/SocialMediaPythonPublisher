@@ -1,7 +1,7 @@
 # Orchestrator Runtime Config Schema Reference — Publisher V2 (GUI Validation Contract)
 
-Version: 1.0
-Last Updated: December 30, 2025
+Version: 1.1
+Last Updated: September 19, 2026
 
 This document is the **canonical, field-level contract** for the **orchestrator-managed runtime configuration** consumed by **Publisher V2**.
 It is intended for the **orchestrator team** to build an end-user GUI with **explicit validation**.
@@ -30,6 +30,7 @@ Not in scope:
 3. **Publisher V2 currently supports only these orchestrator-managed publishers**:
    - `telegram`
    - `fetlife` (implemented via SMTP/email)
+   - `email` (PUB-043; equivalent alias of `fetlife` — same code path)
 
    Other publisher types may exist in orchestrator, but **Publisher V2 ignores them** today.
 4. **“Enabled” is authoritative**
@@ -297,11 +298,17 @@ Config fields:
 
 #### 4.3.2 Publisher type: `fetlife` (SMTP/email)
 
+**Publisher type `email` is accepted as an equivalent alias of `fetlife`** (PUB-043; the
+orchestrator's `upsert_email_publisher` persists `"type": "email"` as canonical). Publisher V2
+treats `fetlife` and `email` identically — same preconditions, same `EmailConfig`, same
+`creds_refs["smtp"]` registration, single code path. New integrations should prefer `"email"`;
+`"fetlife"` remains supported for backward compatibility. Everything below applies to both.
+
 Required:
 
 - `enabled=true`
 - `credentials_ref=null` (**must be null or omitted**)
-  FetLife does not have a direct secret; SMTP auth is provided via `email_server.password_ref`.
+  Neither alias has a direct secret; SMTP auth is provided via `email_server.password_ref`.
 - `config.recipient` (non-empty string)
 - `email_server` present with `password_ref` + `from_email` + `host`
 
@@ -349,6 +356,16 @@ Therefore:
 | `sd_caption_system_prompt` | string \| null | ❌ | Optional override |
 | `sd_caption_role_prompt` | string \| null | ❌ | Optional override |
 
+**AI feature flags** (PUB-039; these live under `config.features`, not `config.ai` — listed
+here because they directly gate the caption/analysis behavior described above):
+
+| Field | Type | Required | Default | Notes |
+|------|------|----------|---------|------|
+| `alt_text_enabled` | bool \| null | ❌ | `true` | Enables AI-generated screen-reader `alt_text` (PUB-026) |
+| `smart_hashtags_enabled` | bool \| null | ❌ | `true` | AI generates hashtags from analysis instead of only using `content.hashtag_string` (PUB-028) |
+| `voice_matching_enabled` | bool \| null | ❌ | `false` | Injects `content.voice_profile` examples into caption prompts (PUB-029) |
+| `storage_ops_metering_enabled` | bool \| null | ❌ | `false` | Emits `storage_ops_requests` usage events for managed-storage instances (PUB-045) |
+
 ### 4.6 `config.captionfile`
 
 | Field | Type | Required | Default |
@@ -380,6 +397,15 @@ Policy:
 | `hashtag_string` | string \| null | ❌ | `""` |
 | `archive` | bool \| null | ❌ | `true` |
 | `debug` | bool \| null | ❌ | `false` |
+| `voice_profile` | array[string] \| null | ❌ | `null` |
+
+Notes:
+
+- `voice_profile` (PUB-029): operator example captions for few-shot tone matching. Max 20
+  entries, each a non-empty string. Only used when `features.voice_matching_enabled=true`.
+  Publisher exposes its own read/write UI for this field
+  (`GET`/`POST /api/config/voice-profile`) — the orchestrator GUI does not need to surface it
+  directly, but it is part of the `config.content` block returned by `/v1/runtime/by-host`.
 
 ---
 

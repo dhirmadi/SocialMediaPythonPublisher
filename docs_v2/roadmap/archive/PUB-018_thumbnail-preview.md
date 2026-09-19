@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-005, PUB-015 |
 
+## User Story
+
+As an admin, I want the curation UI to load fast thumbnails instead of full-resolution images by default, so that I can review and curate images quickly even on slow mobile connections.
+
 ## Problem
 
 Web interface image loading is painfully slow during curation workflows. Full-resolution images (5–20MB+) are served directly from Dropbox even when a small preview would suffice. On 4G, full images take 3–8 seconds; on 3G, ~64 seconds. This creates a curation bottleneck and wastes bandwidth—users only need a preview for most actions.

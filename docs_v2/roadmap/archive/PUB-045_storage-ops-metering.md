@@ -10,6 +10,10 @@
 | **Dependencies** | PUB-034 (shipped — AI token metering), PUB-024 (shipped — ManagedStorage), Orchestrator BIL_10 (shipped — receiving side) |
 | **GitHub Issue** | [#71](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/71) |
 
+## User Story
+
+As a platform maintainer, I want the publisher to count R2 storage operations and emit them to the orchestrator as a `storage_ops_requests` usage event, so that R2 Class A/B request costs are accurately metered and recovered instead of going unbilled.
+
 ## Problem
 
 The orchestrator has shipped BIL_10 — the metering contract declares `storage_ops_requests` (source `publisher_storage_ops`), the `POST /v1/billing/usage` endpoint accepts the metric, and the price book is seeded in production (0-price soak row, paid row effective 2026-06-01).

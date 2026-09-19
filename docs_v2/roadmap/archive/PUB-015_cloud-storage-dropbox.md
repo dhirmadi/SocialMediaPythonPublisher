@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want images and sidecars stored durably in Dropbox with atomic archive moves and content-hash de-duplication, so that content survives redeploys and never gets double-posted or lost.
+
 ## Problem
 
 Running the publisher with local file storage is insufficient for production. Archives must survive application restarts/redeploys; on ephemeral platforms like Heroku, local files are lost. The source folder is often shared with other devices (e.g., phone uploads) adding content asynchronously. Moving an image to "Archive" must be atomic to prevent double-posting or data loss. Downloading every image to hash it locally is bandwidth-inefficient; we need to leverage remote metadata.

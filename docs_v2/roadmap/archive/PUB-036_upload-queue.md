@@ -7,6 +7,10 @@
 **Dependencies:** PUB-031, PUB-033
 **Status:** Done
 
+## User Story
+
+As an admin, I want a visual upload queue with client-side rate limiting and automatic retry on 429s, so that uploading more than 10 images at once doesn't fail partway through and I can see per-file progress and status.
+
 ## Problem
 
 When uploading multiple images via the grid toolbar, the frontend processes files sequentially but breaks on the first failure (e.g., 429). There is no per-file progress, no retry mechanism, and no visual queue showing upload status per file. Selecting more than 10 files exceeds the server's rate limit (10/60s), causing uploads beyond the limit to fail permanently.

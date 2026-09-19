@@ -10,6 +10,10 @@
 | **Shipped date** | 2026-04-25 |
 | **Dependencies** | PUB-025 (Done), PUB-039 (Partially covers config + flag) |
 
+## User Story
+
+As a publisher operator, I want to provide example captions that represent my voice and have the AI use them safely within a token budget, so that generated captions match my authentic tone instead of sounding like generic AI copy.
+
 ## Problem
 
 AI-generated captions sound generic. Every publisher instance produces captions in the same "AI copywriter" voice regardless of the creator's personality, audience, or brand. In 2026, audiences can spot AI-generated text instantly, and generic captions actively hurt engagement. The winning approach is few-shot voice matching: give the AI examples of the creator's real captions, and it rewrites to match their tone, vocabulary, and style.

@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-031 (Done), PUB-032 (Done) |
 
+## User Story
+
+As an admin, I want a single unified thumbnail grid to browse, search, sort, upload, and delete images, so that I no longer have to switch between a visual-but-unmanageable browse modal and a functional-but-un-visual library panel.
+
 ## Problem
 
 The admin UI has two disconnected ways to interact with images:

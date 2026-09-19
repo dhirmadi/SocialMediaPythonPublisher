@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a platform maintainer, I want a single CLI command to clone the production Heroku app, register its custom subdomain, create the matching Hetzner DNS record, and update its Dropbox folder config, so that I can provision a new isolated instance without repeating slow, error-prone manual steps.
+
 ## Problem
 
 Today, provisioning a new instance of the FetLife publisher app involves several manual, error-prone steps: cloning or forking the existing Heroku app (`fetlife-prod`) via dashboard or CLI, manually configuring environment variables and inlining an updated `FETLIFE_INI` block with a different `[Dropbox].image_folder` path, attaching a new Heroku custom domain, and switching to Hetzner's DNS UI or API to create a CNAME record for `<name>.shibari.photo`. This manual process is slow, hard to repeat consistently, and scales poorly when many isolated instances or tenants are needed.

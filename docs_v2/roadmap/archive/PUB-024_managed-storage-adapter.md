@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-023 |
 
+## User Story
+
+As a platform maintainer, I want a managed S3-compatible storage adapter alongside Dropbox, so that new instances can run without requiring users to set up their own Dropbox account.
+
 ## Problem
 
 Every publisher instance requires users to have a Dropbox account and configure OAuth credentials. This creates onboarding friction and couples the product to a single third-party storage provider. Users who upload photos via the orchestrator's web UI (on `org.shibari.photo`) have no way to use that managed storage — the publisher only speaks Dropbox.

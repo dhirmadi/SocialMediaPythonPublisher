@@ -13,6 +13,10 @@
 
 ---
 
+## User Story
+
+As a publisher operator curating content, I want email captions to reliably fit within the FetLife length limit through better prompting, tighter token/temperature controls, and an AI condense pass, so that captions stay coherent and keep their closing question instead of being awkwardly truncated mid-thought.
+
 ## Problem
 
 Captions generated for the FetLife email platform routinely exceed the configured 240-character limit. The LLM ignores character-count instructions — a well-documented limitation — generating 260–350 characters. The code correctly truncates via `smart_truncate` → `format_caption` → `_sanitize_for_fetlife` → `_trim_to_length`, but truncation produces awkward mid-thought cut-offs that often remove the engagement question (the most important part of the caption for FetLife).

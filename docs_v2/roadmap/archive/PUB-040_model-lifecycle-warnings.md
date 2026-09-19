@@ -13,6 +13,10 @@
 
 ---
 
+## User Story
+
+As a platform maintainer, I want structured warnings logged when my configured OpenAI vision or caption model is approaching deprecation or shutdown, so that I can update the model configuration proactively instead of discovering the problem when production API calls start failing.
+
 ## Problem
 
 The platform orchestrator shipped **AI_02** — non-secret OpenAI model lifecycle metadata projected onto the runtime `ai` block. When an operator's configured model is approaching deprecation or shutdown, the orchestrator annotates the runtime payload with advisory lifecycle objects. Publisher V2 currently ignores these fields, so operators get no warning until OpenAI rejects API calls with a deprecated model — causing silent failures in production.

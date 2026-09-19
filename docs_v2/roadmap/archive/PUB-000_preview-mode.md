@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want to preview the full AI pipeline output (configuration, vision analysis, captions, and platform previews) without publishing, archiving, or mutating state, so that I can safely tune configuration and verify what will be published before doing it for real.
+
 ## Problem
 
 Operators need to test configuration and see exactly what will be published without taking any actions. Without a side-effect-free preview, tuning AI prompts, verifying platform selection, and checking caption quality would require risky trial runs or manual inspection of internal state.

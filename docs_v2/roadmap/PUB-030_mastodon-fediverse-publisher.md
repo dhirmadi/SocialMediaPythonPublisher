@@ -9,6 +9,10 @@
 | **Status** | Not Started |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want to publish images with captions, sensitive-media flags, and configurable content warnings to any Mastodon-compatible Fediverse instance, so that I can reach NSFW-friendly Fediverse communities while respecting their content-warning etiquette.
+
 ## Problem
 
 After FetLife and Telegram, the Fediverse is the most natural home for NSFW artistic and kink photography. Mastodon and compatible platforms (Pixelfed, Pleroma, Akkoma, Misskey) have a built-in content warning (CW) and sensitive media system designed specifically for this use case. Many NSFW-friendly instances exist where kink and art nude communities have settled since the Tumblr purge. Unlike mainstream platforms, the Fediverse has no corporate content policy — instance admins set the rules, and many explicitly welcome adult content.

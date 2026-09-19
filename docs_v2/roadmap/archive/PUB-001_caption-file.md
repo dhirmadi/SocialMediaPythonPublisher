@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator curating content, I want each image to get an additional Stable-Diffusion-ready caption saved as a `.txt` file alongside it, so that I have model-training labels for fine-art photography without disrupting the existing social media captioning pipeline.
+
 ## Problem
 
 The image-analysis workflow produces JSON for social media purposes only. Creators need Stable-Diffusion-ready caption files for model training and fine-art photography labels. Existing behavior (description, mood, tags, nsfw, safety_labels) must remain unchanged.

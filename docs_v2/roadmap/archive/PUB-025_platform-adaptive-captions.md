@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want the AI to generate a distinct caption for each enabled platform in a single call, so that every platform receives a caption suited to its own style, audience, and length limits instead of one caption crudely reformatted for all of them.
+
 ## Problem
 
 The publisher generates a single caption for all platforms, then applies superficial formatting (hashtag limits, length trim, FetLife sanitization) per platform via `format_caption()`. The caption content itself — tone, style, structure — is identical everywhere. This produces mediocre results: Telegram gets a caption optimized for Instagram's hashtag culture, and email gets a 2200-char caption trimmed down to 240 chars losing all nuance.

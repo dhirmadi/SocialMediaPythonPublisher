@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-025 (Done) |
 
+## User Story
+
+As a publisher operator curating content, I want caption generation to draw on curated voice examples, current platform trend guidance, and my own recent caption history, so that new captions sound human, stay fresh, and avoid repeating the same phrasing over time.
+
 ## Problem
 
 The AI generates each caption in isolation. It has no memory of what was posted before, no examples of the desired voice, and no awareness of how people actually post content in 2026. This produces:

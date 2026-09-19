@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-001 |
 
+## User Story
+
+As a publisher operator curating content, I want a structured, comment-prefixed metadata block appended beneath each caption file's first line, so that I can search, deduplicate, and trace my training dataset over time without breaking existing training pipelines that read only the first line.
+
 ## Problem
 
 Caption files contain only a single training caption, losing valuable context about image identity, analysis provenance, artistic attributes, and moderation signals. This limits dataset searchability, deduplication accuracy, traceability of model versions, and the ability to segment or refine data over time without external databases.
