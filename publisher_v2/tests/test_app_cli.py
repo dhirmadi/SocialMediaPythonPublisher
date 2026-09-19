@@ -166,6 +166,9 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
     # Set storage get_file_metadata for preview mode
     mocks["storage"].get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
 
+    # #84: main_async awaits ai_service.aclose() at CLI exit.
+    mocks["ai_service"].aclose = AsyncMock()
+
     # Set is_enabled for publishers
     mocks["telegram"].is_enabled.return_value = False
     mocks["telegram"].platform_name = "telegram"
@@ -330,7 +333,7 @@ class TestMainAsyncNormalMode:
         monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock(aclose=AsyncMock()))
         monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", capture_config)
 
@@ -487,7 +490,7 @@ class TestPublisherInitialization:
         monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock(aclose=AsyncMock()))
         monkeypatch.setattr("publisher_v2.app.build_publishers", track_build_publishers)
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mock_orchestrator)
 
@@ -575,7 +578,7 @@ class TestEmailPreviewPath:
         monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: MagicMock())
-        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock(aclose=AsyncMock()))
 
         mock_telegram = MagicMock()
         mock_telegram.is_enabled.return_value = False
@@ -679,7 +682,7 @@ class TestSDCaptionPreviewPath:
         monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg: mock_storage)
         monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: MagicMock())
         monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: mock_generator)
-        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock())
+        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g: MagicMock(aclose=AsyncMock()))
         monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
         monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: mock_orchestrator)
 

@@ -48,6 +48,20 @@ def _publish_timeout_seconds() -> float:
     return max(5.0, v)
 
 
+def _ai_stage_timeout_seconds() -> float:
+    """Hard deadline for the combined vision+caption stage (#84).
+
+    Bounds the worst case (hung upstream, stacked fallbacks) so a run fails
+    fast instead of holding a dyno for minutes. Env: AI_STAGE_TIMEOUT_SECONDS.
+    """
+    raw = os.environ.get("AI_STAGE_TIMEOUT_SECONDS")
+    try:
+        v = float(raw) if raw else 150.0
+    except ValueError:
+        v = 150.0
+    return max(0.1, v)
+
+
 def _publish_timeout_for(platform: str, default: float) -> float:
     """Per-platform override, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
     key = f"PUBLISH_TIMEOUT_{platform.upper()}_SECONDS"
@@ -254,6 +268,8 @@ class WorkflowOrchestrator:
         caption = ""
         tmp_path = ""
         temp_link = ""
+        # #84: re-anchored just before vision runs; initialized here for scope.
+        ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
         analysis = None
         spec = None
         dropbox_list_images_ms: int | None = None
@@ -329,7 +345,15 @@ class WorkflowOrchestrator:
                         correlation_id=correlation_id,
                     )
                 analysis_start = now_monotonic()
-                analysis, vision_usage = await self.ai_service.analyzer.analyze(temp_link)
+                # #84: one shared deadline covers vision AND caption generation.
+                ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
+                try:
+                    analysis, vision_usage = await asyncio.wait_for(
+                        self.ai_service.analyzer.analyze(temp_link),
+                        timeout=max(0.05, ai_stage_deadline - now_monotonic()),
+                    )
+                except TimeoutError as exc:
+                    raise AIServiceError("ai stage timeout") from exc
                 vision_analysis_ms = elapsed_ms(analysis_start)
                 if self._usage_meter and vision_usage:
                     await self._usage_meter.emit(vision_usage)
@@ -423,19 +447,29 @@ class WorkflowOrchestrator:
 
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
-                    (
-                        platform_captions,
-                        sd_caption,
-                        caption_usages,
-                    ) = await self.ai_service.create_multi_caption_pair_from_analysis(
-                        analysis, specs, history=caption_history, voice_examples=voice_examples
-                    )
+                    try:
+                        (
+                            platform_captions,
+                            sd_caption,
+                            caption_usages,
+                        ) = await asyncio.wait_for(
+                            self.ai_service.create_multi_caption_pair_from_analysis(
+                                analysis, specs, history=caption_history, voice_examples=voice_examples
+                            ),
+                            timeout=max(0.05, ai_stage_deadline - now_monotonic()),
+                        )
+                    except TimeoutError as exc:
+                        raise AIServiceError("ai stage timeout") from exc
                     # Set primary caption from first platform
                     caption = next(iter(platform_captions.values()), "")
                 else:
-                    caption, sd_caption, caption_usages = await self.ai_service.create_caption_pair_from_analysis(
-                        analysis, spec
-                    )
+                    try:
+                        caption, sd_caption, caption_usages = await asyncio.wait_for(
+                            self.ai_service.create_caption_pair_from_analysis(analysis, spec),
+                            timeout=max(0.05, ai_stage_deadline - now_monotonic()),
+                        )
+                    except TimeoutError as exc:
+                        raise AIServiceError("ai stage timeout") from exc
                 if self._usage_meter and caption_usages:
                     await self._usage_meter.emit_all(caption_usages)
                 caption_generation_ms = elapsed_ms(caption_start)

@@ -88,9 +88,13 @@ async def main_async() -> int:
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers, caption_store=caption_store)
 
     # Execute workflow (preview implies dry_publish)
-    result = await orchestrator.execute(
-        select_filename=args.select, dry_publish=args.dry_publish or args.preview, preview_mode=args.preview
-    )
+    try:
+        result = await orchestrator.execute(
+            select_filename=args.select, dry_publish=args.dry_publish or args.preview, preview_mode=args.preview
+        )
+    finally:
+        # #84: close the OpenAI HTTP clients at CLI exit.
+        await ai_service.aclose()
 
     # Preview mode: show results
     if args.preview:

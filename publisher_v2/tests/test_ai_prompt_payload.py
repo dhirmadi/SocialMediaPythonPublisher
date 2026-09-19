@@ -83,7 +83,7 @@ def _sd_response() -> str:
 
 def _make_generator(monkeypatch: pytest.MonkeyPatch, response: str) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
     completions = _FakeCompletions(response)
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
     return CaptionGeneratorOpenAI(_default_config()), completions
 
 

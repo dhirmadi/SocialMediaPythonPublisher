@@ -92,7 +92,7 @@ class TestGenerateMulti:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = _make_specs()
@@ -113,7 +113,7 @@ class TestGenerateMulti:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -132,7 +132,7 @@ class TestGenerateMulti:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -150,7 +150,7 @@ class TestGenerateMulti:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         with pytest.raises(AIServiceError, match="Missing platform.*instagram"):
@@ -161,7 +161,7 @@ class TestGenerateMulti:
         """AC4: Uses response_format=json_object."""
         response = json.dumps({"telegram": "t", "instagram": "i", "email": "e"})
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -179,7 +179,7 @@ class TestPlatformStylesInPrompt:
         """AC5: Telegram prompt includes conversational style."""
         response = json.dumps({"telegram": "t"})
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -197,7 +197,7 @@ class TestPlatformStylesInPrompt:
         """AC6: Instagram prompt includes hook-first style."""
         response = json.dumps({"instagram": "i"})
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -215,7 +215,7 @@ class TestPlatformStylesInPrompt:
         """AC7 / PUB-046 AC-11: Email prompt reflects new sentence+question style."""
         response = json.dumps({"email": "e"})
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -249,7 +249,7 @@ class TestGenerateMultiWithSD:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
@@ -271,7 +271,7 @@ class TestGenerateMultiWithSD:
             }
         )
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
 
         gen = CaptionGeneratorOpenAI(_default_config())
         result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
