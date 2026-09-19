@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-005, PUB-010 |
 
+## User Story
+
+As an admin, I want swipe gestures with distinct Publish and Review modes, so that I can quickly move through images on mobile and systematically review a batch without missing or repeating any.
+
 ## Problem
 
 Tapping a small "Next" button repeatedly is cumbersome on mobile. The current random selection works for "Publishing" (finding something new to post) but poorly for "Review/Captioning" (systematic pass through images without missing any or seeing duplicates). There is no way to go "back" to a previous image when reviewing a batch.

@@ -9,6 +9,12 @@
 | **Status** | Done |
 | **Dependencies** | PUB-023 (Done), PUB-024 (Done) |
 
+## User Story
+
+As a platform maintainer, I want a standalone CLI to safely migrate images and sidecars from Dropbox to managed storage with dry-run and idempotent resume support, so that I can cut an existing instance over to R2 without risking data loss or duplicate publishes.
+
+As an admin, I want to list, upload, delete, and move images in managed storage directly from the web UI, so that I can manage the library without needing separate tooling once migration is complete.
+
 ## Problem
 
 Operators with existing Dropbox-backed instances need a safe, repeatable way to migrate content to managed storage (Cloudflare R2). After migration, admins need basic library management (list, upload, delete, move) for images in managed storage via the Publisher web UI. Today there is no migration tooling and no web-based file management.

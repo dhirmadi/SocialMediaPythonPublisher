@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a platform maintainer, I want AI prompts, platform limits, and UI text centralized in versioned static config instead of hard-coded in Python, so that I can tune behavior and prepare for future translations without code changes.
+
 ## Problem
 
 Configuration and text are spread across multiple sources: secrets and some toggles in `.env`, runtime behavior in INI files, and AI prompts, platform limits, preview labels, and web UI strings hard-coded in Python and HTML. This leads to unclear modeling of secrets vs. non-secrets, scattered dynamic toggles, AI prompts and platform rules requiring code changes to tune, English-only user-facing text, and brittle platform limits that need code updates when platforms change.

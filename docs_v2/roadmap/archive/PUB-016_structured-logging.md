@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a platform maintainer, I want logs emitted as structured JSON with automatic secret redaction, so that I can debug concurrent runs programmatically without risking exposure of API keys and tokens.
+
 ## Problem
 
 Standard Python text logging is hard to parse programmatically and dangerous in a system handling high-value secrets (OpenAI keys, Telegram tokens). A single accidental log of a config object or exception traceback could compromise accounts. Without structured fields (like `correlation_id`), debugging concurrent or distributed runs is difficult.

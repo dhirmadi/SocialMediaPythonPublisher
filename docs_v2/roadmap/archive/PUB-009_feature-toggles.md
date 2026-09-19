@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want to independently toggle AI analysis/captioning and publishing on or off via environment variables, so that I can test features in isolation, debug issues, or cut costs without editing config files or code.
+
 ## Problem
 
 Currently, all features are always active when the application runs. This makes it difficult to build and test new features in isolation, temporarily disable features for debugging or operational reasons, gradually roll out features to production, or reduce costs by disabling expensive operations (e.g., AI analysis) when not needed. There is no mechanism to control feature activation at runtime without modifying configuration files or code.

@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator curating content, I want vision analysis to return richer structured fields (subject, style, lighting, camera, pose, composition, etc.) when available, so that I can gauge content faster and generate better captions and prompts without losing backward compatibility.
+
 ## Problem
 
 The current vision analysis returns minimal fields (description, mood, tags, nsfw, safety_labels), which limits preview detail and SD prompt quality. Operators and creators need richer, consistent structure (subject, style, lighting, camera, pose, composition, etc.) to quickly gauge content and generate better captions/prompts. The enhancement must preserve backward compatibility and the strict-JSON contract.

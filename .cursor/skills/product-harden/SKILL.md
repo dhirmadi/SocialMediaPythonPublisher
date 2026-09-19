@@ -27,6 +27,7 @@ Read the single file: `docs_v2/roadmap/PUB-NNN_slug.md`
 
 Verify structural completeness:
 - [ ] Item has header table (ID, Category, Priority, Effort, Status, Dependencies)
+- [ ] Item has a User Story (`As a <role>, I want <capability>, so that <benefit>`)
 - [ ] Item has Problem, Desired Outcome, Scope
 - [ ] Item has Acceptance Criteria
 - [ ] Scope distinguishes in-scope vs out-of-scope

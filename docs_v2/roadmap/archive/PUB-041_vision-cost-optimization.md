@@ -11,6 +11,10 @@
 
 ---
 
+## User Story
+
+As a publisher operator, I want vision analysis to use a cheaper default image size and detail setting (with an automatic quality fallback) while feeding richer image details into caption prompts, so that I cut vision API costs by roughly 93% without sacrificing caption or sidecar quality.
+
 ## Problem
 
 Every image analysis sends the **full-resolution original** to OpenAI's vision API with the default `detail: "high"` setting. For a typical 4000×6000 DSLR photo, this costs ~1105 image tokens per call (6 tiles × 170 + 85 base). Benchmarking on six representative images showed that **1024px resize + `detail: "low"` produces stable, usable vision JSON at ~85 fixed tokens** — a **~93% reduction** in vision token cost — with no degradation in caption or SD sidecar quality.

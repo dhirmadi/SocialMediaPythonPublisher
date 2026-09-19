@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-031 (Done) |
 
+## User Story
+
+As an admin, I want to filter the admin library by filename and sort it by name, date, or size, so that I can quickly find a specific file in a library of hundreds or thousands of images instead of paging through everything sequentially.
+
 ## Problem
 
 The managed-storage Admin Library (`GET /api/library/objects` + panel in the web UI) lists images as a single flat stream with folder tabs and opaque cursor pagination. As libraries grow to hundreds or thousands of objects, operators cannot find a file quickly, compare by size or date, or narrow the list without paging through everything sequentially.

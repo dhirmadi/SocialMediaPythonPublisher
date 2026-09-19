@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-005 |
 
+## User Story
+
+As an admin, I want Keep and Remove buttons in the web UI that move the current image and its sidecars into a keep or remove folder, so that I can curate the candidate pool without publishing content or manually moving files in Dropbox.
+
 ## Problem
 
 Today, when reviewing candidate images in the V2 web interface, the only admin actions are **Analyze & caption** and **Publish**. There is no quick way to curate images that should be **kept for later** (e.g., approved for a future posting batch) or **removed from the current candidate pool** without publishing or manually moving files in Dropbox. This makes it hard to maintain a clean "to post" folder, explicitly mark images as "keep for later" vs. "remove from current selection", and ensure removed images are not re-selected by the main workflow.

@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-005 |
 
+## User Story
+
+As an admin, I want to log into the web admin UI via Auth0 with my own identity instead of a shared password, so that access is auditable and restricted to an approved allowlist of emails.
+
 ## Problem
 
 The current admin authentication relies on a shared password (`web_admin_pw`) or basic auth credentials. This is difficult to manage, lacks auditability, and does not support individual user identity. We need a more robust solution that authenticates users via Auth0 and authorizes them based on their email address.

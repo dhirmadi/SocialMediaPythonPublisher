@@ -10,6 +10,10 @@
 | **Dependencies** | Orchestrator roadmap #14 (shipped) |
 | **GitHub Issue** | #57 |
 
+## User Story
+
+As a platform maintainer, I want the publisher to report AI token usage to the orchestrator after every billable OpenAI call, so that workspace wallets are debited correctly and credit-entitlement gates function end-to-end.
+
 ## Problem
 
 The platform orchestrator has shipped usage ingest and credential entitlements (orchestrator roadmap #14). Metering is **push-based**: the publisher must call `POST /v1/billing/usage` after billable work completes. Today, the publisher's `OrchestratorClient` has no method for this endpoint, and no workflow hooks emit usage events. Consequences:

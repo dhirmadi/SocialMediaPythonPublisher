@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a publisher operator, I want images to publish to every enabled platform in parallel with isolated failures, so that one platform's outage never blocks the others or slows down the whole run.
+
 ## Problem
 
 We need to support an arbitrary number of destination platforms. Publishing sequentially is slow (latency adds up) and brittle (if the first fails, the second might not run). Without a unified interface, the Orchestrator would become a tangle of platform-specific `if/else` logic, making it hard to add new integrations or maintain existing ones.

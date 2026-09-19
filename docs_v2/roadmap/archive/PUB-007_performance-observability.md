@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As a platform maintainer, I want standardized per-stage timing and correlation-ID telemetry across the workflow and web endpoints, so that I can quickly pinpoint which stage — Dropbox, OpenAI, or a publisher — is responsible when a run is slow.
+
 ## Problem
 
 Current logging and metrics are focused on correctness and error reporting, but they do not consistently capture per-stage timings or cross-cutting performance data. As more features (captionfile, expanded analysis, web interface) are added, it becomes difficult to pinpoint which stages are responsible for latency and to validate that the system meets its performance targets. There is no single feature-level specification that defines what performance telemetry must exist and how it should be used.

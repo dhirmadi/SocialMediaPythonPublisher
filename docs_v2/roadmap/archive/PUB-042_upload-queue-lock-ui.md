@@ -12,6 +12,10 @@
 
 ---
 
+## User Story
+
+As an admin, I want the grid UI to lock relevant controls and warn me before I navigate away or close the tab while uploads are actively processing, so that I don't silently lose queued or in-progress uploads.
+
 ## Problem
 
 The upload queue is client-only state. If the user clicks a grid image, refreshes, switches sort/filter, or closes the browser tab while uploads are in flight, queued and in-progress uploads are silently abandoned.

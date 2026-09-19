@@ -9,6 +9,10 @@
 | **Status** | Not Started |
 | **Dependencies** | PUB-025 (Done — Platform-Adaptive Captions), PUB-041 (Done — `build_analysis_context`) |
 
+## User Story
+
+As a publisher operator, I want the AI to generate hashtags tailored to each image's actual content instead of appending a static hashtag string verbatim, so that captions have relevant, platform-appropriate hashtags without manual curation.
+
 ## Problem
 
 Hashtags are currently a static string from config (`content.hashtag_string`) appended verbatim to every caption identically. This produces generic hashtags that don't reflect the specific image content. Meanwhile, the vision analysis already extracts rich content signals (tags, mood, aesthetic_terms, style) that could drive intelligent hashtag selection — but none of this feeds into hashtag generation.

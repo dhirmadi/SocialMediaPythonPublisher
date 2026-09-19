@@ -7,6 +7,10 @@
 **Dependencies:** PUB-033, PUB-036, PUB-037
 **Status:** Done
 
+## User Story
+
+As an admin, I want the grid toolbar controls grouped into clear find and action zones with modern styling, so that I can quickly locate search/sort controls and safely trigger upload/refresh actions without visual clutter or accidental danger-styled buttons.
+
 ## Problem
 
 Grid toolbar controls are in a flat row with no logical grouping. Search, sort, upload, select, and refresh are jumbled together. Upload uses danger-red styling. The sort order toggle is oversized. Refresh sits on its own full-width row.

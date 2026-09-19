@@ -38,7 +38,23 @@ The user provides a natural-language description of the initiative. You produce 
 - Convert the human-readable name to a slug: lowercase, hyphens for spaces, alphanumeric + hyphens only
 - Example: "Orchestrator Schema V2 Integration" → `orchestrator-schema-v2-integration`
 
-### 4. Assess priority (impact/effort scoring)
+### 4. Write the User Story
+
+Phrase one `As a <role>, I want <capability>, so that <benefit>` sentence that frames the
+item from the affected person's point of view before diving into Problem/Desired Outcome.
+Pick the role by category:
+
+| Category | Typical role |
+|----------|-------------|
+| Web UI | "admin" (the person operating the web UI) |
+| Publishing | "publisher operator" (the person running the pipeline) |
+| AI | "publisher operator curating content" (benefits from better captions/analysis) |
+| Storage, Config, Ops, Observability, Foundation | "publisher operator" or "platform maintainer" |
+
+If an item genuinely serves two distinct roles, add a second `As a ..., I want ..., so that
+...` line rather than forcing one story to cover both.
+
+### 5. Assess priority (impact/effort scoring)
 
 Use the decision framework:
 
@@ -55,7 +71,7 @@ Use the decision framework:
 
 **Effort mapping**: S (<1 week), M (1-2 weeks), L (2-4 weeks), XL (1+ month).
 
-### 5. Create the roadmap item file
+### 6. Create the roadmap item file
 
 Create `docs_v2/roadmap/PUB-NNN_slug.md` with this structure:
 
@@ -70,6 +86,10 @@ Create `docs_v2/roadmap/PUB-NNN_slug.md` with this structure:
 | **Effort** | <S|M|L|XL> |
 | **Status** | Proposal |
 | **Dependencies** | — |
+
+## User Story
+
+As a <role>, I want <capability>, so that <benefit>.
 
 ## Problem
 
@@ -112,7 +132,7 @@ Create `docs_v2/roadmap/PUB-NNN_slug.md` with this structure:
 - <Links to related items, docs, or external references. Optional.>
 ```
 
-### 6. Update the roadmap index
+### 7. Update the roadmap index
 
 Add the new item to `docs_v2/roadmap/README.md` in the Roadmap Index table, following the existing format:
 
@@ -122,7 +142,7 @@ Add the new item to `docs_v2/roadmap/README.md` in the Roadmap Index table, foll
 
 Place it in the appropriate section (active items before the "Shipped" sections, or in a new "Proposed" section if that exists).
 
-### 7. Output summary
+### 8. Output summary
 
 Report:
 - Item file path: `docs_v2/roadmap/PUB-NNN_slug.md`

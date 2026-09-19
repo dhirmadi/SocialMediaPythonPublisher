@@ -32,9 +32,10 @@ Set in the item's header table under `**Status:**`. `/product-harden` sets `Not 
 
 ## Required sections in `PUB-NNN_slug.md`
 
-Header table (ID, Category, Priority, Effort, Status, Dependencies), Problem, Desired
-Outcome, Scope (in/out), Acceptance Criteria. Implementation Notes, Risks, Success
-Metrics, Related are optional but encouraged. See
+Header table (ID, Category, Priority, Effort, Status, Dependencies), User Story (`As a
+<role>, I want <capability>, so that <benefit>` — right after the header table, before
+Problem), Problem, Desired Outcome, Scope (in/out), Acceptance Criteria. Implementation
+Notes, Risks, Success Metrics, Related are optional but encouraged. See
 `.cursor/skills/product-propose-item/SKILL.md` for the exact template and category/priority
 vocab.
 

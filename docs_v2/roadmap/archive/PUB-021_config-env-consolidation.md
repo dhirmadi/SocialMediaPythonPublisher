@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-012 |
 
+## User Story
+
+As a platform maintainer, I want all application configuration consolidated into environment variables instead of split across `.env` and INI files, so that deployments are simpler and ready for the upcoming Orchestrator API.
+
 ## Problem
 
 Configuration is spread across `.env` (secrets, some infrastructure) and `configfiles/*.ini` (application settings). This split creates cognitive overhead, inconsistent patterns, redundant toggles, and migration complexity for the upcoming Orchestrator API. Heroku and container deployments prefer environment variables over mounted config files.

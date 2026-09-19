@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | — |
 
+## User Story
+
+As an admin, I want a minimal, mobile-friendly web UI to view a random image and trigger AI analysis/captioning and publishing, so that I can operate the pipeline from my phone without needing terminal access to a development machine.
+
 ## Problem
 
 Today the system can only be operated via a CLI command on a machine with terminal access, which is inconvenient when the user wants to run workflows from a mobile device. This friction makes it harder to casually preview images, trigger AI analysis/caption generation, and publish content while away from the development machine. The existing architecture already encapsulates image selection, AI processing, sidecar creation, and publishing, but there is no thin, easy-to-use web layer exposing those capabilities.

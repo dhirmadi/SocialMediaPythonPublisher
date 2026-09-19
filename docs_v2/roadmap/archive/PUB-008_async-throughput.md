@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-017 |
 
+## User Story
+
+As a publisher operator, I want all publisher integrations to be fully async-safe with no event-loop blocking, so that publishing to multiple platforms at once actually runs concurrently instead of stacking up latency.
+
 ## Problem
 
 Publishers run in parallel using `asyncio.gather`, but individual implementations may rely on blocking SDKs or operations not wrapped in non-blocking patterns (e.g., `asyncio.to_thread`). This can stall the event loop, reduce effective concurrency, and lead to unpredictable latency when multiple platforms are enabled.

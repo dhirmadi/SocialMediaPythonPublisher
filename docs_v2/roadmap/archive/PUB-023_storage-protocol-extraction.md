@@ -9,6 +9,10 @@
 | **Status** | Done |
 | **Dependencies** | PUB-015 |
 
+## User Story
+
+As a platform maintainer, I want a formal `StorageProtocol` that all storage consumers type-hint instead of the concrete Dropbox class, so that I can add alternative storage backends later without touching every consumer.
+
 ## Problem
 
 The publisher's storage contract is implicit. `DropboxStorage` is the only implementation, and all consumers (`WorkflowOrchestrator`, `WebImageService`, `generate_and_upload_sidecar`) type-hint it concretely. There is no formal `Protocol` or base class — the interface is defined only by convention and test dummies. This makes it impossible to introduce a second storage backend without touching every consumer, and it increases the risk of interface drift.

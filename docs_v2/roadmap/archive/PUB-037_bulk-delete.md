@@ -7,6 +7,10 @@
 **Dependencies:** PUB-033, PUB-036
 **Status:** Done
 
+## User Story
+
+As an admin, I want to multi-select images in the grid and bulk delete them with a single confirmation, so that cleaning up duplicates, bad shots, or test uploads doesn't require clicking and confirming each thumbnail individually.
+
 ## Problem
 
 The image grid only supports single-image delete — each thumbnail requires an individual click on the `×` overlay plus a confirmation dialog. Cleaning up a library (duplicates, bad shots, test uploads) is tedious.

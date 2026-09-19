@@ -10,6 +10,10 @@
 | **Dependencies** | PUB-022 |
 | **Tracking** | [GitHub #69](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/69) |
 
+## User Story
+
+As a publisher operator, I want the orchestrator runtime config to treat publisher type `email` the same as the legacy `fetlife` type when building email platform state, so that my FetLife-style email publisher gets enabled correctly instead of silently having no enabled email destination.
+
 ## Problem
 
 The platform orchestrator persists FetLife-style email publishers with `"type": "email"` (canonical). Publisher V2 `_build_app_config_v2` only enters the shared-`email_server` branch when `p.type == "fetlife"`. Tenants whose runtime JSON lists `email` never get `platforms.email_enabled`, `EmailConfig`, or `creds_refs["smtp"]`, so parallel publish sees no enabled email publisher even when `email_server` and `password_ref` are present.
