@@ -750,6 +750,14 @@ async def api_get_thumbnail(
             },
         )
     except Exception as exc:
+        from PIL import Image as _PILImage
+
+        if isinstance(exc, _PILImage.DecompressionBombError):
+            # #90: an oversized source image is a client-data problem, not a 500.
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Source image exceeds the allowed pixel count",
+            ) from exc
         raise_for_service_error(exc, "web_thumbnail", response, telemetry)
 
 

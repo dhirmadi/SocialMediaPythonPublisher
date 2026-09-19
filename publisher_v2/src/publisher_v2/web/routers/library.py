@@ -67,6 +67,10 @@ _PILLOW_FORMAT_TO_MIME: dict[str, str] = {
 }
 
 
+_MAX_IMAGE_DIMENSION_PX = 12_000
+_UPLOAD_CHUNK_BYTES = 1024 * 1024
+
+
 def _verify_image_bytes(data: bytes) -> str:
     """Validate ``data`` via magic-byte parsing and return the trustworthy MIME.
 
@@ -78,15 +82,33 @@ def _verify_image_bytes(data: bytes) -> str:
 
     from PIL import Image, UnidentifiedImageError
 
+    # Make sure the global bomb ceiling from utils.images is applied even if
+    # nothing imported that module yet in this process.
+    import publisher_v2.utils.images  # noqa: F401
+
     try:
         with Image.open(BytesIO(data)) as img:
             img.verify()
             fmt = (img.format or "").upper()
+        # verify() invalidates the parser — reopen for dimensions (#90).
+        with Image.open(BytesIO(data)) as img2:
+            width, height = img2.size
+    except Image.DecompressionBombError:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Image exceeds the allowed pixel count",
+        ) from None
     except (UnidentifiedImageError, OSError, ValueError):
         raise HTTPException(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Uploaded file is not a recognized image",
         ) from None
+
+    if width > _MAX_IMAGE_DIMENSION_PX or height > _MAX_IMAGE_DIMENSION_PX:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Image dimensions {width}x{height} exceed {_MAX_IMAGE_DIMENSION_PX}px",
+        )
 
     mime = _PILLOW_FORMAT_TO_MIME.get(fmt)
     if mime is None:
@@ -641,26 +663,42 @@ async def upload_file(
     require_admin(request)
     _check_library_available(service)
 
-    # Fail fast on size before parsing — protects against zip-bomb-style images.
-    max_bytes = _get_max_upload_bytes()
-
-    # Read file data
-    data = await file.read()
-
-    # Validate size
-    if len(data) > max_bytes:
-        max_mb = max_bytes // (1024 * 1024)
-        raise HTTPException(
-            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-            detail=f"File too large ({len(data)} bytes). Maximum: {max_mb} MB",
-        )
-
-    # Validate content via magic bytes (do NOT trust client-supplied Content-Type).
-    # Returns the trustworthy MIME to store on the object.
-    content_type = _verify_image_bytes(data)
-
-    # Rate limit
+    # #90 (SEC-6): rate limit BEFORE reading any body bytes.
     _check_rate_limit(request)
+
+    max_bytes = _get_max_upload_bytes()
+    max_mb = max_bytes // (1024 * 1024)
+
+    # Reject on the declared Content-Length before touching the body.
+    declared = request.headers.get("content-length")
+    if declared:
+        try:
+            if int(declared) > max_bytes:
+                raise HTTPException(
+                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    detail=f"File too large (Content-Length {declared}). Maximum: {max_mb} MB",
+                )
+        except ValueError:
+            pass
+
+    # Read in bounded chunks — abort as soon as the running total passes the
+    # cap, so peak memory is max_bytes plus one chunk, never the whole body.
+    buffer = bytearray()
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        buffer.extend(chunk)
+        if len(buffer) > max_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                detail=f"File too large (> {max_bytes} bytes). Maximum: {max_mb} MB",
+            )
+    data = bytes(buffer)
+
+    # Validate content via magic bytes (do NOT trust client-supplied
+    # Content-Type). Pillow parsing is CPU-bound — off the event loop (#90).
+    content_type = await asyncio.to_thread(_verify_image_bytes, data)
 
     # Sanitize filename
     filename = _sanitize_filename(file.filename or "upload.jpg")
