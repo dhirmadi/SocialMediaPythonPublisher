@@ -89,10 +89,35 @@ def remote_ip(request: Request) -> str:
     of the header, so every entry to its left is attacker-supplied. Taking the
     leftmost entry would let a client mint a fresh rate-limit key per request.
     """
-    import os
-
-    if os.environ.get("WEB_TRUST_FORWARDED_FOR", "").lower() in ("1", "true", "yes"):
+    if trust_forwarded_headers():
         fwd = request.headers.get("x-forwarded-for", "")
         if fwd:
             return fwd.rsplit(",", 1)[-1].strip() or "unknown"
     return request.client.host if request.client else "unknown"
+
+
+def trust_forwarded_headers() -> bool:
+    """True when WEB_TRUST_FORWARDED_FOR says the app sits behind a trusted proxy (Heroku router)."""
+    import os
+
+    return os.environ.get("WEB_TRUST_FORWARDED_FOR", "").lower() in ("1", "true", "yes")
+
+
+def request_scheme(request: Request) -> str:
+    """Client-facing scheme of ``request``.
+
+    When WEB_TRUST_FORWARDED_FOR is set, the first ``X-Forwarded-Proto`` value
+    (lowercased, ``http``/``https`` only) wins. Heroku's router is not loopback,
+    so uvicorn's own proxy-header handling (``FORWARDED_ALLOW_IPS``, default
+    127.0.0.1) never rewrites ``request.url.scheme`` there (#129).
+
+    First value, unlike ``remote_ip``'s rightmost X-Forwarded-For entry: the
+    Heroku router overwrites X-Forwarded-Proto rather than appending, and the
+    outermost proxy's value is the client-facing scheme. A spoofed value can
+    only flip the scheme half of a same-host comparison.
+    """
+    if trust_forwarded_headers():
+        proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
+        if proto in ("http", "https"):
+            return proto
+    return request.url.scheme

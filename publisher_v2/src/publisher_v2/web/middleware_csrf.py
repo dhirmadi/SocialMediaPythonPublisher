@@ -26,6 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from publisher_v2.utils.logging import log_json
+from publisher_v2.web.rate_limit import request_scheme
 
 logger = logging.getLogger("publisher_v2.web.csrf")
 
@@ -50,7 +51,7 @@ def _same_origin(request: Request, origin: str | None) -> bool:
     if not host:
         return False
     expected = f"{parsed.scheme}://{parsed.netloc}".lower()
-    actual_scheme = request.url.scheme
+    actual_scheme = request_scheme(request)
     actual = f"{actual_scheme}://{host}".lower()
     return expected == actual
 

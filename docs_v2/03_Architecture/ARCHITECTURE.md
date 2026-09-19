@@ -110,6 +110,7 @@ Migration CLI (PUB-031, standalone tool):
 - Local or server with **uv** + Python 3.12 (Poetry also supported)
 - Cron/systemd/CI scheduler for recurring jobs
 - Optional containerization; secrets via env
+- Heroku: `WEB_TRUST_FORWARDED_FOR=true` is required (CSRF and the Auth0 callback read the scheme from `X-Forwarded-Proto`); `FORWARDED_ALLOW_IPS` is not used and the `Procfile` does not trust all proxies. See [CONFIGURATION §10.2](../05_Configuration/CONFIGURATION.md) (#129)
 
 ## 7. Observability
 - Structured logging with correlation IDs and redaction

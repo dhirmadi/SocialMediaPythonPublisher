@@ -119,7 +119,7 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `WEB_ADMIN_COOKIE_EPOCH` | Cookie kill switch (#91 SEC-10): rotate the value to invalidate every outstanding admin cookie without changing `WEB_SESSION_SECRET` | (empty) |
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
-| `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
+| `WEB_TRUST_FORWARDED_FOR` | Trust the proxy's forwarded headers. Set to `true` **only behind a proxy that appends the real client IP as the rightmost `X-Forwarded-For` entry and sets `X-Forwarded-Proto`** (Heroku router contract). Rate limits key on the rightmost `X-Forwarded-For` entry (everything left of it is client-supplied); the CSRF same-origin check and the Auth0 callback URL take the scheme from the first `X-Forwarded-Proto` value (`http`/`https` only). **Required on Heroku**: without it every browser `POST` under `/api` returns 403 "CSRF check failed" (#129). | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
 | `PUBLISH_TIMEOUT_SECONDS` | Default per-publisher timeout (min 5s) | 120 |
@@ -447,13 +447,17 @@ For Heroku apps using `FETLIFE_INI`:
 
 #### Quick Start (Minimal Config Vars)
 
-Set these three required JSON config vars to enable env-first mode:
+Set these three required JSON config vars to enable env-first mode, plus `WEB_TRUST_FORWARDED_FOR=true` for the web UI:
 
 ```bash
 # Required for env-first mode
 heroku config:set STORAGE_PATHS='{"root": "/Photos/MySocialMedia"}' -a YOUR_APP
 heroku config:set PUBLISHERS='[{"type": "fetlife", "recipient": "user@fetlife.com"}]' -a YOUR_APP
 heroku config:set OPENAI_SETTINGS='{}' -a YOUR_APP
+
+# Required on every Heroku app for the web UI (#129): without it every browser POST under /api
+# returns 403 "CSRF check failed". Do not set FORWARDED_ALLOW_IPS; it is not used (see §10.2).
+heroku config:set WEB_TRUST_FORWARDED_FOR=true -a YOUR_APP
 
 # If using email/FetLife publisher
 heroku config:set EMAIL_SERVER='{"sender": "bot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}' -a YOUR_APP
@@ -546,7 +550,13 @@ In multi-tenant mode, the web UI still needs a consistent security posture per `
 | `ADMIN_LOGIN_EMAILS` (or `AUTH0_ADMIN_EMAIL_ALLOWLIST`) | Admin allowlist |
 | `WEB_SESSION_SECRET` | Session signing secret |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin cookie TTL (server-enforced clamp) |
-| `WEB_TRUST_FORWARDED_FOR` | Set `true` on Heroku so per-IP rate limits key on the rightmost `X-Forwarded-For` entry (the router-appended real client IP) |
+| `WEB_TRUST_FORWARDED_FOR` | Set `true` on Heroku so per-IP rate limits key on the rightmost `X-Forwarded-For` entry (the router-appended real client IP) and CSRF/Auth0 read the scheme from `X-Forwarded-Proto`. **Required on Heroku** (#129) |
+
+**Heroku proxy headers (#129).** Heroku's router is not a loopback peer, so uvicorn's own proxy-header handling (`--proxy-headers`, trusted peers from `FORWARDED_ALLOW_IPS`, default `127.0.0.1`) never rewrites the request scheme there, and the `Procfile` deliberately does not pass `--forwarded-allow-ips="*"`. `FORWARDED_ALLOW_IPS` is **not used**; do not set it. The one env var Heroku requires for proxy headers is:
+
+```bash
+heroku config:set WEB_TRUST_FORWARDED_FOR=true -a YOUR_APP
+```
 
 ### 10.3 Orchestrator-delivered runtime config (non-secret)
 
