@@ -47,11 +47,11 @@ This document defines the quality metrics, targets, and measurement methods for 
 uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
 
 # HTML report for detailed analysis
-uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=html
+uv run pytest --cov --cov-report=html
 open htmlcov/index.html
 
-# Per-module coverage
-uv run pytest --cov=publisher_v2/src/publisher_v2/core --cov-report=term
+# Per-module coverage (a deliberate partial run: opt out of the 85% gate)
+uv run pytest --cov=publisher_v2/src/publisher_v2/core --cov-report=term --cov-fail-under=0
 ```
 
 ---
@@ -299,7 +299,7 @@ uv run ruff check .
 echo "Running comprehensive quality analysis..."
 
 # Tests with full coverage
-uv run pytest --cov=publisher_v2/src/publisher_v2 \
+uv run pytest --cov \
     --cov-report=term-missing \
     --cov-report=html \
     -v

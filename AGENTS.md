@@ -15,7 +15,7 @@ Treat `code_v1/` and `docs_v1/` as **archived — never edit**.
 | Lint | `make lint` |
 | Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` |
 | Test | `uv run pytest -v --tb=short` |
-| Test + coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` |
+| Test + coverage | `uv run pytest -v --cov --cov-report=term-missing` |
 | All checks | `make check` |
 | Preview | `make preview-v2` (env-first; `--config` is accepted but ignored since #97 stage 4) |
 
@@ -67,7 +67,7 @@ publisher_v2/src/publisher_v2/
 | Lint | `uv run ruff check .` | Zero violations |
 | Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` | Zero errors |
 | Tests | `uv run pytest -v --tb=short` | All pass |
-| Coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` | ≥80% affected, ≥85% overall |
+| Coverage | `uv run pytest -v --cov --cov-report=term-missing` | ≥80% affected, ≥85% overall |
 
 ## Development workflow
 

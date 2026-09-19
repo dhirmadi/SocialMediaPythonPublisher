@@ -9,7 +9,7 @@
 - **Lint only**: `uv run ruff check .`
 - **Type check**: `uv run mypy publisher_v2/src --ignore-missing-imports`
 - **Test**: `uv run pytest -v --tb=short`
-- **Test with coverage**: `uv run pytest -v --cov=. --cov-report=term`
+- **Test with coverage**: `uv run pytest -v --cov --cov-report=term-missing` (source tree only; fails under 85% — add `--cov-fail-under=0` for a deliberate partial run)
 - **Preview (no side effects)**: `PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview` (env-first config; `--config` is deprecated and ignored since #97 stage 4)
 - **All checks**: `make check`
 
@@ -154,7 +154,7 @@ Before considering any roadmap item complete, all gates must pass:
 | Lint | `uv run ruff check .` | Zero violations |
 | Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` | Zero errors |
 | Tests | `uv run pytest -v --tb=short` | All pass |
-| Coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` | ≥80% affected, ≥85% overall |
+| Coverage | `uv run pytest -v --cov --cov-report=term-missing` | ≥80% affected, ≥85% overall (enforced: `fail_under = 85`) |
 
 ## Git hygiene
 

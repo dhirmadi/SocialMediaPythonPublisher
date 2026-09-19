@@ -191,7 +191,7 @@ git push origin feature/your-feature-name
 pytest
 
 # Run with coverage
-pytest --cov=. --cov-report=html
+pytest --cov --cov-report=html
 
 # Run specific test file
 pytest tests/test_config.py
@@ -461,7 +461,7 @@ lint:
 	uv run mypy publisher_v2/src --ignore-missing-imports
 
 test:
-	pytest -v --cov=.
+	pytest -v --cov
 
 check:
 	pre-commit run --all-files

@@ -453,7 +453,7 @@ class TestImageManager:
 pytest
 
 # Run with coverage
-pytest --cov=. --cov-report=html
+pytest --cov --cov-report=html
 
 # Run specific test file
 pytest tests/test_image_manager.py

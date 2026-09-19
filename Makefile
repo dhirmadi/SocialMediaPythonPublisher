@@ -83,7 +83,7 @@ type-check:
 
 test:
 	@echo "Running tests with coverage..."
-	uv run pytest -v --cov=. --cov-report=term --cov-report=html
+	uv run pytest -v --cov --cov-report=term-missing --cov-report=html
 	@echo "✅ Tests complete - see htmlcov/index.html for coverage report"
 
 check: format lint type-check test
