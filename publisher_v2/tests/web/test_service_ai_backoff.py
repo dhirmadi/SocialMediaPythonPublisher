@@ -43,7 +43,7 @@ class _FakeSource:
         self._failures = failures
         self.calls = 0
 
-    async def get_credentials(self, host: str, ref: str) -> dict:
+    async def get_credentials(self, host: str, ref: str, tenant: str | None = None) -> dict:
         self.calls += 1
         if self.calls <= self._failures:
             raise CredentialResolutionError("upstream 503")
