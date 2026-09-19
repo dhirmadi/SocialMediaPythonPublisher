@@ -70,7 +70,10 @@ def rehydrate_sidecar_view(text: str) -> dict[str, Any]:
 
     Returns a dict with keys:
       - sd_caption: Optional[str]
-      - caption: Optional[str] (metadata caption if present, otherwise sd_caption)
+      - caption: Optional[str] (published/edited caption from metadata; None when
+        absent — NEVER the sd_caption, which is a Stable Diffusion prompt, not a
+        social caption; see #80)
+      - caption_generated: Optional[dict[str, str]] (per-platform generated captions)
       - metadata: Optional[dict[str, Any]]
       - has_sidecar: bool
 
@@ -79,18 +82,28 @@ def rehydrate_sidecar_view(text: str) -> dict[str, Any]:
     """
     sd_caption, metadata = parse_sidecar_text(text)
     caption: str | None = None
+    caption_generated: dict[str, Any] | None = None
     if isinstance(metadata, dict):
         raw_caption = metadata.get("caption")
         if isinstance(raw_caption, str):
             raw_caption = raw_caption.strip()
             if raw_caption:
                 caption = raw_caption
-    if caption is None:
-        caption = sd_caption
+        raw_generated = metadata.get("caption_generated")
+        if isinstance(raw_generated, dict):
+            caption_generated = raw_generated
+        elif isinstance(raw_generated, str) and raw_generated.strip():
+            try:
+                decoded = json.loads(raw_generated)
+                if isinstance(decoded, dict):
+                    caption_generated = decoded
+            except json.JSONDecodeError:
+                caption_generated = None
     has_sidecar = bool(sd_caption or metadata)
     return {
         "sd_caption": sd_caption,
         "caption": caption,
+        "caption_generated": caption_generated,
         "metadata": metadata,
         "has_sidecar": has_sidecar,
     }

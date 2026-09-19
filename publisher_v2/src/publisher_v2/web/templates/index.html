@@ -673,6 +673,27 @@
       color: #facc15;
       font-weight: 500;
     }
+    .caption-meta .cached-badge {
+      color: #34d399;
+      font-weight: 500;
+    }
+    .caption-meta .regen-btn {
+      flex: 0 0 auto;
+      width: auto;
+      margin-right: auto;
+      margin-left: 0.5rem;
+      background: transparent;
+      color: #9ca3af;
+      border: 1px solid #4b5563;
+      border-radius: 4px;
+      padding: 0.1rem 0.5rem;
+      font-size: 0.75rem;
+      cursor: pointer;
+    }
+    .caption-meta .regen-btn:hover {
+      color: #f3f4f6;
+      border-color: #9ca3af;
+    }
   </style>
 </head>
 <body>
@@ -738,6 +759,10 @@
         readonly></textarea>
       <div class="caption-meta">
         <span id="caption-edited" class="edited-badge hidden">(edited)</span>
+        <span id="caption-cached" class="cached-badge hidden">{{ web_ui_text.get("badges", {}).get("cached") or "cached" }}</span>
+        <button id="btn-regenerate" class="regen-btn hidden" type="button">
+          {{ web_ui_text.buttons.regenerate or "Regenerate" }}
+        </button>
         <span id="caption-char-count" class="char-count"></span>
       </div>
     </div>
@@ -1037,9 +1062,12 @@
         showImage(
           displayUrl,
           data.temp_url,
-          data.caption || data.sd_caption || data.filename
+          data.caption || data.filename
         );
-        setCaption(data.caption || data.sd_caption || "No caption yet.");
+        // #80: never surface the SD prompt as the caption — sd_caption is a
+        // Stable Diffusion prompt, not a social caption.
+        setCaption(data.caption || "No caption yet.");
+        setCachedState(false);
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${escapeHtml(data.filename)}</div><pre><code>${escapeHtml(meta)}</code></pre>`);
         setActivity("Image loaded.");
@@ -1205,6 +1233,15 @@
       captionEl.readOnly = !text;
       originalCaption = text || "";
       updateCaptionMeta();
+    }
+
+    // #80: "cached" badge + Regenerate action when the caption came from the
+    // sidecar cache instead of a fresh AI run.
+    function setCachedState(isCached) {
+      const cachedEl = document.getElementById("caption-cached");
+      const regenEl = document.getElementById("btn-regenerate");
+      if (cachedEl) cachedEl.classList.toggle("hidden", !isCached);
+      if (regenEl) regenEl.classList.toggle("hidden", !isCached);
     }
 
     function updateCaptionMeta() {
@@ -1465,7 +1502,7 @@
       updateAdminState(admin);
     }
 
-    async function apiAnalyze() {
+    async function apiAnalyze(forceRefresh = false) {
       if (!currentFilename) {
         setActivity("No image selected.");
         return;
@@ -1474,10 +1511,11 @@
         setActivity("Admin mode required to analyze.");
         return;
       }
-      setActivity("Analyzing image…");
+      setActivity(forceRefresh ? "Regenerating caption…" : "Analyzing image…");
       disableButtons(true);
       try {
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/analyze`, {
+        const suffix = forceRefresh ? "?force_refresh=true" : "";
+        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/analyze${suffix}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" }
         });
@@ -1490,7 +1528,9 @@
           throw new Error(err.detail || err.error || "Failed to analyze image");
         }
         const data = await res.json();
-        setCaption(data.caption || data.sd_caption || "No caption generated.");
+        // #80: never fall back to sd_caption — it's an SD prompt, not a caption.
+        setCaption(data.caption || "No caption generated.");
+        setCachedState(Boolean(data.cached));
         const meta = {
           description: data.description,
           mood: data.mood,
@@ -1498,7 +1538,7 @@
           tags: data.tags
         };
         setDetails(`<div><strong>Analysis:</strong></div><pre><code>${escapeHtml(JSON.stringify(meta, null, 2))}</code></pre>`);
-        setActivity("Analysis complete; caption generated.");
+        setActivity(data.cached ? "Caption served from cache." : "Analysis complete; caption generated.");
       } catch (e) {
         console.error(e);
         const msg = e.message || "Error analyzing image.";
@@ -2855,7 +2895,12 @@
         btnFullSize.addEventListener("click", handleFullSize);
       }
       if (btnAnalyze) {
-        btnAnalyze.addEventListener("click", apiAnalyze);
+        // Wrap so the MouseEvent isn't passed as forceRefresh (#80).
+        btnAnalyze.addEventListener("click", () => apiAnalyze(false));
+      }
+      const btnRegenerate = document.getElementById("btn-regenerate");
+      if (btnRegenerate) {
+        btnRegenerate.addEventListener("click", () => apiAnalyze(true));
       }
       if (btnPublish) {
         btnPublish.addEventListener("click", apiPublish);
