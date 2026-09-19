@@ -241,3 +241,16 @@ In orchestrator mode (v2 schema), the flag can also be driven by runtime config 
 | Date | Change |
 |------|--------|
 | 2026-05-12 | Spec hardened for Claude Code handoff — added AC-A8 (retry counting), AC-C7 (preview mode behavior), clarified AC-A3 table reference |
+
+
+## Amendment (#92, Audit 2026-09 — decision (a))
+
+The original hourly idempotency key (`r2ops:{tenant}:{date}:{hour}`) predates the periodic
+flush: once flushes ran every 300s, the orchestrator's dedup silently dropped every flush after
+the first each hour. Decision **(a)**: each drained batch now gets its own key —
+`r2ops:{tenant}:{date}:{hour}:{uuid4}` — so dedup only protects retries of the same batch.
+Failed batches are kept in a bounded pending list and retried with their original key on the
+next flush, so no drained count is lost (worst case: bounded drop after 12 consecutive failed
+flushes, logged as `storage_ops_pending_batch_dropped`). Option (b) — hourly upsert rows —
+remains open as an orchestrator-side contract change if billing wants per-hour aggregates.
+Note: boto3's internal retries are not counted; one count per SDK call.
