@@ -64,3 +64,25 @@ def test_require_admin_rejects_tampered_cookie(monkeypatch: pytest.MonkeyPatch) 
     client.cookies.set(ADMIN_COOKIE_NAME, "1")  # not a valid signed payload
     res = client.get("/protected")
     assert res.status_code == 403
+
+
+class TestDevSecretOptIn:
+    """SEC-5 (#87): WEB_DEBUG alone must not enable the public dev secret."""
+
+    def test_web_debug_alone_raises(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.web.auth import _cookie_secret
+
+        monkeypatch.delenv("WEB_SESSION_SECRET", raising=False)
+        monkeypatch.delenv("SECRET_KEY", raising=False)
+        monkeypatch.delenv("WEB_DEV_INSECURE_SECRET", raising=False)
+        monkeypatch.setenv("WEB_DEBUG", "1")
+        with pytest.raises(RuntimeError):
+            _cookie_secret()
+
+    def test_explicit_insecure_flag_enables_dev_secret(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.web.auth import _cookie_secret
+
+        monkeypatch.delenv("WEB_SESSION_SECRET", raising=False)
+        monkeypatch.delenv("SECRET_KEY", raising=False)
+        monkeypatch.setenv("WEB_DEV_INSECURE_SECRET", "1")
+        assert _cookie_secret() == "dev_secret_do_not_use_in_prod"
