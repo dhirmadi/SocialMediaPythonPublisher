@@ -112,6 +112,45 @@ def _verify_basic(auth_header: str) -> bool:
 # --- Admin-mode helpers (UI-level guard on top of HTTP auth) ---
 
 ADMIN_COOKIE_NAME = "pv2_admin"
+
+# #91 (SEC-10): in-process revocation of stateless cookies. Bounded and
+# TTL-pruned (entries older than the max cookie TTL are useless — the
+# signature has expired anyway). Per-process only; the epoch env var is the
+# fleet-wide kill switch.
+_REVOKED_SIDS: dict[str, float] = {}
+_REVOKED_SIDS_MAX = 10_000
+
+
+def _cookie_epoch() -> str:
+    """Rotating WEB_ADMIN_COOKIE_EPOCH invalidates every outstanding cookie."""
+    return (os.environ.get("WEB_ADMIN_COOKIE_EPOCH") or "").strip()
+
+
+def _prune_revoked_sids() -> None:
+    import time as _time
+
+    cutoff = _time.time() - 3600  # max cookie TTL clamp
+    stale = [sid for sid, ts in _REVOKED_SIDS.items() if ts < cutoff]
+    for sid in stale:
+        _REVOKED_SIDS.pop(sid, None)
+    while len(_REVOKED_SIDS) > _REVOKED_SIDS_MAX:
+        _REVOKED_SIDS.pop(next(iter(_REVOKED_SIDS)), None)
+
+
+def revoke_admin_sid(sid: str) -> None:
+    import time as _time
+
+    _prune_revoked_sids()
+    _REVOKED_SIDS[sid] = _time.time()
+
+
+def revoke_admin_request(request: Request) -> None:
+    """Revoke the sid of the admin cookie presented on ``request`` (#91)."""
+    payload = _load_admin_cookie(request.cookies.get(ADMIN_COOKIE_NAME))
+    if payload and payload.get("sid"):
+        revoke_admin_sid(str(payload["sid"]))
+
+
 _ADMIN_COOKIE_SALT = "publisher_v2.admin_cookie.v1"
 
 
@@ -216,6 +255,7 @@ def mint_admin_cookie_value(
         "tenant": tenant,
         "host": _normalize_host(host),
         "mode": mode,
+        "epoch": _cookie_epoch(),
     }
     if email:
         payload["email"] = email
@@ -242,6 +282,12 @@ def _load_admin_cookie(token: str | None) -> dict | None:
     if not isinstance(data, dict):
         return None
     if not all(key in data for key in ("sid", "tenant", "host", "mode")):
+        return None
+    # #91 (SEC-10): epoch mismatch (rotated kill switch) and revoked sids fail.
+    if str(data.get("epoch") or "") != _cookie_epoch():
+        return None
+    _prune_revoked_sids()
+    if str(data.get("sid")) in _REVOKED_SIDS:
         return None
     return data
 

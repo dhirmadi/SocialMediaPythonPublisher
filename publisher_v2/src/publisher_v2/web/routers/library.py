@@ -186,10 +186,18 @@ def _sanitize_filename(filename: str) -> str:
     return name
 
 
+def _prune_rate_dict(store: dict[str, list[float]], now: float) -> None:
+    """#91 (SEC-10): drop cookie keys whose entries have all aged out."""
+    stale = [key for key, stamps in store.items() if not stamps or now - stamps[-1] >= _RATE_LIMIT_WINDOW]
+    for key in stale:
+        store.pop(key, None)
+
+
 def _check_rate_limit(request: Request) -> None:
     """Check upload rate limit (10/minute per admin session)."""
     cookie_val = request.cookies.get("pv2_admin", "anonymous")
     now = time.time()
+    _prune_rate_dict(_upload_rate_limit, now)
 
     if cookie_val not in _upload_rate_limit:
         _upload_rate_limit[cookie_val] = []
@@ -210,6 +218,7 @@ def _check_delete_rate_limit(request: Request) -> None:
     """Check delete rate limit (20/minute per admin session)."""
     cookie_val = request.cookies.get("pv2_admin", "anonymous")
     now = time.time()
+    _prune_rate_dict(_delete_rate_limit, now)
 
     if cookie_val not in _delete_rate_limit:
         _delete_rate_limit[cookie_val] = []

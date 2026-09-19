@@ -89,3 +89,83 @@ class TestPkce:
             auth_router.configure_oauth(config)
 
         assert captured["client_kwargs"]["code_challenge_method"] == "S256"
+
+
+class TestCookieRevocation:
+    """SEC-10 (#91 C): logout revokes the sid; epoch rotates all cookies."""
+
+    def test_logout_revokes_the_presented_cookie(self, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
+        monkeypatch.setenv("web_admin_pw", "secret")
+        from publisher_v2.web.auth import mint_admin_cookie_value
+
+        cookie = mint_admin_cookie_value(host="testserver")
+        client.cookies.set("pv2_admin", cookie)
+        assert client.get("/api/admin/status").json()["admin"] is True
+
+        res = client.post("/api/auth/logout", headers={"X-Requested-With": "XMLHttpRequest"})
+        assert res.status_code == 200
+
+        # Replaying the same signed cookie after logout must fail.
+        client.cookies.set("pv2_admin", cookie)
+        assert client.get("/api/admin/status").json()["admin"] is False
+
+    def test_epoch_rotation_invalidates_existing_cookies(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from starlette.requests import Request as StarletteRequest
+
+        from publisher_v2.web.auth import ADMIN_COOKIE_NAME, is_admin_request, mint_admin_cookie_value
+
+        monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
+        monkeypatch.setenv("WEB_ADMIN_COOKIE_EPOCH", "1")
+        cookie = mint_admin_cookie_value(host="testserver")
+
+        def _req(value: str) -> StarletteRequest:
+            return StarletteRequest(
+                {
+                    "type": "http",
+                    "method": "GET",
+                    "path": "/",
+                    "headers": [(b"host", b"testserver"), (b"cookie", f"{ADMIN_COOKIE_NAME}={value}".encode())],
+                    "query_string": b"",
+                }
+            )
+
+        assert is_admin_request(_req(cookie)) is True
+        monkeypatch.setenv("WEB_ADMIN_COOKIE_EPOCH", "2")
+        assert is_admin_request(_req(cookie)) is False
+
+
+class TestRateLimiterKeyCap:
+    def test_new_key_refused_when_capacity_reached(self) -> None:
+        from fastapi import HTTPException as FastapiHTTPException
+
+        from publisher_v2.web.rate_limit import SlidingWindowLimiter
+
+        limiter = SlidingWindowLimiter(window_seconds=60, max_events=5, label="cap-test")
+        limiter._max_keys = 2
+        limiter.check("a")
+        limiter.check("b")
+        with pytest.raises(FastapiHTTPException) as exc_info:
+            limiter.check("c")
+        assert exc_info.value.status_code == 429
+
+    def test_library_rate_dicts_pruned_on_check(self) -> None:
+        import time as _time
+
+        from starlette.requests import Request as StarletteRequest
+
+        from publisher_v2.web.routers import library
+
+        library._upload_rate_limit.clear()
+        library._upload_rate_limit["stale-cookie"] = [_time.time() - 3600]
+        request = StarletteRequest(
+            {
+                "type": "http",
+                "method": "POST",
+                "path": "/api/library/upload",
+                "headers": [(b"cookie", b"pv2_admin=fresh")],
+                "query_string": b"",
+            }
+        )
+        library._check_rate_limit(request)
+        assert "stale-cookie" not in library._upload_rate_limit
+        library._upload_rate_limit.clear()

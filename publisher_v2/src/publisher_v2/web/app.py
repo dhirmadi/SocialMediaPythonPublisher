@@ -26,6 +26,7 @@ from publisher_v2.web.auth import (
     is_admin_configured,
     is_admin_request,
     request_binding,
+    revoke_admin_request,
     require_admin,
     require_auth,
     set_admin_cookie,
@@ -396,6 +397,7 @@ async def api_admin_login(
 @app.post("/api/auth/logout", response_model=AdminStatusResponse)
 async def api_auth_logout(response: Response, request: Request) -> AdminStatusResponse:
     """Log out of admin mode (#91 SEC-8): POST under /api so CSRF applies."""
+    revoke_admin_request(request)
     clear_admin_cookie(response)
     request.session.clear()
     log_json(logger, logging.INFO, "web_admin_logout")
@@ -414,6 +416,7 @@ async def api_admin_logout(response: Response, request: Request) -> AdminStatusR
     Explicitly log out of admin mode by clearing the admin cookie.
     Also clears server-side session.
     """
+    revoke_admin_request(request)
     clear_admin_cookie(response)
     request.session.clear()
     log_json(logger, logging.INFO, "web_admin_logout")
