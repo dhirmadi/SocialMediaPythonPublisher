@@ -351,6 +351,11 @@ EMAIL_PASSWORD=your-app-password
 STORAGE_PATHS={"root": "/Photos/MySocialMedia", "archive": "sent", "keep": "favorites", "remove": "trash"}
 PUBLISHERS=[{"type": "fetlife", "recipient": "user@fetlife.com", "caption_target": "subject", "subject_mode": "normal"}]
 EMAIL_SERVER={"sender": "mybot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
+
+# Optional (#97 stage 3): "use_tls" (default true, STARTTLS) and "smtp_username"
+# (login user; defaults to sender). Orchestrator mode maps email_server.use_tls /
+# email_server.username to the same fields. SMTP socket timeout comes from
+# service_limits.yaml smtp.timeout_seconds (fallback 30s).
 CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
 CONTENT_SETTINGS={"archive": true, "debug": false}
 ```

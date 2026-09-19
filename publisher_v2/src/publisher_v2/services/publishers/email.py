@@ -7,6 +7,7 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 
 from publisher_v2.config.schema import EmailConfig
+from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.captions import normalize_tags
@@ -81,9 +82,13 @@ class EmailPublisher(Publisher):
             def _send_emails() -> None:
                 # Use the context manager so QUIT always runs and the
                 # connection is closed even when sendmail raises mid-batch.
-                with smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=30) as server:
-                    server.starttls()
-                    server.login(config.sender, password)
+                # #97 stage 3: timeout from static config (was hard-coded 30);
+                # STARTTLS and login user honor the wired email_server fields.
+                timeout = get_static_config().service_limits.smtp.timeout_seconds or 30
+                with smtplib.SMTP(config.smtp_server, config.smtp_port, timeout=timeout) as server:
+                    if config.use_tls:
+                        server.starttls()
+                    server.login(config.smtp_username or config.sender, password)
 
                     prefix_map = {
                         "normal": "",
