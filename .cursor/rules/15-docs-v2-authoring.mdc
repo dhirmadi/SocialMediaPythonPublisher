@@ -27,7 +27,7 @@ alwaysApply: false
 ### Roadmap lifecycle
 - **Lifecycle statuses**: Proposal → Not Started → In Progress → Done (plus Deferred, Superseded).
 - **7-stage lifecycle**: CREATE → HARDEN → IMPLEMENT → VERIFY → REVIEW → DEPLOY → ARCHIVE.
-- Use `/product/lifecycle` to see the full guide.
+- Use `/product-lifecycle` to see the full guide.
 - Hardened specs include a `PUB-NNN_handoff.md` document that serves as the implementation contract for Claude Code.
 - Shipped items must have: status Done, moved to `docs_v2/roadmap/archive/`, README index updated, CHANGELOG entry.
 

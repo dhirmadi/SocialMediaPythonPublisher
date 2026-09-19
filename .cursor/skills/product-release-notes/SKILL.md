@@ -1,3 +1,10 @@
+---
+name: product-release-notes
+description: >-
+  Generate user-facing, non-technical release notes for recently shipped (Status: Done, archived) roadmap items, for stakeholder communication.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** generating **release notes** for the Social Media Python Publisher V2.
 
 ## Task
@@ -7,7 +14,7 @@ Produce user-facing release notes for recently shipped roadmap items, suitable f
 ## Invocation
 
 ```text
-/product/release-notes [scope]
+/product-release-notes [scope]
 ```
 
 Where `[scope]` is optional and can be:
@@ -73,7 +80,7 @@ Reference the relevant docs for details.>
 ## What's Coming Next
 
 <Brief mention of in-progress or planned items to set expectations.
-Reference the roadmap: run `/product/roadmap` for the full view.>
+Reference the roadmap: run `/product-roadmap` for the full view.>
 ```
 
 ## Rules

@@ -1,3 +1,10 @@
+---
+name: product-status
+description: >-
+  Produce a flat status dashboard of every roadmap item's status, handoff, test-report, and review-record state across docs_v2/roadmap and docs_v2/roadmap/archive.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** generating a **status dashboard** for the Social Media Python Publisher V2.
 
 ## Task

@@ -1,3 +1,10 @@
+---
+name: product-gap-analysis
+description: >-
+  Read-only scan of docs_v2/roadmap for structural gaps, missing artifacts, status inconsistencies, README/index drift, and orphaned files across roadmap items.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** running a **gap analysis** on the Social Media Python Publisher V2 product roadmap.
 
 ## Task

@@ -10,11 +10,12 @@ When implementing a roadmap item from a hardened spec:
 
 1. **Read the handoff doc first** (`docs_v2/roadmap/PUB-NNN_handoff.md`). It contains the implementation contract: test targets, mock boundaries, and files to touch.
 2. **The spec is the contract.** If implementation and spec disagree, the spec wins.
-3. **Test-first, always.** Write failing tests from acceptance criteria before writing any implementation code.
-4. **Create plan per roadmap item.** Use `docs_v2/roadmap/PUB-NNN_plan.yaml` with tasks, ACs, and quality gates.
-5. **Create summary per roadmap item.** Document files changed, ACs met, test results, and any implementation decisions in `docs_v2/roadmap/PUB-NNN_summary.md`.
-6. **Never deviate silently.** If you must deviate from the spec, document why in the summary and flag it for review.
-7. **Coverage gates are mandatory.** ≥80% on affected modules, ≥85% overall. Do not skip.
+3. **Test-first, always.** Write failing tests from acceptance criteria before writing any implementation code. `/implement` delegates this split structurally via `.claude/agents/test-engineer.md` (writes the tests) and `.claude/agents/developer.md` (writes the code) — use that delegation rather than writing both yourself in one context when running the full workflow.
+4. **Exact test names are the traceability link.** The handoff doc's Test-first targets table names the exact `pytest` function per AC — use it verbatim. `/verify` and `/product-review-delivery` check the actual test name against this table; an undocumented mismatch is flagged as a traceability gap, not just a style nit.
+5. **Create plan per roadmap item.** Use `docs_v2/roadmap/PUB-NNN_plan.yaml` with tasks, ACs, and quality gates.
+6. **Create summary per roadmap item.** Document files changed, ACs met, test results, and any implementation decisions in `docs_v2/roadmap/PUB-NNN_summary.md`.
+7. **Never deviate silently.** If you must deviate from the spec, document why in the summary and flag it for review.
+8. **Coverage gates are mandatory.** ≥80% on affected modules, ≥85% overall. Do not skip.
 
 ## Roadmap layout
 

@@ -1,3 +1,10 @@
+---
+name: product-prioritize
+description: >-
+  Score and rank pending (non-Done) roadmap items using the PM impact/effort decision framework, producing an ordered priority stack with dependency sequencing.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** running a **prioritization exercise** on pending roadmap items for the Social Media Python Publisher V2.
 
 ## Task
@@ -7,7 +14,7 @@ Evaluate and rank all non-Done roadmap items using a structured prioritization f
 ## Invocation
 
 ```text
-/product/prioritize [scope]
+/product-prioritize [scope]
 ```
 
 Where `[scope]` is optional:

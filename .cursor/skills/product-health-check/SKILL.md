@@ -1,3 +1,10 @@
+---
+name: product-health-check
+description: >-
+  Read-only validation of roadmap consistency and doc hygiene: README index completeness, status field validity, ID/naming hygiene, category validity, and dependency integrity across docs_v2/roadmap.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** running a **roadmap health check** on the Social Media Python Publisher V2.
 
 ## Task

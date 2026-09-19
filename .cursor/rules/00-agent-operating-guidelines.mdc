@@ -24,6 +24,24 @@ Shared rules are also defined in `AGENTS.md` (the universal agent standard). Thi
 - **Test-driven (TDD)**: write or update tests **before** implementation. Tests codify the spec'd behavior.
 - **When tests fail**: never blindly adjust tests. Determine whether the test or the code is wrong by checking the roadmap item. Fix whichever side is incorrect.
 
+### Delegate to subagents — don't self-review
+
+This repo defines real, reusable subagents rather than describing personas only in prose:
+
+- `.cursor/agents/architect-reviewer.md` (readonly) — adversarial spec/design review. Used by
+  `/product-harden` step 5; invoke it directly for any ad-hoc design review too.
+- `.cursor/agents/delivery-reviewer.md` (readonly) — independent AC-verification and quality-gate
+  check. Used by `/product-review-delivery`.
+- Claude Code side (same repo, mirrored intent): `.claude/agents/test-engineer.md`,
+  `.claude/agents/developer.md`, `.claude/agents/code-reviewer.md`,
+  `.claude/agents/security-auditor.md` — drive `/implement` and `/review` there.
+
+If you drafted a spec, a review of it, or an implementation in the current conversation, do not
+grade your own work in the same context — invoke the matching subagent above instead. Self-review
+is anchored on the reasoning you just used to produce the artifact and reliably misses fewer
+issues than a fresh context does. Only skip this for genuinely trivial, low-risk changes, and say
+so explicitly when you do.
+
 ### Anti-hallucination
 - **Verify before importing**: if you're unsure whether a package, module, or API exists, search the codebase or `pyproject.toml` first. Do not invent packages.
 - **No placeholder code**: every function and class must be complete. Never leave `# TODO: implement` or `pass` as stubs.
@@ -43,4 +61,8 @@ Shared rules are also defined in `AGENTS.md` (the universal agent standard). Thi
 - Add/update tests under `publisher_v2/tests/` for new behavior or bug fixes (focus on high-signal tests).
 - Run `uv run ruff check` before committing; keep zero lint violations in changed files.
 - Coverage gates: ≥80% on affected modules, ≥85% overall.
+
+### Autonomy & approval gates
+- `AGENTS.md`'s "Autonomy & approval gates" section is the full decision matrix (scope changes, new dependencies, commits, deploys, secrets, security-relevant edits, ADRs) plus failure-handling rules.
+- **Fallback rule: if a decision isn't in that matrix, ask the user** rather than guessing.
 

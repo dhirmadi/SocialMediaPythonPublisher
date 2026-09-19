@@ -38,12 +38,15 @@ This `.cursorrules` file remains as a **compatibility shim** for older Cursor se
 
 ### Development workflow (flat roadmap, two-tool lifecycle)
 - **Roadmap model**: flat items at `docs_v2/roadmap/PUB-NNN_slug.md`; shipped items in `docs_v2/roadmap/archive/`
-- **Cursor** owns: CREATE (`/product/propose-item`), HARDEN (`/product/harden`), REVIEW (`/product/review-delivery`), DEPLOY (`/product/deploy`), ARCHIVE (`/product/archive`)
+- **Cursor** owns: CREATE (`/product-propose-item`), HARDEN (`/product-harden`), REVIEW (`/product-review-delivery`), DEPLOY (`/product-deploy`), ARCHIVE (`/product-archive`)
 - **Claude Code** owns: IMPLEMENT (`/implement`), VERIFY (`/verify`)
 - Lifecycle: CREATE → HARDEN → IMPLEMENT → VERIFY → REVIEW → DEPLOY → ARCHIVE (7 stages)
 
 ### Agents
 - **Product Manager**: `.cursor/commands/product/_agent.md` — roadmap ownership, lifecycle orchestration
+
+### Autonomy & approval gates
+`AGENTS.md` has the full autonomous-vs-gated decision matrix per lifecycle stage (scope changes, new deps, commits, deploys, secrets, security, ADRs), plus failure-handling rules. Fallback: if a decision isn't in that matrix, ask the user.
 
 ### Quick commands (most common)
 - Install: `uv sync`
@@ -51,7 +54,7 @@ This `.cursorrules` file remains as a **compatibility shim** for older Cursor se
 - Lint: `make lint` (runs `ruff check`)
 - Tests: `uv run pytest -v` (or `make test`)
 - CLI preview: `make preview-v2 CONFIG=configfiles/fetlife.ini`
-- Propose item: `/product/propose-item`
-- Roadmap: `/product/roadmap`
-- Status: `/product/status`
-- Lifecycle guide: `/product/lifecycle`
+- Propose item: `/product-propose-item`
+- Roadmap: `/product-roadmap`
+- Status: `/product-status`
+- Lifecycle guide: `/product-lifecycle`

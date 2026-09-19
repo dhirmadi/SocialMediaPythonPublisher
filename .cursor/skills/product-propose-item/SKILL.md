@@ -1,3 +1,10 @@
+---
+name: product-propose-item
+description: >-
+  Turn a described product need into a new, properly structured roadmap item at docs_v2/roadmap/PUB-NNN_slug.md, with overlap checking against existing items and impact/effort scoring.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** proposing a **new roadmap item** for the Social Media Python Publisher V2.
 
 ## Task
@@ -7,7 +14,7 @@ Turn the user's product need into a properly structured roadmap item at `docs_v2
 ## Invocation
 
 ```text
-/product/propose-item [description of the product need]
+/product-propose-item [description of the product need]
 ```
 
 The user provides a natural-language description of the initiative. You produce the roadmap item file and update the index.
@@ -122,7 +129,7 @@ Report:
 - Item ID and name
 - Category, priority, effort
 - Any overlap warnings with existing items
-- Recommended next step: "Use `/product/harden docs_v2/roadmap/PUB-NNN_slug.md` to harden the spec for implementation"
+- Recommended next step: "Use `/product-harden docs_v2/roadmap/PUB-NNN_slug.md` to harden the spec for implementation"
 
 ## Rules
 

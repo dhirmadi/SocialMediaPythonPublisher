@@ -46,10 +46,17 @@ uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing -
 
 ### 3. Acceptance criteria check (if roadmap item path provided)
 
+Read `docs_v2/roadmap/PUB-NNN_handoff.md` (if it still exists) for the Test-first targets
+table — the **Test name** column there is the exact function name each AC's test must use.
+
 For each acceptance criterion in the spec:
 - Find the corresponding test(s)
+- Verify the test function name matches the handoff table's Test name column **verbatim**.
+  If it doesn't match and the summary doc doesn't explain the rename, flag it as a
+  traceability gap (not just a style nit) — it breaks the only mechanical link between spec
+  and test.
 - Verify the test passed
-- Report: AC description → test name → PASS/FAIL/NOT TESTED
+- Report: AC description → test name → PASS/FAIL/NOT TESTED/NAME MISMATCH
 
 ### 4. Spec drift check
 
@@ -83,7 +90,7 @@ Quick scan of recently changed files:
 ## AC Verification (PUB-NNN)
 | AC | Test | Result |
 |----|------|--------|
-| <AC description> | `test_<name>` | ✅/❌ |
+| <AC description> | `test_<name>` | ✅ PASS / ❌ FAIL / ⚠️ NAME MISMATCH |
 
 ## Spec Drift
 | Type | Finding | Severity |
@@ -104,6 +111,6 @@ Quick scan of recently changed files:
 1. <issue and how to fix>
 ```
 
-If all gates pass, report: "Ready for delivery review in Cursor: `/product/review-delivery`"
+If all gates pass, report: "Ready for delivery review in Cursor: `/product-review-delivery`"
 
 If any gate fails, report the specific failures and suggest fixes.

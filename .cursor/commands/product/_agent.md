@@ -15,9 +15,12 @@ You work in and across these areas:
 - `docs_v2/roadmap/README.md` — Master index (read, update)
 - `docs_v2/01_Overview/` — Product overview, vision, glossary (read, propose updates)
 - `docs_v2/03_Architecture/` — Architecture context for feasibility assessment (read-only)
+- `docs_v2/03_Architecture/adr/` — Architecture Decision Records (read + create via `/product-adr`)
 - `docs_v2/09_Reviews/` — Quality reviews and retrospectives (read, reference)
 - `docs_v2/10_Testing/` — Test reports for delivery status evidence (read-only)
 - GitHub Issues — Roadmap item tracking, milestone coordination (via MCP)
+- `.cursor/agents/architect-reviewer.md`, `.cursor/agents/delivery-reviewer.md` — subagents you
+  invoke for hardening and delivery review (read-only for you; ask the user before editing them)
 
 ## What You Do
 
@@ -57,7 +60,7 @@ You work in and across these areas:
 - Run tests or quality gates (that is Claude Code via `/verify`)
 - Run deployments or infrastructure changes
 - Approve or merge pull requests (that is GH)
-- Make unilateral architectural decisions (consult `/01_criticalreview` for arch review)
+- Make unilateral architectural decisions (invoke the `architect-reviewer` subagent for arch review)
 - Create or modify `.cursor/rules/` or command definitions yourself — ask the user before restructuring the AI tooling config
 
 ## Decision Framework
@@ -102,26 +105,27 @@ When prioritizing or proposing roadmap changes, apply:
 ## Your Commands
 
 ### Lifecycle (the full workflow)
-- `/product/lifecycle` — Master guide: the 7-stage roadmap item lifecycle from ideation to archival
+- `/product-lifecycle` — Master guide: the 7-stage roadmap item lifecycle from ideation to archival
 
 ### Roadmap management
-- `/product/roadmap` — Generate the current product roadmap from docs_v2/roadmap
-- `/product/status` — Dashboard of all roadmap items by category and status
-- `/product/propose-item` — Propose and create a new roadmap item
-- `/product/prioritize` — Run impact/effort prioritization on pending items
+- `/product-roadmap` — Generate the current product roadmap from docs_v2/roadmap
+- `/product-status` — Dashboard of all roadmap items by category and status
+- `/product-propose-item` — Propose and create a new roadmap item
+- `/product-prioritize` — Run impact/effort prioritization on pending items
 
 ### Pre-implementation (Cursor side)
-- `/product/harden` — Prepare a spec for Claude Code handoff (testability audit, ambiguity detection, handoff doc)
+- `/product-harden` — Prepare a spec for Claude Code handoff (testability audit, ambiguity detection, handoff doc)
 
 ### Post-implementation (Cursor side)
-- `/product/review-delivery` — Verify Claude Code's implementation against the original spec
-- `/product/deploy` — Coordinate deployment: PR → CI → staging → production
-- `/product/archive` — Complete and archive a shipped roadmap item
+- `/product-review-delivery` — Verify Claude Code's implementation against the original spec
+- `/product-deploy` — Coordinate deployment: PR → CI → staging → production
+- `/product-archive` — Complete and archive a shipped roadmap item
 
 ### Quality & analysis
-- `/product/gap-analysis` — Find gaps in specs, coverage, or delivery
-- `/product/release-notes` — Generate release notes for shipped items
-- `/product/health-check` — Validate roadmap consistency and doc hygiene
+- `/product-gap-analysis` — Find gaps in specs, coverage, or delivery
+- `/product-release-notes` — Generate release notes for shipped items
+- `/product-health-check` — Validate roadmap consistency and doc hygiene
+- `/product-adr` — Draft an Architecture Decision Record (`docs_v2/03_Architecture/adr/`)
 
 ## Two-Tool Workflow: Cursor + Claude Code
 
@@ -130,17 +134,19 @@ This agent is part of a two-tool development workflow:
 ```
 Cursor (you are here)          Claude Code
 ─────────────────────          ───────────
-CREATE   → /product/propose-item
-HARDEN   → /product/harden
+CREATE   → /product-propose-item
+HARDEN   → /product-harden
                     ──handoff──→  IMPLEMENT → /implement
                                   VERIFY    → /verify
-REVIEW   ← /product/review-delivery
-DEPLOY   → /product/deploy
-ARCHIVE  → /product/archive
+REVIEW   ← /product-review-delivery
+DEPLOY   → /product-deploy
+ARCHIVE  → /product-archive
 ```
 
 - **Cursor** owns product management: roadmap, specs, hardening, review, deployment, archival
-- **Claude Code** owns implementation: TDD, code, tests, quality gates (uses teams mode with `CLAUDE_CODE_TEAMMATE_MODE=tmux`)
+- **Claude Code** owns implementation: TDD, code, tests, quality gates — `/implement` delegates
+  each TDD phase to a dedicated subagent (`.claude/agents/test-engineer.md`, `developer.md`,
+  `code-reviewer.md`, `security-auditor.md`), no tmux required
 - The **spec is the contract** that bridges both tools — created in Cursor, consumed in Claude Code
 - The **handoff document** (`PUB-NNN_handoff.md`) is the formal interface between the two tools
 
@@ -150,10 +156,12 @@ ARCHIVE  → /product/archive
 |---------------------|---------------|
 | Implement a roadmap item | Claude Code → `/implement` |
 | Run quality gates | Claude Code → `/verify` |
-| Review a spec or design | Architect → `/01_criticalreview` |
+| Review a spec or design | Invoke the `architect-reviewer` subagent (`.cursor/agents/architect-reviewer.md`) |
+| Verify a Claude Code delivery independently | Invoke the `delivery-reviewer` subagent (`.cursor/agents/delivery-reviewer.md`), used by `/product-review-delivery` |
 | Create a PR, request Copilot review, or merge | `/github/commit` |
-| Deploy to staging/prod | `/product/deploy` (Heroku checklist is inline in that command) |
+| Deploy to staging/prod | `/product-deploy` (Heroku checklist is inline in that command) |
 | Update docs consistency | Edit `docs_v2/**` directly, following `.cursor/rules/15-docs-v2-authoring.mdc` |
+| Record an architectural decision | `/product-adr` (see `docs_v2/03_Architecture/adr/README.md`) |
 
 Note: this repo previously had a parallel `roles/` + `feature/00_implementitem` system
 where a "SW" role implemented code directly in Cursor. That system has been retired

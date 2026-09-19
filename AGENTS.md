@@ -83,6 +83,46 @@ authored specs and implementation code — retired because it duplicated and
 contradicted the two-tool split above. Do not resurrect it without explicit
 instruction.
 
+## Autonomy & approval gates
+
+Explicit map of which lifecycle decisions an agent makes autonomously vs. which require the
+user's sign-off. **Fallback rule: if a decision isn't listed below, ask the user rather than
+guessing.**
+
+| Stage | Decision | Autonomous | Gated | Notes |
+|-------|----------|:----------:|:-----:|-------|
+| CREATE | Draft a new roadmap item from a described need (`/product-propose-item`) | ✓ | | User's request is the approval |
+| CREATE | Set item priority/effort scores | ✓ | | Uses the documented decision framework; user can override |
+| HARDEN | Rewrite vague ACs, add missing error cases, tighten language | ✓ | | Must make ACs *more* testable, never change scope |
+| HARDEN | Change the item's scope (add/remove behavior) | | ✓ | Flag as "Outstanding Issue" for the user, don't silently expand/shrink |
+| HARDEN | Run the adversarial-review subagent | ✓ | | Skip only for trivial/S-effort items, and say so explicitly |
+| IMPLEMENT | Write failing tests from ACs, then minimal code to pass | ✓ | | The TDD cycle itself is autonomous once the spec is `Not Started`/hardened |
+| IMPLEMENT | Add a new external dependency (`uv add`) | | ✓ | Ask first — new deps affect the supply chain and coverage baseline |
+| IMPLEMENT | Deviate from the spec because it's ambiguous or wrong | | ✓ | Document the deviation in the summary doc and flag it; don't implement silently |
+| IMPLEMENT | `git commit` | ✓ (if pytest green) | ✓ (if pytest red) | Hard-gated by `.claude/hooks/pre-commit-tests.sh` — do not try to bypass |
+| VERIFY | Run quality gates and report pass/fail | ✓ | | Read-only, no approval needed to run it |
+| REVIEW | Approve delivery (`/product-review-delivery` verdict: APPROVED) | | ✓ | User (or the reviewing agent acting on the user's behalf) must see the verification matrix before approving |
+| DEPLOY | Open a PR | ✓ | | Reversible, doesn't touch production |
+| DEPLOY | Merge to `main` | | ✓ | Only an explicit user merge (or explicit "merge it" instruction) counts as approval |
+| DEPLOY | Deploy to staging | ✓ | | Staging is a test environment |
+| DEPLOY | Deploy/promote to production | | ✓ | User must review the deploy checklist and explicitly approve |
+| DEPLOY | Add/rotate a production secret | | ✓ | User configures the actual secret value; agent never invents or logs one |
+| ARCHIVE | Move a shipped item to `archive/`, update README + CHANGELOG | ✓ | | Only after REVIEW is APPROVED and quality gates are green |
+| Security | Auth/signing logic changes, admin-cookie or auth-header semantics | | ✓ | Ask before touching `publisher_v2.web.auth` internals |
+| Security | Weakening any check listed in `.cursor/rules/20-web-ui-admin-security.mdc` | | ✓ (refuse by default) | Never do this without an explicit, unambiguous instruction |
+| Architecture | Adding an ADR for a significant decision | ✓ | | Recording a decision is low-risk; see `docs_v2/03_Architecture/adr/README.md` |
+| Architecture | Making the underlying decision an ADR would record (new module boundary, new datastore, new heavy framework) | | ✓ | Route through the `architect-reviewer` subagent first |
+
+### Failure handling
+
+| Situation | Autonomous action | Then |
+|-----------|-------------------|------|
+| Test failure | Diagnose root cause (spec vs. code); fix the side that's wrong per `.claude/rules/testing.md` | If genuinely ambiguous which side is wrong, halt and ask — never guess by adjusting the test to match broken code |
+| Lint/type-check failure | Auto-fix (`ruff check --fix`, `ruff format`) and re-run | If a `mypy` error reveals a real type contract question, halt and ask |
+| Transient failure (network timeout, rate limit, flaky external call) | Retry once or twice with backoff | If still failing, halt and ask — don't retry indefinitely |
+| Deploy failure | Do not auto-retry a production deploy | Report the failure and wait for the user |
+| Pre-commit gate blocks a commit | Read the pytest output, fix the failing test/code | Do not remove or disable the hook to get around it |
+
 ### Required MCP servers (for the roles/commands that use them)
 
 Not committed to this repo (MCP servers are configured per-user/machine), but the
@@ -90,8 +130,8 @@ following are assumed available by name in various commands:
 
 | MCP server | Used by |
 |------------|---------|
-| GitHub | `/github/commit`, `/product/deploy`, issue tracking referenced throughout `docs_v2/roadmap/` |
-| Heroku | `/experts/heroku`, `/product/deploy` staging/production checks |
+| GitHub | `/github/commit`, `/product-deploy`, issue tracking referenced throughout `docs_v2/roadmap/` |
+| Heroku | `/experts/heroku`, `/product-deploy` staging/production checks |
 | Auth0 (optional) | `/experts/auth0`, if/when Auth0-based web login is in scope |
 
 Set these up in your own Cursor/Claude Code MCP config before running the
@@ -112,5 +152,19 @@ commands above; there is no project-level `.cursor/mcp.json` or `.mcp.json`.
 
 ## Scoped instructions
 
-- **Cursor**: see `.cursor/rules/*.mdc` for file-pattern-scoped rules
-- **Claude Code**: see `.claude/rules/` for path-scoped rules, `.claude/commands/` for slash commands
+- **Cursor**: see `.cursor/rules/*.mdc` for file-pattern-scoped rules, `.cursor/agents/` for real
+  named subagents (`architect-reviewer`, `delivery-reviewer`) invoked by the PM Agent commands
+- **Claude Code**: see `.claude/rules/` for path-scoped rules, `.claude/commands/` for slash
+  commands, `.claude/agents/` for real named subagents (`test-engineer`, `developer`,
+  `code-reviewer`, `security-auditor`) that `/implement` and `/review` delegate to
+
+## Subagents over self-review
+
+Both tools support real, isolated-context subagents (`.cursor/agents/*.md`,
+`.claude/agents/*.md` — name + description + tool restrictions, invoked via the Agent/Task tool),
+not just prose-described personas. This repo uses them at every point where the same agent
+drafting something would otherwise grade its own work: hardening a spec, reviewing a delivery,
+writing tests vs. implementing vs. reviewing code, and auditing security-sensitive changes. When
+extending the workflow, prefer adding or reusing a subagent over writing a longer inline prompt —
+see `.cursor/rules/00-agent-operating-guidelines.mdc` and `CLAUDE.md`'s "Development workflow"
+section for the current roster and how each is wired in.

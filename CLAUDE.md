@@ -43,7 +43,7 @@ publisher_v2/src/publisher_v2/
 | `pytest` | `pyproject.toml [tool.pytest]` | Tests in `publisher_v2/tests/`, async mode auto |
 | `pre-commit` | `.pre-commit-config.yaml` | Hooks: ruff, bandit, detect-secrets, gitleaks, pydocstyle |
 
-## Development workflow — Spec-Based TDD with Teams
+## Development workflow — Spec-Based TDD with Subagents
 
 This project uses a **two-tool workflow** where Cursor handles product management and Claude Code handles implementation.
 
@@ -51,31 +51,31 @@ This project uses a **two-tool workflow** where Cursor handles product managemen
 
 You receive **hardened feature specs** from Cursor. These specs have been through product definition, story decomposition, critical review, and hardening. By the time a spec reaches you, it is the contract. Your job is to implement it faithfully using TDD.
 
-### Implementation workflow (teams mode)
+### Implementation workflow: real subagents, not just prose roles
 
-When implementing a feature, follow this process:
+`/implement` (in `.claude/commands/implement.md`) runs the TDD cycle as a **Lead** that delegates
+each phase to a dedicated subagent defined in `.claude/agents/`, via the `Agent` tool — this works
+in a normal single session; it does not require `CLAUDE_CODE_TEAMMATE_MODE=tmux`:
 
-1. **Read the spec** — start with the handoff document (`NNN_handoff.md`) in the feature folder, then read the feature doc and all story docs
-2. **Plan per story** — create `NNN_XX_plan.yaml` for each story with concrete tasks, file paths, and test targets
-3. **Test first** — for each story, write failing tests from the acceptance criteria BEFORE writing implementation code
-4. **Implement** — write minimal code to make the tests pass
-5. **Refactor** — clean up while keeping tests green
-6. **Verify** — run the full quality pipeline: `make check`
-7. **Document** — create `NNN_XX_summary.md` for each story with what was built, files changed, and test results
+| Role | Subagent file | Phase | Tools |
+|------|----------------|-------|-------|
+| Lead | (the invoking session itself — no separate file) | Reads the contract, plans, delegates, reconciles | Bash, Read, Write, Edit, Agent |
+| Test engineer | `.claude/agents/test-engineer.md` | Red — writes failing tests from the ACs, never implementation | Read, Write, Edit, Bash, Grep, Glob |
+| Developer | `.claude/agents/developer.md` | Green/Refactor — writes minimal code to pass, never touches tests | Read, Write, Edit, Bash, Grep, Glob |
+| Reviewer | `.claude/agents/code-reviewer.md` | Review — reruns quality gates, checks spec/test-name drift, read-only | Read, Grep, Glob, Bash (no Write/Edit) |
+| Security auditor | `.claude/agents/security-auditor.md` | Security-sensitive changes only — secrets/auth/preview/async, read-only | Read, Grep, Glob, Bash (no Write/Edit) |
 
-### Teams coordination
+Each subagent runs in its own context window and gets only the files/spec excerpts the Lead hands
+it — this is what gives the review and security-audit steps genuine fresh eyes instead of the same
+conversation grading its own work. See each agent file for its exact hard rules. `CLAUDE_CODE_
+TEAMMATE_MODE=tmux` (separate multi-terminal humans-plus-agents mode) can still assign a human or
+another Claude Code process to one of these roles, but the roles themselves are defined once, here,
+not duplicated in prose.
 
-When working in teams mode (`CLAUDE_CODE_TEAMMATE_MODE=tmux`), roles are:
-
-- **Lead**: reads the spec, creates the implementation plan, coordinates story order
-- **Test engineer**: writes tests from acceptance criteria (test-first)
-- **Developer**: implements code to pass the tests
-- **Reviewer**: runs quality gates and validates spec compliance
-
-All teammates must:
-- Read the spec before writing code
-- Never deviate from spec'd behavior without explicit approval
-- Keep the TDD cycle: failing test → minimal pass → refactor
+All roles must:
+- Read the spec before writing code or tests
+- Never deviate from spec'd behavior without explicit approval — flag ambiguity instead of guessing
+- Keep the TDD cycle: failing test → minimal pass → refactor with tests green
 - Run `uv run ruff check` before considering any story complete
 
 ### Spec-driven development
@@ -123,6 +123,10 @@ All teammates must:
 ## Backward compatibility
 
 Do not break CLI flags, web endpoint contracts, or config semantics unless explicitly asked. Check `docs_v2/03_Architecture/ARCHITECTURE.md` for documented contracts.
+
+## Autonomy & approval gates
+
+`AGENTS.md` has the full autonomous-vs-gated decision matrix (new dependencies, spec deviations, commits, deploys, secrets, security changes) plus failure-handling rules for test/lint/deploy failures. **Fallback rule: if a decision isn't in that matrix, ask the user.** `git commit` is additionally hard-gated by `.claude/hooks/pre-commit-tests.sh` — it blocks the commit if `pytest` is red.
 
 ## Testing
 
@@ -185,6 +189,20 @@ See `.claude/commands/` for reusable workflow commands:
 - `/test` — Run tests (optionally filtered)
 - `/fix` — Auto-fix lint and formatting
 - `/preview` — Run V2 in preview mode
-- `/review` — Review staged changes for quality and spec compliance
-- `/implement` — Implement a roadmap item from `PUB-NNN_handoff.md` (TDD workflow)
+- `/review` — Delegates to the `code-reviewer` subagent (and `security-auditor` if applicable)
+- `/implement` — Implement a roadmap item from `PUB-NNN_handoff.md` (TDD workflow, delegates each
+  phase to `.claude/agents/`)
 - `/verify` — Post-implementation quality verification for a roadmap item
+
+## Subagents
+
+See `.claude/agents/` for the real, isolated-context subagents `/implement` and `/review` delegate
+to — these are the mechanism, not just documentation:
+- `test-engineer` — Red phase: writes failing tests from ACs, never implementation
+- `developer` — Green/Refactor phase: minimal implementation to pass, never touches tests
+- `code-reviewer` — Review phase: reruns quality gates, spec/test-name drift, read-only
+- `security-auditor` — Security-sensitive changes: secrets/auth/preview/async, read-only
+
+Each subagent is a markdown file with YAML frontmatter (`name`, `description`, `tools`, optional
+`disallowedTools`/`model`/`memory`) invoked via the `Agent` tool — either by `/implement`/`/review`
+or directly by name when you want a fresh, tool-restricted context for a task.

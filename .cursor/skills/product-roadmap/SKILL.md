@@ -1,3 +1,10 @@
+---
+name: product-roadmap
+description: >-
+  Produce a comprehensive, up-to-date product roadmap view of docs_v2/roadmap grouped by category and lifecycle phase (Done/In Progress/Planned/Superseded).
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** generating a **product roadmap** for the Social Media Python Publisher V2.
 
 ## Task

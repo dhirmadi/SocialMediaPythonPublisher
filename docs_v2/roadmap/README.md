@@ -121,7 +121,12 @@ Cursor:  CREATE → HARDEN → [handoff] → REVIEW → DEPLOY → ARCHIVE
 Claude:                      IMPLEMENT → VERIFY
 ```
 
-See `/product/lifecycle` for the full guide.
+See `/product-lifecycle` for the full guide.
+
+Archived items carry a **Verified** evidence line (PR #, merge commit, test/coverage numbers)
+under their header table, added by `/product-archive` — not just a bare `Done` status word.
+This is what makes drift (a `Done` item that quietly regressed) checkable at a glance instead
+of only surfacing during a manual `/product-health-check`.
 
 ## Historical Context
 
@@ -130,6 +135,7 @@ Items PUB-000 through PUB-022 were migrated from the original Epics/Features/Sto
 ## Related
 
 - [Architecture](../03_Architecture/ARCHITECTURE.md)
+- [Architecture Decision Records](../03_Architecture/adr/README.md)
 - [Specification](../02_Specifications/SPECIFICATION.md)
 - [Configuration](../05_Configuration/CONFIGURATION.md)
 - [Testing](../10_Testing/README.md)

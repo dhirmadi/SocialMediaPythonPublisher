@@ -273,6 +273,8 @@ safety-report.*
 .cursor/*
 !.cursor/rules
 !.cursor/commands
+!.cursor/skills
+!.cursor/agents
 
 # ----------------------------------------------------------------------------
 # Claude Code configuration

@@ -1,3 +1,10 @@
+---
+name: product-lifecycle
+description: >-
+  Show the master 7-stage roadmap item lifecycle guide (CREATE through ARCHIVE across Cursor and Claude Code), or the current lifecycle stage and next action for one specific roadmap item.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** guiding the user through the **full roadmap item lifecycle** for the Social Media Python Publisher V2.
 
 This is the master workflow that connects Cursor (product management) with Claude Code (implementation) and Heroku (deployment).
@@ -8,8 +15,8 @@ This is the master workflow that connects Cursor (product management) with Claud
 ┌─────────────────────────────────────────────────────────────────────┐
 │                    CURSOR (Product Management)                       │
 │                                                                      │
-│  1. CREATE        /product/propose-item                              │
-│  2. HARDEN        /product/harden                                    │
+│  1. CREATE        /product-propose-item                              │
+│  2. HARDEN        /product-harden                                    │
 │                                                                      │
 ├─────────────────────────── handoff ──────────────────────────────────┤
 │                                                                      │
@@ -22,16 +29,16 @@ This is the master workflow that connects Cursor (product management) with Claud
 │                                                                      │
 │                    CURSOR (Review & Release)                          │
 │                                                                      │
-│  5. REVIEW        /product/review-delivery                           │
-│  6. DEPLOY        /product/deploy                                    │
-│  7. ARCHIVE       /product/archive                                   │
+│  5. REVIEW        /product-review-delivery                           │
+│  6. DEPLOY        /product-deploy                                    │
+│  7. ARCHIVE       /product-archive                                   │
 │                                                                      │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ## Invocation
 
-    /product/lifecycle [item-path-or-id]
+    /product-lifecycle [item-path-or-id]
 
 If a roadmap item path or ID (e.g. PUB-001) is provided, show the lifecycle status for that specific item. Otherwise, show the lifecycle guide.
 
@@ -88,13 +95,13 @@ Display the full lifecycle guide:
     ## Stage-by-Stage Guide
 
     ### Stage 1: CREATE (Cursor)
-    **Command:** /product/propose-item
+    **Command:** /product-propose-item
     **What:** Capture the product need as a roadmap item
     **Output:** PUB-NNN_slug.md with problem statement, goals, category, priority, effort
     **Gate:** Item exists with clear scope and metadata
 
     ### Stage 2: HARDEN (Cursor)
-    **Command:** /product/harden
+    **Command:** /product-harden
     **What:** Prepare the spec for Claude Code handoff — validate completeness,
              resolve ambiguities, ensure TDD-readiness
     **Output:** PUB-NNN_handoff.md (sibling of the roadmap item)
@@ -118,7 +125,7 @@ Display the full lifecycle guide:
     **Gate:** All quality gates pass; no regressions
 
     ### Stage 5: REVIEW (Cursor)
-    **Command:** /product/review-delivery
+    **Command:** /product-review-delivery
     **What:** Review the implementation against the original spec
     **Process:**
       1. Compare delivered code/tests against handoff acceptance criteria
@@ -129,7 +136,7 @@ Display the full lifecycle guide:
     **Gate:** All acceptance criteria verified; no must-fix findings
 
     ### Stage 6: DEPLOY (Cursor)
-    **Command:** /product/deploy
+    **Command:** /product-deploy
     **What:** Coordinate deployment to Heroku staging → production
     **Process:**
       1. Create PR with /github/commit
@@ -140,7 +147,7 @@ Display the full lifecycle guide:
     **Gate:** Staging verified; production promoted
 
     ### Stage 7: ARCHIVE (Cursor)
-    **Command:** /product/archive
+    **Command:** /product-archive
     **What:** Close the roadmap item — move to archive, update status, update CHANGELOG
     **Process:**
       1. Move PUB-NNN_slug.md to docs_v2/roadmap/archive/
@@ -155,18 +162,18 @@ Display the full lifecycle guide:
 
     | What | Where | Tool |
     |------|-------|------|
-    | Roadmap overview | Cursor | /product/roadmap |
-    | Status dashboard | Cursor | /product/status |
-    | Create item | Cursor | /product/propose-item |
-    | Harden for handoff | Cursor | /product/harden |
+    | Roadmap overview | Cursor | /product-roadmap |
+    | Status dashboard | Cursor | /product-status |
+    | Create item | Cursor | /product-propose-item |
+    | Harden for handoff | Cursor | /product-harden |
     | Implement (TDD) | Claude Code | /implement |
     | Verify quality | Claude Code | /verify |
-    | Review delivery | Cursor | /product/review-delivery |
-    | Deploy | Cursor | /product/deploy |
-    | Archive | Cursor | /product/archive |
-    | Health check | Cursor | /product/health-check |
-    | Gap analysis | Cursor | /product/gap-analysis |
-    | Prioritize | Cursor | /product/prioritize |
+    | Review delivery | Cursor | /product-review-delivery |
+    | Deploy | Cursor | /product-deploy |
+    | Archive | Cursor | /product-archive |
+    | Health check | Cursor | /product-health-check |
+    | Gap analysis | Cursor | /product-gap-analysis |
+    | Prioritize | Cursor | /product-prioritize |
 
 ## Rules
 

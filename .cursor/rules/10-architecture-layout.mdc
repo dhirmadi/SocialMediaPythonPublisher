@@ -31,3 +31,8 @@ Keep new modules consistent with this layout; **do not create parallel V2 trees*
 ### Storage
 - Dropbox is the source of truth; prefer server-side moves to archive.
 
+### Recording decisions
+- Architecturally significant decisions (new module boundary, new external dependency/datastore,
+  backward-incompatible contract change) get an ADR in `docs_v2/03_Architecture/adr/` via
+  `/product-adr`. See `docs_v2/03_Architecture/adr/README.md` for when one is warranted.
+

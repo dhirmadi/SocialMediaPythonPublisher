@@ -1,19 +1,22 @@
 ---
 description: Review staged or recent changes for quality, security, style, and spec compliance
-allowed-tools: Bash, Read
+allowed-tools: Bash, Read, Agent
 ---
 
-Review the current changes in the working tree:
+Delegate this review to the `code-reviewer` subagent (`Agent` tool, `agent_type: code-reviewer`)
+rather than reviewing inline — it runs in an isolated context with no anchoring on whatever you
+just wrote, and its output format is already structured for this.
 
-1. Run `git diff --stat` to identify changed files.
-2. Run `git diff` to see the full diff.
-3. For each changed file, check:
-   - **Spec compliance**: does the implementation match the relevant spec in `docs_v2/roadmap/` (e.g. `PUB-NNN_slug.md`)?
-   - **TDD**: do new behaviors have corresponding tests? Were tests written/updated alongside code?
-   - **Test integrity**: were any existing tests modified? If so, verify the test change is justified by a spec change — not just adjusted to pass.
-   - Ruff lint compliance (run `uv run ruff check` on changed files)
-   - Security: no hardcoded secrets, tokens, or API keys
-   - Type annotations on public functions
-   - Async hygiene: no blocking calls in async functions without `asyncio.to_thread()`
-   - Backward compatibility: CLI flags, endpoint contracts, config semantics preserved
-4. Report findings as a structured list: file, issue, severity (error/warning/info), suggestion.
+Give it:
+- The scope: staged changes (`git diff --staged`), or the full working tree diff (`git diff`) if
+  nothing is staged, or a specific branch (`git diff main...HEAD`) if the user names one.
+- The relevant roadmap item path if the user names one, or ask `code-reviewer` to infer it from
+  `docs_v2/roadmap/` if the diff makes it obvious.
+
+If the diff touches `publisher_v2/web/**`, auth, secrets, or credential/config loading, also
+invoke `security-auditor` (`agent_type: security-auditor`) on the same scope and merge its verdict
+into the report.
+
+Return both subagents' findings to the user verbatim (file:line, severity, issue, fix) plus the
+overall verdict(s). Do not soften a blocker into a nit, and do not fix anything yourself unless
+the user explicitly asks you to after seeing the report.

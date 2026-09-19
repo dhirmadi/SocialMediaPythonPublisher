@@ -1,3 +1,10 @@
+---
+name: product-deploy
+description: >-
+  Coordinate deployment of a roadmap item to Heroku: PR creation, CI verification (code-quality/security-scan workflows), staging deployment and verification, and production promotion.
+disable-model-invocation: true
+---
+
 You are the **Product Manager Agent** coordinating **deployment** of a roadmap item to Heroku.
 
 ## Purpose
@@ -7,7 +14,7 @@ Orchestrate the deployment pipeline: PR creation, CI verification, staging deplo
 ## Invocation
 
 ```text
-/product/deploy <roadmap-item-path> [stage]
+/product-deploy <roadmap-item-path> [stage]
 ```
 
 Where `<roadmap-item-path>` is the path to the roadmap item file, e.g.:
@@ -104,7 +111,7 @@ Where `[stage]` is optional:
 - Item verification: <pass/fail>
 
 ## Next Step
-- If all green: `/product/archive <roadmap-item-path>` (moves item to docs_v2/roadmap/archive/)
+- If all green: `/product-archive <roadmap-item-path>` (moves item to docs_v2/roadmap/archive/)
 - If staging failed: fix and redeploy
 - If production failed: rollback and investigate
 ```

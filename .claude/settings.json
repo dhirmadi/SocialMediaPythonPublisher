@@ -1,9 +1,5 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "env": {
-    "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS": "1",
-    "CLAUDE_CODE_TEAMMATE_MODE": "tmux"
-  },
   "permissions": {
     "allow": [
       "Bash(uv sync*)",
@@ -80,6 +76,28 @@
           {
             "type": "command",
             "command": "cd \"$CLAUDE_PROJECT_DIR\" && uv run ruff check --quiet publisher_v2/src/ publisher_v2/tests/ 2>/dev/null; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/hooks/pre-commit-tests.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Post-compaction reminders:\n1. Spec -> Test -> Code. No production code without a failing test in place first (see .claude/rules/testing.md).\n2. Mock only external services (Dropbox, OpenAI, Telegram, SMTP) at their client boundary -- never mock internal modules.\n3. Preview mode is side-effect free: never publish, archive, or mutate cache/state.\n4. Never hard-code or log secrets/tokens/keys -- .env + INI config only.\n5. Web admin: mutating endpoints require auth (publisher_v2.web.auth) + server-enforced admin cookie TTL.\n6. Async hygiene: no blocking calls in async paths without asyncio.to_thread.\n7. Backward-compatible by default: do not break CLI flags, endpoint contracts, or config semantics unless explicitly asked.\n8. The roadmap item + handoff doc are the contract -- if code and spec disagree, the spec wins unless the user says otherwise.\n9. git commit is hard-gated on a green pytest suite (see .claude/hooks/pre-commit-tests.sh) -- do not try to bypass it.'"
           }
         ]
       }
