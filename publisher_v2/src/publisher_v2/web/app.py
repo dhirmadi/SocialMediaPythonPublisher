@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -128,6 +129,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     from publisher_v2.db import init_db
 
     init_db()
+
+    # #144: resolve the standalone storage origin once, so the CSP on a cold
+    # process's first page render already names it. Orchestrated requests use
+    # their own tenant config instead.
+    app.state.csp_storage_origins = []
+    with contextlib.suppress(Exception):
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        app.state.csp_storage_origins = storage_origins_for_config(get_service().config)
 
     yield
 

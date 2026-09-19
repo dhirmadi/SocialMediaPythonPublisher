@@ -5,8 +5,9 @@ Adds defense-in-depth headers to every response:
 - ``Content-Security-Policy``: blocks framing, restricts default sources to
   same-origin. #91 (SEC-8): ``script-src`` uses a per-request nonce instead of
   ``'unsafe-inline'`` — the template's single inline block carries the nonce.
-  ``connect-src`` allows https: because the Full Size control fetches the
-  per-tenant presigned storage URL (Dropbox/R2 origins vary per tenant).
+  ``img-src``/``connect-src`` allow the tenant's own storage origin (#144), so
+  the Full Size control can fetch the presigned URL without opening the page up
+  to every https origin.
 - ``Strict-Transport-Security``: sent when WEB_SECURE_COOKIES is enabled
   (i.e. production-like TLS deployments).
 - ``X-Frame-Options: DENY``: legacy clickjacking guard for browsers that ignore
@@ -18,7 +19,9 @@ Adds defense-in-depth headers to every response:
 from __future__ import annotations
 
 import os
+import re
 import secrets
+from typing import Any
 from urllib.parse import urlparse
 
 from fastapi import Request
@@ -39,28 +42,30 @@ _CSP_TEMPLATE = (
     "form-action 'self';"
 )
 
-# Dropbox hands out presigned links on its content host, not the API host.
-_DROPBOX_CONTENT_ORIGINS = ("https://*.dropboxusercontent.com", "https://dl.dropboxusercontent.com")
+# Dropbox hands out presigned links on rotating uc*.dropboxusercontent.com hosts.
+_DROPBOX_CONTENT_ORIGINS = ("https://*.dropboxusercontent.com",)
+
+# A CSP source must be a bare host[:port]. endpoint_url is operator- or, in
+# orchestrated mode, tenant-supplied: an unvalidated netloc containing a space
+# or a ";" would smuggle an extra source — or a whole extra directive, which
+# browsers honour in FIRST-occurrence order, overriding the nonce script-src.
+_SAFE_NETLOC_RE = re.compile(r"[A-Za-z0-9.\-]+(?::\d{1,5})?")
 
 
-def _storage_origins(request: Request) -> list[str]:
-    """Origins the page may fetch image bytes from, for this request's tenant.
+def storage_origins_for_config(config: Any) -> list[str]:
+    """Origins a page backed by this config may fetch image bytes from.
 
     Managed storage: the configured endpoint origin. Dropbox: its content hosts.
-    Unknown (no config resolved yet, or a misconfigured instance): nothing extra,
-    leaving the directives at ``'self'``.
+    Anything unrecognised or unsafe: nothing extra, leaving the directives at
+    ``'self'``.
     """
-    config = getattr(request.state, "config", None)
-    if config is None:
-        service = getattr(request.state, "web_service", None) or _standalone_service()
-        config = getattr(service, "config", None)
     if config is None:
         return []
     managed = getattr(config, "managed", None)
     endpoint = getattr(managed, "endpoint_url", None)
     if endpoint:
         parsed = urlparse(endpoint)
-        if parsed.scheme in ("http", "https") and parsed.netloc:
+        if parsed.scheme in ("http", "https") and _SAFE_NETLOC_RE.fullmatch(parsed.netloc or ""):
             return [f"{parsed.scheme}://{parsed.netloc}"]
         return []
     if getattr(config, "dropbox", None) is not None:
@@ -68,14 +73,20 @@ def _storage_origins(request: Request) -> list[str]:
     return []
 
 
-def _standalone_service():
-    """The standalone singleton, when one has been built. Never raises."""
+def _storage_origins(request: Request) -> list[str]:
+    """This request's storage origins: the tenant's config, else the startup snapshot."""
+    config = getattr(request.state, "config", None)
+    if config is None:
+        service = getattr(request.state, "web_service", None)
+        config = getattr(service, "config", None)
+    if config is not None:
+        return storage_origins_for_config(config)
+    # Standalone: resolved once at startup, so a cold process still serves the
+    # right policy on its very first page render.
     try:
-        from publisher_v2.web.dependencies import get_service
-
-        return get_service()
-    except Exception:
-        return None
+        return list(request.app.state.csp_storage_origins or [])
+    except (AttributeError, KeyError):
+        return []
 
 
 _HSTS_VALUE = "max-age=31536000; includeSubDomains"

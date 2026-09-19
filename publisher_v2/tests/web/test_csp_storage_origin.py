@@ -17,7 +17,6 @@ from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
 
-import httpx
 import pytest
 
 R2_ENDPOINT = "https://accountid.r2.cloudflarestorage.com"
@@ -94,31 +93,80 @@ def _has_blanket_https(csp: str) -> bool:
     return any(token == "https:" for directive in csp.split(";") for token in directive.split())
 
 
-async def _csp() -> str:
+def _csp() -> str:
+    """The policy the real app serves, with its lifespan run (as uvicorn does)."""
+    from fastapi.testclient import TestClient
+
     from publisher_v2.web.app import app
 
-    transport = httpx.ASGITransport(app=app)
-    async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
-        response = await client.get("/")
+    with TestClient(app) as client:
+        response = client.get("/")
     return response.headers["Content-Security-Policy"]
 
 
-async def test_managed_storage_origin_replaces_blanket_https(managed_app: None) -> None:
-    csp = await _csp()
+def test_managed_storage_origin_replaces_blanket_https(managed_app: None) -> None:
+    csp = _csp()
 
     assert "accountid.r2.cloudflarestorage.com" in csp
     assert not _has_blanket_https(csp), csp
 
 
-async def test_dropbox_content_host_is_allowed_not_all_of_https(dropbox_app: None) -> None:
-    csp = await _csp()
+def test_dropbox_content_host_is_allowed_not_all_of_https(dropbox_app: None) -> None:
+    csp = _csp()
 
     assert "dropboxusercontent.com" in csp
     assert not _has_blanket_https(csp), csp
 
 
-async def test_policy_keeps_its_other_directives(managed_app: None) -> None:
-    csp = await _csp()
+@pytest.mark.parametrize(
+    "hostile_endpoint",
+    [
+        "https://evil.example; script-src *",
+        "https://evil.example *",
+        "https://evil.example\tfoo",
+    ],
+)
+def test_hostile_endpoint_cannot_inject_a_directive(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, hostile_endpoint: str
+) -> None:
+    """An endpoint_url is tenant-influenced (BYOK) — it must never reach the header raw."""
+    env = _base_env(tmp_path) | {
+        "STORAGE_PROVIDER": "managed",
+        "R2_ACCESS_KEY_ID": "k",
+        "R2_SECRET_ACCESS_KEY": "s",
+        "R2_ENDPOINT_URL": hostile_endpoint,
+        "R2_BUCKET_NAME": "bucket",
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
+        monkeypatch.delenv(key, raising=False)
+    from publisher_v2.config.source import get_config_source
+    from publisher_v2.web.app import get_service
+
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    with patch("publisher_v2.services.managed_storage.boto3"):
+        csp = _csp()
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    with contextlib.suppress(Exception):
+        get_service()
+
+    # One script-src — the nonce one — and no extra source smuggled into any
+    # directive. A host that urlparse folds into a single valid netloc may still
+    # appear; what must never happen is a second source or a second directive.
+    assert csp.count("script-src") == 1, csp
+    assert "*" not in csp, csp
+    assert not _has_blanket_https(csp), csp
+    for directive in csp.split(";"):
+        if directive.strip().startswith(("img-src", "connect-src")):
+            origins = [t for t in directive.split() if t.startswith("http")]
+            assert len(origins) <= 1, csp
+
+
+def test_policy_keeps_its_other_directives(managed_app: None) -> None:
+    csp = _csp()
 
     assert "default-src 'self'" in csp
     assert "frame-ancestors 'none'" in csp

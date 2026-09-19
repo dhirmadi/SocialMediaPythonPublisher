@@ -23,7 +23,7 @@ def test_identical_accented_captions_score_one() -> None:
 
 
 def test_accent_difference_is_not_a_token_split() -> None:
-    """"café" and "cafe" are different words — not "caf" plus an empty token."""
+    """ "café" and "cafe" are different words — not "caf" plus an empty token."""
     assert trigram_jaccard("the café is warm tonight", "the cafe is warm tonight") < 1.0
     assert trigram_jaccard("the café is warm tonight", "the café is warm tonight") == 1.0
 
