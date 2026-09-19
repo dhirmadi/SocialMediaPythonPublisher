@@ -543,6 +543,8 @@ class OrchestratorConfigSource:
                         password=None,
                         smtp_server=cfg.email_server.host,
                         smtp_port=int(cfg.email_server.port),
+                        use_tls=bool(cfg.email_server.use_tls),
+                        smtp_username=cfg.email_server.username,
                         confirmation_to_sender=bool(conf.confirmation_to_sender)
                         if conf is not None and conf.confirmation_to_sender is not None
                         else True,
