@@ -108,12 +108,30 @@ async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -
 
 
 def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
-    # Skip if no config is available; this mirrors other web e2e tests which
-    # require a real-ish CONFIG_PATH to run.
-    if not os.path.exists("configfiles/fetlife.ini"):
-        pytest.skip("Requires CONFIG_PATH pointing to a real config and Dropbox/OpenAI credentials")
+    # #97 stage 4: INI removed — this e2e needs a real-ish env-first config.
+    # The autouse env-isolation fixture clears the JSON config vars, so re-load
+    # them from the workspace .env when present; skip otherwise (e.g. CI).
+    if not os.path.exists(".env"):
+        pytest.skip("Requires a workspace .env with STORAGE_PATHS/PUBLISHERS/OPENAI_SETTINGS")
+    from dotenv import dotenv_values
 
-    monkeypatch.setenv("CONFIG_PATH", "configfiles/fetlife.ini")
+    values = dotenv_values(".env")
+    if not (values.get("STORAGE_PATHS") and values.get("OPENAI_SETTINGS")):
+        pytest.skip("Workspace .env lacks env-first config vars")
+    needed = (
+        "STORAGE_PATHS",
+        "OPENAI_SETTINGS",
+        "DROPBOX_APP_KEY",
+        "DROPBOX_APP_SECRET",
+        "DROPBOX_REFRESH_TOKEN",
+        "OPENAI_API_KEY",
+    )
+    for key in needed:
+        if values.get(key):
+            monkeypatch.setenv(key, values[key])
+    monkeypatch.setenv("PUBLISHERS", "[]")
+    monkeypatch.delenv("CONFIG_PATH", raising=False)
+    monkeypatch.delenv("ORCHESTRATOR_BASE_URL", raising=False)
     client = TestClient(app)
 
     caplog.set_level(logging.INFO, logger="publisher_v2.web")

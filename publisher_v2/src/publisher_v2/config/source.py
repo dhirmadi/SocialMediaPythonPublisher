@@ -18,7 +18,6 @@ from publisher_v2.config.host_utils import normalize_host, validate_host
 from publisher_v2.config.loader import load_application_config
 from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_post_default
 from publisher_v2.config.orchestrator_models import (
-    OrchestratorConfigV1,
     OrchestratorConfigV2,
     OrchestratorRuntimeResponse,
 )
@@ -44,6 +43,7 @@ from publisher_v2.core.exceptions import (
     CredentialResolutionError,
     OrchestratorUnavailableError,
     TenantNotFoundError,
+    UnsupportedSchemaError,
 )
 from publisher_v2.utils.logging import log_json
 
@@ -265,14 +265,15 @@ class OrchestratorConfigSource:
             if runtime.app_type != "publisher_v2":
                 raise TenantNotFoundError("Host is not bound to publisher_v2")
 
-            # schema v1 vs v2 config parsing
+            # #97 stage 4: orchestrator schema v1 support removed — v2 only.
             schema_version = int(runtime.schema_version or 1)
-            if schema_version == 1:
-                cfg_v1 = OrchestratorConfigV1.model_validate(runtime.config)
-                app_cfg, creds = await self._build_app_config_v1(h, runtime.tenant, cfg_v1)
-            else:
-                cfg_v2 = OrchestratorConfigV2.model_validate(runtime.config)
-                app_cfg, creds = await self._build_app_config_v2(h, runtime.tenant, cfg_v2)
+            if schema_version < 2:
+                raise UnsupportedSchemaError(
+                    f"Orchestrator runtime schema v{schema_version} is no longer supported (#97 stage 4); "
+                    "upgrade the orchestrator to schema v2"
+                )
+            cfg_v2 = OrchestratorConfigV2.model_validate(runtime.config)
+            app_cfg, creds = await self._build_app_config_v2(h, runtime.tenant, cfg_v2)
 
             # PUB-040: Emit lifecycle warnings on fresh fetch (not on cache hit)
             emit_model_lifecycle_warnings(app_cfg.openai)
@@ -290,6 +291,11 @@ class OrchestratorConfigSource:
             self._runtime_cache.set(h, rc, ttl_seconds=runtime.ttl_seconds)
             return rc
         except TenantNotFoundError:
+            raise
+        except UnsupportedSchemaError:
+            # Permanent misconfiguration — surface as-is rather than masking it
+            # as transient unavailability. Deliberately narrow: other
+            # ConfigurationErrors keep the pre-#97 stale-serving behavior.
             raise
         except OrchestratorUnavailableError:
             # Serve stale when available
@@ -387,82 +393,6 @@ class OrchestratorConfigSource:
         if ".." in candidate.split("/"):
             raise ConfigurationError("Storage path contains '..' which is not allowed")
         return candidate
-
-    async def _build_app_config_v1(
-        self, host: str, tenant: str, cfg: OrchestratorConfigV1
-    ) -> tuple[ApplicationConfig, dict[str, str]]:
-        """
-        Schema v1: features+storage required; all other blocks default/disabled.
-        """
-        features = FeaturesConfig(**cfg.features.model_dump())
-        # v1 fallback: disable AI features
-        features.analyze_caption_enabled = False
-
-        storage = cfg.storage
-        if storage.provider not in ("dropbox", "managed"):
-            raise ConfigurationError(f"Unsupported storage provider: {storage.provider}")
-
-        root = storage.paths.root
-        archive = self._resolve_path(root, storage.paths.archive, "archive")
-        keep = self._resolve_path(root, storage.paths.keep, "keep")
-        remove = self._resolve_path(root, storage.paths.remove, "reject")
-
-        storage_paths = StoragePathConfig(
-            image_folder=root, archive_folder=archive, folder_keep=keep, folder_remove=remove
-        )
-
-        creds_refs: dict[str, str] = {"storage": storage.credentials_ref}
-        dropbox_cfg: DropboxConfig | None = None
-        managed_cfg: ManagedStorageConfig | None = None
-
-        if storage.provider == "managed":
-            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
-            ms_creds = ManagedStorageCredentials.model_validate(data)
-            managed_cfg = ManagedStorageConfig(
-                access_key_id=ms_creds.access_key_id,
-                secret_access_key=ms_creds.secret_access_key,
-                endpoint_url=ms_creds.endpoint_url,
-                bucket=ms_creds.bucket,
-                region=ms_creds.region,
-            )
-        else:
-            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
-            db_creds = DropboxCredentials.model_validate(data)
-            dropbox_cfg = DropboxConfig(
-                app_key=os.environ["DROPBOX_APP_KEY"],
-                app_secret=os.environ["DROPBOX_APP_SECRET"],
-                refresh_token=db_creds.refresh_token,
-                image_folder=root,
-                archive_folder=archive,
-                folder_keep=keep,
-                folder_remove=remove,
-            )
-
-        # OpenAI config exists but has no api_key in v1 fallback
-        openai_cfg = OpenAIConfig()
-
-        platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
-        content = ContentConfig(hashtag_string="", archive=True, debug=False)
-        captionfile = CaptionFileConfig(extended_metadata_enabled=False, artist_alias=None)
-        web_cfg, auth0_cfg = load_web_and_auth0_from_env()
-
-        app_cfg = ApplicationConfig(
-            dropbox=dropbox_cfg,
-            managed=managed_cfg,
-            storage_paths=storage_paths,
-            openai=openai_cfg,
-            platforms=platforms,
-            features=features,
-            telegram=None,
-            instagram=None,
-            email=None,
-            content=content,
-            captionfile=captionfile,
-            web=web_cfg,
-            auth0=auth0_cfg,
-        )
-
-        return app_cfg, creds_refs
 
     async def _build_app_config_v2(
         self, host: str, tenant: str, cfg: OrchestratorConfigV2

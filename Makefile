@@ -151,24 +151,11 @@ run:
 	uv run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
 
 run-v2:
-	@if [ ! -f code_v1/configfiles/SocialMediaConfig.ini ] && [ ! -f configfiles/SocialMediaConfig.ini ]; then \
-		echo "❌ Configuration file not found (code_v1/configfiles/SocialMediaConfig.ini or configfiles/SocialMediaConfig.ini)"; \
-		exit 1; \
-	fi; \
-	CONFIG_PATH=$$( [ -f configfiles/SocialMediaConfig.ini ] && echo "configfiles/SocialMediaConfig.ini" || echo "code_v1/configfiles/SocialMediaConfig.ini" ); \
-	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config $$CONFIG_PATH
+	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py
 
 preview-v2:
-	@if [ -z "$(CONFIG)" ]; then \
-		echo "❌ CONFIG variable required. Usage: make preview-v2 CONFIG=configfiles/fetlife.ini"; \
-		exit 1; \
-	fi; \
-	if [ ! -f "$(CONFIG)" ]; then \
-		echo "❌ Configuration file not found: $(CONFIG)"; \
-		exit 1; \
-	fi; \
-	echo "🔍 Running preview mode with $(CONFIG)..."; \
-	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config $(CONFIG) --preview
+	@echo "🔍 Running preview mode (env-first config, #97 stage 4)..."
+	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview
 
 auth:
 	@if [ ! -f .env ]; then \

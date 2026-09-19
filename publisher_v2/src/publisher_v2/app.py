@@ -17,7 +17,12 @@ from publisher_v2.utils.logging import log_json, setup_logging
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Social Media Publisher V2")
-    parser.add_argument("--config", required=True, help="Path to INI configuration file")
+    parser.add_argument(
+        "--config",
+        required=False,
+        default=None,
+        help="Deprecated (#97 stage 4): INI support removed; the file is ignored. Configure via env vars.",
+    )
     parser.add_argument("--env", required=False, help="Optional path to .env file")
     parser.add_argument("--debug", action="store_true", help="Override debug mode to True")
     parser.add_argument("--select", required=False, help="Select a specific filename to post")

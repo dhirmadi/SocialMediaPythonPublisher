@@ -12,33 +12,12 @@ import pytest
 
 from publisher_v2.core.models import ImageAnalysis
 
-VALID_INI_CONTENT = """
-[Dropbox]
-image_folder = /Photos
-archive_folder = archive
-
-[OpenAI]
-
-[Content]
-hashtag_string = #test
-archive = false
-debug = false
-
-[Features]
-analyze_caption_enabled = true
-publish_enabled = true
-
-[Platforms]
-telegram_enabled = false
-instagram_enabled = false
-email_enabled = false
-"""
-
 
 def _make_service(monkeypatch: pytest.MonkeyPatch, tmp_path, sidecar_text: str | None):
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(VALID_INI_CONTENT)
-    monkeypatch.setenv("CONFIG_PATH", str(config_file))
+    # #97 stage 4: env-only configuration (INI removed)
+    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+    monkeypatch.setenv("PUBLISHERS", "[]")
+    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
     monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
     monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
     monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")

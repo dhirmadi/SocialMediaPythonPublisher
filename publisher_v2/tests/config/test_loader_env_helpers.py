@@ -8,7 +8,6 @@ OpenAI/metadata settings.
 
 from __future__ import annotations
 
-import configparser
 import os
 from unittest import mock
 
@@ -25,7 +24,6 @@ from publisher_v2.config.loader import (
     _resolve_path,
     _validate_path_no_traversal,
     log_config_source,
-    log_deprecation_warning,
 )
 from publisher_v2.core.exceptions import ConfigurationError
 
@@ -340,28 +338,14 @@ class TestLoadContentSettingsFromEnv:
 # =============================================================================
 
 
-@pytest.fixture
-def mock_configparser():
-    """Create a mock ConfigParser with Email section."""
-    cp = configparser.ConfigParser()
-    cp.add_section("Email")
-    cp.set("Email", "sender", "sender@ini.com")
-    cp.set("Email", "smtp_server", "smtp.ini.com")
-    cp.set("Email", "smtp_port", "25")
-    cp.set("Email", "confirmation_to_sender", "true")
-    cp.set("Email", "confirmation_tags_count", "5")
-    cp.set("Email", "confirmation_tags_nature", "ini tags nature")
-    return cp
-
-
 class TestLoadPublishersFromEnv:
     """Tests for _load_publishers_from_env function."""
 
-    def test_telegram_publisher(self, mock_configparser):
+    def test_telegram_publisher(self):
         """Parses Telegram publisher from PUBLISHERS."""
         entries = [{"type": "telegram", "channel_id": "@test_channel"}]
         with mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test-bot-token"}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None)
             assert telegram is not None
             assert telegram.bot_token == "test-bot-token"
             assert telegram.channel_id == "@test_channel"
@@ -369,30 +353,30 @@ class TestLoadPublishersFromEnv:
             assert instagram is None
             assert email is None
 
-    def test_telegram_missing_bot_token_raises(self, mock_configparser):
+    def test_telegram_missing_bot_token_raises(self):
         """Raises ConfigurationError when TELEGRAM_BOT_TOKEN is missing."""
         entries = [{"type": "telegram", "channel_id": "@test_channel"}]
         with (
             mock.patch.dict(os.environ, {}, clear=True),
             pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN required"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_telegram_missing_channel_id_raises(self, mock_configparser):
+    def test_telegram_missing_channel_id_raises(self):
         """Raises ConfigurationError when channel_id is missing."""
         entries = [{"type": "telegram"}]
         with (
             mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test"}, clear=True),
             pytest.raises(ConfigurationError, match="missing required field 'channel_id'"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_fetlife_publisher_with_email_server(self, mock_configparser):
+    def test_fetlife_publisher_with_email_server(self):
         """Parses FetLife publisher using EMAIL_SERVER settings."""
         entries = [{"type": "fetlife", "recipient": "user@fetlife.com", "caption_target": "body"}]
         email_server = {"smtp_server": "smtp.env.com", "smtp_port": 587, "sender": "sender@env.com"}
         with mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret123"}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server)
             assert email is not None
             assert email.smtp_server == "smtp.env.com"
             assert email.smtp_port == 587
@@ -401,63 +385,64 @@ class TestLoadPublishersFromEnv:
             assert email.caption_target == "body"
             assert platforms.email_enabled is True
 
-    def test_fetlife_publisher_fallback_to_ini(self, mock_configparser):
-        """Parses FetLife publisher falling back to INI settings."""
+    def test_fetlife_publisher_fallback_to_flat_env(self):
+        """#97 stage 4: without EMAIL_SERVER, SMTP settings fall back to flat env vars (INI removed)."""
         entries = [{"type": "fetlife", "recipient": "user@fetlife.com"}]
-        with mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret123"}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None, mock_configparser)
+        env = {"EMAIL_PASSWORD": "secret123", "SMTP_SERVER": "smtp.flat.com", "SMTP_PORT": "25"}
+        with mock.patch.dict(os.environ, env, clear=True):
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None)
             assert email is not None
-            assert email.smtp_server == "smtp.ini.com"
+            assert email.smtp_server == "smtp.flat.com"
             assert email.smtp_port == 25
-            assert email.sender == "sender@ini.com"
+            assert email.sender == ""
 
-    def test_fetlife_missing_password_raises(self, mock_configparser):
+    def test_fetlife_missing_password_raises(self):
         """Raises ConfigurationError when EMAIL_PASSWORD is missing."""
         entries = [{"type": "fetlife", "recipient": "user@fetlife.com"}]
         with (
             mock.patch.dict(os.environ, {}, clear=True),
             pytest.raises(ConfigurationError, match="EMAIL_PASSWORD required"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_fetlife_missing_recipient_raises(self, mock_configparser):
+    def test_fetlife_missing_recipient_raises(self):
         """Raises ConfigurationError when recipient is missing."""
         entries = [{"type": "fetlife"}]
         with (
             mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=True),
             pytest.raises(ConfigurationError, match="missing required field 'recipient'"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_instagram_publisher(self, mock_configparser):
+    def test_instagram_publisher(self):
         """Parses Instagram publisher from PUBLISHERS."""
         entries = [{"type": "instagram", "username": "photo_account"}]
         with mock.patch.dict(os.environ, {"INSTA_PASSWORD": "insta-secret"}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None)
             assert instagram is not None
             assert instagram.username == "photo_account"
             assert instagram.password == "insta-secret"
             assert platforms.instagram_enabled is True
 
-    def test_instagram_missing_password_raises(self, mock_configparser):
+    def test_instagram_missing_password_raises(self):
         """Raises ConfigurationError when INSTA_PASSWORD is missing."""
         entries = [{"type": "instagram", "username": "photo_account"}]
         with (
             mock.patch.dict(os.environ, {}, clear=True),
             pytest.raises(ConfigurationError, match="INSTA_PASSWORD required"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_instagram_missing_username_raises(self, mock_configparser):
+    def test_instagram_missing_username_raises(self):
         """Raises ConfigurationError when username is missing."""
         entries = [{"type": "instagram"}]
         with (
             mock.patch.dict(os.environ, {"INSTA_PASSWORD": "secret"}, clear=True),
             pytest.raises(ConfigurationError, match="missing required field 'username'"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_multiple_publishers(self, mock_configparser):
+    def test_multiple_publishers(self):
         """Parses multiple publishers correctly."""
         entries = [
             {"type": "telegram", "channel_id": "@channel"},
@@ -469,7 +454,7 @@ class TestLoadPublishersFromEnv:
             {"TELEGRAM_BOT_TOKEN": "bot-token", "EMAIL_PASSWORD": "email-pw"},
             clear=True,
         ):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server)
             assert telegram is not None
             assert email is not None
             assert instagram is None
@@ -477,7 +462,7 @@ class TestLoadPublishersFromEnv:
             assert platforms.email_enabled is True
             assert platforms.instagram_enabled is False
 
-    def test_duplicate_publisher_type_raises(self, mock_configparser):
+    def test_duplicate_publisher_type_raises(self):
         """Raises ConfigurationError when duplicate publisher types exist."""
         entries = [
             {"type": "telegram", "channel_id": "@channel1"},
@@ -487,23 +472,23 @@ class TestLoadPublishersFromEnv:
             mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "token"}, clear=True),
             pytest.raises(ConfigurationError, match="Duplicate publisher type 'telegram'"),
         ):
-            _load_publishers_from_env(entries, None, mock_configparser)
+            _load_publishers_from_env(entries, None)
 
-    def test_unknown_publisher_type_logs_warning(self, mock_configparser, caplog):
+    def test_unknown_publisher_type_logs_warning(self, caplog):
         """Unknown publisher types are skipped with a warning."""
         entries = [{"type": "unknown_platform", "channel": "test"}]
         with mock.patch.dict(os.environ, {}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None)
             assert telegram is None
             assert instagram is None
             assert email is None
             assert "Unknown publisher type 'unknown_platform'" in caplog.text
 
-    def test_empty_publishers_list(self, mock_configparser):
+    def test_empty_publishers_list(self):
         """Empty PUBLISHERS list results in all publishers disabled."""
         entries = []
         with mock.patch.dict(os.environ, {}, clear=True):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, None)
             assert telegram is None
             assert instagram is None
             assert email is None
@@ -511,7 +496,7 @@ class TestLoadPublishersFromEnv:
             assert platforms.instagram_enabled is False
             assert platforms.email_enabled is False
 
-    def test_fetlife_with_confirmation_settings_from_env(self, mock_configparser):
+    def test_fetlife_with_confirmation_settings_from_env(self):
         """FetLife publisher uses CONFIRMATION_SETTINGS from env when available."""
         entries = [{"type": "fetlife", "recipient": "user@fetlife.com"}]
         email_server = {"smtp_server": "smtp.test.com", "smtp_port": 587, "sender": "bot@test.com"}
@@ -523,7 +508,7 @@ class TestLoadPublishersFromEnv:
             },
             clear=True,
         ):
-            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server, mock_configparser)
+            telegram, instagram, email, platforms = _load_publishers_from_env(entries, email_server)
             assert email is not None
             assert email.confirmation_to_sender is False
             assert email.confirmation_tags_count == 3
@@ -547,43 +532,11 @@ class TestLogConfigSource:
         assert "publishers=2" in caplog.text
         assert "storage=STORAGE_PATHS" in caplog.text
 
-    def test_logs_ini_fallback_source(self, caplog):
-        """Logs warning when INI fallback is used."""
+    def test_ini_fallback_source_no_longer_special_cased(self, caplog):
+        """#97 stage 4: INI removed — log_config_source always logs env_vars."""
         import logging
 
-        caplog.set_level(logging.WARNING)
-        log_config_source(
-            "ini_fallback",
-            ini_sections_used=["Content", "Email"],
-            publishers_count=1,
-            storage_source="INI",
-        )
-        assert "Config source: ini_fallback" in caplog.text
-        assert "migrate to env vars" in caplog.text
-        assert "Content, Email" in caplog.text
-        assert "publishers=1" in caplog.text
-        assert "storage=INI" in caplog.text
-
-
-class TestLogDeprecationWarning:
-    """Tests for log_deprecation_warning function."""
-
-    def test_logs_deprecation_with_sections(self, caplog):
-        """Logs deprecation warning with INI sections used."""
-        import logging
-
-        caplog.set_level(logging.WARNING)
-        log_deprecation_warning(["Content", "Email", "openAI"])
-        assert "DEPRECATION" in caplog.text
-        assert "INI-based configuration is deprecated" in caplog.text
-        assert "Content" in caplog.text
-        assert "Email" in caplog.text
-        assert "openAI" in caplog.text
-
-    def test_no_log_when_no_sections(self, caplog):
-        """Does not log when no INI sections used."""
-        import logging
-
-        caplog.set_level(logging.WARNING)
-        log_deprecation_warning([])
-        assert "DEPRECATION" not in caplog.text
+        caplog.set_level(logging.INFO)
+        log_config_source("ini_fallback", publishers_count=1, storage_source="STORAGE_PATHS")
+        assert "Config source: env_vars" in caplog.text
+        assert "ini_fallback" not in caplog.text

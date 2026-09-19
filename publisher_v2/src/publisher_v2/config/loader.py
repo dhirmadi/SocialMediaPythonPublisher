@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import configparser
 import json
 import logging
 import os
-import warnings
 from typing import Any
 
 from dotenv import load_dotenv
@@ -259,7 +257,6 @@ def _load_content_settings_from_env() -> dict | None:
 def _load_publishers_from_env(
     entries: list,
     email_server: dict | None,
-    cp: configparser.ConfigParser,
 ) -> tuple[TelegramConfig | None, InstagramConfig | None, EmailConfig | None, PlatformsConfig]:
     """
     Parse PUBLISHERS JSON array and create publisher configurations.
@@ -267,7 +264,6 @@ def _load_publishers_from_env(
     Args:
         entries: Parsed PUBLISHERS JSON array.
         email_server: Parsed EMAIL_SERVER config (or None).
-        cp: ConfigParser for INI fallback values.
 
     Returns:
         Tuple of (TelegramConfig, InstagramConfig, EmailConfig, PlatformsConfig).
@@ -320,16 +316,15 @@ def _load_publishers_from_env(
             if not recipient:
                 raise ConfigurationError("PUBLISHERS fetlife entry missing required field 'recipient'")
 
-            # Get SMTP settings from EMAIL_SERVER or fallback
+            # Get SMTP settings from EMAIL_SERVER or legacy flat env vars
             if email_server:
                 smtp_server = email_server["smtp_server"]
                 smtp_port = email_server["smtp_port"]
                 sender = email_server["sender"]
             else:
-                # Fallback to INI/env
-                smtp_server = cp.get("Email", "smtp_server", fallback=os.environ.get("SMTP_SERVER", "smtp.gmail.com"))
-                smtp_port = cp.getint("Email", "smtp_port", fallback=int(os.environ.get("SMTP_PORT", "587")))
-                sender = cp.get("Email", "sender", fallback="")
+                smtp_server = os.environ.get("SMTP_SERVER", "smtp.gmail.com")
+                smtp_port = int(os.environ.get("SMTP_PORT", "587"))
+                sender = ""
 
             # Get confirmation settings
             if confirmation_settings:
@@ -340,13 +335,9 @@ def _load_publishers_from_env(
                     or "short, lowercase, human-friendly topical nouns; no hashtags; no emojis"
                 )
             else:
-                conf_to_sender = cp.getboolean("Email", "confirmation_to_sender", fallback=True)
-                conf_tags_count = cp.getint("Email", "confirmation_tags_count", fallback=5)
-                conf_tags_nature = cp.get(
-                    "Email",
-                    "confirmation_tags_nature",
-                    fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
-                )
+                conf_to_sender = True
+                conf_tags_count = 5
+                conf_tags_nature = "short, lowercase, human-friendly topical nouns; no hashtags; no emojis"
 
             email = EmailConfig(
                 sender=sender,
@@ -394,51 +385,21 @@ def _load_publishers_from_env(
 
 
 def log_config_source(
-    source: str,
+    source: str = "env_vars",
     ini_sections_used: list[str] | None = None,
     publishers_count: int = 0,
-    storage_source: str = "unknown",
+    storage_source: str = "STORAGE_PATHS",
 ) -> None:
-    """
-    Log the configuration source at startup.
+    """Log the configuration source at startup.
 
-    Args:
-        source: Either "env_vars" (all env-based) or "ini_fallback" (some INI used).
-        ini_sections_used: List of INI sections that were used as fallback.
-        publishers_count: Number of publishers configured.
-        storage_source: "STORAGE_PATHS" or "INI".
+    #97 stage 4: INI support removed — env_vars is the only source. The first
+    two parameters are kept for call-site compatibility and ignored.
     """
-    if source == "env_vars":
-        logger.info(
-            "Config source: env_vars | publishers=%d | storage=%s",
-            publishers_count,
-            storage_source,
-        )
-    else:
-        sections_str = ", ".join(ini_sections_used or [])
-        logger.warning(
-            "Config source: ini_fallback (migrate to env vars) | INI sections used: [%s] | publishers=%d | storage=%s",
-            sections_str,
-            publishers_count,
-            storage_source,
-        )
-
-
-def log_deprecation_warning(ini_sections: list[str]) -> None:
-    """
-    Emit a formal DeprecationWarning and log when INI fallback is used.
-
-    INI-based configuration will be removed in v2.2. Migrate to JSON
-    environment variables (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.).
-    """
-    if ini_sections:
-        msg = (
-            "INI-based configuration is deprecated and will be removed in v2.2. "
-            "Migrate to JSON env vars (PUBLISHERS, EMAIL_SERVER, STORAGE_PATHS, etc.). "
-            f"INI sections used: {ini_sections}"
-        )
-        warnings.warn(msg, DeprecationWarning, stacklevel=2)
-        logger.warning("DEPRECATION: %s", msg)
+    logger.info(
+        "Config source: env_vars | publishers=%d | storage=%s",
+        publishers_count,
+        storage_source,
+    )
 
 
 def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | None = None) -> bool:
@@ -463,102 +424,52 @@ def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | N
 
 def load_application_config(config_file_path: str | None = None, env_path: str | None = None) -> ApplicationConfig:
     """
-    Load and validate application configuration.
+    Load and validate application configuration from environment variables.
 
-    Precedence order (first found wins):
-    1. New JSON environment variables (PUBLISHERS, STORAGE_PATHS, etc.)
-    2. Old individual environment variables
-    3. INI file sections (backward compatibility)
-
-    When all required JSON env vars are set (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS),
-    the INI file is optional. Otherwise, config_file_path must point to a valid INI file.
-
-    Emits deprecation warnings when INI fallback is used.
+    #97 stage 4: INI support is removed. Configuration comes from JSON env
+    vars (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS, and the optional
+    EMAIL_SERVER / CONTENT_SETTINGS / CAPTIONFILE_SETTINGS /
+    CONFIRMATION_SETTINGS blobs). ``config_file_path`` is accepted for CLI
+    backward compatibility but its contents are ignored (a warning is logged).
     """
     if env_path:
         load_dotenv(env_path)
     else:
         load_dotenv()
 
-    # Track which INI sections are used for deprecation warnings
-    ini_sections_used: list[str] = []
-
-    # Check if we have all required env vars for env-first mode
-    has_storage_paths = os.environ.get("STORAGE_PATHS")
-    has_publishers = os.environ.get("PUBLISHERS") is not None  # Empty [] is valid
-    has_openai_settings = os.environ.get("OPENAI_SETTINGS")
-
-    env_first_mode = has_storage_paths and has_publishers and has_openai_settings
-
-    # Configure parser to handle inline comments (e.g., "value ; comment")
-    cp = configparser.ConfigParser(inline_comment_prefixes=(";", "#"))
-
-    # Handle INI file loading
     if config_file_path:
-        # User explicitly provided a path - it must exist
-        if not os.path.exists(config_file_path):
-            raise ConfigurationError(f"Config file not found: {config_file_path}")
-        cp.read(config_file_path)
-    elif not env_first_mode:
-        # No path provided and not in env-first mode - error
-        raise ConfigurationError(
-            "Either config_file_path must be provided or all required env vars must be set: "
-            "STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS"
+        logger.warning(
+            "INI configuration was removed (#97 stage 4); ignoring --config file %s. "
+            "Use STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS env vars.",
+            config_file_path,
         )
-    # else: env-first mode with no INI file - OK
+
+    missing = [
+        name
+        for name, present in (
+            ("STORAGE_PATHS", bool(os.environ.get("STORAGE_PATHS"))),
+            ("PUBLISHERS", os.environ.get("PUBLISHERS") is not None),  # empty [] is valid
+            ("OPENAI_SETTINGS", bool(os.environ.get("OPENAI_SETTINGS"))),
+        )
+        if not present
+    ]
+    if missing:
+        raise ConfigurationError(
+            "INI configuration was removed (#97 stage 4); required env vars not set: " + ", ".join(missing)
+        )
 
     try:
         # =====================================================================
         # STORAGE / DROPBOX CONFIG
         # =====================================================================
         storage_paths = _load_storage_paths_from_env()
-        if storage_paths:
-            # Use STORAGE_PATHS env var
-            image_folder = storage_paths["root"]
-            archive_folder = storage_paths["archive"]
-            folder_keep = storage_paths["keep"]
-            folder_remove = storage_paths["remove"]
-            storage_source = "STORAGE_PATHS"
-        else:
-            # Fallback to INI [Dropbox] section
-            ini_sections_used.append("Dropbox")
-            storage_source = "INI"
-            image_folder = cp.get("Dropbox", "image_folder")
-            archive_folder = cp.get("Dropbox", "archive", fallback="archive")
-
-            # Optional keep/remove folders with legacy alias support
-            folder_keep = cp.get("Dropbox", "folder_keep", fallback="keep")
-            folder_remove = cp.get("Dropbox", "folder_remove", fallback=None)
-            if folder_remove is None:
-                if cp.has_option("Dropbox", "folder_reject"):
-                    folder_remove = cp.get("Dropbox", "folder_reject")
-                else:
-                    folder_remove = "reject"
-
-            # Environment overrides (lowercase, as requested for V2)
-            env_keep = os.environ.get("folder_keep")  # noqa: SIM112
-            env_remove = os.environ.get("folder_remove")  # noqa: SIM112
-            if env_keep is not None and env_keep.strip():
-                folder_keep = env_keep.strip()
-            if env_remove is not None and env_remove.strip():
-                folder_remove = env_remove.strip()
-
-            # Validate subfolder names (INI mode uses relative paths)
-            def _validate_subfolder(name: str | None, field_name: str) -> str | None:
-                if name is None:
-                    return None
-                trimmed = name.strip()
-                if not trimmed:
-                    return None
-                if any(sep in trimmed for sep in ("/", "\\", "..")):
-                    raise ConfigurationError(
-                        f"Invalid value '{name}' for {field_name}; "
-                        "must be a simple subfolder name without path separators or '..'."
-                    )
-                return trimmed
-
-            folder_keep = _validate_subfolder(folder_keep, "[Dropbox].folder_keep")
-            folder_remove = _validate_subfolder(folder_remove, "[Dropbox].folder_remove")
+        if storage_paths is None:
+            raise ConfigurationError("STORAGE_PATHS env var is required (INI [Dropbox] support removed, #97 stage 4)")
+        image_folder = storage_paths["root"]
+        archive_folder = storage_paths["archive"]
+        folder_keep = storage_paths["keep"]
+        folder_remove = storage_paths["remove"]
+        storage_source = "STORAGE_PATHS"
 
         storage_provider = (os.environ.get("STORAGE_PROVIDER") or "dropbox").strip().lower()
         dropbox: DropboxConfig | None = None
@@ -600,56 +511,25 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
         vision_fallback_enabled: bool = True
         vision_fallback_max_dimension: int = 2048
         vision_fallback_detail: str = "high"
-        if openai_settings:
-            # Use OPENAI_SETTINGS env var
-            vision_model = openai_settings["vision_model"]
-            caption_model = openai_settings["caption_model"]
-            system_prompt = (
-                openai_settings.get("system_prompt")
-                or "You are a senior social media copywriter. Write authentic, concise, platform-aware captions."
-            )
-            role_prompt = openai_settings.get("role_prompt") or "Write a caption for:"
-            sd_caption_enabled = openai_settings["sd_caption_enabled"]
-            sd_caption_single_call_enabled = openai_settings["sd_caption_single_call_enabled"]
-            sd_caption_model = openai_settings.get("sd_caption_model")
-            sd_caption_system_prompt = openai_settings.get("sd_caption_system_prompt")
-            sd_caption_role_prompt = openai_settings.get("sd_caption_role_prompt")
-            vision_max_dimension = int(openai_settings["vision_max_dimension"])
-            vision_detail = openai_settings["vision_detail"]
-            vision_fallback_enabled = bool(openai_settings["vision_fallback_enabled"])
-            vision_fallback_max_dimension = int(openai_settings["vision_fallback_max_dimension"])
-            vision_fallback_detail = openai_settings["vision_fallback_detail"]
-            legacy_model = None
-        else:
-            # Fallback to INI [openAI] section
-            ini_sections_used.append("openAI")
-            vision_model = cp.get("openAI", "vision_model", fallback=None)
-            caption_model = cp.get("openAI", "caption_model", fallback=None)
-            legacy_model = cp.get("openAI", "model", fallback=None)
-            sd_caption_enabled = cp.getboolean("openAI", "sd_caption_enabled", fallback=True)
-            sd_caption_single_call_enabled = cp.getboolean("openAI", "sd_caption_single_call_enabled", fallback=True)
-            sd_caption_model = cp.get("openAI", "sd_caption_model", fallback=None)
-            sd_caption_system_prompt = cp.get("openAI", "sd_caption_system_prompt", fallback=None)
-            sd_caption_role_prompt = cp.get("openAI", "sd_caption_role_prompt", fallback=None)
-
-            # Backward compatibility: if only 'model' is specified, use it for both
-            if legacy_model and not vision_model:
-                vision_model = legacy_model
-            if legacy_model and not caption_model:
-                caption_model = legacy_model
-
-            # Use defaults if nothing specified
-            if not vision_model:
-                vision_model = "gpt-4o"
-            if not caption_model:
-                caption_model = "gpt-4o-mini"
-
-            system_prompt = cp.get(
-                "openAI",
-                "system_prompt",
-                fallback="You are a senior social media copywriter. Write authentic, concise, platform-aware captions.",
-            )
-            role_prompt = cp.get("openAI", "role_prompt", fallback="Write a caption for:")
+        if openai_settings is None:
+            raise ConfigurationError("OPENAI_SETTINGS env var is required (INI [openAI] support removed, #97 stage 4)")
+        vision_model = openai_settings["vision_model"]
+        caption_model = openai_settings["caption_model"]
+        system_prompt = (
+            openai_settings.get("system_prompt")
+            or "You are a senior social media copywriter. Write authentic, concise, platform-aware captions."
+        )
+        role_prompt = openai_settings.get("role_prompt") or "Write a caption for:"
+        sd_caption_enabled = openai_settings["sd_caption_enabled"]
+        sd_caption_single_call_enabled = openai_settings["sd_caption_single_call_enabled"]
+        sd_caption_model = openai_settings.get("sd_caption_model")
+        sd_caption_system_prompt = openai_settings.get("sd_caption_system_prompt")
+        sd_caption_role_prompt = openai_settings.get("sd_caption_role_prompt")
+        vision_max_dimension = int(openai_settings["vision_max_dimension"])
+        vision_detail = openai_settings["vision_detail"]
+        vision_fallback_enabled = bool(openai_settings["vision_fallback_enabled"])
+        vision_fallback_max_dimension = int(openai_settings["vision_fallback_max_dimension"])
+        vision_fallback_detail = openai_settings["vision_fallback_detail"]
 
         openai_cfg = OpenAIConfig(
             api_key=os.environ["OPENAI_API_KEY"],
@@ -660,7 +540,7 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             sd_caption_model=sd_caption_model,
             sd_caption_system_prompt=sd_caption_system_prompt,
             sd_caption_role_prompt=sd_caption_role_prompt,
-            model=legacy_model,
+            model=None,  # legacy INI-only field; always None since #97 stage 4
             system_prompt=system_prompt,
             role_prompt=role_prompt,
             vision_max_dimension=vision_max_dimension,
@@ -676,63 +556,12 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
         publishers_json = _parse_json_env("PUBLISHERS")
         email_server = _load_email_server_from_env()
 
-        if publishers_json is not None:
-            # Use PUBLISHERS env var - derive enabled state from array
-            if not isinstance(publishers_json, list):
-                raise ConfigurationError("PUBLISHERS must be a JSON array")
-            telegram, instagram, email, platforms = _load_publishers_from_env(publishers_json, email_server, cp)
-            publishers_count = len(publishers_json)
-        else:
-            # Fallback to INI [Content] toggles
-            ini_sections_used.append("Content")
-            publishers_count = 0
-
-            platforms = PlatformsConfig(
-                telegram_enabled=cp.getboolean("Content", "telegram", fallback=False),
-                instagram_enabled=cp.getboolean("Content", "instagram", fallback=False),
-                email_enabled=cp.getboolean("Content", "fetlife", fallback=False),
-            )
-
-            telegram = None
-            if platforms.telegram_enabled:
-                telegram = TelegramConfig(
-                    bot_token=os.environ["TELEGRAM_BOT_TOKEN"],
-                    channel_id=os.environ["TELEGRAM_CHANNEL_ID"],
-                )
-                publishers_count += 1
-
-            instagram = None
-            if platforms.instagram_enabled and cp.has_section("Instagram"):
-                ini_sections_used.append("Instagram")
-                instagram = InstagramConfig(
-                    username=cp.get("Instagram", "name"),
-                    password=os.environ.get("INSTA_PASSWORD", ""),
-                    session_file="instasession.json",
-                )
-                publishers_count += 1
-
-            email = None
-            if platforms.email_enabled and cp.has_section("Email"):
-                ini_sections_used.append("Email")
-                email = EmailConfig(
-                    sender=cp.get("Email", "sender"),
-                    recipient=cp.get("Email", "recipient"),
-                    password=os.environ["EMAIL_PASSWORD"],
-                    smtp_server=cp.get(
-                        "Email", "smtp_server", fallback=os.environ.get("SMTP_SERVER", "smtp.gmail.com")
-                    ),
-                    smtp_port=cp.getint("Email", "smtp_port", fallback=int(os.environ.get("SMTP_PORT", "587"))),
-                    confirmation_to_sender=cp.getboolean("Email", "confirmation_to_sender", fallback=True),
-                    confirmation_tags_count=cp.getint("Email", "confirmation_tags_count", fallback=5),
-                    confirmation_tags_nature=cp.get(
-                        "Email",
-                        "confirmation_tags_nature",
-                        fallback="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
-                    ),
-                    caption_target=cp.get("Email", "caption_target", fallback="subject"),
-                    subject_mode=cp.get("Email", "subject_mode", fallback="normal"),
-                )
-                publishers_count += 1
+        if publishers_json is None:
+            raise ConfigurationError("PUBLISHERS env var is required (INI [Content] toggles removed, #97 stage 4)")
+        if not isinstance(publishers_json, list):
+            raise ConfigurationError("PUBLISHERS must be a JSON array")
+        telegram, instagram, email, platforms = _load_publishers_from_env(publishers_json, email_server)
+        publishers_count = len(publishers_json)
 
         # =====================================================================
         # CONTENT CONFIG
@@ -746,30 +575,8 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 voice_profile=content_settings.get("voice_profile"),
             )
         else:
-            # Content section already tracked if PUBLISHERS fallback was used
-            if "Content" not in ini_sections_used:
-                ini_sections_used.append("Content")
-            # PUB-029 AC-05: parse [Content] voice_profile as JSON list of strings
-            voice_profile_raw = cp.get("Content", "voice_profile", fallback=None)
-            voice_profile_value: list[str] | None
-            if voice_profile_raw is None or not voice_profile_raw.strip():
-                voice_profile_value = None
-            else:
-                try:
-                    parsed_voice = json.loads(voice_profile_raw)
-                except json.JSONDecodeError as exc:
-                    raise ConfigurationError(
-                        f"[Content] voice_profile must be valid JSON: {exc.msg} at position {exc.pos}"
-                    ) from exc
-                if not isinstance(parsed_voice, list):
-                    raise ConfigurationError("[Content] voice_profile must be a JSON list of strings")
-                voice_profile_value = [str(x) for x in parsed_voice]
-            content = ContentConfig(
-                hashtag_string=cp.get("Content", "hashtag_string", fallback=""),
-                archive=cp.getboolean("Content", "archive", fallback=True),
-                debug=cp.getboolean("Content", "debug", fallback=False),
-                voice_profile=voice_profile_value,
-            )
+            # CONTENT_SETTINGS unset: schema defaults (INI [Content] removed, #97 stage 4)
+            content = ContentConfig(hashtag_string="", archive=True, debug=False, voice_profile=None)
 
         # =====================================================================
         # CAPTIONFILE CONFIG
@@ -781,12 +588,8 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 artist_alias=captionfile_settings.get("artist_alias"),
             )
         else:
-            if cp.has_section("CaptionFile"):
-                ini_sections_used.append("CaptionFile")
-            captionfile = CaptionFileConfig(
-                extended_metadata_enabled=cp.getboolean("CaptionFile", "extended_metadata_enabled", fallback=False),
-                artist_alias=cp.get("CaptionFile", "artist_alias", fallback=None),
-            )
+            # CAPTIONFILE_SETTINGS unset: defaults (INI [CaptionFile] removed, #97 stage 4)
+            captionfile = CaptionFileConfig(extended_metadata_enabled=False, artist_alias=None)
 
         # =====================================================================
         # FEATURES CONFIG (always from env vars)
@@ -817,29 +620,12 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
 
     except KeyError as exc:
         raise ConfigurationError(f"Missing required environment variable: {exc}") from exc
-    except configparser.Error as exc:
-        raise ConfigurationError(f"Invalid configuration file: {exc}") from exc
 
-    # =========================================================================
-    # DEPRECATION WARNINGS
-    # =========================================================================
-    # Remove duplicates and sort for consistent logging
-    ini_sections_used = sorted(set(ini_sections_used))
-
-    if ini_sections_used:
-        log_deprecation_warning(ini_sections_used)
-        log_config_source(
-            "ini_fallback",
-            ini_sections_used=ini_sections_used,
-            publishers_count=publishers_count,
-            storage_source=storage_source,
-        )
-    else:
-        log_config_source(
-            "env_vars",
-            publishers_count=publishers_count,
-            storage_source=storage_source,
-        )
+    log_config_source(
+        "env_vars",
+        publishers_count=publishers_count,
+        storage_source=storage_source,
+    )
 
     # =========================================================================
     # WEB & AUTH0 CONFIG

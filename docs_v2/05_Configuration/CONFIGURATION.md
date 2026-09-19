@@ -72,9 +72,13 @@ These are required when enabling Auth0 login (Feature 020). They are not “secr
 
 ---
 
-## 2. Dynamic Configuration (Environment + INI)
+## 2. Dynamic Configuration (Environment Variables)
 
-Dynamic configuration controls runtime behavior and is split between environment variables and INI files.
+> **INI support removed (#97 stage 4).** Configuration is environment-only: the JSON env vars
+> `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` are required; `EMAIL_SERVER`,
+> `CONTENT_SETTINGS`, `CAPTIONFILE_SETTINGS`, `CONFIRMATION_SETTINGS` are optional.
+> The CLI still accepts `--config <file>` for compatibility but ignores the file and logs a
+> warning. Orchestrator runtime schema v1 was removed at the same time — schema v2 only.
 
 ### 2.1 Feature Toggles (Environment Variables)
 
@@ -110,11 +114,14 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
-| `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
+| `CONFIG_PATH` | Deprecated (#97 stage 4): INI removed; value is ignored | (unused) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |
 
-### 2.3 INI Schema
+### 2.3 INI Schema (REMOVED — historical reference only)
+
+> The INI path was deleted in #97 stage 4. The schema below is kept only to help
+> migrate old `*.ini` files to the JSON env vars in section 2.4/3.
 
 **Note:** The config parser supports inline comments with `;` or `#`. Values are automatically stripped of trailing comments.
 

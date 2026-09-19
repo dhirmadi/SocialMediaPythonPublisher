@@ -178,13 +178,10 @@ class TestFilenameAllowList:
     def _service(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
         from unittest.mock import AsyncMock
 
-        ini = tmp_path / "test.ini"
-        ini.write_text(
-            "[Dropbox]\nimage_folder = /Photos\narchive_folder = archive\n\n[OpenAI]\n\n"
-            "[Content]\nhashtag_string = \narchive = false\ndebug = false\n\n"
-            "[Platforms]\ntelegram_enabled = false\ninstagram_enabled = false\nemail_enabled = false\n"
-        )
-        monkeypatch.setenv("CONFIG_PATH", str(ini))
+        # #97 stage 4: env-only configuration (INI removed)
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "k")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "s")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "r")

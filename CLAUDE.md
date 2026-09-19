@@ -10,7 +10,7 @@
 - **Type check**: `uv run mypy publisher_v2/src --ignore-missing-imports`
 - **Test**: `uv run pytest -v --tb=short`
 - **Test with coverage**: `uv run pytest -v --cov=. --cov-report=term`
-- **Preview (no side effects)**: `PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config configfiles/fetlife.ini --preview`
+- **Preview (no side effects)**: `PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview` (env-first config; `--config` is deprecated and ignored since #97 stage 4)
 - **All checks**: `make check`
 
 ## Project overview

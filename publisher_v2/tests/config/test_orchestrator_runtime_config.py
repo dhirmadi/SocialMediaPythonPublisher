@@ -7,7 +7,7 @@ import pytest
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
 from publisher_v2.config.source import OrchestratorConfigSource
-from publisher_v2.core.exceptions import TenantNotFoundError
+from publisher_v2.core.exceptions import ConfigurationError, TenantNotFoundError
 
 
 def _make_source(transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch) -> OrchestratorConfigSource:
@@ -248,7 +248,7 @@ async def test_publisher_type_email_disabled_when_email_server_missing(monkeypat
 
 
 @pytest.mark.asyncio
-async def test_schema_v1_fallback_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_schema_v1_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     async def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path == "/v1/runtime/by-host" and request.method == "POST":
             return httpx.Response(
@@ -276,11 +276,9 @@ async def test_schema_v1_fallback_defaults(monkeypatch: pytest.MonkeyPatch) -> N
         return httpx.Response(500)
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
-    rc = await src.get_config("xxx.shibari.photo")
-    # v1 fallback forces AI disabled, no publishers
-    assert rc.config.features.analyze_caption_enabled is False
-    assert rc.config.platforms.telegram_enabled is False
-    assert rc.config.platforms.email_enabled is False
+    # #97 stage 4: schema v1 support removed — v1 responses are rejected loudly.
+    with pytest.raises(ConfigurationError, match="schema v1 is no longer supported"):
+        await src.get_config("xxx.shibari.photo")
 
 
 @pytest.mark.asyncio

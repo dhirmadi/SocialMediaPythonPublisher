@@ -1,4 +1,8 @@
+"""Keep/Remove folder configuration — env-only (#97 stage 4: INI removed)."""
+
 from __future__ import annotations
+
+import json
 
 import pytest
 
@@ -6,158 +10,61 @@ from publisher_v2.config.loader import load_application_config
 from publisher_v2.core.exceptions import ConfigurationError
 
 
-def _write_ini(tmp_path, content: str) -> str:
-    cfg = tmp_path / "test.ini"
-    cfg.write_text(content)
-    return str(cfg)
-
-
 @pytest.fixture(autouse=True)
 def _clear_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure env overrides from the real environment do not leak into tests."""
+    """Baseline env-only config; keep/remove come from STORAGE_PATHS."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
     for key in [
-        "DROPBOX_APP_KEY",
-        "DROPBOX_APP_SECRET",
-        "DROPBOX_REFRESH_TOKEN",
-        "OPENAI_API_KEY",
         "FEATURE_ANALYZE_CAPTION",
         "FEATURE_PUBLISH",
         "FEATURE_KEEP_CURATE",
         "FEATURE_REMOVE_CURATE",
-        "folder_keep",
-        "folder_remove",
-        # Clear env-first vars to ensure INI mode is used
-        "STORAGE_PATHS",
-        "PUBLISHERS",
-        "OPENAI_SETTINGS",
         "EMAIL_SERVER",
         "CONTENT_SETTINGS",
         "CAPTIONFILE_SETTINGS",
         "CONFIRMATION_SETTINGS",
+        "STORAGE_PROVIDER",
     ]:
         monkeypatch.delenv(key, raising=False)
-    # Provide minimal required secrets for load_application_config.
     monkeypatch.setenv("DROPBOX_APP_KEY", "k")
     monkeypatch.setenv("DROPBOX_APP_SECRET", "s")
     monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "r")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("PUBLISHERS", "[]")
+    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
+    monkeypatch.setenv("STORAGE_PATHS", json.dumps({"root": "/Photos", "archive": "archive"}))
 
 
-def test_dropbox_keep_remove_from_ini_and_env(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ini = """
-[Dropbox]
-image_folder = /Photos
-archive = archive
-folder_keep = approve_ini
-folder_remove = remove_ini
+def test_dropbox_keep_remove_from_storage_paths(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "STORAGE_PATHS",
+        json.dumps({"root": "/Photos", "archive": "archive", "keep": "approve_env", "remove": "remove_env"}),
+    )
 
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    cfg_path = _write_ini(tmp_path, ini)
-    # Env overrides should win over INI.
-    monkeypatch.setenv("folder_keep", "approve_env")
-    monkeypatch.setenv("folder_remove", "remove_env")
-
-    cfg = load_application_config(cfg_path)
+    cfg = load_application_config()
     assert cfg.dropbox is not None
-    assert cfg.dropbox.folder_keep == "approve_env"
-    assert cfg.dropbox.folder_remove == "remove_env"
+    assert cfg.dropbox.folder_keep == "/Photos/approve_env"
+    assert cfg.dropbox.folder_remove == "/Photos/remove_env"
 
 
-def test_dropbox_folder_reject_aliases_folder_remove(tmp_path) -> None:
-    ini = """
-[Dropbox]
-image_folder = /Photos
-archive = archive
-folder_reject = reject_folder
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    cfg_path = _write_ini(tmp_path, ini)
-
-    cfg = load_application_config(cfg_path)
-    assert cfg.dropbox is not None
-    # Legacy folder_reject should populate folder_remove when explicit remove not set.
-    assert cfg.dropbox.folder_remove == "reject_folder"
-
-
-@pytest.mark.parametrize(
-    "value",
-    [
-        "bad/name",
-        "bad\\name",
-        "../escape",
-        "sub/dir",
-    ],
-)
-def test_keep_remove_folder_invalid_values_raise_configuration_error(tmp_path, value: str) -> None:
-    # Use only INI; env overrides are cleared by fixture.
-    ini = f"""
-[Dropbox]
-image_folder = /Photos
-archive = archive
-folder_keep = {value}
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    cfg_path = _write_ini(tmp_path, ini)
+@pytest.mark.parametrize("value", ["../escape", "sub/../dir"])
+def test_keep_folder_traversal_raises_configuration_error(monkeypatch: pytest.MonkeyPatch, value: str) -> None:
+    monkeypatch.setenv("STORAGE_PATHS", json.dumps({"root": "/Photos", "keep": value}))
 
     with pytest.raises(ConfigurationError):
-        load_application_config(cfg_path)
+        load_application_config()
 
 
-def test_keep_remove_feature_flags_default_enabled(tmp_path) -> None:
-    ini = """
-[Dropbox]
-image_folder = /Photos
-archive = archive
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    cfg_path = _write_ini(tmp_path, ini)
-
-    cfg = load_application_config(cfg_path)
+def test_keep_remove_feature_flags_default_enabled() -> None:
+    cfg = load_application_config()
     assert cfg.features.keep_enabled is True
     assert cfg.features.remove_enabled is True
 
 
-def test_keep_remove_feature_flags_can_be_disabled(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
-    ini = """
-[Dropbox]
-image_folder = /Photos
-archive = archive
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    cfg_path = _write_ini(tmp_path, ini)
+def test_keep_remove_feature_flags_can_be_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("FEATURE_KEEP_CURATE", "false")
     monkeypatch.setenv("FEATURE_REMOVE_CURATE", "0")
 
-    cfg = load_application_config(cfg_path)
+    cfg = load_application_config()
     assert cfg.features.keep_enabled is False
     assert cfg.features.remove_enabled is False

@@ -1,4 +1,8 @@
+"""Loader tests — env-only configuration (#97 stage 4: INI support removed)."""
+
 from __future__ import annotations
+
+import json
 
 import pytest
 from pydantic import ValidationError
@@ -8,69 +12,38 @@ from publisher_v2.core.exceptions import ConfigurationError
 
 
 @pytest.fixture
-def valid_ini_content():
-    """Valid INI configuration for testing."""
-    return """[Dropbox]
-image_folder = /Photos
-archive = archive
-
-[openAI]
-vision_model = gpt-4o
-caption_model = gpt-4o-mini
-system_prompt = Test prompt
-role_prompt = Caption:
-
-[Content]
-hashtag_string = #test
-archive = true
-debug = false
-telegram = true
-instagram = false
-fetlife = false
-
-[CaptionFile]
-extended_metadata_enabled = false
-"""
-
-
-@pytest.fixture
 def valid_env_vars(monkeypatch):
-    """Set up valid environment variables and clear existing ones."""
-    # Clear any existing env vars that might interfere
-    monkeypatch.delenv("DROPBOX_APP_KEY", raising=False)
-    monkeypatch.delenv("DROPBOX_APP_SECRET", raising=False)
-    monkeypatch.delenv("DROPBOX_REFRESH_TOKEN", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-    monkeypatch.delenv("TELEGRAM_BOT_TOKEN", raising=False)
-    monkeypatch.delenv("TELEGRAM_CHANNEL_ID", raising=False)
-    # Clear env-first vars to ensure INI mode is used
-    monkeypatch.delenv("STORAGE_PATHS", raising=False)
-    monkeypatch.delenv("PUBLISHERS", raising=False)
-    monkeypatch.delenv("OPENAI_SETTINGS", raising=False)
-    monkeypatch.delenv("EMAIL_SERVER", raising=False)
-    monkeypatch.delenv("CONTENT_SETTINGS", raising=False)
-    monkeypatch.delenv("CAPTIONFILE_SETTINGS", raising=False)
-    monkeypatch.delenv("CONFIRMATION_SETTINGS", raising=False)
+    """Baseline env-only configuration: Dropbox storage + telegram publisher."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    for key in (
+        "EMAIL_SERVER",
+        "CONTENT_SETTINGS",
+        "CAPTIONFILE_SETTINGS",
+        "CONFIRMATION_SETTINGS",
+        "STORAGE_PROVIDER",
+        "EMAIL_PASSWORD",
+        "INSTA_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
-    # Set test values
     monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
     monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
     monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test123")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:ABC")
-    monkeypatch.setenv("TELEGRAM_CHANNEL_ID", "@testchannel")
+
+    monkeypatch.setenv("STORAGE_PATHS", json.dumps({"root": "/Photos", "archive": "archive"}))
+    monkeypatch.setenv("PUBLISHERS", json.dumps([{"type": "telegram", "channel_id": "@testchannel"}]))
+    monkeypatch.setenv("OPENAI_SETTINGS", json.dumps({"vision_model": "gpt-4o", "caption_model": "gpt-4o-mini"}))
 
 
-def test_load_valid_config(tmp_path, valid_ini_content, valid_env_vars):
-    """Test loading a valid configuration file."""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
-
-    config = load_application_config(str(config_file))
+def test_load_valid_config(valid_env_vars):
+    """Env-only configuration loads end to end."""
+    config = load_application_config()
 
     assert config.dropbox.app_key == "test_key"
     assert config.dropbox.image_folder == "/Photos"
-    assert config.dropbox.archive_folder == "archive"
+    assert config.dropbox.archive_folder == "/Photos/archive"
     assert config.openai.api_key == "sk-test123"
     assert config.openai.vision_model == "gpt-4o"
     assert config.openai.caption_model == "gpt-4o-mini"
@@ -79,184 +52,78 @@ def test_load_valid_config(tmp_path, valid_ini_content, valid_env_vars):
     assert config.platforms.email_enabled is False
     assert config.telegram is not None
     assert config.telegram.bot_token == "123:ABC"
-    # Note: hashtag_string with # is treated as comment due to inline_comment_prefixes
-    # This matches actual config loader behavior
     assert config.content.hashtag_string == ""
     assert config.content.archive is True
     assert config.content.debug is False
 
 
-def test_load_config_missing_file():
-    """Test that missing config file raises ConfigurationError."""
-    with pytest.raises(ConfigurationError, match="Config file not found"):
-        load_application_config("/nonexistent/path.ini")
+def test_ini_file_is_ignored(valid_env_vars, tmp_path, caplog):
+    """#97 stage 4: a config_file_path is accepted for CLI compat but its contents are ignored."""
+    import logging
+
+    ini = tmp_path / "test.ini"
+    ini.write_text("[Dropbox]\nimage_folder = /FromIni\n")
+
+    with caplog.at_level(logging.WARNING):
+        config = load_application_config(str(ini))
+
+    # Values come from env, never from the INI file.
+    assert config.dropbox.image_folder == "/Photos"
+    assert any("INI configuration was removed" in rec.getMessage() for rec in caplog.records)
 
 
-def test_load_config_missing_dropbox_env(tmp_path, valid_ini_content, monkeypatch):
-    """Test that missing DROPBOX_APP_KEY raises ConfigurationError."""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
+def test_missing_required_env_vars_raises(valid_env_vars, monkeypatch):
+    """#97 stage 4: without the JSON env vars there is no fallback — hard error."""
+    monkeypatch.delenv("STORAGE_PATHS", raising=False)
+    monkeypatch.delenv("PUBLISHERS", raising=False)
 
-    # Create empty .env file to prevent loading workspace .env
-    empty_env = tmp_path / ".env"
-    empty_env.write_text("")
+    with pytest.raises(ConfigurationError, match="STORAGE_PATHS, PUBLISHERS"):
+        load_application_config()
 
-    # Clear all env vars first
+
+def test_load_config_missing_dropbox_env(valid_env_vars, monkeypatch):
+    """Missing DROPBOX_APP_KEY raises ConfigurationError."""
     monkeypatch.delenv("DROPBOX_APP_KEY", raising=False)
-    monkeypatch.delenv("DROPBOX_APP_SECRET", raising=False)
-    monkeypatch.delenv("DROPBOX_REFRESH_TOKEN", raising=False)
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
-
-    # Set only some env vars, missing DROPBOX_APP_KEY
-    monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test123")
 
     with pytest.raises(ConfigurationError, match="Missing required environment variable"):
-        load_application_config(str(config_file), env_path=str(empty_env))
+        load_application_config()
 
 
-def test_load_config_missing_openai_key(tmp_path, valid_ini_content, monkeypatch):
-    """Test that missing OPENAI_API_KEY raises ConfigurationError."""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
-
-    # Create empty .env file to prevent loading workspace .env
-    empty_env = tmp_path / ".env"
-    empty_env.write_text("")
-
-    # Clear all env vars first
-    monkeypatch.delenv("DROPBOX_APP_KEY", raising=False)
-    monkeypatch.delenv("DROPBOX_APP_SECRET", raising=False)
-    monkeypatch.delenv("DROPBOX_REFRESH_TOKEN", raising=False)
+def test_load_config_missing_openai_key(valid_env_vars, monkeypatch):
+    """Missing OPENAI_API_KEY raises ConfigurationError."""
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    # Set Dropbox vars but not OpenAI
-    monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
-    monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-
     with pytest.raises(ConfigurationError, match="Missing required environment variable"):
-        load_application_config(str(config_file), env_path=str(empty_env))
+        load_application_config()
 
 
-def test_load_config_invalid_dropbox_folder(tmp_path, valid_env_vars):
-    """Test that invalid image_folder (no leading slash) raises ValidationError."""
-    invalid_ini = """[Dropbox]
-image_folder = Photos
-archive = archive
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(invalid_ini)
+def test_load_config_invalid_storage_root(valid_env_vars, monkeypatch):
+    """Relative STORAGE_PATHS.root raises."""
+    monkeypatch.setenv("STORAGE_PATHS", json.dumps({"root": "Photos"}))
 
     with pytest.raises((ValidationError, ConfigurationError)):
-        load_application_config(str(config_file))
+        load_application_config()
 
 
-def test_load_config_legacy_model_field(tmp_path, valid_env_vars):
-    """Test backward compatibility with legacy 'model' field."""
-    legacy_ini = """[Dropbox]
-image_folder = /Photos
+def test_load_config_default_models(valid_env_vars, monkeypatch):
+    """Empty OPENAI_SETTINGS uses default models."""
+    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
 
-[openAI]
-model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(legacy_ini)
-
-    config = load_application_config(str(config_file))
-
-    # Should use legacy model for both vision and caption
-    assert config.openai.vision_model == "gpt-4o"
-    assert config.openai.caption_model == "gpt-4o"
-    assert config.openai.model == "gpt-4o"
-
-
-def test_load_config_separate_models_override_legacy(tmp_path, valid_env_vars):
-    """Test that explicit vision/caption models override legacy model."""
-    mixed_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-model = gpt-4o
-vision_model = gpt-4o-mini
-caption_model = gpt-3.5-turbo
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(mixed_ini)
-
-    config = load_application_config(str(config_file))
-
-    # Explicit models should take precedence
-    assert config.openai.vision_model == "gpt-4o-mini"
-    assert config.openai.caption_model == "gpt-3.5-turbo"
-
-
-def test_load_config_default_models(tmp_path, valid_env_vars):
-    """Test that default models are used when none specified."""
-    minimal_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(minimal_ini)
-
-    config = load_application_config(str(config_file))
-
-    # Should use defaults
+    config = load_application_config()
     assert config.openai.vision_model == "gpt-4o"
     assert config.openai.caption_model == "gpt-4o-mini"
 
 
-def test_load_config_with_email_section(tmp_path, valid_env_vars, monkeypatch):
-    """Test loading config with Email section enabled."""
-    email_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-fetlife = true
-
-[Email]
-sender = test@example.com
-recipient = recipient@example.com
-smtp_server = smtp.gmail.com
-smtp_port = 587
-confirmation_to_sender = true
-confirmation_tags_count = 5
-caption_target = subject
-subject_mode = normal
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(email_ini)
-
+def test_load_config_with_email_publisher(valid_env_vars, monkeypatch):
+    """fetlife publisher + EMAIL_SERVER builds EmailConfig."""
     monkeypatch.setenv("EMAIL_PASSWORD", "test_pass")
+    monkeypatch.setenv(
+        "EMAIL_SERVER",
+        json.dumps({"sender": "test@example.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}),
+    )
+    monkeypatch.setenv("PUBLISHERS", json.dumps([{"type": "fetlife", "recipient": "recipient@example.com"}]))
 
-    config = load_application_config(str(config_file))
+    config = load_application_config()
 
     assert config.platforms.email_enabled is True
     assert config.email is not None
@@ -267,28 +134,12 @@ subject_mode = normal
     assert config.email.smtp_port == 587
 
 
-def test_load_config_with_instagram_section(tmp_path, valid_env_vars, monkeypatch):
-    """Test loading config with Instagram section enabled."""
-    instagram_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-instagram = true
-
-[Instagram]
-name = testuser
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(instagram_ini)
-
+def test_load_config_with_instagram_publisher(valid_env_vars, monkeypatch):
+    """instagram publisher entry builds InstagramConfig."""
     monkeypatch.setenv("INSTA_PASSWORD", "insta_pass")
+    monkeypatch.setenv("PUBLISHERS", json.dumps([{"type": "instagram", "username": "testuser"}]))
 
-    config = load_application_config(str(config_file))
+    config = load_application_config()
 
     assert config.platforms.instagram_enabled is True
     assert config.instagram is not None
@@ -297,74 +148,48 @@ name = testuser
     assert config.instagram.session_file == "instasession.json"
 
 
-def test_load_config_captionfile_extended_metadata(tmp_path, valid_env_vars):
-    """Test loading CaptionFile config with extended_metadata_enabled."""
-    captionfile_ini = """[Dropbox]
-image_folder = /Photos
+def test_load_config_captionfile_extended_metadata(valid_env_vars, monkeypatch):
+    monkeypatch.setenv(
+        "CAPTIONFILE_SETTINGS", json.dumps({"extended_metadata_enabled": True, "artist_alias": "TestArtist"})
+    )
 
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-
-[CaptionFile]
-extended_metadata_enabled = true
-artist_alias = TestArtist
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(captionfile_ini)
-
-    config = load_application_config(str(config_file))
-
+    config = load_application_config()
     assert config.captionfile.extended_metadata_enabled is True
     assert config.captionfile.artist_alias == "TestArtist"
 
 
-def test_load_config_captionfile_defaults(tmp_path, valid_env_vars):
-    """Test CaptionFile config defaults when section missing."""
-    minimal_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(minimal_ini)
-
-    config = load_application_config(str(config_file))
-
-    # Should use defaults
+def test_load_config_captionfile_defaults(valid_env_vars):
+    """CAPTIONFILE_SETTINGS unset: defaults."""
+    config = load_application_config()
     assert config.captionfile.extended_metadata_enabled is False
     assert config.captionfile.artist_alias is None
 
 
-def test_load_config_sd_caption_flags(tmp_path, valid_env_vars):
-    """Test loading SD caption feature flags from OpenAI section."""
-    sd_ini = """[Dropbox]
-image_folder = /Photos
+def test_load_config_content_defaults(valid_env_vars):
+    """#97 stage 4: CONTENT_SETTINGS unset falls back to schema defaults (no INI)."""
+    config = load_application_config()
+    assert config.content.hashtag_string == ""
+    assert config.content.archive is True
+    assert config.content.debug is False
 
-[openAI]
-vision_model = gpt-4o
-sd_caption_enabled = true
-sd_caption_single_call_enabled = false
-sd_caption_model = gpt-4o-mini
-sd_caption_system_prompt = Custom SD prompt
-sd_caption_role_prompt = Custom role
 
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(sd_ini)
+def test_load_config_sd_caption_flags(valid_env_vars, monkeypatch):
+    """SD caption flags come from OPENAI_SETTINGS."""
+    monkeypatch.setenv(
+        "OPENAI_SETTINGS",
+        json.dumps(
+            {
+                "vision_model": "gpt-4o",
+                "sd_caption_enabled": True,
+                "sd_caption_single_call_enabled": False,
+                "sd_caption_model": "gpt-4o-mini",
+                "sd_caption_system_prompt": "Custom SD prompt",
+                "sd_caption_role_prompt": "Custom role",
+            }
+        ),
+    )
 
-    config = load_application_config(str(config_file))
+    config = load_application_config()
 
     assert config.openai.sd_caption_enabled is True
     assert config.openai.sd_caption_single_call_enabled is False
@@ -373,107 +198,52 @@ debug = false
     assert config.openai.sd_caption_role_prompt == "Custom role"
 
 
-def test_load_config_with_env_file(tmp_path, monkeypatch):
-    """Test loading config with explicit .env file path."""
-    # Clear existing env vars
+def test_load_config_with_env_file(valid_env_vars, tmp_path, monkeypatch):
+    """Explicit .env file path is loaded (secrets can come from it)."""
+    # Re-enable dotenv loading for this test only.
+    from dotenv import load_dotenv as real_load_dotenv
+
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", real_load_dotenv)
     monkeypatch.delenv("DROPBOX_APP_KEY", raising=False)
-    monkeypatch.delenv("DROPBOX_APP_SECRET", raising=False)
-    monkeypatch.delenv("DROPBOX_REFRESH_TOKEN", raising=False)
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
-    config_ini = """[Dropbox]
-image_folder = /Photos
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(config_ini)
-
     env_file = tmp_path / ".env"
-    env_file.write_text("""DROPBOX_APP_KEY=env_key
-DROPBOX_APP_SECRET=env_secret
-DROPBOX_REFRESH_TOKEN=env_refresh
-OPENAI_API_KEY=sk-envkey
-""")
+    env_file.write_text("DROPBOX_APP_KEY=env_key\nOPENAI_API_KEY=sk-envkey\n")
 
-    config = load_application_config(str(config_file), env_path=str(env_file))
+    config = load_application_config(env_path=str(env_file))
 
     assert config.dropbox.app_key == "env_key"
     assert config.openai.api_key == "sk-envkey"
 
 
-def test_load_config_archive_folder_fallback(tmp_path, valid_env_vars):
-    """Test that archive_folder fallback works when not specified."""
-    minimal_ini = """[Dropbox]
-image_folder = /Photos
+def test_load_config_archive_folder_default(valid_env_vars, monkeypatch):
+    """archive defaults to <root>/archive when omitted from STORAGE_PATHS."""
+    monkeypatch.setenv("STORAGE_PATHS", json.dumps({"root": "/Photos"}))
 
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(minimal_ini)
-
-    config = load_application_config(str(config_file))
-
-    # Should use default fallback
-    assert config.dropbox.archive_folder == "archive"
+    config = load_application_config()
+    assert config.dropbox.archive_folder == "/Photos/archive"
 
 
-def test_load_config_malformed_ini(tmp_path, valid_env_vars):
-    """Test that malformed INI raises ConfigurationError."""
-    malformed_ini = """[Dropbox]
-image_folder = /Photos
-[openAI
-this section header is malformed
-"""
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(malformed_ini)
-
-    # ConfigParser will raise ParsingError for malformed section headers
-    with pytest.raises((ConfigurationError, Exception)):
-        load_application_config(str(config_file))
-
-
-def test_feature_toggles_default_enabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
-    """Feature toggles default to enabled when env vars not set."""
-    # Ensure .env contents do not interfere with this test; we want a clean env-only view.
-    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+def test_feature_toggles_default_enabled(valid_env_vars, monkeypatch):
     monkeypatch.delenv("FEATURE_ANALYZE_CAPTION", raising=False)
     monkeypatch.delenv("FEATURE_PUBLISH", raising=False)
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
 
-    cfg = load_application_config(str(config_file))
+    cfg = load_application_config()
     assert cfg.features.analyze_caption_enabled is True
     assert cfg.features.publish_enabled is True
 
 
-def test_feature_toggles_can_be_disabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
-    """Feature toggles honor false-ish values."""
+def test_feature_toggles_can_be_disabled(valid_env_vars, monkeypatch):
     monkeypatch.setenv("FEATURE_ANALYZE_CAPTION", "false")
     monkeypatch.setenv("FEATURE_PUBLISH", "0")
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
 
-    cfg = load_application_config(str(config_file))
+    cfg = load_application_config()
     assert cfg.features.analyze_caption_enabled is False
     assert cfg.features.publish_enabled is False
 
 
-def test_feature_toggles_invalid_value_raises(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
-    """Invalid toggle values raise ConfigurationError."""
+def test_feature_toggles_invalid_value_raises(valid_env_vars, monkeypatch):
     monkeypatch.setenv("FEATURE_ANALYZE_CAPTION", "maybe")
-    config_file = tmp_path / "test.ini"
-    config_file.write_text(valid_ini_content)
 
     with pytest.raises(ConfigurationError):
-        load_application_config(str(config_file))
+        load_application_config()
