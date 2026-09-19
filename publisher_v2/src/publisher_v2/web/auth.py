@@ -85,7 +85,9 @@ def _verify_bearer(auth_header: str) -> bool:
     provided = auth_header[7:].strip()
     if not provided:
         return False
-    return hmac.compare_digest(provided, token_cfg)
+    # #87 (SEC-9): compare bytes — compare_digest raises TypeError on
+    # non-ASCII str input, which surfaced as a 500 instead of a 401.
+    return hmac.compare_digest(provided.encode("utf-8"), token_cfg.encode("utf-8"))
 
 
 def _verify_basic(auth_header: str) -> bool:
@@ -101,8 +103,10 @@ def _verify_basic(auth_header: str) -> bool:
     if ":" not in decoded:
         return False
     user, pwd = decoded.split(":", 1)
-    # Constant-time compare on both components.
-    return hmac.compare_digest(user, user_cfg) and hmac.compare_digest(pwd, pass_cfg)
+    # Constant-time compare on both components (bytes: see SEC-9 note above).
+    return hmac.compare_digest(user.encode("utf-8"), user_cfg.encode("utf-8")) and hmac.compare_digest(
+        pwd.encode("utf-8"), pass_cfg.encode("utf-8")
+    )
 
 
 # --- Admin-mode helpers (UI-level guard on top of HTTP auth) ---
