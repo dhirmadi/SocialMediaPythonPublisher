@@ -46,8 +46,6 @@ def managed_app(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, 
     mock_service.storage = MagicMock()
     # #144: the move endpoint now verifies the name against the listing.
     mock_service.ensure_known_image = AsyncMock(return_value=None)
-    mock_service.storage._bucket = "test-bucket"
-    mock_service.storage.client = MagicMock()
 
     from publisher_v2.web.app import app
     from publisher_v2.web.dependencies import get_request_service

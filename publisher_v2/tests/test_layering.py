@@ -50,3 +50,56 @@ def test_allowlisted_shims_are_reexports_only() -> None:
             assert isinstance(node, ast.Import | ast.ImportFrom | ast.Assign | ast.Expr), (
                 f"{path.name} shim contains non-re-export code: {ast.dump(node)[:80]}"
             )
+
+
+# --- #142: no reaching into storage privates from web/ or tools/ ---
+
+# Locals/attributes that hold a storage object in these layers. The match is by
+# NAME, so an unrelated `self.target._retries` in web/ or tools/ would also be
+# flagged; allowlist it here if that ever happens rather than widening the rule.
+_STORAGE_NAMES = {"storage", "source", "target"}
+_STORAGE_BASES = {"ManagedStorage", "DropboxStorage", "StorageProtocol", "ObjectStorageProtocol"}
+
+
+def _private_storage_access(path: Path) -> list[str]:
+    """Reads like ``storage._bucket`` / ``target.client``, or a storage subclass at all.
+
+    Subclassing a backend is the same break seen from the inside: the subclass
+    then reaches ``self.client``/``self._bucket`` and can shadow a protocol
+    method with an unmetered version (#142).
+    """
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    hits: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for base in node.bases:
+                name = base.id if isinstance(base, ast.Name) else getattr(base, "attr", "")
+                if name in _STORAGE_BASES:
+                    hits.append(f"class {node.name}({name})")
+            continue
+        if not isinstance(node, ast.Attribute):
+            continue
+        base = node.value
+        # Both ``storage._bucket`` and the chained ``self.storage._bucket`` /
+        # ``service.storage.client`` — the latter is how web/ holds storage.
+        if isinstance(base, ast.Name):
+            owner = base.id
+        elif isinstance(base, ast.Attribute):
+            owner = base.attr
+        else:
+            continue
+        if owner not in _STORAGE_NAMES:
+            continue
+        if node.attr == "client" or (node.attr.startswith("_") and not node.attr.startswith("__")):
+            hits.append(f"{owner}.{node.attr}")
+    return hits
+
+
+def test_web_and_tools_use_the_storage_protocol_only() -> None:
+    offenders: dict[str, list[str]] = {}
+    for layer in ("web", "tools"):
+        for path in sorted((SRC / layer).rglob("*.py")):
+            hits = _private_storage_access(path)
+            if hits:
+                offenders[str(path.relative_to(SRC))] = hits
+    assert offenders == {}, f"storage internals reached outside services/: {offenders}"

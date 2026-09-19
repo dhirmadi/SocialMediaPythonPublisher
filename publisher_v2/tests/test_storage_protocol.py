@@ -212,6 +212,8 @@ class TestDropboxObjectOpsNotSupported:
         with pytest.raises(StorageNotSupportedError):
             await dropbox_storage.head_object("k")
         with pytest.raises(StorageNotSupportedError):
+            await dropbox_storage.exists("k")
+        with pytest.raises(StorageNotSupportedError):
             await dropbox_storage.delete_object("k")
         with pytest.raises(StorageNotSupportedError):
             await dropbox_storage.move_object("a", "b")

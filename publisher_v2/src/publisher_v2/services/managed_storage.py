@@ -471,6 +471,10 @@ class ManagedStorage:
 
         return await asyncio.to_thread(_head)
 
+    async def exists(self, key: str) -> bool:
+        """True when the object is present (#142). One head_object, counted."""
+        return await self.head_object(key) is not None
+
     async def delete_object(self, key: str) -> None:
         def _delete() -> None:
             self._count_ops()

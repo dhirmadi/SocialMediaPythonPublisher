@@ -74,15 +74,21 @@ def _make_mock_managed_storage(existing_keys: dict[str, str] | None = None):
 
     storage = AsyncMock()
 
-    async def _head_object(key: str) -> dict[str, str] | None:
+    async def _head_object(key: str) -> dict[str, object] | None:
+        # #142: the shape ManagedStorage.head_object actually returns — the
+        # migration reads the protocol method now, not a bespoke override.
         if key in existing_keys:
-            return {"ETag": existing_keys[key]}
+            return {"etag": existing_keys[key], "size": 1, "last_modified": None}
         return None
 
     async def _put_object(key: str, body: bytes, content_type: str = "") -> None:
         uploaded[key] = body
 
+    async def _exists(key: str) -> bool:
+        return key in existing_keys
+
     storage.head_object = AsyncMock(side_effect=_head_object)
+    storage.exists = AsyncMock(side_effect=_exists)
     storage.put_object = AsyncMock(side_effect=_put_object)
     storage.uploaded = uploaded
 
@@ -337,12 +343,20 @@ class TestSubfolderStructure:
 class TestIdempotency:
     """AC5: Re-running skips existing files; re-copies on hash mismatch."""
 
-    async def test_idempotent_skip_existing(self) -> None:
+    async def test_present_target_is_skipped_regardless_of_its_etag(self) -> None:
+        """#142: content equality cannot be decided across backends.
+
+        This replaces ``test_recopy_on_hash_mismatch``, which asserted that a
+        differing ETag re-copies. R2's ETag (MD5-based) and Dropbox's
+        ``content_hash`` (block SHA256) are never equal, so in production that
+        branch fired for *every* file and the tool re-copied the whole library
+        on every run. Resume is presence-based now; ``--no-resume`` is how an
+        operator forces a re-copy (covered below).
+        """
         source = _make_mock_dropbox_storage(
             files={"/Photos/img1.jpg": b"image-data"},
         )
-        # Target already has the file
-        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "dbx_hash_img1.jpg"})
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "DIFFERENT_HASH"})
 
         from publisher_v2.tools.migrate_storage import run_migration
 
@@ -358,29 +372,6 @@ class TestIdempotency:
 
         assert result.skipped == 1
         assert result.copied == 0
-        target.put_object.assert_not_called()
-
-    async def test_recopy_on_hash_mismatch(self) -> None:
-        source = _make_mock_dropbox_storage(
-            files={"/Photos/img1.jpg": b"image-data"},
-        )
-        # Target has the file but with a different ETag
-        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "DIFFERENT_HASH"})
-
-        from publisher_v2.tools.migrate_storage import run_migration
-
-        result = await run_migration(
-            source=source,
-            target=target,
-            source_folder="/Photos",
-            target_prefix="t/i",
-            subfolders=[],
-            dry_run=False,
-            limit=None,
-        )
-
-        assert result.copied == 1
-        assert result.skipped == 0
 
 
 # ---------------------------------------------------------------------------
@@ -513,3 +504,152 @@ class TestNoSecretsInLogs:
         full_log = caplog.text
         assert secret_token not in full_log
         assert secret_key not in full_log
+
+
+# --- #142: resume uses the protocol, and the target is a plain ManagedStorage ---
+
+
+class TestResumeUsesTheProtocol:
+    """The old ETag-vs-Dropbox-content_hash comparison could never match.
+
+    R2 returns an MD5-based ETag; Dropbox returns a block-SHA256 content hash.
+    The skip branch was therefore dead in production and every re-run re-copied
+    everything. #142's ``exists(key)`` is the semantic the tool actually wants.
+    """
+
+    async def test_existing_target_key_is_skipped_without_re_uploading(self) -> None:
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "r2-etag-unrelated-to-dropbox"})
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        result = await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        assert result.skipped == 1
+        assert result.copied == 0
+        target.put_object.assert_not_called()
+
+    async def test_no_resume_copies_even_when_the_target_exists(self) -> None:
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "whatever"})
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        result = await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+            resume=False,
+        )
+
+        assert result.copied == 1
+        assert result.skipped == 0
+
+    async def test_resume_copies_a_sidecar_orphaned_by_an_interrupted_run(self) -> None:
+        """Image present, sidecar missing: the earlier run died between the two puts."""
+        source = _make_mock_dropbox_storage(
+            files={"/Photos/img1.jpg": b"image-data"},
+            sidecars={"/Photos/img1.txt": b"a caption"},
+        )
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "etag"})
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        result = await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        assert result.skipped == 1
+        assert target.uploaded == {"t/i/img1.txt": b"a caption"}
+
+    async def test_resume_does_not_rewrite_a_sidecar_that_is_already_there(self) -> None:
+        source = _make_mock_dropbox_storage(
+            files={"/Photos/img1.jpg": b"image-data"},
+            sidecars={"/Photos/img1.txt": b"a caption"},
+        )
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "etag", "t/i/img1.txt": "etag2"})
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        assert target.uploaded == {}
+
+
+class TestTargetStorageIsTheRealBackend:
+    """#142: the tool must use ManagedStorage itself, not a subclass of it."""
+
+    def test_build_target_storage_returns_a_plain_managed_storage(self, monkeypatch) -> None:
+        from unittest.mock import MagicMock, patch
+
+        from publisher_v2.services.managed_storage import ManagedStorage
+        from publisher_v2.services.storage_protocol import ObjectStorageProtocol
+        from publisher_v2.tools.migrate_storage import _build_target_storage
+
+        for key, value in {
+            "R2_ACCESS_KEY_ID": "k",
+            "R2_SECRET_ACCESS_KEY": "s",
+            "R2_ENDPOINT_URL": "https://example.r2.local",
+            "R2_BUCKET_NAME": "bucket",
+        }.items():
+            monkeypatch.setenv(key, value)
+
+        with patch("publisher_v2.services.managed_storage.boto3") as boto:
+            boto.client = MagicMock(return_value=MagicMock())
+            target = _build_target_storage()
+
+        assert type(target) is ManagedStorage
+        assert isinstance(target, ObjectStorageProtocol)
+
+
+class TestCliWiring:
+    """#142: --no-resume was parsed and silently dropped before reaching run_migration."""
+
+    async def test_no_resume_flag_reaches_run_migration(self, monkeypatch) -> None:
+        from unittest.mock import AsyncMock, MagicMock
+
+        from publisher_v2.tools import migrate_storage as mod
+
+        captured: dict[str, object] = {}
+
+        async def _fake_run(**kwargs: object) -> MagicMock:
+            captured.update(kwargs)
+            return MagicMock(exit_code=0)
+
+        monkeypatch.setattr(mod, "validate_env_vars", lambda: [])
+        monkeypatch.setattr(mod, "_build_source_storage", lambda args: MagicMock())
+        monkeypatch.setattr(mod, "_build_target_storage", lambda: MagicMock())
+        monkeypatch.setattr(mod, "run_migration", AsyncMock(side_effect=_fake_run))
+        monkeypatch.setattr(
+            "sys.argv",
+            ["migrate_storage", "--source-folder", "/Photos", "--target-prefix", "t/i", "--no-resume"],
+        )
+
+        assert await mod.async_main() == 0
+        assert captured["resume"] is False

@@ -70,6 +70,25 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
+async def _copy_sidecar(
+    source: Any,
+    target: Any,
+    src_folder: str,
+    filename: str,
+    sidecar_key: str,
+    only_if_missing: bool = False,
+) -> None:
+    """Copy one image's caption sidecar. Never fails the image it belongs to."""
+    try:
+        if only_if_missing and await target.exists(sidecar_key):
+            return
+        sidecar_data = await source.download_sidecar_if_exists(src_folder, filename)
+        if sidecar_data is not None:
+            await target.put_object(sidecar_key, sidecar_data, "text/plain; charset=utf-8")
+    except Exception as exc:
+        log_json(logger, logging.WARNING, "migration_sidecar_error", file=filename, error=str(exc))
+
+
 async def run_migration(
     source: Any,
     target: Any,
@@ -78,6 +97,7 @@ async def run_migration(
     subfolders: list[str],
     dry_run: bool,
     limit: int | None,
+    resume: bool = True,
 ) -> MigrationResult:
     """Core migration logic. Works with any storage objects implementing the required async methods."""
     result = MigrationResult()
@@ -98,7 +118,7 @@ async def run_migration(
             log_json(logger, logging.WARNING, "migration_subfolder_skip", folder=src_folder, reason="list_failed")
             continue
 
-        for filename, content_hash in images_with_hashes:
+        for filename, _content_hash in images_with_hashes:
             if limit is not None and images_processed >= limit:
                 break
 
@@ -116,27 +136,27 @@ async def run_migration(
                 images_processed += 1
                 continue
 
-            # Check if target already exists (resume logic)
-            try:
-                head = await target.head_object(target_key)
-                if head is not None:
-                    existing_etag = head.get("ETag", "")
-                    if existing_etag == content_hash:
+            # Resume: skip anything already in the target (#142).
+            # This used to compare R2's ETag with Dropbox's content_hash — an
+            # MD5-based value against a block-SHA256 one, so the skip branch was
+            # dead and every re-run re-copied the whole library. Presence is the
+            # semantic the tool wants; --no-resume forces a re-copy.
+            stem = os.path.splitext(filename)[0]
+            sidecar_key = f"{tgt_prefix.rstrip('/')}/{stem}.txt"
+            if resume:
+                try:
+                    if await target.exists(target_key):
+                        # The image landed on an earlier run; its sidecar is
+                        # written after it, so a run interrupted in between left
+                        # the sidecar behind. Copy it rather than skipping into
+                        # a permanently caption-less object.
+                        await _copy_sidecar(source, target, src_folder, filename, sidecar_key, only_if_missing=True)
                         result.skipped += 1
                         images_processed += 1
                         log_json(logger, logging.DEBUG, "migration_skip_existing", file=filename, target_key=target_key)
                         continue
-                    else:
-                        log_json(
-                            logger,
-                            logging.WARNING,
-                            "migration_hash_mismatch",
-                            file=filename,
-                            target_key=target_key,
-                            reason="ETag differs from content_hash, re-copying",
-                        )
-            except Exception:  # noqa: S110
-                pass  # Target doesn't exist, proceed with copy
+                except Exception:  # noqa: S110
+                    pass  # Existence unknown — proceed with the copy.
 
             # Download from source
             try:
@@ -158,15 +178,7 @@ async def run_migration(
                 images_processed += 1
                 continue
 
-            # Copy sidecar if exists
-            try:
-                sidecar_data = await source.download_sidecar_if_exists(src_folder, filename)
-                if sidecar_data is not None:
-                    stem = os.path.splitext(filename)[0]
-                    sidecar_key = f"{tgt_prefix.rstrip('/')}/{stem}.txt"
-                    await target.put_object(sidecar_key, sidecar_data, "text/plain; charset=utf-8")
-            except Exception as exc:
-                log_json(logger, logging.WARNING, "migration_sidecar_error", file=filename, error=str(exc))
+            await _copy_sidecar(source, target, src_folder, filename, sidecar_key)
 
             result.copied += 1
             images_processed += 1
@@ -229,38 +241,7 @@ def _build_target_storage() -> Any:
         region=os.environ.get("R2_REGION", "auto"),
     )
 
-    class _MigrationManagedStorage(ManagedStorage):
-        """Thin wrapper adding head_object and put_object for migration use."""
-
-        async def head_object(self, key: str) -> dict[str, str] | None:
-            import asyncio
-
-            from botocore.exceptions import ClientError
-
-            def _head() -> dict[str, str] | None:
-                try:
-                    resp = self.client.head_object(Bucket=self._bucket, Key=key)
-                    return {"ETag": (resp.get("ETag") or "").strip('"')}
-                except ClientError as exc:
-                    code = exc.response.get("Error", {}).get("Code", "")
-                    if code in ("404", "NoSuchKey"):
-                        return None
-                    raise
-
-            return await asyncio.to_thread(_head)
-
-        async def put_object(self, key: str, body: bytes, content_type: str = "") -> None:
-            import asyncio
-
-            def _put() -> None:
-                params: dict = {"Bucket": self._bucket, "Key": key, "Body": body}
-                if content_type:
-                    params["ContentType"] = content_type
-                self.client.put_object(**params)
-
-            await asyncio.to_thread(_put)
-
-    return _MigrationManagedStorage(config)
+    return ManagedStorage(config)
 
 
 async def async_main() -> int:
@@ -299,6 +280,7 @@ async def async_main() -> int:
         subfolders=subfolders,
         dry_run=args.dry_run,
         limit=args.limit,
+        resume=args.resume,
     )
 
     return result.exit_code

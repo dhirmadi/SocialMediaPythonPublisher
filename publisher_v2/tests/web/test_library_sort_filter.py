@@ -45,8 +45,6 @@ def mock_service() -> MagicMock:
     svc.config.storage_paths.folder_remove = "reject"
     svc.storage = MagicMock()
     svc.ensure_known_image = AsyncMock(return_value=None)
-    svc.storage._bucket = "test-bucket"
-    svc.storage.client = MagicMock()
     return svc
 
 
