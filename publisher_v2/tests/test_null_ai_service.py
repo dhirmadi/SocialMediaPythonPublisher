@@ -1,0 +1,28 @@
+"""#144 item 3: NullAIService.generator fails loudly instead of being a bare None."""
+
+from __future__ import annotations
+
+import pytest
+
+from publisher_v2.core.exceptions import AIServiceError
+from publisher_v2.core.models import ImageAnalysis
+
+
+def _analysis() -> ImageAnalysis:
+    return ImageAnalysis(description="d", mood="m", tags=["t"], nsfw=False, safety_labels=[])
+
+
+class TestNullGenerator:
+    """#144 item 3: NullAIService.generator was a bare None — a mis-gated call hit AttributeError."""
+
+    async def test_generate_raises_ai_service_error(self) -> None:
+        from publisher_v2.services.ai import NullAIService
+
+        with pytest.raises(AIServiceError):
+            await NullAIService.generator.generate(_analysis(), None)
+
+    async def test_generate_multi_raises_ai_service_error(self) -> None:
+        from publisher_v2.services.ai import NullAIService
+
+        with pytest.raises(AIServiceError):
+            await NullAIService.generator.generate_multi(_analysis(), [])

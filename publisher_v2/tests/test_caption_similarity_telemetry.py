@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 
-from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import ImageAnalysis
 
 

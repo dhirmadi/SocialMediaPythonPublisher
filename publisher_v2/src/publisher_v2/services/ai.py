@@ -1465,6 +1465,27 @@ class _NullAnalyzer:
         )
 
 
+class _NullGenerator:
+    """Fails loudly when caption generation is invoked despite being disabled (#144).
+
+    Matches the ``_NullAnalyzer`` treatment from #95: a mis-gated call raises
+    AIServiceError instead of ``AttributeError: 'NoneType' object has no ...``.
+    """
+
+    _DISABLED = (
+        "AI caption generation is disabled for this tenant "
+        "(features.analyze_caption_enabled=false); this call should have been feature-gated"
+    )
+
+    async def generate(self, analysis: ImageAnalysis, spec: Any) -> tuple[str, AIUsage | None]:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_multi(
+        self, analysis: ImageAnalysis, specs: Any, **kwargs: Any
+    ) -> tuple[tuple[dict[str, str], str | None], AIUsage | None]:
+        raise AIServiceError(self._DISABLED)
+
+
 class NullAIService:
     """
     Safe stub used when AI is disabled for a tenant.
@@ -1474,4 +1495,4 @@ class NullAIService:
     """
 
     analyzer = _NullAnalyzer()
-    generator = None
+    generator = _NullGenerator()

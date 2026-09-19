@@ -309,26 +309,48 @@ async def test_ai_service_create_caption_from_analysis_returns_usage_list() -> N
 
 
 async def test_null_ai_service_fails_loudly_on_misgated_call() -> None:
-    """AC-B6, amended by #95: a mis-gated analyze call raises a clear
+    """AC-B6, amended by #95 and #144: a mis-gated call raises a clear
     AIServiceError instead of an AttributeError on None.
 
+    #144 item 3 extends the #95 analyzer treatment to the generator, which was a
+    bare ``None`` — so this asserts the generator fails loudly too, where it
+    previously asserted the ``None`` that caused the AttributeError.
+
     #135: was a sync test driving ``asyncio.get_event_loop()``, which only worked
-    when an earlier test had left a loop behind (fails under random ordering).
+    when an earlier test had left a loop behind (it failed under random ordering).
     """
     from publisher_v2.core.exceptions import AIServiceError
     from publisher_v2.services.ai import NullAIService
 
     svc = NullAIService()
-    assert svc.generator is None
+    assert svc.generator is not None
     assert svc.analyzer is not None
 
     with pytest.raises(AIServiceError, match="disabled"):
         await svc.analyzer.analyze("http://x")
+    with pytest.raises(AIServiceError, match="disabled"):
+        await svc.generator.generate(None, None)
+    """
+    from publisher_v2.core.exceptions import AIServiceError
+    from publisher_v2.services.ai import NullAIService
+
+    svc = NullAIService()
+    assert svc.generator is not None
+    assert svc.analyzer is not None
+
+    with pytest.raises(AIServiceError, match="disabled"):
+<<<<<<< HEAD
+        await svc.analyzer.analyze("http://x")
+=======
+        _asyncio.get_event_loop().run_until_complete(svc.analyzer.analyze("http://x"))
+    with pytest.raises(AIServiceError, match="disabled"):
+        _asyncio.get_event_loop().run_until_complete(svc.generator.generate(None, None))
+>>>>>>> 3c22f26 (fix(ai): make NullAIService.generator fail loudly instead of being None)
 
 
 @pytest.mark.asyncio
 async def test_transient_error_retries_exactly_three_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#84: tenacity is the only retry layer — exactly 3 total attempts."""
+    """  # 84: tenacity is the only retry layer — exactly 3 total attempts."""
     import httpx
 
     from publisher_v2.core.exceptions import AIServiceError
