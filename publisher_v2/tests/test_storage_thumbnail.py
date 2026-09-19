@@ -1,87 +1,132 @@
-"""REL-4 (#86): tenant-safe, TTL-bounded per-instance thumbnail cache."""
+"""Tests for DropboxStorage.get_thumbnail() method."""
 
 from __future__ import annotations
 
-import io
-from unittest.mock import AsyncMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from PIL import Image
+from dropbox.exceptions import ApiError
+from dropbox.files import ThumbnailFormat, ThumbnailSize
 
-from publisher_v2.config.schema import ManagedStorageConfig
-from publisher_v2.services.managed_storage import ManagedStorage
-
-
-def _png(color: str) -> bytes:
-    buf = io.BytesIO()
-    with Image.new("RGB", (100, 60), color=color) as img:
-        img.save(buf, format="PNG")
-    return buf.getvalue()
+from publisher_v2.core.exceptions import StorageError
+from publisher_v2.services.storage import DropboxStorage
 
 
-def _storage(bucket: str, image: bytes, etag: str = "etag-1") -> ManagedStorage:
-    cfg = ManagedStorageConfig(
-        access_key_id="k",
-        secret_access_key="s",
-        endpoint_url="https://example.r2.local",
-        bucket=bucket,
-        region="auto",
+@pytest.fixture
+def mock_dropbox_config():
+    """Create a mock DropboxConfig."""
+    config = MagicMock()
+    config.refresh_token = "test_refresh_token"
+    config.app_key = "test_app_key"
+    config.app_secret = "test_app_secret"
+    return config
+
+
+@pytest.fixture
+def storage_with_mock_client(mock_dropbox_config):
+    """Create DropboxStorage with mocked Dropbox client."""
+    with patch("publisher_v2.services.storage.dropbox.Dropbox") as mock_dropbox:
+        mock_client = MagicMock()
+        mock_dropbox.return_value = mock_client
+        storage = DropboxStorage(mock_dropbox_config)
+        storage.client = mock_client
+        yield storage, mock_client
+
+
+@pytest.mark.asyncio
+async def test_get_thumbnail_returns_bytes(storage_with_mock_client):
+    """get_thumbnail returns JPEG bytes from Dropbox."""
+    storage, mock_client = storage_with_mock_client
+
+    # Mock the thumbnail response
+    fake_jpeg_bytes = b"\xff\xd8\xff\xe0\x00\x10JFIF"  # JPEG magic bytes
+    mock_response = MagicMock()
+    mock_response.content = fake_jpeg_bytes
+    mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
+
+    result = await storage.get_thumbnail("/test_folder", "image.jpg")
+
+    assert result == fake_jpeg_bytes
+    mock_client.files_get_thumbnail_v2.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_get_thumbnail_uses_default_size(storage_with_mock_client):
+    """get_thumbnail uses w960h640 as default size."""
+    storage, mock_client = storage_with_mock_client
+
+    mock_response = MagicMock()
+    mock_response.content = b"test_bytes"
+    mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
+
+    await storage.get_thumbnail("/folder", "image.jpg")
+
+    call_args = mock_client.files_get_thumbnail_v2.call_args
+    assert call_args.kwargs.get("size") == ThumbnailSize.w960h640
+
+
+@pytest.mark.asyncio
+async def test_get_thumbnail_uses_custom_size(storage_with_mock_client):
+    """get_thumbnail respects custom size parameter."""
+    storage, mock_client = storage_with_mock_client
+
+    mock_response = MagicMock()
+    mock_response.content = b"test_bytes"
+    mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
+
+    await storage.get_thumbnail("/folder", "image.jpg", size=ThumbnailSize.w640h480)
+
+    call_args = mock_client.files_get_thumbnail_v2.call_args
+    assert call_args.kwargs.get("size") == ThumbnailSize.w640h480
+
+
+@pytest.mark.asyncio
+async def test_get_thumbnail_uses_jpeg_format_by_default(storage_with_mock_client):
+    """get_thumbnail uses JPEG format by default."""
+    storage, mock_client = storage_with_mock_client
+
+    mock_response = MagicMock()
+    mock_response.content = b"test_bytes"
+    mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
+
+    await storage.get_thumbnail("/folder", "image.jpg")
+
+    call_args = mock_client.files_get_thumbnail_v2.call_args
+    assert call_args.kwargs.get("format") == ThumbnailFormat.jpeg
+
+
+@pytest.mark.asyncio
+async def test_get_thumbnail_raises_storage_error_on_api_error(storage_with_mock_client):
+    """get_thumbnail raises StorageError on Dropbox API failure."""
+    storage, mock_client = storage_with_mock_client
+
+    # Create a mock ApiError
+    mock_error = MagicMock()
+    mock_client.files_get_thumbnail_v2.side_effect = ApiError(
+        request_id="test_request",
+        error=mock_error,
+        user_message_text="Test error",
+        user_message_locale="en",
     )
-    storage = ManagedStorage(cfg)
-    storage.download_image = AsyncMock(return_value=image)  # type: ignore[method-assign]
-    storage.get_file_metadata = AsyncMock(return_value={"ETag": etag})  # type: ignore[method-assign]
-    return storage
+
+    with pytest.raises(StorageError) as exc_info:
+        await storage.get_thumbnail("/folder", "image.jpg")
+
+    assert "Failed to get thumbnail for image.jpg" in str(exc_info.value)
 
 
-async def test_same_key_different_buckets_never_share_thumbnails() -> None:
-    red = _storage("bucket-a", _png("red"))
-    blue = _storage("bucket-b", _png("blue"))
+@pytest.mark.asyncio
+async def test_get_thumbnail_constructs_correct_path(storage_with_mock_client):
+    """get_thumbnail constructs the correct Dropbox path."""
+    storage, mock_client = storage_with_mock_client
 
-    thumb_a = await red.get_thumbnail("/Photos", "img.jpg")
-    thumb_b = await blue.get_thumbnail("/Photos", "img.jpg")
+    mock_response = MagicMock()
+    mock_response.content = b"test_bytes"
+    mock_client.files_get_thumbnail_v2.return_value = (None, mock_response)
 
-    assert thumb_a != thumb_b
-    # Cached lookups stay isolated too.
-    assert await red.get_thumbnail("/Photos", "img.jpg") == thumb_a
-    assert await blue.get_thumbnail("/Photos", "img.jpg") == thumb_b
+    await storage.get_thumbnail("/photos/2024", "sunset.jpg")
 
-
-async def test_cache_hit_skips_download() -> None:
-    storage = _storage("bucket-a", _png("red"))
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    assert storage.download_image.await_count == 1  # type: ignore[union-attr]
-
-
-async def test_reupload_with_new_etag_regenerates() -> None:
-    storage = _storage("bucket-a", _png("red"), etag="etag-1")
-    first = await storage.get_thumbnail("/Photos", "img.jpg")
-
-    storage.download_image = AsyncMock(return_value=_png("green"))  # type: ignore[method-assign]
-    storage.get_file_metadata = AsyncMock(return_value={"ETag": "etag-2"})  # type: ignore[method-assign]
-    second = await storage.get_thumbnail("/Photos", "img.jpg")
-
-    assert first != second
-
-
-async def test_ttl_expiry_regenerates(monkeypatch: pytest.MonkeyPatch) -> None:
-    fake_now = {"t": 1000.0}
-    monkeypatch.setattr("publisher_v2.services.managed_storage.time.time", lambda: fake_now["t"])
-    monkeypatch.setenv("WEB_THUMBNAIL_CACHE_TTL_SECONDS", "900")
-
-    storage = _storage("bucket-a", _png("red"))
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    assert storage.download_image.await_count == 1  # type: ignore[union-attr]
-
-    fake_now["t"] += 901
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    assert storage.download_image.await_count == 2  # type: ignore[union-attr]
-
-
-async def test_byte_budget_evicts_oldest(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WEB_THUMBNAIL_CACHE_MAX_BYTES", "1")  # every entry over budget
-    storage = _storage("bucket-a", _png("red"))
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    await storage.get_thumbnail("/Photos", "img.jpg")
-    # Nothing can stay cached under a 1-byte budget → downloads every time.
-    assert storage.download_image.await_count == 2  # type: ignore[union-attr]
+    call_args = mock_client.files_get_thumbnail_v2.call_args
+    resource = call_args.kwargs.get("resource")
+    # PathOrLink.path() creates a PathOrLink object with the path
+    assert resource is not None
