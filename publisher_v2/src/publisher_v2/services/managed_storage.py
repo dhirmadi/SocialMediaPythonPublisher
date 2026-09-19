@@ -24,7 +24,7 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from publisher_v2.config.schema import ManagedStorageConfig
 from publisher_v2.core.exceptions import StorageError
-from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
+from publisher_v2.services.storage_protocol import FileMetadata, ThumbnailFormat, ThumbnailSize
 
 # Map protocol ThumbnailSize values to (width, height) for Pillow resize
 _SIZE_MAP: dict[str, tuple[int, int]] = {
@@ -245,19 +245,18 @@ class ManagedStorage:
         wait=wait_exponential(multiplier=1, min=1, max=8),
         retry=retry_if_exception(_is_transient_s3_error),
     )
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        """Return normalized file identity/version metadata (#96)."""
         try:
 
-            def _meta() -> dict[str, str]:
+            def _meta() -> FileMetadata:
                 key = self._key(folder, filename)
                 self._count_ops()  # PUB-045: count head_object
                 resp = self.client.head_object(Bucket=self._bucket, Key=key)
-                out: dict[str, str] = {}
-                if resp.get("ETag"):
-                    out["ETag"] = resp["ETag"].strip('"')
-                if resp.get("LastModified"):
-                    out["LastModified"] = str(resp["LastModified"])
-                return out
+                etag = (resp.get("ETag") or "").strip('"') or None
+                modified = str(resp.get("LastModified") or "") or None
+                size = resp.get("ContentLength")
+                return FileMetadata(file_id=key, revision=etag, modified_at=modified, size=size)
 
             return await asyncio.to_thread(_meta)
         except ClientError as exc:
@@ -407,6 +406,93 @@ class ManagedStorage:
         """No-op — S3 has no real folders."""
         return
 
+    # ------------------------------------------------------------------
+    # Object-level operations (#96): the admin library router calls ONLY
+    # these — no more reaching into ._bucket/.client from the web layer.
+    # PUB-045 metering stays inside each method.
+    # ------------------------------------------------------------------
+
+    async def list_objects(self, prefix: str, cursor: str | None = None, limit: int = 1000) -> dict[str, Any]:
+        """One listing page (Delimiter='/'): immediate children only."""
+
+        def _list() -> dict[str, Any]:
+            kwargs: dict[str, Any] = {
+                "Bucket": self._bucket,
+                "Prefix": prefix,
+                "Delimiter": "/",
+                "MaxKeys": min(1000, max(1, limit)),
+            }
+            if cursor:
+                kwargs["ContinuationToken"] = cursor
+            self._count_ops()  # PUB-045: each list page is a billable request
+            resp = self.client.list_objects_v2(**kwargs)
+            items = [
+                {
+                    "key": obj["Key"],
+                    "size": obj.get("Size", 0),
+                    "last_modified": obj.get("LastModified"),
+                }
+                for obj in resp.get("Contents", [])
+            ]
+            return {
+                "items": items,
+                "cursor": resp.get("NextContinuationToken") if resp.get("IsTruncated") else None,
+                "is_truncated": bool(resp.get("IsTruncated")),
+            }
+
+        try:
+            return await asyncio.to_thread(_list)
+        except ClientError as exc:
+            raise StorageError(f"Failed to list objects under {prefix}: {exc}") from exc
+
+    async def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        def _put() -> None:
+            self._count_ops()
+            self.client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+
+        try:
+            await asyncio.to_thread(_put)
+        except ClientError as exc:
+            raise StorageError(f"Failed to put object {key}: {exc}") from exc
+
+    async def head_object(self, key: str) -> dict[str, Any] | None:
+        def _head() -> dict[str, Any] | None:
+            self._count_ops()
+            try:
+                resp = self.client.head_object(Bucket=self._bucket, Key=key)
+            except ClientError:
+                return None
+            return {
+                "size": resp.get("ContentLength"),
+                "etag": (resp.get("ETag") or "").strip('"') or None,
+                "last_modified": resp.get("LastModified"),
+            }
+
+        return await asyncio.to_thread(_head)
+
+    async def delete_object(self, key: str) -> None:
+        def _delete() -> None:
+            self._count_ops()
+            self.client.delete_object(Bucket=self._bucket, Key=key)
+
+        try:
+            await asyncio.to_thread(_delete)
+        except ClientError as exc:
+            raise StorageError(f"Failed to delete object {key}: {exc}") from exc
+
+    async def move_object(self, src_key: str, dst_key: str) -> None:
+        def _move() -> None:
+            self._count_ops(2)  # copy + delete
+            self.client.copy_object(
+                Bucket=self._bucket, Key=dst_key, CopySource={"Bucket": self._bucket, "Key": src_key}
+            )
+            self.client.delete_object(Bucket=self._bucket, Key=src_key)
+
+        try:
+            await asyncio.to_thread(_move)
+        except ClientError as exc:
+            raise StorageError(f"Failed to move {src_key} -> {dst_key}: {exc}") from exc
+
     def supports_content_hashing(self) -> bool:
         """ETag-based content hashing is supported."""
         return True
@@ -423,7 +509,7 @@ class ManagedStorage:
         etag = ""
         with contextlib.suppress(Exception):
             meta = await self.get_file_metadata(folder, filename)
-            etag = str(meta.get("ETag") or "")
+            etag = meta.revision or ""
         cache_key = (self.config.endpoint_url, self._bucket, key, etag, str(size))
 
         now = time.time()

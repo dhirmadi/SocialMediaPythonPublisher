@@ -772,7 +772,7 @@ class WorkflowOrchestrator:
                 # Preview mode fields
                 image_analysis=analysis if preview_mode else None,
                 caption_spec=spec if preview_mode else None,
-                dropbox_url=temp_link if preview_mode else None,
+                source_url=temp_link if preview_mode else None,
                 sha256=selected_hash if preview_mode else None,
                 image_folder=self.config.storage_paths.image_folder if preview_mode else None,
             )
@@ -926,15 +926,8 @@ class WorkflowOrchestrator:
         source_folder = self.config.storage_paths.image_folder
 
         if preview_mode or dry_run:
-            # Non-destructive path: print preview-only description.
-            from publisher_v2.utils.preview import print_curation_action
-
-            print_curation_action(
-                filename=filename,
-                source_folder=source_folder,
-                target_subfolder=target_subfolder,
-                action=action,
-            )
+            # Non-destructive path (#96): no console printing here — the
+            # orchestrator returns data; presentation belongs to the caller.
             log_json(
                 self.logger,
                 logging.INFO,

@@ -19,6 +19,7 @@ import pytest
 
 from publisher_v2.app import main, main_async, parse_args
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
+from publisher_v2.services.storage_protocol import FileMetadata
 
 # ---------------------------------------------------------------------------
 # Fixtures for mocking configuration and services
@@ -99,7 +100,7 @@ def mock_workflow_result():
         image_name="test_image.jpg",
         image_folder="/Photos",
         sha256="abc123",
-        dropbox_url="https://dropbox.com/test",
+        source_url="https://dropbox.com/test",
         caption="Test caption #test",
         caption_spec=CaptionSpec(
             platform="generic",
@@ -130,7 +131,7 @@ def mock_failed_result():
         image_name=None,
         image_folder=None,
         sha256=None,
-        dropbox_url=None,
+        source_url=None,
         caption=None,
         caption_spec=None,
         image_analysis=None,
@@ -164,7 +165,9 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
     mocks["analyzer"].model = "gpt-4o"
 
     # Set storage get_file_metadata for preview mode
-    mocks["storage"].get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
+    mocks["storage"].get_file_metadata = AsyncMock(
+        return_value=FileMetadata(file_id="abc", revision="1", modified_at=None, size=None)
+    )
 
     # #84: main_async awaits ai_service.aclose() at CLI exit.
     mocks["ai_service"].aclose = AsyncMock()
@@ -567,7 +570,9 @@ class TestEmailPreviewPath:
         mock_orchestrator.execute = mock_execute
 
         mock_storage = MagicMock()
-        mock_storage.get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
+        mock_storage.get_file_metadata = AsyncMock(
+            return_value=FileMetadata(file_id="abc", revision="1", modified_at=None, size=None)
+        )
 
         email_preview_called = []
 
@@ -646,7 +651,7 @@ class TestSDCaptionPreviewPath:
             image_name="test.jpg",
             image_folder="/Photos",
             sha256="abc123",
-            dropbox_url="https://example.com",
+            source_url="https://example.com",
             caption="Test caption",
             caption_spec=CaptionSpec(
                 platform="generic",
@@ -668,7 +673,9 @@ class TestSDCaptionPreviewPath:
         mock_orchestrator.execute = mock_execute
 
         mock_storage = MagicMock()
-        mock_storage.get_file_metadata = AsyncMock(return_value={"id": "abc", "rev": "1"})
+        mock_storage.get_file_metadata = AsyncMock(
+            return_value=FileMetadata(file_id="abc", revision="1", modified_at=None, size=None)
+        )
 
         mock_generator = MagicMock()
         mock_generator.model = "gpt-4o"

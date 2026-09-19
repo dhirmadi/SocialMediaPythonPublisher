@@ -78,15 +78,18 @@ async def test_remove_image_calls_storage_with_configured_folder() -> None:
 
 
 @pytest.mark.asyncio
-async def test_keep_remove_preview_mode_uses_preview_helper(capsys) -> None:
+async def test_keep_remove_preview_mode_uses_preview_helper(capsys, caplog) -> None:
+    # #96: preview curation no longer print()s via preview helper; it emits log_json only
+    import logging
+
     cfg = _base_config()
     storage = _DummyStorage()
     orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
 
-    await orchestrator.keep_image("image.jpg", preview_mode=True, dry_run=False)
-    captured = capsys.readouterr().out
-    assert "CURATION ACTION (PREVIEW)" in captured
-    assert "Action:   keep" in captured
+    with caplog.at_level(logging.INFO, logger="publisher_v2.workflow"):
+        await orchestrator.keep_image("image.jpg", preview_mode=True, dry_run=False)
+    assert capsys.readouterr().out == ""
+    assert any("workflow_curation_preview" in rec.getMessage() for rec in caplog.records)
     # No storage calls in preview
     assert storage.calls == []
 
