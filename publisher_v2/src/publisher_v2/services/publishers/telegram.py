@@ -5,7 +5,6 @@ import telegram
 from publisher_v2.config.schema import TelegramConfig
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.images import ensure_max_width_async
 from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
 
 logger = logging.getLogger("publisher_v2.publishers.telegram")
@@ -33,8 +32,7 @@ class TelegramPublisher(Publisher):
         bot = telegram.Bot(token=token)
         start = now_monotonic()
         try:
-            processed_path = await ensure_max_width_async(image_path, max_width=1280)
-            with open(processed_path, "rb") as f:  # noqa: ASYNC230 — file handle needed by async send_photo
+            with open(image_path, "rb") as f:  # noqa: ASYNC230 — file handle needed by async send_photo
                 message = await bot.send_photo(chat_id=self._config.channel_id, photo=f, caption=caption)
             log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name, post_id=str(message.message_id))

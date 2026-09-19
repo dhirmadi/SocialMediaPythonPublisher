@@ -45,13 +45,6 @@ async def test_image_resize_helpers(tmp_path: Path, monkeypatch: pytest.MonkeyPa
     with Image.open(resized_path) as updated:
         assert updated.size[0] == 1000
 
-    async def fake_to_thread(func, *args, **kwargs):
-        return func(*args, **kwargs)
-
-    monkeypatch.setattr("publisher_v2.utils.images.asyncio.to_thread", fake_to_thread)
-    out = await images.ensure_max_width_async(str(image_path), max_width=800)
-    assert out == str(image_path)
-
 
 def test_logging_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     token_text = "sk-abcdefghijklmnopqrstuvwxyz123456 r8_token 123456:ABCDEFGHIJKLMNOPQRSTUV"
@@ -197,3 +190,34 @@ def test_preview_helpers_cover_branches(capfd: pytest.CaptureFixture[str]) -> No
     assert "PREVIEW MODE" in out
     assert "CURATION ACTION" in out
     assert "EMAIL CONFIRMATION" in out
+
+
+@pytest.mark.asyncio
+async def test_ensure_max_width_out_path_leaves_source_untouched(tmp_path: Path) -> None:
+    """#83: with out_path given, the source file is never overwritten."""
+    image_path = tmp_path / "source.jpg"
+    with Image.new("RGB", (2000, 1000), color="blue") as img:
+        img.save(image_path)
+    original_bytes = image_path.read_bytes()
+
+    out_path = tmp_path / "variant.jpg"
+    result = images.ensure_max_width(str(image_path), max_width=1000, out_path=str(out_path))
+
+    assert result == str(out_path)
+    assert image_path.read_bytes() == original_bytes
+    with Image.open(out_path) as resized:
+        assert resized.size[0] == 1000
+
+
+def test_ensure_max_width_out_path_copies_when_no_resize_needed(tmp_path: Path) -> None:
+    """#83: a variant path is always produced, even when no resize is needed."""
+    image_path = tmp_path / "small.jpg"
+    with Image.new("RGB", (500, 300), color="green") as img:
+        img.save(image_path)
+
+    out_path = tmp_path / "variant.jpg"
+    result = images.ensure_max_width(str(image_path), max_width=1000, out_path=str(out_path))
+
+    assert result == str(out_path)
+    assert out_path.exists()
+    assert image_path.read_bytes() == out_path.read_bytes()
