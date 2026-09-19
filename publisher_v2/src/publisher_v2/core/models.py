@@ -163,6 +163,8 @@ class WorkflowResult:
     publish_results: dict[str, PublishResult]
     archived: bool
     error: str | None = None
+    # #85: True when some but not all enabled platforms published.
+    partial: bool = False
     correlation_id: str | None = None
     finished_at: datetime = field(default_factory=lambda: datetime.now(UTC))
     platform_captions: dict[str, str] = field(default_factory=dict)

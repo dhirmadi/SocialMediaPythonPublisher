@@ -77,16 +77,21 @@ async def main_async() -> int:
 
     # Optional: caption history DB for anti-repetition
     caption_store = None
+    publish_store = None
     from publisher_v2.db import init_db, is_db_available
     from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.publish_store import PublishStore
 
     if is_db_available():
         sf = init_db()
         if sf is not None:
             caption_store = CaptionStore(sf)
+            publish_store = PublishStore(sf)
             log_json(logger, logging.INFO, "caption_history_db_enabled")
 
-    orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers, caption_store=caption_store)
+    orchestrator = WorkflowOrchestrator(
+        cfg, storage, ai_service, publishers, caption_store=caption_store, publish_store=publish_store
+    )
 
     # Execute workflow (preview implies dry_publish)
     try:

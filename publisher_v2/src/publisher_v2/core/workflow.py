@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.publish_store import PublishStore
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
@@ -99,6 +100,7 @@ class WorkflowOrchestrator:
         storage_ops_meter: StorageOpsMeter | None = None,
         tenant: str = "default",
         caption_store: CaptionStore | None = None,
+        publish_store: PublishStore | None = None,
     ):
         self.config = config
         self.storage = storage
@@ -108,6 +110,7 @@ class WorkflowOrchestrator:
         self._storage_ops_meter = storage_ops_meter
         self._tenant = tenant
         self._caption_store = caption_store
+        self._publish_store = publish_store
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
@@ -533,9 +536,18 @@ class WorkflowOrchestrator:
                     publish_start = now_monotonic()
                     context = self._build_publisher_context(analysis)
                     timeout = _publish_timeout_seconds()
-                    # #83: render one variant per publisher up front so no
-                    # publisher ever mutates the shared temp file mid-gather.
-                    variant_paths = await self._render_publish_variants(tmp_path, enabled_publishers)
+                    # #85: claim a per-platform lease so a partial publish never
+                    # double-posts and a web double-click publishes once.
+                    lease_hash = selected_content_hash or selected_hash
+                    publish_targets = list(enabled_publishers)
+                    if self._publish_store is not None and lease_hash:
+                        publish_targets = await self._claim_publish_targets(
+                            lease_hash, enabled_publishers, publish_results, correlation_id
+                        )
+                    # #83: render one variant per publisher we're actually about to
+                    # call this run, up front, so no publisher ever mutates the
+                    # shared temp file mid-gather.
+                    variant_paths = await self._render_publish_variants(tmp_path, publish_targets)
                     results = await asyncio.gather(
                         *[
                             asyncio.wait_for(
@@ -550,24 +562,35 @@ class WorkflowOrchestrator:
                                 ),
                                 timeout=_publish_timeout_for(p.platform_name, timeout),
                             )
-                            for p in enabled_publishers
+                            for p in publish_targets
                         ],
                         return_exceptions=True,
                     )
                     publish_parallel_ms = elapsed_ms(publish_start)
-                    for pub, res in zip(enabled_publishers, results, strict=True):
+                    for pub, res in zip(publish_targets, results, strict=True):
                         if isinstance(res, asyncio.TimeoutError):
-                            publish_results[pub.platform_name] = PublishResult(
+                            # The cancelled to_thread upload may still complete
+                            # upstream: record as unknown, never auto-retried.
+                            pr = PublishResult(
                                 success=False,
                                 platform=pub.platform_name,
                                 error="publish timeout",
                             )
+                            await self._mark_publish(lease_hash, pub.platform_name, "unknown", error="publish timeout")
                         elif isinstance(res, BaseException):
-                            publish_results[pub.platform_name] = PublishResult(
-                                success=False, platform=pub.platform_name, error=type(res).__name__
-                            )
+                            from publisher_v2.services.publishers._sanitize import sanitize_publisher_error
+
+                            # sanitize_publisher_error() already prepends type(exc).__name__.
+                            detail = sanitize_publisher_error(res)
+                            pr = PublishResult(success=False, platform=pub.platform_name, error=detail)
+                            await self._mark_publish(lease_hash, pub.platform_name, "failed", error=detail)
                         else:
-                            publish_results[pub.platform_name] = res
+                            pr = res
+                            status = "published" if res.success else "failed"
+                            await self._mark_publish(
+                                lease_hash, pub.platform_name, status, post_id=res.post_id, error=res.error
+                            )
+                        publish_results[pub.platform_name] = pr
                 else:
                     for p in enabled_publishers:
                         publish_results[p.platform_name] = PublishResult(success=True, platform=p.platform_name)
@@ -582,10 +605,14 @@ class WorkflowOrchestrator:
                     reason="FEATURE_PUBLISH=false",
                 )
 
+            partial = False
             if publish_results:
                 any_success = any(r.success for r in publish_results.values())
+                all_success = all(r.success for r in publish_results.values())
+                partial = any_success and not all_success
             else:
                 any_success = self.config.content.debug if self.config.features.publish_enabled else False
+                all_success = any_success
 
             # PUB-035: Update sidecar with published caption when caption_override was used
             if (
@@ -666,7 +693,13 @@ class WorkflowOrchestrator:
             # sees the hash in the posted set and won't re-publish. The image
             # stays in the source folder until a (manual) re-run completes
             # archiving — preferable to double-posting on every platform.
-            if any_success and not self.config.content.debug and not dry_publish and not preview_mode:
+            # #85: with a publish store, per-platform records own retry logic —
+            # only a fully published image enters the file-based posted set, so
+            # a partial publish stays selectable for the retry run. Without a
+            # store, keep the legacy any-success semantics (file state has no
+            # per-platform granularity; not saving would double-post).
+            record_posted = all_success if self._publish_store is not None else any_success
+            if record_posted and not self.config.content.debug and not dry_publish and not preview_mode:
                 if selected_hash:
                     with contextlib.suppress(OSError):
                         save_posted_hash(selected_hash)
@@ -677,7 +710,7 @@ class WorkflowOrchestrator:
             # 7. Archive if any success and not debug
             archived = False
             if (
-                any_success
+                all_success
                 and self.config.content.archive
                 and not self.config.content.debug
                 and not dry_publish
@@ -706,7 +739,9 @@ class WorkflowOrchestrator:
                     )
                 archive_ms = elapsed_ms(archive_start)
             elif any_success and not preview_mode and not dry_publish:
-                if not self.config.content.archive:
+                if partial:
+                    skip_reason = "partial_publish"
+                elif not self.config.content.archive:
                     skip_reason = "content.archive=false"
                 elif self.config.content.debug:
                     skip_reason = "content.debug=true"
@@ -726,7 +761,8 @@ class WorkflowOrchestrator:
             _log_timing()
 
             return WorkflowResult(
-                success=any_success,
+                success=all_success,
+                partial=partial,
                 image_name=selected_image,
                 caption=caption,
                 publish_results=publish_results,
@@ -753,6 +789,74 @@ class WorkflowOrchestrator:
             meter = getattr(self, "_storage_ops_meter", None)
             if meter is not None:
                 await meter.flush()
+
+    async def _claim_publish_targets(
+        self,
+        lease_hash: str,
+        enabled_publishers: list[Publisher],
+        publish_results: dict[str, PublishResult],
+        correlation_id: str,
+    ) -> list[Publisher]:
+        """Lease platforms for this run (#85) and pre-fill publish_results.
+
+        Already-published platforms are recorded as successes (they WERE
+        published — a retry run can then complete the archive); platforms
+        leased by another run or stuck in ``unknown`` are recorded as failures
+        and never re-published automatically. On store failure, fall back to
+        publishing everywhere (pre-#85 behavior) rather than skipping.
+        """
+        store = self._publish_store
+        if store is None:  # pragma: no cover — caller guards
+            return list(enabled_publishers)
+        try:
+            already_published = await store.posted_platforms(self._tenant, lease_hash)
+            to_claim = [p.platform_name for p in enabled_publishers if p.platform_name not in already_published]
+            owned = await store.acquire_lease(self._tenant, lease_hash, to_claim)
+        except Exception:
+            log_json(
+                self.logger,
+                logging.WARNING,
+                "publish_store_unavailable",
+                correlation_id=correlation_id,
+                exc_info=True,
+            )
+            return list(enabled_publishers)
+        blocked = set(to_claim) - owned
+        for name in already_published:
+            publish_results[name] = PublishResult(success=True, platform=name)
+        for name in blocked:
+            publish_results[name] = PublishResult(
+                success=False,
+                platform=name,
+                error="publish lease unavailable (in progress or unknown state)",
+            )
+        if already_published or blocked:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "publish_lease_summary",
+                correlation_id=correlation_id,
+                already_published=sorted(already_published),
+                blocked=sorted(blocked),
+                owned=sorted(owned),
+            )
+        return [p for p in enabled_publishers if p.platform_name in owned]
+
+    async def _mark_publish(
+        self,
+        lease_hash: str,
+        platform: str,
+        status: str,
+        post_id: str | None = None,
+        error: str | None = None,
+    ) -> None:
+        """Best-effort per-platform outcome record (#85). Never breaks the run."""
+        if self._publish_store is None or not lease_hash:
+            return
+        try:
+            await self._publish_store.mark(self._tenant, lease_hash, platform, status, post_id=post_id, error=error)
+        except Exception:
+            log_json(self.logger, logging.WARNING, "publish_record_mark_failed", platform=platform, exc_info=True)
 
     async def _render_publish_variants(self, tmp_path: str, publishers: list[Publisher]) -> dict[str, str]:
         """Render one resized variant per publisher before the publish gather (#83).
