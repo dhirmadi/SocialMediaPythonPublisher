@@ -732,7 +732,10 @@ async def api_get_thumbnail(
             content=thumb_bytes,
             media_type="image/jpeg",
             headers={
-                "Cache-Control": "public, max-age=3600",
+                # #87 (SEC-7): the route is permission-gated — a shared cache
+                # must never serve one viewer's thumbnail to another.
+                "Cache-Control": "private, max-age=3600",
+                "Vary": "Cookie",
                 "X-Correlation-ID": telemetry.correlation_id,
             },
         )
