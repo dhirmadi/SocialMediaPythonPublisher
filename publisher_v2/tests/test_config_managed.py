@@ -118,18 +118,10 @@ class TestOrchestratorNoDropboxGuard:
 
 # AC22: Standalone STORAGE_PROVIDER=managed
 class TestStandaloneManagedProvider:
-    def test_managed_env_builds_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-        ini = tmp_path / "test.ini"
-        ini.write_text(
-            """
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-        )
+    def test_managed_env_builds_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # #97 stage 4: env-only configuration (INI removed)
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("STORAGE_PROVIDER", "managed")
         monkeypatch.setenv("STORAGE_PATHS", '{"root": "/managed/images", "archive": "/managed/archive"}')
         monkeypatch.setenv("R2_ACCESS_KEY_ID", "AKID")
@@ -141,7 +133,7 @@ debug = false
 
         from publisher_v2.config.loader import load_application_config
 
-        cfg = load_application_config(str(ini))
+        cfg = load_application_config()
         assert cfg.managed is not None
         assert cfg.managed.access_key_id == "AKID"
         assert cfg.managed.bucket == "bucket"
@@ -151,22 +143,11 @@ debug = false
 
 # AC23: Default Dropbox behavior preserved
 class TestStandaloneDropboxPreserved:
-    def test_default_dropbox_builds_config(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-        ini = tmp_path / "test.ini"
-        ini.write_text(
-            """
-[Dropbox]
-image_folder = /Photos
-archive = archive
-
-[openAI]
-vision_model = gpt-4o
-
-[Content]
-archive = true
-debug = false
-"""
-        )
+    def test_default_dropbox_builds_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # #97 stage 4: env-only configuration (INI removed)
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_token")
@@ -175,7 +156,7 @@ debug = false
 
         from publisher_v2.config.loader import load_application_config
 
-        cfg = load_application_config(str(ini))
+        cfg = load_application_config()
         assert cfg.dropbox is not None
         assert cfg.managed is None
         assert cfg.storage_paths.image_folder == "/Photos"

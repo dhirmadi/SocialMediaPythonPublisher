@@ -72,9 +72,13 @@ These are required when enabling Auth0 login (Feature 020). They are not “secr
 
 ---
 
-## 2. Dynamic Configuration (Environment + INI)
+## 2. Dynamic Configuration (Environment Variables)
 
-Dynamic configuration controls runtime behavior and is split between environment variables and INI files.
+> **INI support removed (#97 stage 4).** Configuration is environment-only: the JSON env vars
+> `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` are required; `EMAIL_SERVER`,
+> `CONTENT_SETTINGS`, `CAPTIONFILE_SETTINGS`, `CONFIRMATION_SETTINGS` are optional.
+> The CLI still accepts `--config <file>` for compatibility but ignores the file and logs a
+> warning. Orchestrator runtime schema v1 was removed at the same time — schema v2 only.
 
 ### 2.1 Feature Toggles (Environment Variables)
 
@@ -127,11 +131,14 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `TENANT_SERVICE_TTL_SECONDS` | Tenant service cache TTL | 600 |
 | `LIBRARY_MAX_UPLOAD_MB` | Library upload size cap | 20 |
 | `LIBRARY_SCAN_BUDGET` | Library listing scan budget (objects per request) | 5000 |
-| `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
+| `CONFIG_PATH` | Deprecated (#97 stage 4): INI removed; value is ignored | (unused) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |
 
-### 2.3 INI Schema
+### 2.3 INI Schema (REMOVED — historical reference only)
+
+> The INI path was deleted in #97 stage 4. The schema below is kept only to help
+> migrate old `*.ini` files to the JSON env vars in section 2.4/3.
 
 **Note:** The config parser supports inline comments with `;` or `#`. Values are automatically stripped of trailing comments.
 

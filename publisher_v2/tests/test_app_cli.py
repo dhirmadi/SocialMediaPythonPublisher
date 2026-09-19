@@ -202,11 +202,11 @@ def mock_services(monkeypatch: pytest.MonkeyPatch, mock_config):
 class TestParseArgs:
     """Tests for CLI argument parsing."""
 
-    def test_parse_args_config_required(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Config argument is required."""
+    def test_parse_args_config_optional(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """#97 stage 4: --config is optional (deprecated, ignored); env vars configure the app."""
         monkeypatch.setattr(sys, "argv", ["app.py"])
-        with pytest.raises(SystemExit):
-            parse_args()
+        args = parse_args()
+        assert args.config is None
 
     def test_parse_args_config_only(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """Basic invocation with only config."""

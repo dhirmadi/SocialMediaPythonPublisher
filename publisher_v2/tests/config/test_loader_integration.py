@@ -91,10 +91,12 @@ class TestEnvFirstStoragePaths:
     """Test STORAGE_PATHS env var takes precedence over INI."""
 
     def test_storage_paths_env_overrides_ini(self, full_ini_file, base_env_vars, empty_env_file):
-        """STORAGE_PATHS env var should override INI [Dropbox] section."""
+        """STORAGE_PATHS env var is authoritative; the INI file is ignored (#97 stage 4)."""
         env = {
             **base_env_vars,
             "STORAGE_PATHS": '{"root": "/EnvPhotos", "archive": "/EnvPhotos/sent", "keep": "/EnvPhotos/favorites", "remove": "/EnvPhotos/trash"}',
+            "PUBLISHERS": "[]",
+            "OPENAI_SETTINGS": "{}",
         }
         with mock.patch.dict(os.environ, env, clear=True):
             config = load_application_config(full_ini_file, empty_env_file)
@@ -103,17 +105,13 @@ class TestEnvFirstStoragePaths:
             assert config.dropbox.folder_keep == "/EnvPhotos/favorites"
             assert config.dropbox.folder_remove == "/EnvPhotos/trash"
 
-    def test_falls_back_to_ini_when_storage_paths_not_set(self, full_ini_file, base_env_vars, caplog, empty_env_file):
-        """Falls back to INI when STORAGE_PATHS not set, emits deprecation warning."""
-        import logging
+    def test_missing_storage_paths_raises(self, full_ini_file, base_env_vars, empty_env_file):
+        """#97 stage 4: no INI fallback — missing STORAGE_PATHS is a hard error."""
+        from publisher_v2.core.exceptions import ConfigurationError
 
-        caplog.set_level(logging.WARNING)
-        with mock.patch.dict(os.environ, base_env_vars, clear=True):
-            config = load_application_config(full_ini_file, empty_env_file)
-            assert config.dropbox.image_folder == "/IniPhotos"
-            assert config.dropbox.archive_folder == "ini_archive"
-            assert "DEPRECATION" in caplog.text
-            assert "Dropbox" in caplog.text
+        env = {**base_env_vars, "PUBLISHERS": "[]", "OPENAI_SETTINGS": "{}"}
+        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match="STORAGE_PATHS"):
+            load_application_config(full_ini_file, empty_env_file)
 
 
 class TestEnvFirstPublishers:
@@ -188,23 +186,17 @@ class TestEnvFirstOpenAI:
             assert config.openai.caption_model == "gpt-3.5-turbo"
             assert config.openai.system_prompt == "ENV system"
 
-    def test_falls_back_to_ini_when_openai_settings_not_set(self, full_ini_file, base_env_vars, caplog, empty_env_file):
-        """Falls back to INI when OPENAI_SETTINGS not set, uses INI values."""
-        import logging
+    def test_missing_openai_settings_raises(self, full_ini_file, base_env_vars, empty_env_file):
+        """#97 stage 4: no INI fallback — missing OPENAI_SETTINGS is a hard error."""
+        from publisher_v2.core.exceptions import ConfigurationError
 
-        caplog.set_level(logging.WARNING)
         env = {
             **base_env_vars,
             "STORAGE_PATHS": '{"root": "/Photos"}',
             "PUBLISHERS": "[]",
         }
-        with mock.patch.dict(os.environ, env, clear=True):
-            config = load_application_config(full_ini_file, empty_env_file)
-            # Should use values from INI [openAI] section
-            assert config.openai.vision_model == "gpt-4o"
-            assert config.openai.caption_model == "gpt-4o-mini"
-            # Deprecation warning should mention openAI
-            assert "openAI" in caplog.text
+        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match="OPENAI_SETTINGS"):
+            load_application_config(full_ini_file, empty_env_file)
 
 
 class TestEnvFirstContent:
@@ -226,65 +218,42 @@ class TestEnvFirstContent:
             assert config.content.debug is True
 
 
-class TestIniVoiceProfile:
-    """PUB-029 AC-05: INI [Content] voice_profile = ["a","b"] is parsed."""
+class TestVoiceProfileFromEnv:
+    """PUB-029 voice_profile now comes from CONTENT_SETTINGS (#97 stage 4: INI removed)."""
 
-    def test_ini_voice_profile_json_list_parsed(self, base_env_vars, empty_env_file, tmp_path):
-        ini_path = tmp_path / "with_voice.ini"
-        ini_path.write_text(
-            """\
-[Dropbox]
-image_folder = /Photos
+    def _env(self, base_env_vars, **extra):
+        return {
+            **base_env_vars,
+            "STORAGE_PATHS": '{"root": "/Photos"}',
+            "PUBLISHERS": "[]",
+            "OPENAI_SETTINGS": "{}",
+            **extra,
+        }
 
-[Content]
-telegram = false
-instagram = false
-fetlife = false
-voice_profile = ["First example caption.", "Second example caption."]
-"""
+    def test_voice_profile_json_list_parsed(self, base_env_vars, empty_env_file):
+        env = self._env(
+            base_env_vars,
+            CONTENT_SETTINGS='{"hashtag_string": "", "archive": true, "debug": false, '
+            '"voice_profile": ["First example caption.", "Second example caption."]}',
         )
-        with mock.patch.dict(os.environ, base_env_vars, clear=True):
-            config = load_application_config(str(ini_path), empty_env_file)
+        with mock.patch.dict(os.environ, env, clear=True):
+            config = load_application_config(None, empty_env_file)
             assert config.content.voice_profile == [
                 "First example caption.",
                 "Second example caption.",
             ]
 
-    def test_ini_voice_profile_missing_yields_none(self, base_env_vars, empty_env_file, tmp_path):
-        ini_path = tmp_path / "no_voice.ini"
-        ini_path.write_text(
-            """\
-[Dropbox]
-image_folder = /Photos
-
-[Content]
-telegram = false
-instagram = false
-fetlife = false
-"""
-        )
-        with mock.patch.dict(os.environ, base_env_vars, clear=True):
-            config = load_application_config(str(ini_path), empty_env_file)
+    def test_voice_profile_missing_yields_none(self, base_env_vars, empty_env_file):
+        with mock.patch.dict(os.environ, self._env(base_env_vars), clear=True):
+            config = load_application_config(None, empty_env_file)
             assert config.content.voice_profile is None
 
-    def test_ini_voice_profile_invalid_json_raises(self, base_env_vars, empty_env_file, tmp_path):
+    def test_invalid_content_settings_json_raises(self, base_env_vars, empty_env_file):
         from publisher_v2.core.exceptions import ConfigurationError
 
-        ini_path = tmp_path / "bad_voice.ini"
-        ini_path.write_text(
-            """\
-[Dropbox]
-image_folder = /Photos
-
-[Content]
-telegram = false
-instagram = false
-fetlife = false
-voice_profile = not-valid-json[
-"""
-        )
-        with mock.patch.dict(os.environ, base_env_vars, clear=True), pytest.raises(ConfigurationError):
-            load_application_config(str(ini_path), empty_env_file)
+        env = self._env(base_env_vars, CONTENT_SETTINGS="not-valid-json[")
+        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError):
+            load_application_config(None, empty_env_file)
 
 
 class TestEnvFirstCaptionFile:
@@ -325,15 +294,21 @@ class TestDeprecationWarnings:
             load_application_config(minimal_ini_file, empty_env_file)
             assert "DEPRECATION" not in caplog.text
 
-    def test_deprecation_emitted_when_ini_used(self, full_ini_file, base_env_vars, caplog, empty_env_file):
-        """Deprecation warning emitted when INI sections are used."""
+    def test_ini_file_ignored_with_warning(self, full_ini_file, base_env_vars, caplog, empty_env_file):
+        """#97 stage 4: passing an INI file logs a removal warning and ignores its contents."""
         import logging
 
         caplog.set_level(logging.WARNING)
-        with mock.patch.dict(os.environ, base_env_vars, clear=True):
-            load_application_config(full_ini_file, empty_env_file)
-            assert "DEPRECATION" in caplog.text
-            assert "INI-based configuration is deprecated" in caplog.text
+        env = {
+            **base_env_vars,
+            "STORAGE_PATHS": '{"root": "/EnvPhotos"}',
+            "PUBLISHERS": "[]",
+            "OPENAI_SETTINGS": "{}",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            config = load_application_config(full_ini_file, empty_env_file)
+            assert config.dropbox.image_folder == "/EnvPhotos"
+            assert "INI configuration was removed" in caplog.text
 
 
 class TestConfigSourceLogging:
@@ -356,14 +331,20 @@ class TestConfigSourceLogging:
             load_application_config(minimal_ini_file, empty_env_file)
             assert "Config source: env_vars" in caplog.text
 
-    def test_logs_ini_fallback_source(self, full_ini_file, base_env_vars, caplog, empty_env_file):
-        """Logs 'ini_fallback' source when INI is used."""
+    def test_env_vars_source_logged_even_with_ini_path(self, full_ini_file, base_env_vars, caplog, empty_env_file):
+        """#97 stage 4: env_vars is the only config source, INI path or not."""
         import logging
 
-        caplog.set_level(logging.WARNING)
-        with mock.patch.dict(os.environ, base_env_vars, clear=True):
+        caplog.set_level(logging.INFO)
+        env = {
+            **base_env_vars,
+            "STORAGE_PATHS": '{"root": "/Photos"}',
+            "PUBLISHERS": "[]",
+            "OPENAI_SETTINGS": "{}",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
             load_application_config(full_ini_file, empty_env_file)
-            assert "ini_fallback" in caplog.text
+            assert "Config source: env_vars" in caplog.text
 
 
 class TestMultiplePublishers:

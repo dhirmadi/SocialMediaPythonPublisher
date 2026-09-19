@@ -16,29 +16,6 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-# Valid INI content with correct section names (case-sensitive)
-VALID_INI_CONTENT = """
-[Dropbox]
-image_folder = /Photos
-archive_folder = archive
-
-[OpenAI]
-
-[Content]
-hashtag_string = #test
-archive = false
-debug = false
-
-[Features]
-analyze_caption_enabled = true
-publish_enabled = true
-
-[Platforms]
-telegram_enabled = false
-instagram_enabled = false
-email_enabled = false
-"""
-
 
 class TestWebImageServiceConfigPath:
     """Tests for CONFIG_PATH validation."""
@@ -47,18 +24,21 @@ class TestWebImageServiceConfigPath:
         """Verify WebImageService raises ConfigurationError when CONFIG_PATH not set and not in env-first mode."""
         from publisher_v2.core.exceptions import ConfigurationError
 
-        # Ensure CONFIG_PATH is not set
+        # Import first: web.service loads the workspace .env at module import
+        # time, which would otherwise re-populate the vars we clear below.
+        from publisher_v2.web.service import WebImageService
+
+        # Keep the loader from re-loading the workspace .env inside the call.
+        monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *a, **k: None)
+        # Ensure CONFIG_PATH is not set (and ENV_PATH cannot re-load the workspace .env)
         monkeypatch.delenv("CONFIG_PATH", raising=False)
+        monkeypatch.delenv("ENV_PATH", raising=False)
         # Ensure not in env-first mode (no STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
         monkeypatch.delenv("STORAGE_PATHS", raising=False)
         monkeypatch.delenv("PUBLISHERS", raising=False)
         monkeypatch.delenv("OPENAI_SETTINGS", raising=False)
 
-        from publisher_v2.web.service import WebImageService
-
-        with pytest.raises(
-            ConfigurationError, match="Either config_file_path must be provided or all required env vars"
-        ):
+        with pytest.raises(ConfigurationError, match="required env vars not set"):
             WebImageService()
 
 
@@ -67,12 +47,10 @@ class TestWebImageServiceTTLParsing:
 
     def test_uses_env_ttl_when_valid(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify WebImageService uses WEB_IMAGE_CACHE_TTL_SECONDS from env when valid."""
-        # Create minimal config file
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
         monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", "120")
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -91,11 +69,10 @@ class TestWebImageServiceTTLParsing:
 
     def test_uses_default_ttl_when_env_invalid(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify WebImageService uses default TTL when env value is invalid."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
         monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", "invalid")
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -114,11 +91,10 @@ class TestWebImageServiceTTLParsing:
 
     def test_ignores_negative_env_ttl(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify WebImageService ignores negative TTL values from env."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
         monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", "-10")
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -142,10 +118,9 @@ class TestGetImageDetailsExceptionHandling:
     @pytest.mark.asyncio
     async def test_raises_file_not_found_on_storage_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify get_image_details raises FileNotFoundError on storage errors."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -172,10 +147,9 @@ class TestGetThumbnailSizeMapping:
     @pytest.mark.asyncio
     async def test_maps_known_thumbnail_sizes(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify get_thumbnail correctly maps size strings to ThumbnailSize enums."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -200,10 +174,9 @@ class TestGetThumbnailSizeMapping:
     @pytest.mark.asyncio
     async def test_defaults_to_w960h640_for_unknown_size(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify get_thumbnail defaults to w960h640 for unknown size strings."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -236,10 +209,9 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
     @pytest.mark.asyncio
     async def test_falls_back_to_legacy_caption_on_sd_error(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify analyze_and_caption falls back to legacy caption when sd_caption fails."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -284,10 +256,9 @@ class TestAnalyzeAndCaptionSidecarWriteException:
     @pytest.mark.asyncio
     async def test_continues_on_sidecar_write_failure(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify analyze_and_caption continues when sidecar write fails."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
@@ -339,10 +310,9 @@ class TestListImages:
     @pytest.mark.asyncio
     async def test_returns_sorted_list(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
         """Verify list_images returns sorted filenames."""
-        config_file = tmp_path / "test.ini"
-        config_file.write_text(VALID_INI_CONTENT)
-
-        monkeypatch.setenv("CONFIG_PATH", str(config_file))
+        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+        monkeypatch.setenv("PUBLISHERS", "[]")
+        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
         monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
         monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
         monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")

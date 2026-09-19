@@ -6,6 +6,10 @@ class ConfigurationError(SocialMediaPublisherError):
     """Configuration is invalid or missing."""
 
 
+class UnsupportedSchemaError(ConfigurationError):
+    """Orchestrator runtime schema version is no longer supported (#97 stage 4)."""
+
+
 class TenantNotFoundError(SocialMediaPublisherError):
     """Tenant/host does not map to a valid publisher_v2 runtime."""
 
