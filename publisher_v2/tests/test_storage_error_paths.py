@@ -26,6 +26,13 @@ from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage import DropboxStorage
 
 
+@pytest.fixture(autouse=True)
+def _fast_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#88 made generic ApiErrors retryable through their wrapped cause;
+    collapse the tenacity waits so these error-path tests stay fast."""
+    monkeypatch.setattr("publisher_v2.services.storage._dropbox_wait", lambda retry_state: 0.0)
+
+
 @pytest.fixture
 def storage_config() -> DropboxConfig:
     """Standard config for storage tests."""

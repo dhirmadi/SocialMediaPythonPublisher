@@ -62,9 +62,13 @@ def test_thumbnail_endpoint_sets_cache_headers(client_with_mock):
     response = client.get("/api/images/test.jpg/thumbnail")
 
     assert response.status_code == 200
+    # #87 (SEC-7): the endpoint is permission-gated, so caching must be
+    # private and vary on the cookie — never "public".
     assert "cache-control" in response.headers
-    assert "public" in response.headers["cache-control"]
+    assert "private" in response.headers["cache-control"]
+    assert "public" not in response.headers["cache-control"]
     assert "max-age=3600" in response.headers["cache-control"]
+    assert response.headers.get("vary", "").lower().find("cookie") != -1
 
 
 def test_thumbnail_endpoint_includes_correlation_id(client_with_mock):

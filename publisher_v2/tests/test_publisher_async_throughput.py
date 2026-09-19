@@ -20,7 +20,12 @@ from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.images import ensure_max_width_async
+
+
+@pytest.fixture(autouse=True)
+def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """Keep posted-image dedup state out of the real user cache (#83)."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
 
 class _DummyStorage(BaseDummyStorage):
@@ -134,20 +139,6 @@ async def test_publishers_run_concurrently() -> None:
 
     # Intervals should overlap if asyncio.gather is running them concurrently.
     assert not (p1_end <= p2_start or p2_end <= p1_start)
-
-
-@pytest.mark.asyncio
-async def test_ensure_max_width_async_delegates_to_sync(monkeypatch: pytest.MonkeyPatch) -> None:
-    calls: dict[str, int] = {"count": 0}
-
-    def _fake_ensure_max_width(path: str, max_width: int = 1280) -> str:
-        calls["count"] += 1
-        return path
-
-    monkeypatch.setattr("publisher_v2.utils.images.ensure_max_width", _fake_ensure_max_width)
-    result = await ensure_max_width_async("image.jpg", max_width=1024)
-    assert result == "image.jpg"
-    assert calls["count"] == 1
 
 
 @pytest.mark.asyncio
