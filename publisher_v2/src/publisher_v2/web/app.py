@@ -282,6 +282,8 @@ async def index(request: Request) -> HTMLResponse:
         "index.html",
         {
             "web_ui_text": static_cfg,
+            # #91 (SEC-8): per-request CSP nonce set by SecurityHeadersMiddleware.
+            "csp_nonce": getattr(request.state, "csp_nonce", ""),
         },
     )
 
@@ -389,6 +391,15 @@ async def api_admin_login(
     set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="password")
     log_json(logger, logging.INFO, "web_admin_login_success")
     return AdminStatusResponse(admin=True)
+
+
+@app.post("/api/auth/logout", response_model=AdminStatusResponse)
+async def api_auth_logout(response: Response, request: Request) -> AdminStatusResponse:
+    """Log out of admin mode (#91 SEC-8): POST under /api so CSRF applies."""
+    clear_admin_cookie(response)
+    request.session.clear()
+    log_json(logger, logging.INFO, "web_admin_logout")
+    return AdminStatusResponse(admin=False)
 
 
 # Deprecated: use /api/auth/logout instead

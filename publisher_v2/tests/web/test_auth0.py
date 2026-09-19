@@ -141,12 +141,13 @@ async def test_callback_auth0_error(client, mock_service, mock_oauth):
 
 
 def test_logout(client):
+    # #91 (SEC-8): logout moved to a CSRF-covered POST; the GET route is gone.
     from publisher_v2.web.auth import mint_admin_cookie_value
 
     client.cookies.set("pv2_admin", mint_admin_cookie_value(host="testserver"))
-    response = client.get("/auth/logout", follow_redirects=False)
-    assert response.status_code == 303
-    assert response.headers["location"] == "/"
+    response = client.post("/api/auth/logout", headers={"X-Requested-With": "XMLHttpRequest"})
+    assert response.status_code == 200
+    assert response.json()["admin"] is False
     assert 'pv2_admin=""' in response.headers.get("set-cookie", "") or "Max-Age=0" in response.headers.get(
         "set-cookie", ""
     )

@@ -706,9 +706,9 @@
       <a id="btn-admin" class="secondary" href="#" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.admin or "Admin" }}
       </a>
-      <a id="btn-admin-logout" class="secondary admin-only hidden" href="/auth/logout" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
+      <button id="btn-admin-logout" class="secondary admin-only hidden" type="button" style="display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.logout or "Logout" }}
-      </a>
+      </button>
     </div>
   </header>
 
@@ -879,7 +879,7 @@
     </div>
   </div>
 
-  <script>
+  <script nonce="{{ csp_nonce }}">
     // i18n text injected from static config (YAML → Jinja → JS)
     const TEXT = {{ web_ui_text | tojson }};
 
@@ -1332,6 +1332,20 @@
     function disableButtons(disabled) {
       const nextShouldBeDisabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       btnNext.disabled = nextShouldBeDisabled;
+      if (btnAdminLogout) {
+        // #91 (SEC-8): logout is a CSRF-protected POST, not a GET link.
+        btnAdminLogout.addEventListener("click", async () => {
+          try {
+            await fetch("/api/auth/logout", {
+              method: "POST",
+              headers: { "X-Requested-With": "XMLHttpRequest" }
+            });
+          } catch (e) {
+            console.warn("Logout request failed", e);
+          }
+          window.location.href = "/";
+        });
+      }
       if (btnAnalyze) {
         btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
       }

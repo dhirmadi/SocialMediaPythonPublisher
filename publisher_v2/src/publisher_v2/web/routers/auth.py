@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 
 from publisher_v2.utils.logging import log_json
-from publisher_v2.web.auth import clear_admin_cookie, request_binding, set_admin_cookie
+from publisher_v2.web.auth import request_binding, set_admin_cookie
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.service import WebImageService
 
@@ -29,6 +29,8 @@ def configure_oauth(config):
         client_secret=config.auth0.client_secret,
         client_kwargs={
             "scope": "openid email profile",
+            # #91 (SEC-8): PKCE for the authorization-code flow.
+            "code_challenge_method": "S256",
         },
         server_metadata_url=f"https://{config.auth0.domain}/.well-known/openid-configuration",
     )
@@ -172,13 +174,5 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
         return RedirectResponse(url="/?auth_error=callback_failed", status_code=status.HTTP_303_SEE_OTHER)
 
 
-@router.get("/logout")
-async def logout(request: Request):
-    """
-    Clear the local session and cookie.
-    """
-    log_json(logger, logging.INFO, "auth_logout")
-    response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-    clear_admin_cookie(response)
-    request.session.clear()
-    return response
+# #91 (SEC-8): the GET /auth/logout route is gone — a bare link could be
+# triggered cross-site. Logout is POST /api/auth/logout (CSRF-covered).
