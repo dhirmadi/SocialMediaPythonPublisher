@@ -114,7 +114,7 @@ def _reject(request: Request, reason: str) -> JSONResponse:
     # the identical cause, so both get the hint.
     hint = None
     if reason in ("cross-origin Origin", "cross-origin Referer"):
-        if not trust_forwarded_headers():
+        if not trust_forwarded_headers(request):
             hint = "set WEB_TRUST_FORWARDED_FOR=true if this app sits behind a TLS-terminating proxy"
         elif len(set(forwarded_proto_values(request))) > 1:
             # The least diagnosable case: the flag IS set, so the operator has

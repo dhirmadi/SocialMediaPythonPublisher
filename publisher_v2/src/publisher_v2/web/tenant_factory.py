@@ -3,6 +3,7 @@ import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
+from publisher_v2.config.runtime_settings import RuntimeSettings
 from publisher_v2.config.source import ConfigSource, RuntimeConfig
 from publisher_v2.web.service import WebImageService
 
@@ -30,9 +31,13 @@ class TenantServiceFactory:
     - LRU eviction + TTL
     """
 
-    def __init__(self, *, max_size: int = 1000, ttl_seconds: int = 600) -> None:
+    def __init__(
+        self, *, max_size: int = 1000, ttl_seconds: int = 600, settings: RuntimeSettings | None = None
+    ) -> None:
         self._max_size = max(1, int(max_size))
         self._ttl_seconds = max(1, int(ttl_seconds))
+        # #143: carried so a cache miss during a request does not re-parse the env.
+        self._settings = settings
         self._data: OrderedDict[str, _Entry] = OrderedDict()
 
     def _effective_ttl(self, runtime: RuntimeConfig) -> int:
@@ -54,7 +59,7 @@ class TenantServiceFactory:
             await _close_service(entry.service)
 
         # Create new tenant-scoped service
-        svc = WebImageService(runtime=runtime, config_source=source)
+        svc = WebImageService(runtime=runtime, config_source=source, settings=self._settings)
         expires = now + self._effective_ttl(runtime)
         self._data[tenant] = _Entry(service=svc, expires_at=expires, config_version=runtime.config_version)
         self._data.move_to_end(tenant)

@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 
 from publisher_v2.config.loader import load_application_config
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
@@ -50,14 +51,17 @@ async def main_async() -> int:
 
     logger = logging.getLogger("publisher_v2")
 
+    # #143: runtime tunables are parsed once per process and injected below.
+    settings = load_runtime_settings()
+
     cfg = load_application_config(args.config, args.env)
     if args.debug:
         cfg.content.debug = True
 
-    storage = create_storage(cfg)
+    storage = create_storage(cfg, settings=settings)
     analyzer = VisionAnalyzerOpenAI(cfg.openai)
     generator = CaptionGeneratorOpenAI(cfg.openai)
-    ai_service = AIService(analyzer, generator)
+    ai_service = AIService(analyzer, generator, settings=settings)
 
     log_json(
         logger,
@@ -83,7 +87,6 @@ async def main_async() -> int:
     # Optional: caption history DB for anti-repetition
     caption_store = None
     publish_store = None
-    from publisher_v2.config.runtime_settings import load_runtime_settings
     from publisher_v2.db import init_db, is_db_available
     from publisher_v2.db.caption_store import CaptionStore
     from publisher_v2.db.publish_store import PublishStore
@@ -91,12 +94,18 @@ async def main_async() -> int:
     if is_db_available():
         sf = init_db()
         if sf is not None:
-            caption_store = CaptionStore(sf)
-            publish_store = PublishStore(sf, lease_ttl_seconds=load_runtime_settings().publish_lease_ttl_seconds)
+            caption_store = CaptionStore(sf, settings=settings)
+            publish_store = PublishStore(sf, lease_ttl_seconds=settings.publish_lease_ttl_seconds)
             log_json(logger, logging.INFO, "caption_history_db_enabled")
 
     orchestrator = WorkflowOrchestrator(
-        cfg, storage, ai_service, publishers, caption_store=caption_store, publish_store=publish_store
+        cfg,
+        storage,
+        ai_service,
+        publishers,
+        caption_store=caption_store,
+        publish_store=publish_store,
+        settings=settings,
     )
 
     # Execute workflow (preview implies dry_publish)

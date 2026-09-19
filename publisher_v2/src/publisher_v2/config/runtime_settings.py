@@ -28,6 +28,11 @@ def _float_env(name: str, default: float | None) -> float | None:
         return default
 
 
+def _bool_env(name: str, default: str, truthy: tuple[str, ...]) -> bool:
+    """Truthy-string parsing. ``truthy`` differs per var — the old call sites did not agree."""
+    return (os.environ.get(name) or default).lower() in truthy
+
+
 def _int_env(name: str, default: int | None) -> int | None:
     raw = os.environ.get(name)
     if not raw:
@@ -52,6 +57,19 @@ class RuntimeSettings(BaseModel):
     library_max_upload_mb: int = 20
     library_scan_budget: int = 5000
     publish_timeout_overrides: dict[str, float] = {}
+    # #143: web/service-layer tunables that used to be ad-hoc os.environ reads.
+    thumbnail_cache_ttl_seconds: float = 900.0
+    thumbnail_cache_max_bytes: int = 50 * 1024 * 1024
+    trust_forwarded_for: bool = False
+    secure_cookies: bool = True
+    login_backoff_cap_seconds: float = 5.0
+    config_source: str = ""
+    orchestrator_base_url: str = ""
+
+    @property
+    def is_standalone(self) -> bool:
+        """Env-first mode: explicitly selected, or no orchestrator configured."""
+        return self.config_source == "env" or not self.orchestrator_base_url
 
     def publish_timeout_for(self, platform: str) -> float:
         """Per-platform publish timeout, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
@@ -75,6 +93,14 @@ def load_runtime_settings() -> RuntimeSettings:
     ttl = _float_env("WEB_IMAGE_CACHE_TTL_SECONDS", None)
     if ttl is not None and ttl <= 0:
         ttl = None
+
+    login_backoff_cap = _float_env("WEB_LOGIN_BACKOFF_CAP_SECONDS", defaults.login_backoff_cap_seconds)
+    if login_backoff_cap is None:
+        login_backoff_cap = defaults.login_backoff_cap_seconds
+
+    # 0 is a meaningful value for both (disable cache / unlimited), so no ``or`` fallback.
+    thumb_ttl = _float_env("WEB_THUMBNAIL_CACHE_TTL_SECONDS", defaults.thumbnail_cache_ttl_seconds)
+    thumb_max = _int_env("WEB_THUMBNAIL_CACHE_MAX_BYTES", defaults.thumbnail_cache_max_bytes)
 
     overrides: dict[str, float] = {}
     prefix, suffix = "PUBLISH_TIMEOUT_", "_SECONDS"
@@ -111,4 +137,12 @@ def load_runtime_settings() -> RuntimeSettings:
         library_max_upload_mb=_int_env("LIBRARY_MAX_UPLOAD_MB", None) or defaults.library_max_upload_mb,
         library_scan_budget=_int_env("LIBRARY_SCAN_BUDGET", None) or defaults.library_scan_budget,
         publish_timeout_overrides=overrides,
+        thumbnail_cache_ttl_seconds=defaults.thumbnail_cache_ttl_seconds if thumb_ttl is None else thumb_ttl,
+        thumbnail_cache_max_bytes=defaults.thumbnail_cache_max_bytes if thumb_max is None else thumb_max,
+        # WEB_TRUST_FORWARDED_FOR historically did not accept "on"; keep it that way.
+        trust_forwarded_for=_bool_env("WEB_TRUST_FORWARDED_FOR", "", ("1", "true", "yes")),
+        secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on")),
+        login_backoff_cap_seconds=login_backoff_cap,
+        config_source=(os.environ.get("CONFIG_SOURCE") or "").strip().lower(),
+        orchestrator_base_url=os.environ.get("ORCHESTRATOR_BASE_URL") or "",
     )

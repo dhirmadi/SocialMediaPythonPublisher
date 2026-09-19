@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, Response
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.source import get_config_source
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import (
@@ -48,10 +49,11 @@ from publisher_v2.web.models import (
     VoiceProfileResponse,
     VoiceProfileUpdateRequest,
 )
-from publisher_v2.web.rate_limit import SlidingWindowLimiter, remote_ip, trust_forwarded_headers
+from publisher_v2.web.rate_limit import SlidingWindowLimiter, remote_ip
 from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.routers import library as library_router
 from publisher_v2.web.service import WebImageService
+from publisher_v2.web.settings import get_runtime_settings
 
 __all__ = [
     "app",
@@ -86,7 +88,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # same-origin check. Deriving the scheme ourselves only happens when the
     # trust flag is set, so a dyno provisioned without it reproduces the outage
     # silently. Say it once, at startup, where an operator will see it.
-    if os.environ.get("DYNO") and not trust_forwarded_headers():
+    # Startup, so there is no request to read the snapshot from; this is one of
+    # the reads #143 allows outside a request path.
+    if os.environ.get("DYNO") and not load_runtime_settings().trust_forwarded_for:
         log_json(
             _logger,
             logging.WARNING,
@@ -96,6 +100,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                 "X-Forwarded-Proto will be ignored and browser POSTs under /api will return 403"
             ),
         )
+    # #143: parse the runtime tunables once per process; request paths read
+    # them from app.state instead of re-parsing the environment.
+    app.state.runtime_settings = load_runtime_settings()
 
     # Auth0 is configured lazily on first auth route call.
     # Avoid forcing a full ApplicationConfig load here because orchestrator mode
@@ -126,7 +133,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     yield
 
-    # Shutdown: dispose caption history DB engine
+    # Shutdown: dispose the caption history DB engine, flush tenant services,
+    # and only then drop the process settings (#143).
     from publisher_v2.db import dispose_engine
 
     try:
@@ -142,15 +150,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     except Exception:
         _logger.warning("shared_http_client_close_failed", exc_info=True)
 
-    # Shutdown: flush remaining storage ops metrics for all cached tenants
-    from publisher_v2.web.middleware import _tenant_service_factory
+    # Shutdown: flush remaining storage ops metrics for all cached tenants.
+    # Use the *existing* factory: never build one just to close it.
+    from publisher_v2.web.middleware import _existing_tenant_service_factory
 
     try:
-        factory = _tenant_service_factory()
-        await factory.shutdown()
+        factory = _existing_tenant_service_factory()
+        if factory is not None:
+            await factory.shutdown()
     except Exception:
-        _logger = logging.getLogger("publisher_v2.web")
         _logger.warning("storage_ops_shutdown_flush_failed", exc_info=True)
+
+    # Cleared last, after the DB dispose and the tenant flush above. A request
+    # still in flight past this point falls back to a fresh env parse, which
+    # yields the same values; leaving it set would leak one app's snapshot into
+    # the next app built in the same process (#143).
+    app.state.runtime_settings = None
 
 
 app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=lifespan)
@@ -277,7 +292,7 @@ if not session_secret:
 app.middleware("http")(tenant_middleware)
 
 # Secure cookies default to True (prod), but can be disabled via env for local dev
-secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
+secure_cookies = load_runtime_settings().secure_cookies
 app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
 
 # Defense-in-depth headers + CSRF protection. Order matters: SecurityHeaders is
@@ -318,15 +333,14 @@ async def health_live() -> dict[str, str]:
 
 
 @app.get("/health/ready")
-async def health_ready() -> Response:
+async def health_ready(request: Request) -> Response:
     """
     Readiness probe:
     - env-first mode: always ready
     - orchestrator mode: requires orchestrator connectivity (404 is acceptable)
     - caption history DB: checked when configured
     """
-    override = (os.environ.get("CONFIG_SOURCE") or "").strip().lower()
-    is_standalone = override == "env" or not os.environ.get("ORCHESTRATOR_BASE_URL")
+    is_standalone = get_runtime_settings(request).is_standalone
 
     body: dict[str, Any] = {
         "status": "ok",

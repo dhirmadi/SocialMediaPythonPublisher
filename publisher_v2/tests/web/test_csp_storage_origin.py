@@ -372,7 +372,7 @@ class TestOrchestratedRequestReachesTheHeader:
         get_service.cache_clear()
         with (
             patch("publisher_v2.web.middleware.get_config_source", lambda: _Source()),
-            patch("publisher_v2.web.middleware._tenant_service_factory", lambda: _Factory()),
+            patch("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _Factory()),
             patch("publisher_v2.services.storage.dropbox.Dropbox"),
             TestClient(app) as client,
         ):

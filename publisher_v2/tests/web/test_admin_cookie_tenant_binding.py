@@ -134,7 +134,7 @@ def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPa
             return SimpleNamespace(config=runtime.config)
 
     monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
-    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda: _FakeFactory())
+    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _FakeFactory())
 
     cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
 

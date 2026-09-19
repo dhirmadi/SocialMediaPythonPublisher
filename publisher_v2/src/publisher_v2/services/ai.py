@@ -17,7 +17,7 @@ from openai.types.chat import (
 )
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
-from publisher_v2.config.runtime_settings import load_runtime_settings
+from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
@@ -1363,12 +1363,18 @@ class CaptionGeneratorOpenAI:
 
 
 class AIService:
-    def __init__(self, analyzer: VisionAnalyzerOpenAI, generator: CaptionGeneratorOpenAI):
+    def __init__(
+        self,
+        analyzer: VisionAnalyzerOpenAI,
+        generator: CaptionGeneratorOpenAI,
+        settings: RuntimeSettings | None = None,
+    ):
         self.analyzer = analyzer
         self.generator = generator
         limits = get_static_config().service_limits.ai
-        # #97 stage 2: env override parsed centrally; None -> static-config default.
-        rate = load_runtime_settings().ai_rate_per_minute or limits.rate_per_minute
+        # #143: injected settings; None -> read once here. None rate -> static-config default.
+        self._settings = settings if settings is not None else load_runtime_settings()
+        rate = self._settings.ai_rate_per_minute or limits.rate_per_minute
         self._rate_limiter = AsyncRateLimiter(rate_per_minute=rate)
         # PUB-046: share the limiter with the generator so its condense pass
         # acquires a slot instead of bypassing the rate budget.

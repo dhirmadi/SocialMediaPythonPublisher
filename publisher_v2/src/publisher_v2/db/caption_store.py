@@ -8,7 +8,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from publisher_v2.config.runtime_settings import load_runtime_settings
+from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from publisher_v2.db.models import CaptionHistory
 
 logger = logging.getLogger("publisher_v2.db.caption_store")
@@ -20,13 +20,16 @@ _DEFAULT_MIN_KEEP = 20
 class CaptionStore:
     """Async repository for per-tenant, per-platform caption history."""
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], settings: RuntimeSettings | None = None
+    ) -> None:
         self._session_factory = session_factory
+        # #143: retention is read once, when the store is built.
+        self._settings = settings if settings is not None else load_runtime_settings()
 
     @property
     def _retention_days(self) -> int:
-        # #97 stage 2: env override parsed centrally.
-        return load_runtime_settings().caption_history_retention_days
+        return self._settings.caption_history_retention_days
 
     async def save_captions_batch(
         self,

@@ -242,7 +242,7 @@ async def test_preview_and_dry_publish_never_touch_the_table(publish_store: Publ
 
 
 async def test_publisher_timeout_marks_row_unknown_never_archives_never_auto_retries(
-    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+    publish_store: PublishStore,
 ) -> None:
     """A publisher that hangs past the deadline is marked ``unknown``, not ``failed``.
 
@@ -250,10 +250,8 @@ async def test_publisher_timeout_marks_row_unknown_never_archives_never_auto_ret
     upstream) and the run must not archive, since not every platform reached
     ``published``.
     """
-    import publisher_v2.core.workflow as workflow_module
-
-    monkeypatch.setattr(workflow_module, "_publish_timeout_seconds", lambda: 0.05)
-    monkeypatch.setattr(workflow_module, "_publish_timeout_for", lambda platform, default: 0.05)
+    # #143: the timeout is injected settings, not a module-level env lookup.
+    from publisher_v2.config.runtime_settings import RuntimeSettings
 
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [
@@ -262,7 +260,13 @@ async def test_publisher_timeout_marks_row_unknown_never_archives_never_auto_ret
     ]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+        _config(),
+        storage,
+        _DummyAI(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+        settings=RuntimeSettings(publish_timeout_seconds=0.05),
     )
 
     result = await orchestrator.execute()
@@ -601,9 +605,12 @@ async def test_lease_held_past_its_ttl_is_not_released_by_the_aborting_run(
     publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """#139: another run may already own the reclaimed lease — do not mark it failed."""
-    from publisher_v2.core import workflow as workflow_module
+    from publisher_v2.config.runtime_settings import load_runtime_settings
 
-    monkeypatch.setattr(workflow_module, "_publish_lease_ttl_seconds", lambda: 0.0)
+    # #143 replaced the module-level _publish_lease_ttl_seconds() this used to
+    # monkeypatch: the TTL now comes from the settings the orchestrator was built
+    # with, so it is injected rather than patched.
+    settings = load_runtime_settings().model_copy(update={"publish_lease_ttl_seconds": 0.0})
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
@@ -614,6 +621,7 @@ async def test_lease_held_past_its_ttl_is_not_released_by_the_aborting_run(
         publishers,
         tenant="t1",
         publish_store=publish_store,
+        settings=settings,
     )
 
     with pytest.raises(RuntimeError):
