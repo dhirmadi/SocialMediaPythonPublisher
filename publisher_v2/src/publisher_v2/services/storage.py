@@ -4,7 +4,14 @@ import os
 from typing import cast
 
 import dropbox
-from dropbox.exceptions import ApiError
+from dropbox.exceptions import (
+    ApiError,
+    AuthError,
+    BadInputError,
+    DropboxException,
+    InternalServerError,
+    RateLimitError,
+)
 from dropbox.files import (
     PathOrLink,
     ThumbnailMode,
@@ -18,16 +25,27 @@ from dropbox.files import (
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
 from publisher_v2.config.schema import DropboxConfig
-from publisher_v2.core.exceptions import StorageError
+from publisher_v2.core.exceptions import StorageAuthError, StorageError
 from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
 
 
 def _is_retryable_dropbox_error(exc: BaseException) -> bool:
     """Predicate: retry on transient Dropbox API errors, never on permanent ones.
 
-    Dropbox 4xx (auth, not_found, conflict) burn retries without changing
-    outcome. Network failures and 5xx are worth retrying.
+    #88: explicit classes — AuthError and BadInputError are permanent;
+    RateLimitError and InternalServerError (5xx) are transient. Wrapped
+    StorageError is judged by its __cause__. Dropbox path-shaped ApiErrors
+    (not_found, conflict) stay permanent. Network failures retry.
     """
+    if isinstance(exc, StorageError):
+        cause = exc.__cause__
+        if cause is None or cause is exc:
+            return False
+        return _is_retryable_dropbox_error(cause)
+    if isinstance(exc, AuthError | BadInputError):
+        return False
+    if isinstance(exc, RateLimitError | InternalServerError):
+        return True
     if isinstance(exc, ApiError):
         err = getattr(exc, "error", None)
         # Path-shaped errors (auth, not_found) are permanent — don't retry.
@@ -42,12 +60,35 @@ def _is_retryable_dropbox_error(exc: BaseException) -> bool:
     }
 
 
+_EXPONENTIAL_WAIT = wait_exponential(multiplier=1, min=1, max=8)
+
+
+def _dropbox_wait(retry_state) -> float:  # type: ignore[no-untyped-def]
+    """Honour RateLimitError.backoff when present, else exponential (#88)."""
+    exc = retry_state.outcome.exception() if retry_state.outcome else None
+    cause = getattr(exc, "__cause__", None) or exc
+    backoff = getattr(cause, "backoff", None)
+    if backoff:
+        return float(backoff)
+    return float(_EXPONENTIAL_WAIT(retry_state))
+
+
+# One retry layer (#88): the SDK's own retries are disabled below, so the
+# bounded worst case per operation is 3 attempts x 30s timeout + waits — about
+# two minutes, instead of 100s SDK timeout x 4 SDK retries x 3 tenacity tries.
 _dropbox_retry = retry(
     reraise=True,
     stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=1, max=8),
+    wait=lambda retry_state: _dropbox_wait(retry_state),
     retry=retry_if_exception(_is_retryable_dropbox_error),
 )
+
+
+def _wrap_dropbox_exception(exc: DropboxException, message: str) -> StorageError:
+    """Map an SDK exception to the right StorageError subtype (#88)."""
+    if isinstance(exc, AuthError):
+        return StorageAuthError(f"dropbox auth failed: {message}")
+    return StorageError(f"{message}: {exc}")
 
 
 def _dropbox_move_destination_dir(folder: str, target_subfolder: str) -> str:
@@ -67,6 +108,9 @@ class DropboxStorage:
             oauth2_refresh_token=config.refresh_token,
             app_key=config.app_key,
             app_secret=config.app_secret,
+            # #88: bounded HTTP timeout; tenacity is the single retry layer.
+            timeout=30,
+            max_retries_on_error=0,
         )
 
     @_dropbox_retry
@@ -89,8 +133,8 @@ class DropboxStorage:
                 )
 
             await asyncio.to_thread(_upload)
-        except ApiError as exc:
-            raise StorageError(f"Failed to upload sidecar for {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to upload sidecar for {filename}") from exc
 
     @staticmethod
     def _is_sidecar_not_found_error(exc: ApiError) -> bool:
@@ -141,7 +185,9 @@ class DropboxStorage:
             if self._is_sidecar_not_found_error(exc):
                 # Fast-path for "not found" – treat as normal cache miss instead of error.
                 return None
-            raise StorageError(f"Failed to download sidecar for {filename}: {exc}") from exc
+            raise _wrap_dropbox_exception(exc, f"Failed to download sidecar for {filename}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to download sidecar for {filename}") from exc
 
     @_dropbox_retry
     async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
@@ -163,8 +209,8 @@ class DropboxStorage:
                 return out
 
             return await asyncio.to_thread(_meta)
-        except ApiError as exc:
-            raise StorageError(f"Failed to get metadata for {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to get metadata for {filename}") from exc
 
     @_dropbox_retry
     async def list_images(self, folder: str) -> list[str]:
@@ -186,8 +232,8 @@ class DropboxStorage:
                 return names
 
             return await asyncio.to_thread(_list)
-        except ApiError as exc:
-            raise StorageError(f"Failed to list images: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, "Failed to list images") from exc
 
     @_dropbox_retry
     async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
@@ -216,8 +262,8 @@ class DropboxStorage:
                 return out
 
             return await asyncio.to_thread(_list)
-        except ApiError as exc:
-            raise StorageError(f"Failed to list images with hashes: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, "Failed to list images with hashes") from exc
 
     @_dropbox_retry
     async def download_image(self, folder: str, filename: str) -> bytes:
@@ -229,8 +275,8 @@ class DropboxStorage:
                 return cast(bytes, response.content)
 
             return await asyncio.to_thread(_download)
-        except ApiError as exc:
-            raise StorageError(f"Failed to download {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to download {filename}") from exc
 
     @_dropbox_retry
     async def get_temporary_link(self, folder: str, filename: str) -> str:
@@ -242,8 +288,8 @@ class DropboxStorage:
                 return cast(str, res.link)
 
             return await asyncio.to_thread(_link)
-        except ApiError as exc:
-            raise StorageError(f"Failed to get temporary link for {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to get temporary link for {filename}") from exc
 
     @_dropbox_retry
     async def ensure_folder_exists(self, folder_path: str) -> None:
@@ -265,8 +311,8 @@ class DropboxStorage:
                         raise
 
             await asyncio.to_thread(_ensure)
-        except ApiError as exc:
-            raise StorageError(f"Failed to ensure folder exists {folder_path}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to ensure folder exists {folder_path}") from exc
 
     @_dropbox_retry
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
@@ -294,8 +340,8 @@ class DropboxStorage:
                     self.client.files_move_v2(sidecar_src, sidecar_dst, autorename=True)
 
             await asyncio.to_thread(_move)
-        except ApiError as exc:
-            raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to move {filename} to {target_subfolder}") from exc
 
     @_dropbox_retry
     async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
@@ -318,8 +364,8 @@ class DropboxStorage:
                     self.client.files_delete_v2(sidecar_path)
 
             await asyncio.to_thread(_delete)
-        except ApiError as exc:
-            raise StorageError(f"Failed to delete {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to delete {filename}") from exc
 
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         """
@@ -384,5 +430,5 @@ class DropboxStorage:
                 return cast(bytes, response.content)
 
             return await asyncio.to_thread(_get_thumb)
-        except ApiError as exc:
-            raise StorageError(f"Failed to get thumbnail for {filename}: {exc}") from exc
+        except DropboxException as exc:
+            raise _wrap_dropbox_exception(exc, f"Failed to get thumbnail for {filename}") from exc

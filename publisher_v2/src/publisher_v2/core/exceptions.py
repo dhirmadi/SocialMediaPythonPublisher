@@ -22,6 +22,10 @@ class StorageError(SocialMediaPublisherError):
     """Error accessing cloud storage."""
 
 
+class StorageAuthError(StorageError):
+    """Storage authentication failed (e.g. expired refresh token) — non-retryable (#88)."""
+
+
 class AIServiceError(SocialMediaPublisherError):
     """AI analysis or caption generation failed."""
 
