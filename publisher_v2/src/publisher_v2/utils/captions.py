@@ -225,3 +225,96 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
         lines.append(f"# {key}: {rendered}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
+
+
+# --- #82 (CAP-5/CAP-6): caption diversity helpers ---
+
+_WORD_RE = re.compile(r"[a-z0-9']+")
+
+
+def _words(text: str) -> list[str]:
+    """Lowercased word tokens, punctuation-insensitive."""
+    return _WORD_RE.findall(text.lower())
+
+
+def trigram_jaccard(a: str, b: str) -> float:
+    """Jaccard similarity of the word-trigram sets of two captions (#82).
+
+    Texts shorter than three words fall back to word-set Jaccard so very
+    short captions still compare meaningfully. Returns a float in [0, 1].
+    """
+    wa, wb = _words(a), _words(b)
+    if not wa or not wb:
+        return 0.0
+    if len(wa) < 3 or len(wb) < 3:
+        sa, sb = set(wa), set(wb)
+        return len(sa & sb) / len(sa | sb)
+    ta = {tuple(wa[i : i + 3]) for i in range(len(wa) - 2)}
+    tb = {tuple(wb[i : i + 3]) for i in range(len(wb) - 2)}
+    return len(ta & tb) / len(ta | tb)
+
+
+# Ordered registry: order is the deterministic tie-break for least-recently-used.
+STRUCTURE_DIRECTIVES: dict[str, str] = {
+    "declarative": "Open with a plain declarative statement.",
+    "fragment": "Open with a short sensory fragment (no full sentence needed).",
+    "second_person": "Address the viewer directly in second person.",
+    "observation": "Write a quiet observation; no questions anywhere in the caption.",
+    "short_line": "Write a single line under 12 words.",
+}
+
+
+def classify_caption_structure(caption: str) -> str:
+    """Best-effort mapping of a caption to a STRUCTURE_DIRECTIVES key.
+
+    Approximate by design — it only needs to be stable enough for the
+    least-recently-used rotation in ``pick_structure_directive``.
+    """
+    stripped = caption.strip().strip('"')
+    words = _words(stripped)
+    lowered = stripped.lower()
+    if lowered.startswith(("you ", "your ", "you'")):
+        return "second_person"
+    first_sentence = re.split(r"[.!?\n]", stripped, maxsplit=1)[0]
+    if len(_words(first_sentence)) <= 4:
+        return "fragment"
+    if len(words) < 8 and "\n" not in stripped:
+        return "short_line"
+    sentence_count = len([s for s in re.split(r"[.!?\n]+", stripped) if s.strip()])
+    if "?" not in stripped and sentence_count >= 2:
+        return "observation"
+    return "declarative"
+
+
+def pick_structure_directive(history: list[str]) -> str:
+    """Pick the structural directive least recently used in ``history`` (#82).
+
+    ``history`` is ordered most-recent-first (as fetched from the DB). The
+    directive whose structure appears furthest back (or not at all) wins;
+    registry order breaks ties deterministically.
+    """
+    last_used: dict[str, int] = {}
+    for idx, caption in enumerate(history):
+        key = classify_caption_structure(caption)
+        if key not in last_used:
+            last_used[key] = idx  # smaller idx == more recent
+    never_used = [k for k in STRUCTURE_DIRECTIVES if k not in last_used]
+    if never_used:
+        return STRUCTURE_DIRECTIVES[never_used[0]]
+    key = max(last_used, key=lambda k: last_used[k])
+    return STRUCTURE_DIRECTIVES[key]
+
+
+def caption_opening(caption: str, word_count: int = 6) -> str:
+    """First ``word_count`` words of a caption, for openings-to-avoid lists."""
+    return " ".join(caption.strip().strip('"').split()[:word_count])
+
+
+def caption_closing_pattern(caption: str) -> str:
+    """Classify how a caption closes: question | statement | fragment."""
+    stripped = caption.strip().strip('"')
+    if stripped.endswith("?"):
+        return "question"
+    if stripped.endswith((".", "!")):
+        return "statement"
+    return "fragment"

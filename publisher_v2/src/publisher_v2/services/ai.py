@@ -25,6 +25,12 @@ from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
+from publisher_v2.utils.captions import (
+    caption_closing_pattern,
+    caption_opening,
+    pick_structure_directive,
+    trigram_jaccard,
+)
 from publisher_v2.utils.images import resize_image_bytes
 from publisher_v2.utils.logging import log_json
 from publisher_v2.utils.rate_limit import AsyncRateLimiter
@@ -97,6 +103,9 @@ DEFAULT_CAPTION_TEMPERATURE = 0.7
 SD_LONG_TEMPERATURE = 0.6  # generate_with_sd / generate_multi_with_sd long-limit default
 CONDENSE_TEMPERATURE = 0.3
 CONDENSE_TIMEOUT_SECONDS = 10.0
+# #82: similarity gate — regenerate once when a caption's word-trigram Jaccard
+# similarity against that platform's history exceeds this threshold.
+CAPTION_SIMILARITY_THRESHOLD = 0.45
 _CHARS_PER_WORD = 6  # rough heuristic for char→word conversion
 
 # Hardened, fixed system prompt for the condense pass: instructs the model to
@@ -624,22 +633,36 @@ def build_platform_block(
     if spec.guidance:
         lines.append(f"   Guidance: {spec.guidance}")
 
+    # #82: history is rendered as CONSTRAINTS, never as full quoted captions —
+    # few-shot examples of the model's own output anchor its style.
     if platform_history:
-        lines.append(f"   Your recent {name} captions (DO NOT repeat phrasing):")
-        for i, cap in enumerate(platform_history, 1):
-            lines.append(f'     {i}. "{cap}"')
+        openings = [caption_opening(c) for c in platform_history if c.strip()]
+        closings = sorted({caption_closing_pattern(c) for c in platform_history if c.strip()})
+        if openings:
+            lines.append("   Recent openings to avoid: " + "; ".join(f'"{o}"' for o in openings))
+        if closings:
+            lines.append("   Recent closing patterns to avoid: " + ", ".join(closings))
         lines.append(f"   {_ANTI_REPETITION_SUFFIX}")
+        lines.append(f"   Structure directive: {pick_structure_directive(list(platform_history))}")
 
     return "\n".join(lines)
 
 
 def build_history_block(captions: list[str]) -> str:
-    """Build the history context block with anti-repetition instructions."""
+    """Build the history context block as constraints (#82).
+
+    Full captions never enter the prompt — only their openings and closing
+    patterns, which the model is told to avoid.
+    """
     if not captions:
         return ""
-    lines = ["Your recent captions for this account (DO NOT repeat phrasing, vary structure and openings):"]
-    for i, cap in enumerate(captions, 1):
-        lines.append(f'{i}. "{cap}"')
+    openings = [caption_opening(c) for c in captions if c.strip()]
+    closings = sorted({caption_closing_pattern(c) for c in captions if c.strip()})
+    lines = []
+    if openings:
+        lines.append("Recent openings to avoid: " + "; ".join(f'"{o}"' for o in openings))
+    if closings:
+        lines.append("Recent closing patterns to avoid: " + ", ".join(closings))
     lines.append("")
     lines.append(f"Now write a NEW caption that maintains voice consistency. {_ANTI_REPETITION_SUFFIX}")
     return "\n".join(lines)
@@ -1173,17 +1196,22 @@ class CaptionGeneratorOpenAI:
         specs: dict[str, CaptionSpec],
         history: dict[str, list[str]] | list[str] | None = None,
         voice_examples: list[str] | tuple[str, ...] | None = None,
+        diversity_clause: str | None = None,
     ) -> tuple[dict[str, str], AIUsage | None]:
         """Generate one caption per platform in a single OpenAI call.
 
         ``history`` accepts per-platform dict (preferred) or flat list (legacy).
         ``voice_examples`` is rendered as a hardened delimited block at the top
         of the prompt (PUB-029). When None/empty, no voice block is added.
+        ``diversity_clause`` (#82) is appended by the similarity gate on the
+        one bounded regeneration attempt.
         """
         try:
             prompt, _ = self._build_multi_prompt(
                 self.role_prompt, analysis, specs, history, voice_examples=voice_examples
             )
+            if diversity_clause:
+                prompt += f"\n\n{diversity_clause}"
             any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.model,
@@ -1210,6 +1238,7 @@ class CaptionGeneratorOpenAI:
         specs: dict[str, CaptionSpec],
         history: dict[str, list[str]] | list[str] | None = None,
         voice_examples: list[str] | tuple[str, ...] | None = None,
+        diversity_clause: str | None = None,
     ) -> tuple[dict[str, str], AIUsage | None]:
         """Generate per-platform captions plus one sd_caption in a single OpenAI call.
 
@@ -1230,6 +1259,8 @@ class CaptionGeneratorOpenAI:
                 sd_suffix,
                 voice_examples=voice_examples,
             )
+            if diversity_clause:
+                prompt += f"\n\n{diversity_clause}"
             any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.sd_caption_model,
@@ -1355,28 +1386,85 @@ class AIService:
             return {next(iter(specs)): caption}, sd, fallback_usages
 
         usages: list[AIUsage] = []
-        if getattr(self.generator, "sd_caption_enabled", True) and getattr(
-            self.generator, "sd_caption_single_call_enabled", True
-        ):
-            try:
-                async with self._rate_limiter:
-                    result, usage = await self.generator.generate_multi_with_sd(
-                        analysis, specs, history=history, voice_examples=voice_examples
-                    )
-                if usage is not None:
-                    usages.append(usage)
-                sd_caption = result.pop("sd_caption", None) or None
-                return result, sd_caption, usages
-            except Exception:  # noqa: S110 — intentional fallback
-                pass
-        # Fallback to multi-caption without SD
-        async with self._rate_limiter:
-            captions, usage = await self.generator.generate_multi(
-                analysis, specs, history=history, voice_examples=voice_examples
+
+        async def _generate_once(diversity_clause: str | None) -> tuple[dict[str, str], str | None]:
+            """One generation attempt (SD single-call preferred, multi fallback)."""
+            # Only pass the kwarg when set — older generator doubles in tests
+            # don't accept diversity_clause.
+            extra: dict[str, Any] = {"diversity_clause": diversity_clause} if diversity_clause else {}
+            if getattr(self.generator, "sd_caption_enabled", True) and getattr(
+                self.generator, "sd_caption_single_call_enabled", True
+            ):
+                try:
+                    async with self._rate_limiter:
+                        result, usage = await self.generator.generate_multi_with_sd(
+                            analysis, specs, history=history, voice_examples=voice_examples, **extra
+                        )
+                    if usage is not None:
+                        usages.append(usage)
+                    return result, result.pop("sd_caption", None) or None
+                except Exception:  # noqa: S110 — intentional fallback
+                    pass
+            async with self._rate_limiter:
+                result, usage = await self.generator.generate_multi(
+                    analysis, specs, history=history, voice_examples=voice_examples, **extra
+                )
+            if usage is not None:
+                usages.append(usage)
+            return result, None
+
+        captions, sd_caption = await _generate_once(None)
+
+        # #82: similarity gate — one bounded regeneration when a caption is too
+        # close to that platform's recent history, plus telemetry either way.
+        history_dict = history if isinstance(history, dict) else {}
+        if history_dict:
+            captions, sd_caption = await self._apply_similarity_gate(captions, sd_caption, history_dict, _generate_once)
+        return captions, sd_caption, usages
+
+    async def _apply_similarity_gate(
+        self,
+        captions: dict[str, str],
+        sd_caption: str | None,
+        history: dict[str, list[str]],
+        generate_once,
+    ) -> tuple[dict[str, str], str | None]:
+        """Regenerate once when any platform caption is too similar to its history (#82)."""
+
+        def _sims(caps: dict[str, str]) -> dict[str, float]:
+            return {
+                platform: max((trigram_jaccard(text, past) for past in history.get(platform, [])), default=0.0)
+                for platform, text in caps.items()
+            }
+
+        similarities = _sims(captions)
+        offenders = [p for p, s in similarities.items() if s > CAPTION_SIMILARITY_THRESHOLD]
+        regenerated = False
+        if offenders:
+            recent = [c for caps in history.values() for c in caps]
+            directive = pick_structure_directive(recent + [captions[p] for p in offenders])
+            avoid = "; ".join(f'"{caption_opening(captions[p])}"' for p in offenders)
+            clause = (
+                "IMPORTANT: the previous draft was too similar to recent captions. "
+                f"{directive} The caption must differ in opening and structure from: {avoid}."
             )
-        if usage is not None:
-            usages.append(usage)
-        return captions, None, usages
+            try:
+                captions_retry, sd_retry = await generate_once(clause)
+                captions, sd_caption = captions_retry, sd_retry or sd_caption
+                similarities = _sims(captions)
+                regenerated = True
+            except Exception:
+                log_json(logger, logging.WARNING, "caption_similarity_regen_failed")
+        for platform, score in similarities.items():
+            log_json(
+                logger,
+                logging.INFO,
+                "caption_similarity",
+                platform=platform,
+                max_similarity=round(score, 3),
+                regenerated=regenerated,
+            )
+        return captions, sd_caption
 
 
 class NullAIService:

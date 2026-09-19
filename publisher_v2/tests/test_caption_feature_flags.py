@@ -324,3 +324,39 @@ class TestBackwardCompatibility:
         # examples should only have YAML-defined entries (no voice profile)
         # This proves backward compatibility
         assert isinstance(spec.examples, tuple)
+
+
+class TestVoiceMatchingDefaultWithProfile:
+    """#82: voice matching defaults ON when the tenant has a voice profile."""
+
+    def _app_config(self, voice_profile, features_kwargs=None):
+        from publisher_v2.config.schema import (
+            ApplicationConfig,
+            ContentConfig,
+            DropboxConfig,
+            FeaturesConfig,
+            OpenAIConfig,
+            PlatformsConfig,
+            StoragePathConfig,
+        )
+
+        return ApplicationConfig(
+            dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
+            storage_paths=StoragePathConfig(image_folder="/Photos"),
+            openai=OpenAIConfig(api_key="sk-test"),
+            platforms=PlatformsConfig(),
+            features=FeaturesConfig(**(features_kwargs or {})),
+            content=ContentConfig(hashtag_string="", archive=True, debug=False, voice_profile=voice_profile),
+        )
+
+    def test_default_true_when_profile_present(self) -> None:
+        cfg = self._app_config(["An example caption in my voice."])
+        assert cfg.features.voice_matching_enabled is True
+
+    def test_default_false_without_profile(self) -> None:
+        cfg = self._app_config(None)
+        assert cfg.features.voice_matching_enabled is False
+
+    def test_explicit_false_wins_over_profile(self) -> None:
+        cfg = self._app_config(["Example."], features_kwargs={"voice_matching_enabled": False})
+        assert cfg.features.voice_matching_enabled is False

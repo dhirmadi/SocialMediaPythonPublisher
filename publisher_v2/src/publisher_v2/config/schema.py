@@ -397,6 +397,21 @@ class ApplicationConfig(BaseModel):
     auth0: Auth0Config | None = None
 
     @model_validator(mode="after")
+    def default_voice_matching_from_profile(self) -> "ApplicationConfig":
+        """#82: voice matching defaults ON when the tenant has a voice profile.
+
+        An explicit ``voice_matching_enabled`` value (either way) always wins;
+        only the untouched default flips when ``content.voice_profile`` is set.
+        """
+        if (
+            self.content is not None
+            and getattr(self.content, "voice_profile", None)
+            and "voice_matching_enabled" not in self.features.model_fields_set
+        ):
+            self.features.voice_matching_enabled = True
+        return self
+
+    @model_validator(mode="after")
     def validate_storage_provider(self) -> "ApplicationConfig":
         if self.dropbox is None and self.managed is None:
             raise ValueError("Exactly one storage provider must be set: dropbox or managed")

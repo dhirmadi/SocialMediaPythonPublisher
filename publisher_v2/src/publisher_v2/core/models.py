@@ -96,12 +96,17 @@ class CaptionSpec:
                 if style_cfg is None:
                     continue
                 hashtags = config.content.hashtag_string if style_cfg.hashtags else ""
+                # #82: tenant voice-profile examples REPLACE the static YAML
+                # examples; the shared static ones are only a fallback for
+                # tenants with no voice profile (they share one shape and
+                # homogenize output across tenants otherwise).
+                examples = voice_profile_examples if voice_profile_examples else tuple(style_cfg.examples)
                 specs[name] = CaptionSpec(
                     platform=name,
                     style=style_cfg.style,
                     hashtags=hashtags,
                     max_length=style_cfg.max_length,
-                    examples=voice_profile_examples + tuple(style_cfg.examples),
+                    examples=examples,
                     guidance=style_cfg.guidance,
                     smart_hashtags=smart_hashtags,
                 )

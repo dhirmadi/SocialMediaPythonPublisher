@@ -65,7 +65,9 @@ class ConfirmationTagsConfig(BaseModel):
 
 
 class CaptionHistoryConfig(BaseModel):
-    window_size: int = Field(default=8, ge=0, le=50, description="Number of recent captions to fetch")
+    # #82: reduced from 8 — history feeds the prompt as constraints, and a
+    # small window keeps the openings-to-avoid list tight.
+    window_size: int = Field(default=3, ge=0, le=50, description="Number of recent captions to fetch")
     max_tokens_budget: int = Field(default=1000, ge=0, le=10000, description="Max tokens for history context")
 
 

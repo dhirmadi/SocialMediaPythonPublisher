@@ -86,3 +86,22 @@ Post‑Processing:
 - Set tone via `system_prompt` and `role_prompt` in the INI:
   - Example: “kinky, playful, respectful; consent‑forward; no hashtags or emojis; ≤240 chars; end with an open question”
 - Prompts can be iterated safely with `--preview` to audition variations
+
+## 8. Voice Examples and Caption Diversity (#82)
+
+- **Tenant voice profile wins.** When `content.voice_profile` is set, its examples fully
+  replace the static email examples in `config/static/ai_prompts.yaml`. The static examples
+  are a **fallback only** for tenants with no voice profile — they share one structural shape
+  (observation, then question) and homogenize output across tenants otherwise.
+- `features.voice_matching_enabled` now defaults to **true when `content.voice_profile` is
+  non-empty**; an explicit value in config always wins.
+- Caption history reaches the prompt as **constraints, not examples**: the first six words of
+  each recent caption ("openings to avoid") and its closing pattern (question / statement /
+  fragment). Full historical captions are never quoted into a prompt. Window default: 3.
+- Each platform block with history carries a rotated **structure directive** (declarative /
+  sensory fragment / second person / quiet observation / short line), picked least-recently-used
+  against the history.
+- A **similarity gate** compares each generated caption against that platform's history using
+  word-trigram Jaccard; above 0.45 it regenerates once with a different directive and a
+  must-differ clause. Every run logs a `caption_similarity` event per platform
+  (`platform`, `max_similarity`, `regenerated`) — preview mode included.
