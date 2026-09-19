@@ -11,6 +11,8 @@ import contextlib
 import io
 import os
 import threading
+import time
+from collections import OrderedDict
 from typing import Any, cast
 
 import boto3
@@ -71,6 +73,12 @@ class ManagedStorage:
         # PUB-045: R2 storage operation counter (drained by StorageOpsMeter)
         self._ops_count: int = 0
         self._ops_lock = threading.Lock()
+        # #86: per-instance thumbnail cache keyed by
+        # (endpoint, bucket, object_key, etag, size) with TTL + byte budget —
+        # a module-global cache let tenants with the same key path see each
+        # other's thumbnails and served stale entries after re-uploads.
+        self._thumb_cache: OrderedDict[tuple[str, str, str, str, str], tuple[bytes, float]] = OrderedDict()
+        self._thumb_cache_bytes = 0
 
     def _count_ops(self, n: int = 1) -> None:
         """Increment the R2 operation counter (thread-safe). PUB-045."""
@@ -410,36 +418,63 @@ class ManagedStorage:
         size: ThumbnailSize = ThumbnailSize.W960H640,
         format: ThumbnailFormat = ThumbnailFormat.JPEG,
     ) -> bytes:
-        """Generate thumbnail via Pillow with LRU caching."""
+        """Generate thumbnail via Pillow with a tenant-safe, TTL-bounded cache (#86)."""
         key = self._key(folder, filename)
-        size_str = str(size)
-        cached = _get_cached_thumbnail(key, size_str)
-        if cached is not None:
-            return cached
+        etag = ""
+        with contextlib.suppress(Exception):
+            meta = await self.get_file_metadata(folder, filename)
+            etag = str(meta.get("ETag") or "")
+        cache_key = (self.config.endpoint_url, self._bucket, key, etag, str(size))
+
+        now = time.time()
+        entry = self._thumb_cache.get(cache_key)
+        if entry is not None:
+            data, stored_at = entry
+            if now - stored_at <= _thumb_cache_ttl_seconds():
+                self._thumb_cache.move_to_end(cache_key)
+                return data
+            self._evict_thumb(cache_key)
 
         image_bytes = await self.download_image(folder, filename)
-        thumb_bytes = await asyncio.to_thread(_generate_thumbnail, image_bytes, size_str, str(format))
-        _put_cached_thumbnail(key, size_str, thumb_bytes)
+        thumb_bytes = await asyncio.to_thread(_generate_thumbnail, image_bytes, str(size), str(format))
+        self._store_thumb(cache_key, thumb_bytes, now)
         return thumb_bytes
 
+    def _evict_thumb(self, cache_key: tuple[str, str, str, str, str]) -> None:
+        entry = self._thumb_cache.pop(cache_key, None)
+        if entry is not None:
+            self._thumb_cache_bytes -= len(entry[0])
 
-# ---------------------------------------------------------------------------
-# Thumbnail cache (module-level LRU, keyed by (object_key, size))
-# ---------------------------------------------------------------------------
-_thumbnail_cache: dict[tuple[str, str], bytes] = {}
-_CACHE_MAX = 500
+    def _store_thumb(self, cache_key: tuple[str, str, str, str, str], data: bytes, now: float) -> None:
+        budget = _thumb_cache_max_bytes()
+        if len(data) > budget:
+            return
+        while self._thumb_cache and self._thumb_cache_bytes + len(data) > budget:
+            oldest_key = next(iter(self._thumb_cache))
+            self._evict_thumb(oldest_key)
+        self._thumb_cache[cache_key] = (data, now)
+        self._thumb_cache_bytes += len(data)
+
+    async def aclose(self) -> None:
+        """Close the underlying boto3 client and drop the thumbnail cache (#86)."""
+        self._thumb_cache.clear()
+        self._thumb_cache_bytes = 0
+        with contextlib.suppress(Exception):
+            await asyncio.to_thread(self.client.close)
 
 
-def _get_cached_thumbnail(key: str, size: str) -> bytes | None:
-    return _thumbnail_cache.get((key, size))
+def _thumb_cache_ttl_seconds() -> float:
+    try:
+        return float(os.environ.get("WEB_THUMBNAIL_CACHE_TTL_SECONDS", "900"))
+    except ValueError:
+        return 900.0
 
 
-def _put_cached_thumbnail(key: str, size: str, data: bytes) -> None:
-    if len(_thumbnail_cache) >= _CACHE_MAX:
-        # Evict oldest entry (FIFO approximation)
-        oldest = next(iter(_thumbnail_cache))
-        del _thumbnail_cache[oldest]
-    _thumbnail_cache[(key, size)] = data
+def _thumb_cache_max_bytes() -> int:
+    try:
+        return int(os.environ.get("WEB_THUMBNAIL_CACHE_MAX_BYTES", str(50 * 1024 * 1024)))
+    except ValueError:
+        return 50 * 1024 * 1024
 
 
 def _generate_thumbnail(image_bytes: bytes, size_str: str, fmt_str: str) -> bytes:
