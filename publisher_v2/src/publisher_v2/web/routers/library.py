@@ -293,6 +293,7 @@ async def _list_objects_buffered(
     is_managed = isinstance(storage, ManagedStorage)
     count_op = storage._count_ops if is_managed else (lambda n=1: None)
     _lib_logger = logging.getLogger("publisher_v2.storage_ops_metering")
+    _meter = getattr(service, "_storage_ops_meter", None)
     log_json(
         _lib_logger,
         logging.INFO,
@@ -300,10 +301,8 @@ async def _list_objects_buffered(
         is_managed=is_managed,
         storage_type=type(storage).__name__,
         storage_id=id(storage),
-        meter_storage_id=id(service._storage_ops_meter._storage)
-        if getattr(service, "_storage_ops_meter", None)
-        else None,
-        has_meter=getattr(service, "_storage_ops_meter", None) is not None,
+        meter_storage_id=id(_meter._storage) if _meter is not None else None,
+        has_meter=_meter is not None,
     )
 
     def _scan() -> dict[str, Any]:

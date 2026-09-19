@@ -67,7 +67,7 @@ class EmailPublisher(Publisher):
             def _build_message(to_addrs: str | list[str], subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
                 # Use Header for RFC 2047 encoding of non-ASCII chars (emojis, etc.)
-                msg["Subject"] = Header(subject, "utf-8")
+                msg["Subject"] = str(Header(subject, "utf-8"))
                 msg["From"] = config.sender
                 to_header = to_addrs if isinstance(to_addrs, str) else ", ".join(to_addrs)
                 msg["To"] = to_header

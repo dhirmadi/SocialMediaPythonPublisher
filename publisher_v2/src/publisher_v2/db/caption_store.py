@@ -114,12 +114,12 @@ class CaptionStore:
             )
             if platforms:
                 inner = inner.where(CaptionHistory.platform.in_(platforms))
-            inner = inner.subquery()
+            inner_sq = inner.subquery()
 
             stmt = (
-                select(inner.c.platform, inner.c.caption_text)
-                .where(inner.c.rn <= limit)
-                .order_by(inner.c.platform, inner.c.rn)
+                select(inner_sq.c.platform, inner_sq.c.caption_text)
+                .where(inner_sq.c.rn <= limit)
+                .order_by(inner_sq.c.platform, inner_sq.c.rn)
             )
             rows = await session.execute(stmt)
 
