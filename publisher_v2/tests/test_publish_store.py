@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from publisher_v2.db.models import Base
@@ -101,3 +102,103 @@ class TestMarkAndPostedPlatforms:
         assert row.status == "published"
         assert row.post_id == "msg-9"
         assert row.finished_at is not None
+
+
+class TestStaleLeaseExpiry:
+    """#139: a lease whose holder crashed must not wedge the image forever."""
+
+    @staticmethod
+    async def _age_lease(db_session_factory, seconds: float) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import update as sa_update
+
+        from publisher_v2.db.models import PublishRecord
+
+        async with db_session_factory() as session:
+            await session.execute(
+                sa_update(PublishRecord).values(leased_at=datetime.now(UTC) - timedelta(seconds=seconds))
+            )
+            await session.commit()
+
+    async def test_lease_older_than_ttl_is_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == {"telegram"}
+        await self._age_lease(db_session_factory, 601)
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == {"telegram"}
+
+    async def test_row_stamped_by_the_column_server_default_is_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production-shaped orphan: leased_at comes from the column server default.
+
+        SQLite's CURRENT_TIMESTAMP has second precision, so the row is aged here
+        with raw SQL in that same stored format — an equality-based reclaim would
+        silently match nothing.
+        """
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == {"telegram"}
+        async with db_session_factory() as session:
+            await session.execute(text("UPDATE pv2_publish_record SET leased_at = datetime('now', '-3600 seconds')"))
+            await session.commit()
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == {"telegram"}
+
+    async def test_fresh_lease_is_not_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 599)
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == set()
+
+    async def test_published_row_is_never_reclaimed_however_old(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await store.mark("t1", "hash1", "telegram", "published", post_id="1")
+        await self._age_lease(db_session_factory, 86400)
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == set()
+
+    async def test_ttl_is_read_from_the_environment(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "1")
+        monkeypatch.setenv("PUBLISH_TIMEOUT_SECONDS", "5")
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "70")  # floor is 1 + 5 + 60 = 66
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 90)
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == {"telegram"}
+
+    async def test_ttl_below_a_full_run_duration_is_floored(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A too-small TTL must not let a second run reclaim a lease mid-publish."""
+        monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "150")
+        monkeypatch.setenv("PUBLISH_TIMEOUT_SECONDS", "120")
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "1")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 200)  # still inside 150 + 120 + 60
+
+        assert await store.acquire_lease("t1", "hash1", ["telegram"]) == set()
+
+    async def test_only_one_of_two_concurrent_runs_reclaims_a_stale_lease(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 3600)
+
+        first, second = await asyncio.gather(
+            store.acquire_lease("t1", "hash1", ["telegram"]),
+            store.acquire_lease("t1", "hash1", ["telegram"]),
+        )
+
+        assert sorted([len(first), len(second)]) == [0, 1]

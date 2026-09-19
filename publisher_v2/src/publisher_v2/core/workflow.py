@@ -45,6 +45,17 @@ def _publish_timeout_seconds() -> float:
     return load_runtime_settings().publish_timeout_seconds
 
 
+# #139: prefix of the WorkflowResult.error a run returns when the file-based
+# posted state (no publish store) refuses a re-publish. The web layer maps it to
+# a 409 so the operator sees the reason instead of an empty result set.
+ALREADY_PUBLISHED_ERROR = "Already published: "
+
+
+def _publish_lease_ttl_seconds() -> float:
+    """Lease TTL (#139): after this, another run may reclaim the lease."""
+    return load_runtime_settings().publish_lease_ttl_seconds
+
+
 def _ai_stage_timeout_seconds() -> float:
     """Hard deadline for the combined vision+caption stage (#84).
 
@@ -97,7 +108,26 @@ class WorkflowOrchestrator:
         self._publish_store = publish_store
         self.logger = logging.getLogger("publisher_v2.workflow")
 
-    async def _select_image(self, select_filename: str | None = None) -> _ImageSelection:
+    def _already_posted(
+        self,
+        sha256: str,
+        content_hash: str,
+        posted_hashes: set[str],
+        posted_content_hashes: set[str],
+    ) -> bool:
+        """#139: file-state guard for an explicitly selected image.
+
+        Only applies without a publish store. With a store, per-platform records
+        own retry semantics (a partial publish must stay selectable), so the
+        coarse file-based posted set must not veto the run.
+        """
+        if self._publish_store is not None:
+            return False
+        return bool((sha256 and sha256 in posted_hashes) or (content_hash and content_hash in posted_content_hashes))
+
+    async def _select_image(
+        self, select_filename: str | None = None, respect_posted_state: bool = True
+    ) -> _ImageSelection:
         """
         Select the next image to publish, applying dedup logic.
 
@@ -146,6 +176,18 @@ class WorkflowOrchestrator:
                         break
                 content = await self.storage.download_image(image_folder, selected_image)
                 selected_hash = hashlib.sha256(content).hexdigest()
+                if respect_posted_state and self._already_posted(
+                    selected_hash, selected_content_hash, posted_hashes, posted_content_hashes
+                ):
+                    return _ImageSelection(
+                        "",
+                        b"",
+                        "",
+                        "",
+                        dropbox_list_ms,
+                        elapsed_ms(selection_start),
+                        error=f"{ALREADY_PUBLISHED_ERROR}{select_filename}",
+                    )
             else:
                 # Fast-path: skip downloads when all content hashes are known and already posted
                 if posted_content_hashes:
@@ -217,6 +259,16 @@ class WorkflowOrchestrator:
                 selected_image = select_filename
                 content = await self.storage.download_image(image_folder, selected_image)
                 selected_hash = hashlib.sha256(content).hexdigest()
+                if respect_posted_state and self._already_posted(selected_hash, "", posted_hashes, set()):
+                    return _ImageSelection(
+                        "",
+                        b"",
+                        "",
+                        "",
+                        dropbox_list_ms,
+                        elapsed_ms(selection_start),
+                        error=f"{ALREADY_PUBLISHED_ERROR}{select_filename}",
+                    )
             else:
                 for name in images:
                     blob = await self.storage.download_image(image_folder, name)
@@ -255,6 +307,13 @@ class WorkflowOrchestrator:
         caption = ""
         tmp_path = ""
         variant_paths: dict[str, str] = {}
+        publish_results: dict[str, PublishResult] = {}
+        # #139: platforms this run holds a lease on but has not published yet.
+        pending_leases: set[str] = set()
+        lease_hash = ""
+        publish_targets: list[Publisher] = []
+        lease_claimed_at = 0.0
+        skip_ai_stage = False
         temp_link = ""
         # #84: re-anchored just before vision runs; initialized here for scope.
         ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
@@ -291,7 +350,10 @@ class WorkflowOrchestrator:
 
         try:
             # 1. Select image
-            sel = await self._select_image(select_filename)
+            # #139: preview and dry-publish publish nothing, so the file-based
+            # "already posted" veto must not block them — ``--select X --preview``
+            # stays the explicit override it has always been.
+            sel = await self._select_image(select_filename, respect_posted_state=not preview_mode and not dry_publish)
             dropbox_list_images_ms = sel.dropbox_list_ms
             image_selection_ms = sel.selection_ms
 
@@ -331,8 +393,34 @@ class WorkflowOrchestrator:
                 )
             analysis_source: str | bytes = sel.content if vision_uses_bytes else temp_link
 
+            # #139: claim the publish lease BEFORE the AI stage. Claiming it after
+            # meant a crash in between left a permanently leased row (the image
+            # could never be published again), and a double-click paid for a full
+            # vision + caption run before discovering it owned nothing.
+            enabled_publishers = [p for p in self.publishers if p.is_enabled()]
+            lease_hash = selected_content_hash or selected_hash
+            will_publish = (
+                self.config.features.publish_enabled
+                and bool(enabled_publishers)
+                and not self.config.content.debug
+                and not dry_publish
+                and not preview_mode
+            )
+            publish_targets = list(enabled_publishers)
+            if will_publish and self._publish_store is not None and lease_hash:
+                # Stamped before the claim round-trip so the release fence below
+                # can only ever over-estimate how fresh this run's lease is.
+                lease_claimed_at = now_monotonic()
+                publish_targets = await self._claim_publish_targets(
+                    lease_hash, enabled_publishers, publish_results, correlation_id
+                )
+                pending_leases = {p.platform_name for p in publish_targets}
+                # Nothing left to publish: skip the AI stage entirely (it only
+                # feeds the publish + sidecar path for this run).
+                skip_ai_stage = not publish_targets
+
             # 3. Analyze image with vision AI (feature-gated)
-            if self.config.features.analyze_caption_enabled:
+            if self.config.features.analyze_caption_enabled and not skip_ai_stage:
                 if not preview_mode:
                     log_json(
                         self.logger,
@@ -373,7 +461,7 @@ class WorkflowOrchestrator:
                     logging.INFO,
                     "feature_analyze_caption_skipped",
                     correlation_id=correlation_id,
-                    reason="FEATURE_ANALYZE_CAPTION=false",
+                    reason="nothing left to publish" if skip_ai_stage else "FEATURE_ANALYZE_CAPTION=false",
                 )
 
             # 4. Generate caption from analysis (feature-gated)
@@ -393,7 +481,7 @@ class WorkflowOrchestrator:
                     ai_skipped=True,
                     correlation_id=correlation_id,
                 )
-            elif self.config.features.analyze_caption_enabled:
+            elif self.config.features.analyze_caption_enabled and not skip_ai_stage:
                 if analysis is None:
                     raise AIServiceError("Vision analysis is None but caption generation is enabled")
                 if not preview_mode:
@@ -518,29 +606,26 @@ class WorkflowOrchestrator:
                     logging.INFO,
                     "feature_caption_generation_skipped",
                     correlation_id=correlation_id,
-                    reason="FEATURE_ANALYZE_CAPTION=false",
+                    reason="nothing left to publish" if skip_ai_stage else "FEATURE_ANALYZE_CAPTION=false",
                 )
 
             # 5. Publish in parallel
-            enabled_publishers = [p for p in self.publishers if p.is_enabled()]
-            publish_results: dict[str, PublishResult] = {}
             if self.config.features.publish_enabled:
                 if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                     publish_start = now_monotonic()
                     context = self._build_publisher_context(analysis)
                     timeout = _publish_timeout_seconds()
-                    # #85: claim a per-platform lease so a partial publish never
-                    # double-posts and a web double-click publishes once.
-                    lease_hash = selected_content_hash or selected_hash
-                    publish_targets = list(enabled_publishers)
-                    if self._publish_store is not None and lease_hash:
-                        publish_targets = await self._claim_publish_targets(
-                            lease_hash, enabled_publishers, publish_results, correlation_id
-                        )
+                    # #85/#139: the per-platform lease was already claimed above,
+                    # before the AI stage, so a partial publish never double-posts
+                    # and a web double-click publishes once.
                     # #83: render one variant per publisher we're actually about to
                     # call this run, up front, so no publisher ever mutates the
                     # shared temp file mid-gather.
                     variant_paths = await self._render_publish_variants(tmp_path, publish_targets)
+                    # #139: from here on every target gets an explicit mark, so the
+                    # finally-release must not also touch them. Cleared after variant
+                    # rendering: a failure in there still releases the leases.
+                    pending_leases = set()
                     results = await asyncio.gather(
                         *[
                             asyncio.wait_for(
@@ -633,6 +718,9 @@ class WorkflowOrchestrator:
             # Save published (formatted) captions to DB for caption history
             if (
                 any_success
+                # #139: a run that owned nothing skipped the AI stage, so there is
+                # no caption to record — the run that did publish already stored it.
+                and not skip_ai_stage
                 and self._caption_store is not None
                 and not self.config.content.debug
                 and not dry_publish
@@ -782,6 +870,34 @@ class WorkflowOrchestrator:
             meter = getattr(self, "_storage_ops_meter", None)
             if meter is not None:
                 await meter.flush()
+            # #139: any lease still pending here was never published — the run
+            # aborted (exception or early return) between lease and publish, so
+            # mark those rows failed and let the next run re-lease them. Last in
+            # the block and shielded: a cancellation delivered at this await must
+            # neither skip the temp-file cleanup above nor drop the release.
+            held_for = now_monotonic() - lease_claimed_at if lease_claimed_at else 0.0
+            if pending_leases and held_for >= _publish_lease_ttl_seconds():
+                # #139: this run held the lease past the TTL, so another run may
+                # have reclaimed it and be publishing right now. Marking it failed
+                # would make it re-leasable mid-publish. Leave it to the TTL.
+                log_json(
+                    self.logger,
+                    logging.WARNING,
+                    "publish_lease_release_skipped_expired",
+                    correlation_id=correlation_id,
+                    platforms=sorted(pending_leases),
+                    held_seconds=round(held_for, 1),
+                )
+                pending_leases = set()
+            if pending_leases:
+                release = asyncio.gather(
+                    *[
+                        self._mark_publish(lease_hash, platform, "failed", error="run aborted before publish (#139)")
+                        for platform in sorted(pending_leases)
+                    ]
+                )
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.shield(release)
 
     async def _claim_publish_targets(
         self,

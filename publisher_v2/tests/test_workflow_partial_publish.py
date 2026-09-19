@@ -7,6 +7,8 @@ Instagram record; the next run publishes only to Instagram.
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import hashlib
 from typing import Any
 
 import pytest
@@ -324,3 +326,255 @@ async def test_publisher_exception_marks_row_failed_with_sanitized_message(
     assert by_platform == {"telegram": "published", "instagram": "failed"}
     failed_row = next(r for r in rows if r.platform == "instagram")
     assert failed_row.error == error
+
+
+# --- #139: lease lifecycle around the AI stage ---
+
+
+class _CountingAnalyzer:
+    def __init__(self, fail: bool = False, delay: float = 0.0) -> None:
+        self.calls = 0
+        self._fail = fail
+        self._delay = delay
+
+    async def analyze(self, url_or_bytes: str | bytes) -> Any:
+        from publisher_v2.core.models import ImageAnalysis
+
+        self.calls += 1
+        if self._delay:
+            await asyncio.sleep(self._delay)
+        if self._fail:
+            raise RuntimeError("vision exploded")
+        return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None
+
+
+class _CountingAI(_DummyAI):
+    def __init__(self, analyzer: _CountingAnalyzer) -> None:
+        super().__init__()
+        self.analyzer = analyzer  # type: ignore[assignment]
+
+
+async def _lease_rows(publish_store: PublishStore) -> list[Any]:
+    from sqlalchemy import select
+
+    from publisher_v2.db.models import PublishRecord
+
+    async with publish_store._session_factory() as session:  # noqa: SLF001 — test introspection
+        return list((await session.execute(select(PublishRecord))).scalars().all())
+
+
+IMAGE_SHA256 = hashlib.sha256(b"\x89PNG\r\n\x1a\n").hexdigest()
+
+
+class _LeaseProbingAnalyzer(_CountingAnalyzer):
+    """Asks the store, mid-AI-stage, whether the platform is still leasable."""
+
+    def __init__(self, store: PublishStore, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self._store = store
+        self.probe: set[str] | None = None
+
+    async def analyze(self, url_or_bytes: str | bytes) -> Any:
+        self.probe = await self._store.acquire_lease("t2", IMAGE_SHA256, ["telegram"])
+        return await super().analyze(url_or_bytes)
+
+
+async def test_lease_is_already_held_while_the_ai_stage_runs(publish_store: PublishStore) -> None:
+    """#139: lease acquisition moves before the AI stage, so a rival run is blocked during it."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    analyzer = _LeaseProbingAnalyzer(publish_store)
+    orchestrator = WorkflowOrchestrator(
+        _config(), storage, _CountingAI(analyzer), publishers, tenant="t2", publish_store=publish_store
+    )
+
+    await orchestrator.execute(select_filename="test.jpg")
+
+    assert analyzer.probe == set()
+
+
+async def test_ai_stage_failure_leaves_no_leased_row_behind(publish_store: PublishStore) -> None:
+    """#139: a lease taken before a crashing AI stage must be released, not wedged."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    analyzer = _LeaseProbingAnalyzer(publish_store, fail=True)
+    orchestrator = WorkflowOrchestrator(
+        _config(), storage, _CountingAI(analyzer), publishers, tenant="t2", publish_store=publish_store
+    )
+
+    with pytest.raises(RuntimeError):
+        await orchestrator.execute(select_filename="test.jpg")
+
+    assert analyzer.probe == set()  # the lease was held when the AI stage ran
+    rows = await _lease_rows(publish_store)
+    assert [r.status for r in rows if r.status == "leased"] == []
+    assert calls == {}
+
+
+async def test_next_run_publishes_after_an_ai_stage_crash(publish_store: PublishStore) -> None:
+    """#139 AC: no permanent wedge — the retry run publishes normally."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    crashing = WorkflowOrchestrator(
+        _config(),
+        storage,
+        _CountingAI(_CountingAnalyzer(fail=True)),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    with pytest.raises(RuntimeError):
+        await crashing.execute(select_filename="test.jpg")
+
+    healthy = WorkflowOrchestrator(
+        _config(), storage, _CountingAI(_CountingAnalyzer()), publishers, tenant="t1", publish_store=publish_store
+    )
+    result = await healthy.execute(select_filename="test.jpg")
+
+    assert result.success is True
+    assert calls == {"telegram": 1}
+
+
+async def test_double_click_costs_exactly_one_ai_stage(publish_store: PublishStore) -> None:
+    """#139 AC: the second concurrent click must not pay for vision + captioning."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    analyzer = _CountingAnalyzer(delay=0.05)
+    orchestrator = WorkflowOrchestrator(
+        _config(), storage, _CountingAI(analyzer), publishers, tenant="t1", publish_store=publish_store
+    )
+
+    await asyncio.gather(
+        orchestrator.execute(select_filename="test.jpg"),
+        orchestrator.execute(select_filename="test.jpg"),
+    )
+
+    assert analyzer.calls == 1
+    assert calls == {"telegram": 1}
+
+
+# --- #139: file-based fallback when no publish store exists ---
+
+
+async def test_no_store_selected_file_is_blocked_after_it_was_posted(tmp_path, monkeypatch) -> None:
+    """Legacy (SHA256-only) path: a second publish of the same file must not repost."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1")
+
+    first = await orchestrator.execute(select_filename="test.jpg")
+    assert first.success is True
+
+    second = await orchestrator.execute(select_filename="test.jpg")
+
+    assert second.success is False
+    assert second.error == "Already published: test.jpg"
+    assert calls == {"telegram": 1}
+
+
+async def test_no_store_preview_of_a_posted_file_is_still_allowed(tmp_path, monkeypatch) -> None:
+    """``--select X --preview`` publishes nothing, so posted state must not veto it."""
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1")
+    await orchestrator.execute(select_filename="test.jpg")
+
+    preview = await orchestrator.execute(select_filename="test.jpg", preview_mode=True)
+    dry = await orchestrator.execute(select_filename="test.jpg", dry_publish=True)
+
+    assert preview.error is None, preview.error
+    assert dry.error is None, dry.error
+    assert calls == {"telegram": 1}
+
+
+async def test_cancelled_run_still_releases_its_lease(publish_store: PublishStore) -> None:
+    """#139: a client disconnect mid-AI-stage must not wedge the lease either."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        _config(),
+        storage,
+        _CountingAI(_CountingAnalyzer(delay=5.0)),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+    )
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    await asyncio.sleep(0.05)  # let the shielded release finish
+
+    rows = await _lease_rows(publish_store)
+    assert [r.status for r in rows if r.status == "leased"] == []
+    assert calls == {}
+
+
+class _RecordingCaptionStore:
+    def __init__(self) -> None:
+        self.batches: list[dict[str, str]] = []
+
+    async def save_captions_batch(self, *, captions_by_platform: dict[str, str], **_kwargs: Any) -> int:
+        self.batches.append(captions_by_platform)
+        return len(captions_by_platform)
+
+
+async def test_skipped_ai_stage_writes_no_empty_caption_history(publish_store: PublishStore) -> None:
+    """#139: a run that owns nothing skips the AI stage — it must not store blank captions."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    caption_store = _RecordingCaptionStore()
+    orchestrator = WorkflowOrchestrator(
+        _config(),
+        storage,
+        _DummyAI(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+        caption_store=caption_store,  # type: ignore[arg-type]
+    )
+
+    await orchestrator.execute(select_filename="test.jpg")
+    assert caption_store.batches == [{"telegram": "hello world"}]
+
+    await orchestrator.execute(select_filename="test.jpg")  # everything already published
+
+    assert caption_store.batches == [{"telegram": "hello world"}]
+
+
+async def test_lease_held_past_its_ttl_is_not_released_by_the_aborting_run(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """#139: another run may already own the reclaimed lease — do not mark it failed."""
+    from publisher_v2.core import workflow as workflow_module
+
+    monkeypatch.setattr(workflow_module, "_publish_lease_ttl_seconds", lambda: 0.0)
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        _config(),
+        storage,
+        _CountingAI(_CountingAnalyzer(fail=True)),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+    )
+
+    with pytest.raises(RuntimeError):
+        await orchestrator.execute(select_filename="test.jpg")
+
+    rows = await _lease_rows(publish_store)
+    assert [r.status for r in rows] == ["leased"]

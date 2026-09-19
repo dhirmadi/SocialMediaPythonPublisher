@@ -10,16 +10,30 @@ automatically and need operator attention.
 from __future__ import annotations
 
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.db.models import PublishRecord
+from publisher_v2.utils.logging import log_json
 
 logger = logging.getLogger("publisher_v2.db.publish_store")
+
+
+def _is_stale(leased_at: datetime | None, ttl_seconds: float) -> bool:
+    """True when a ``leased`` row is older than the lease TTL (#139).
+
+    Naive timestamps (SQLite) are read as UTC, matching how they are written.
+    """
+    if leased_at is None:
+        return True
+    if leased_at.tzinfo is None:
+        leased_at = leased_at.replace(tzinfo=UTC)
+    return (datetime.now(UTC) - leased_at).total_seconds() > ttl_seconds
 
 
 class PublishStore:
@@ -49,6 +63,7 @@ class PublishStore:
           and affects zero rows, instead of a stale in-memory read letting
           both callers believe they won the lease.
         """
+        ttl_seconds = load_runtime_settings().publish_lease_ttl_seconds
         owned: set[str] = set()
         for platform in platforms:
             async with self._session_factory() as session:
@@ -92,6 +107,40 @@ class PublishStore:
                     if getattr(result, "rowcount", 0) == 1:
                         # Lost the race to a concurrent re-lease attempt otherwise.
                         owned.add(platform)
+                elif existing.status == "leased" and _is_stale(existing.leased_at, ttl_seconds):
+                    # #139: the run holding this lease crashed between the lease
+                    # and the mark. Reclaim with a single conditional UPDATE that
+                    # re-tests staleness in SQL (``leased_at < cutoff``): the
+                    # winner stamps a fresh ``leased_at``, so a concurrent
+                    # reclaim re-evaluates the WHERE against the committed row,
+                    # matches nothing and does not also believe it won. The
+                    # cutoff is compared, never the exact ``leased_at`` we read —
+                    # rows stamped by the column's server default have
+                    # second-precision timestamps that an equality test misses.
+                    cutoff = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
+                    result = await session.execute(
+                        sa_update(PublishRecord)
+                        .where(
+                            PublishRecord.tenant == tenant,
+                            PublishRecord.content_hash == content_hash,
+                            PublishRecord.platform == platform,
+                            PublishRecord.status == "leased",
+                            PublishRecord.leased_at < cutoff,
+                        )
+                        .values(status="leased", leased_at=datetime.now(UTC), error=None, finished_at=None)
+                        .execution_options(synchronize_session=False)
+                    )
+                    await session.commit()
+                    if getattr(result, "rowcount", 0) == 1:
+                        owned.add(platform)
+                        log_json(
+                            logger,
+                            logging.WARNING,
+                            "publish_lease_reclaimed",
+                            tenant=tenant,
+                            platform=platform,
+                            ttl_seconds=ttl_seconds,
+                        )
         return owned
 
     async def mark(

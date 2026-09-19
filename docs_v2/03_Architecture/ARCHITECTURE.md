@@ -107,7 +107,7 @@ Web API (FastAPI):
 - `GET /api/images/random` → ImageResponse (random image with metadata, includes `thumbnail_url`)
 - `GET /api/images/{filename}/thumbnail` → JPEG thumbnail bytes (fast preview, Feature 018)
 - `POST /api/images/{filename}/analyze` → AnalysisResponse (run AI analysis)
-- `POST /api/images/{filename}/publish` → PublishResponse (publish to platforms)
+- `POST /api/images/{filename}/publish` → PublishResponse (publish to platforms); `409` when a publish for the same image is already running in this process, or (no `DATABASE_URL`) when the image is already in the posted set (#139)
 - `POST /api/images/{filename}/keep` → CurationResponse (move to keep folder)
 - `POST /api/images/{filename}/remove` → CurationResponse (move to remove folder)
 - `GET /api/config/features` → dict[str, bool] (high-level feature flags from `.env`)

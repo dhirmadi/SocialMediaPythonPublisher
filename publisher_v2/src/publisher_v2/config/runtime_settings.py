@@ -44,6 +44,7 @@ class RuntimeSettings(BaseModel):
     ai_rate_per_minute: int | None = None
     publish_timeout_seconds: float = 120.0
     ai_stage_timeout_seconds: float = 150.0
+    publish_lease_ttl_seconds: float = 600.0
     web_image_cache_ttl_seconds: float | None = None
     caption_history_retention_days: int = 90
     tenant_service_cache_max_size: int = 1000
@@ -86,10 +87,19 @@ def load_runtime_settings() -> RuntimeSettings:
             if value is not None:
                 overrides[platform] = max(5.0, value)
 
+    lease_ttl = _float_env("PUBLISH_LEASE_TTL_SECONDS", defaults.publish_lease_ttl_seconds)
+    # #139: a lease older than this is assumed orphaned (its holder crashed) and
+    # becomes reclaimable. The floor is the longest a healthy run can legitimately
+    # hold a lease — the AI stage plus the slowest publish — with a margin; below
+    # that, a second run could reclaim a live lease mid-publish and double-post.
+    lease_floor = ai_stage + max([publish_timeout, *overrides.values()]) + 60.0
+    lease_ttl = max(lease_floor, lease_ttl or defaults.publish_lease_ttl_seconds)
+
     return RuntimeSettings(
         ai_rate_per_minute=rate,
         publish_timeout_seconds=publish_timeout,
         ai_stage_timeout_seconds=ai_stage,
+        publish_lease_ttl_seconds=lease_ttl,
         web_image_cache_ttl_seconds=ttl,
         caption_history_retention_days=_int_env(
             "PV2_CAPTION_HISTORY_RETENTION_DAYS", defaults.caption_history_retention_days
