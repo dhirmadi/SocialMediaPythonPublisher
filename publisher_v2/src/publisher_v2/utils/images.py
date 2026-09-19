@@ -3,6 +3,11 @@ from io import BytesIO
 
 from PIL import Image, ImageOps
 
+# #90 (SEC-6): global Pillow decompression-bomb ceiling. Pillow raises
+# DecompressionBombError above 2x this pixel count; upload maps it to 415,
+# the thumbnail path to 422.
+Image.MAX_IMAGE_PIXELS = 40_000_000
+
 
 def resize_image_bytes(data: bytes, max_dimension: int, quality: int = 85) -> bytes:
     """Resize image bytes so the longest side is <= max_dimension. Returns JPEG bytes.
