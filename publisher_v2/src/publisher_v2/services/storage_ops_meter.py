@@ -13,6 +13,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
@@ -39,9 +40,29 @@ class StorageOpsMeter:
         self._storage = storage
         self._logger = logging.getLogger("publisher_v2.storage_ops_metering")
         self._periodic_task: asyncio.Task[None] | None = None
+        # #92 (decision a): failed batches keep their idempotency key so the
+        # retry dedupes correctly upstream. Bounded to avoid unbounded growth
+        # during a long orchestrator outage.
+        self._pending: list[tuple[str, int, str]] = []  # (idem_key, count, occurred_at)
+        self._pending_max = 12
 
     async def flush(self) -> None:
-        """Drain the counter and emit to the orchestrator. Never raises."""
+        """Drain the counter and emit to the orchestrator. Never raises.
+
+        #92 (PERF-4, decision a): each drained batch gets its OWN idempotency
+        key (hour prefix + uuid4), so the orchestrator's dedup only protects
+        retries of the same batch — previously all flushes in an hour shared
+        one key and every flush after the first was silently dropped. Failed
+        batches are kept (bounded) and retried with their original key.
+        """
+        # Retry pending batches first, with their original keys.
+        still_pending: list[tuple[str, int, str]] = []
+        for idem_key, pending_count, occurred_at in self._pending:
+            posted = await self._post_batch(pending_count, idem_key, occurred_at)
+            if not posted:
+                still_pending.append((idem_key, pending_count, occurred_at))
+        self._pending = still_pending
+
         count = self._storage.drain_ops_count()
         log_json(
             self._logger,
@@ -52,9 +73,25 @@ class StorageOpsMeter:
         )
         if count <= 0:
             return
+        now = datetime.now(UTC)
+        idem_key = f"r2ops:{self._tenant_id}:{now.strftime('%Y-%m-%d')}:{now.strftime('%H')}:{uuid.uuid4()}"
+        occurred_at = now.isoformat()
+        if not await self._post_batch(count, idem_key, occurred_at):
+            self._pending.append((idem_key, count, occurred_at))
+            if len(self._pending) > self._pending_max:
+                dropped_key, dropped_count, _ = self._pending.pop(0)
+                log_json(
+                    self._logger,
+                    logging.WARNING,
+                    "storage_ops_pending_batch_dropped",
+                    quantity=dropped_count,
+                    idempotency_key=dropped_key,
+                    tenant_id=self._tenant_id,
+                )
+
+    async def _post_batch(self, count: int, idem_key: str, occurred_at: str) -> bool:
+        """POST one drained batch. Returns True on success; never raises."""
         try:
-            now = datetime.now(UTC)
-            idem_key = f"r2ops:{self._tenant_id}:{now.strftime('%Y-%m-%d')}:{now.strftime('%H')}"
             log_json(
                 self._logger,
                 logging.INFO,
@@ -69,7 +106,7 @@ class StorageOpsMeter:
                 quantity=count,
                 unit="requests",
                 idempotency_key=idem_key,
-                occurred_at=now.isoformat(),
+                occurred_at=occurred_at,
                 source="publisher_storage_ops",
             )
             log_json(
@@ -79,6 +116,7 @@ class StorageOpsMeter:
                 quantity=count,
                 tenant_id=self._tenant_id,
             )
+            return True
         except Exception as exc:
             log_json(
                 self._logger,
@@ -89,6 +127,7 @@ class StorageOpsMeter:
                 tenant_id=self._tenant_id,
                 error=str(exc),
             )
+            return False
 
     def start_periodic_flush(self) -> None:
         """Start a background task that flushes every FLUSH_INTERVAL_SECONDS.

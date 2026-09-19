@@ -200,7 +200,7 @@ class ManagedStorage:
 
             def _download() -> bytes:
                 key = self._key(folder, filename)
-                self._count_ops()  # PUB-045: count each R2 request (including retries)
+                self._count_ops()  # PUB-045: one count per get_object call (boto's internal retries are NOT counted)
                 resp = self.client.get_object(Bucket=self._bucket, Key=key)
                 expected_length = resp.get("ContentLength")
                 body = resp["Body"].read()
