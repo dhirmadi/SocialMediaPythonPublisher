@@ -62,6 +62,10 @@ def web_service_keep_remove(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
     )
 
     svc = WebImageService()
+    # #91 (SEC-11): curation validates against the image listing.
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    svc.storage.list_images = _AsyncMock(return_value=["image.jpg"])  # type: ignore[method-assign]
     orchestrator = _DummyOrchestrator()
     svc.orchestrator = orchestrator  # type: ignore[assignment]
     return svc

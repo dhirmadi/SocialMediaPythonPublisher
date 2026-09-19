@@ -477,10 +477,25 @@ class WebImageService:
         temp_link = await self.storage.get_temporary_link(folder, selected)
         return await self._build_image_response(selected, temp_link)
 
+    _IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
+
+    async def ensure_known_image(self, filename: str) -> None:
+        """#91 (SEC-11): only names from the image listing may reach storage.
+
+        Blocks sidecar names (.txt), traversal-ish names and anything not in
+        the current folder listing. Raises FileNotFoundError (mapped to 404).
+        """
+        if not filename or not filename.lower().endswith(self._IMAGE_SUFFIXES):
+            raise FileNotFoundError(f"Image {filename} not found")
+        images = await self._get_cached_images()
+        if filename not in images:
+            raise FileNotFoundError(f"Image {filename} not found")
+
     async def get_image_details(self, filename: str) -> ImageResponse:
         """
         Fetch details for a specific image by filename.
         """
+        await self.ensure_known_image(filename)
         folder = self.config.storage_paths.image_folder
         # Check existence via temp link (will raise if not found)
         try:
@@ -515,6 +530,7 @@ class WebImageService:
         Returns:
             JPEG thumbnail bytes
         """
+        await self.ensure_known_image(filename)
         size_map = {
             "w256h256": ThumbnailSize.W256H256,
             "w480h320": ThumbnailSize.W480H320,
@@ -530,6 +546,7 @@ class WebImageService:
     async def analyze_and_caption(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
+        await self.ensure_known_image(filename)
         try:
             return await self._analyze_and_caption_impl(filename, correlation_id, force_refresh)
         finally:
@@ -776,6 +793,7 @@ class WebImageService:
         When caption_override is provided, the orchestrator skips AI caption
         generation and uses the caller-supplied text instead.
         """
+        await self.ensure_known_image(filename)
         if not self.config.features.publish_enabled:
             log_json(
                 self.logger,
@@ -827,6 +845,7 @@ class WebImageService:
         """
         Keep the specified image by moving it (and its sidecars) into the configured keep folder.
         """
+        await self.ensure_known_image(filename)
         if not self.config.features.keep_enabled:
             log_json(
                 self.logger,
@@ -855,6 +874,7 @@ class WebImageService:
         """
         Remove the specified image by moving it (and its sidecars) into the configured remove folder.
         """
+        await self.ensure_known_image(filename)
         if not self.config.features.remove_enabled:
             log_json(
                 self.logger,
@@ -885,6 +905,7 @@ class WebImageService:
 
         This is a destructive operation and cannot be undone.
         """
+        await self.ensure_known_image(filename)
         if not self.config.features.delete_enabled:
             log_json(
                 self.logger,

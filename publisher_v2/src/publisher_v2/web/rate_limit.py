@@ -46,6 +46,14 @@ class SlidingWindowLimiter:
         with self._lock:
             if len(self._events) >= self._max_keys and key not in self._events:
                 self._gc_locked(cutoff)
+                if len(self._events) >= self._max_keys:
+                    # #91 (SEC-10): refuse new keys rather than growing without
+                    # bound when GC frees nothing (key-flood protection).
+                    raise HTTPException(
+                        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                        detail=f"Rate limiter at key capacity ({self._label})",
+                        headers={"Retry-After": str(int(self._window))},
+                    )
             bucket = self._events[key]
             while bucket and bucket[0] < cutoff:
                 bucket.popleft()

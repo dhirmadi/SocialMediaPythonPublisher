@@ -157,7 +157,15 @@ async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch
         async def download_sidecar_if_exists(self, folder: str, filename: str):
             return None
 
+        async def list_images(self, folder: str) -> list[str]:
+            # #91 (SEC-11): analyze validates against the image listing.
+            return ["x.jpg"]
+
     svc.storage = _Storage()
+    # __new__-built service lacks the listing cache attrs; stub the lookup.
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    svc._get_cached_images = _AsyncMock(return_value=["x.jpg"])  # type: ignore[method-assign]
 
     analysis = ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[], alt_text="Alt here.")
 
