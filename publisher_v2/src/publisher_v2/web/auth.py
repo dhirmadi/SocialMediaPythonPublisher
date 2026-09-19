@@ -31,6 +31,11 @@ def is_auth_enabled() -> bool:
     return bool(token or (user and pwd))
 
 
+def _require_header_auth_with_cookie() -> bool:
+    """#91 (SEC-3): opt-in strict mode — header auth AND admin cookie."""
+    return (_get_env("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE") or "").lower() in ("1", "true", "yes", "on")
+
+
 def _allow_unauthenticated() -> bool:
     """Explicit dev opt-in to bypass auth when no backend is configured."""
     return (_get_env("WEB_ALLOW_UNAUTHENTICATED") or "").lower() in ("1", "true", "yes", "on")
@@ -58,8 +63,16 @@ async def require_auth(request: Request) -> None:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
         # No header — fall through to admin cookie check below.
 
-    # Browser admins authenticated via cookie are also allowed for mutating routes.
+    # Browser admins authenticated via cookie are also allowed for mutating
+    # routes. #91 (SEC-3, decision (b)): cookie-alone is the documented default;
+    # WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1 opts into requiring header auth
+    # alongside the cookie when a header backend is configured.
     if is_admin_configured() and is_admin_request(request):
+        if is_auth_enabled() and _require_header_auth_with_cookie():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Header authentication required in addition to the admin cookie",
+            )
         return
 
     if is_auth_enabled():

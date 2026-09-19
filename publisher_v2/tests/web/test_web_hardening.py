@@ -224,3 +224,52 @@ class TestFilenameAllowList:
             await service.remove_image("nope.jpg")
         with pytest.raises(FileNotFoundError):
             await service.delete_image("real.txt")
+
+
+class TestHeaderAuthWithCookie:
+    """SEC-3 (#91 A, decision b): cookie-alone default; strict opt-in flag."""
+
+    def _app(self):
+        from publisher_v2.web.auth import require_auth
+
+        app = FastAPI()
+
+        @app.post("/mutate")
+        async def mutate(request: Request) -> dict:
+            await require_auth(request)
+            return {"ok": True}
+
+        return TestClient(app)
+
+    def _cookie(self) -> str:
+        from publisher_v2.web.auth import mint_admin_cookie_value
+
+        return mint_admin_cookie_value(host="testserver")
+
+    def test_default_cookie_alone_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
+        monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
+        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.delenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", raising=False)
+        client = self._app()
+        client.cookies.set("pv2_admin", self._cookie())
+        assert client.post("/mutate").status_code == 200
+
+    def test_strict_mode_rejects_cookie_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
+        monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
+        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", "1")
+        client = self._app()
+        client.cookies.set("pv2_admin", self._cookie())
+        assert client.post("/mutate").status_code == 401
+
+    def test_strict_mode_accepts_header_plus_cookie(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
+        monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
+        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", "1")
+        client = self._app()
+        client.cookies.set("pv2_admin", self._cookie())
+        res = client.post("/mutate", headers={"Authorization": "Bearer token-1"})
+        assert res.status_code == 200
