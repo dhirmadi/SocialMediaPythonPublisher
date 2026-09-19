@@ -201,24 +201,28 @@ class TestGenerateMaxTokens:
 
 class TestGenerateMultiMaxTokens:
     @pytest.mark.asyncio
-    async def test_multi_mixed_specs_sets_max_tokens_512(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_multi_mixed_specs_scales_max_tokens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # #79 supersedes the fixed 512 cap: mixed calls size max_tokens from
+        # the enabled platforms so the JSON is never cut mid-object.
         resp = json.dumps({"telegram": "t", "email": "Email here?"})
         completions = _SequentialFakeCompletions([resp])
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {"telegram": _telegram_spec(), "email": _email_spec()}
         await gen.generate_multi(_analysis(), specs)
-        assert completions.calls[0].get("max_tokens") == 512
+        expected = (min(_telegram_spec().max_length, 2200) + _email_spec().max_length) // 3 + 400
+        assert completions.calls[0].get("max_tokens") == expected
 
     @pytest.mark.asyncio
-    async def test_multi_telegram_only_omits_max_tokens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_multi_telegram_only_scales_max_tokens(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # #79: every multi call carries a platform-derived max_tokens budget.
         resp = json.dumps({"telegram": "t"})
         completions = _SequentialFakeCompletions([resp])
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {"telegram": _telegram_spec()}
         await gen.generate_multi(_analysis(), specs)
-        assert "max_tokens" not in completions.calls[0]
+        assert completions.calls[0].get("max_tokens") == 2200 // 3 + 400
 
 
 # ---------- AC-06: temperature selection ----------
@@ -242,14 +246,17 @@ class TestTemperatureSelection:
         assert completions.calls[0]["temperature"] == 0.7
 
     @pytest.mark.asyncio
-    async def test_generate_multi_mixed_uses_temp_0_5(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_generate_multi_mixed_uses_temp_0_7(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        # #79 supersedes the any-short switch: one short platform must not
+        # lower the temperature for the long platforms sharing the call.
+        # (All-short calls keep 0.5 — see test_ai_prompt_payload.py.)
         resp = json.dumps({"telegram": "t", "email": "e?"})
         completions = _SequentialFakeCompletions([resp])
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {"telegram": _telegram_spec(), "email": _email_spec()}
         await gen.generate_multi(_analysis(), specs)
-        assert completions.calls[0]["temperature"] == 0.5
+        assert completions.calls[0]["temperature"] == 0.7
 
     @pytest.mark.asyncio
     async def test_generate_multi_long_only_uses_temp_0_7(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -411,7 +418,8 @@ class TestTelegramPathRegression:
         await gen.generate_multi(_analysis(), specs)
         call = completions.calls[0]
         assert call["temperature"] == 0.7
-        assert "max_tokens" not in call
+        # #79: multi calls always carry a platform-derived max_tokens budget.
+        assert call.get("max_tokens") == (2200 + 2200) // 3 + 400
 
 
 # ---------- Sanity: SHORT_LIMIT_THRESHOLD constant exposed ----------
