@@ -17,6 +17,7 @@ from publisher_v2.config.schema import (
 from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.services.storage_protocol import FileMetadata
 
 
 class _MetadataStorage:
@@ -40,8 +41,8 @@ class _MetadataStorage:
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return self.temp_link
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        return {"id": "file", "rev": "1"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="file", revision="1", modified_at=None, size=None)
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         if self.sidecar_raise:

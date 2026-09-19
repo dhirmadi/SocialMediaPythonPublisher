@@ -5,6 +5,7 @@ from typing import Any
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.core.models import ImageAnalysis
+from publisher_v2.services.sidecar_parser import parse_sidecar_text
 from publisher_v2.services.storage_protocol import StorageProtocol
 from publisher_v2.utils.captions import (
     build_caption_sidecar,
@@ -12,7 +13,6 @@ from publisher_v2.utils.captions import (
     build_metadata_phase2,
 )
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic
-from publisher_v2.web.sidecar_parser import parse_sidecar_text
 
 logger = logging.getLogger("publisher_v2.services.sidecar")
 
@@ -47,7 +47,7 @@ async def generate_and_upload_sidecar(
         created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
         # 1. Get file metadata from Dropbox for ID/Rev linkage
-        db_meta = await storage.get_file_metadata(config.storage_paths.image_folder, filename)
+        file_meta = await storage.get_file_metadata(config.storage_paths.image_folder, filename)
 
         # 2. Build metadata
         phase1 = build_metadata_phase1(
@@ -56,8 +56,8 @@ async def generate_and_upload_sidecar(
             created_iso=created_iso,
             sd_caption_version="v1.0",
             model_version=model_version,
-            dropbox_file_id=db_meta.get("id"),
-            dropbox_rev=db_meta.get("rev"),
+            dropbox_file_id=file_meta.file_id,
+            dropbox_rev=file_meta.revision,
             artist_alias=config.captionfile.artist_alias,
         )
         meta = dict(phase1)

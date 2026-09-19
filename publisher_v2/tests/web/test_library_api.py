@@ -167,38 +167,36 @@ class TestListObjects:
 
 
 class TestListObjectsFromStorageImpl:
-    """Managed library list uses Delimiter=/ so nested keys do not appear as root files."""
+    """#96: the router consumes the storage protocol's list_objects pages;
+    Delimiter semantics moved into ManagedStorage (see test_storage_protocol)."""
 
-    async def test_list_uses_delimiter_and_returns_basename_keys(self) -> None:
+    def _service(self, items: list[dict], cursor: str | None = None) -> MagicMock:
+        service = MagicMock()
+        service.storage.list_objects = AsyncMock(
+            return_value={"items": items, "cursor": cursor, "is_truncated": cursor is not None}
+        )
+        return service
+
+    async def test_list_returns_basename_keys(self) -> None:
         from publisher_v2.web.routers.library import _list_objects_from_storage
 
-        service = MagicMock()
-        service.storage._bucket = "bkt"
-        service.storage.client.list_objects_v2.return_value = {
-            "Contents": [{"Key": "tenant/root/a.jpg", "Size": 10, "LastModified": "2026-01-01"}],
-            "IsTruncated": False,
-        }
+        service = self._service([{"key": "tenant/root/a.jpg", "size": 10, "last_modified": "2026-01-01"}])
         result = await _list_objects_from_storage(service, "tenant/root/", None, 50)
         assert result == {
             "objects": [{"key": "a.jpg", "size": 10, "last_modified": "2026-01-01"}],
             "cursor": None,
         }
-        service.storage.client.list_objects_v2.assert_called_once_with(
-            Bucket="bkt", Prefix="tenant/root/", Delimiter="/", MaxKeys=50
-        )
+        service.storage.list_objects.assert_awaited_once_with("tenant/root/", cursor=None, limit=50)
 
     async def test_list_skips_sidecar_txt(self) -> None:
         from publisher_v2.web.routers.library import _list_objects_from_storage
 
-        service = MagicMock()
-        service.storage._bucket = "bkt"
-        service.storage.client.list_objects_v2.return_value = {
-            "Contents": [
-                {"Key": "tenant/root/a.jpg", "Size": 10, "LastModified": "t"},
-                {"Key": "tenant/root/a.txt", "Size": 2, "LastModified": "t"},
-            ],
-            "IsTruncated": False,
-        }
+        service = self._service(
+            [
+                {"key": "tenant/root/a.jpg", "size": 10, "last_modified": "t"},
+                {"key": "tenant/root/a.txt", "size": 2, "last_modified": "t"},
+            ]
+        )
         result = await _list_objects_from_storage(service, "tenant/root/", None, 50)
         assert len(result["objects"]) == 1
         assert result["objects"][0]["key"] == "a.jpg"
@@ -206,12 +204,10 @@ class TestListObjectsFromStorageImpl:
     async def test_list_passes_continuation_token(self) -> None:
         from publisher_v2.web.routers.library import _list_objects_from_storage
 
-        service = MagicMock()
-        service.storage._bucket = "bkt"
-        service.storage.client.list_objects_v2.return_value = {"Contents": [], "IsTruncated": False}
+        service = self._service([])
         await _list_objects_from_storage(service, "p/", "next-token", 10)
-        kwargs = service.storage.client.list_objects_v2.call_args.kwargs
-        assert kwargs["ContinuationToken"] == "next-token"
+        kwargs = service.storage.list_objects.await_args.kwargs
+        assert kwargs["cursor"] == "next-token"
 
 
 # ---------------------------------------------------------------------------
@@ -598,8 +594,14 @@ class TestNoCredentials:
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "super_secret_key_12345")
 
-        with patch("publisher_v2.web.routers.library._list_objects_from_storage", new_callable=AsyncMock) as mock_list:
-            mock_list.return_value = {"objects": [], "cursor": None}
+        with patch("publisher_v2.web.routers.library._list_objects_buffered", new_callable=AsyncMock) as mock_list:
+            mock_list.return_value = {
+                "objects": [],
+                "cursor": None,
+                "total_in_window": 0,
+                "truncated": False,
+                "anchor_offset": None,
+            }
             res = managed_app.get(
                 "/api/library/objects",
                 headers=admin_headers,

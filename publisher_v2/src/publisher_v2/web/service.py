@@ -41,13 +41,13 @@ from publisher_v2.services.ai import (  # noqa: E402
 from publisher_v2.services.managed_storage import ManagedStorage  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
+from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 from publisher_v2.services.storage_factory import create_storage  # noqa: E402
 from publisher_v2.services.storage_ops_meter import StorageOpsMeter  # noqa: E402
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
-from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 
 
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:

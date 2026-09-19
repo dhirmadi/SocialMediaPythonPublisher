@@ -12,6 +12,7 @@ from publisher_v2.config.schema import (
     PlatformsConfig,
     StoragePathConfig,
 )
+from publisher_v2.services.storage_protocol import FileMetadata
 from publisher_v2.web.service import WebImageService
 
 
@@ -39,8 +40,8 @@ class _DummyStorage:
             return self.sidecar_content
         return None
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        return {"id": "file-id", "rev": "file-rev"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="file-id", revision="file-rev", modified_at=None, size=None)
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecar_content = text.encode("utf-8")

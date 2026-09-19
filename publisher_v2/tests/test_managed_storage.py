@@ -241,8 +241,9 @@ class TestGetFileMetadata:
         }
 
         result = await storage.get_file_metadata("folder", "test.jpg")
-        assert result["ETag"] == "abc123"
-        assert result["LastModified"] == "2025-01-01T00:00:00Z"
+        # #96: FileMetadata dataclass; ETag maps to revision (quotes stripped)
+        assert result.revision == "abc123"
+        assert result.modified_at == "2025-01-01T00:00:00Z"
 
 
 # AC12: supports_content_hashing + list_images_with_hashes

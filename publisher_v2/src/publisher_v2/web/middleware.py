@@ -6,7 +6,7 @@ from fastapi.responses import JSONResponse
 
 from publisher_v2.config.source import get_config_source
 from publisher_v2.core.exceptions import OrchestratorUnavailableError, TenantNotFoundError
-from publisher_v2.services.tenant_factory import TenantServiceFactory
+from publisher_v2.web.tenant_factory import TenantServiceFactory
 
 logger = logging.getLogger("publisher_v2.web")
 

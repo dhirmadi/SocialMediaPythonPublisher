@@ -144,6 +144,12 @@ class WorkflowResult:
     # Preview mode fields
     image_analysis: ImageAnalysis | None = None
     caption_spec: CaptionSpec | None = None
-    dropbox_url: str | None = None
+    # #96: renamed from dropbox_url — the source URL is backend-agnostic.
+    source_url: str | None = None
     sha256: str | None = None
     image_folder: str | None = None
+
+    @property
+    def dropbox_url(self) -> str | None:
+        """Deprecated alias for ``source_url`` (#96); kept for one release."""
+        return self.source_url

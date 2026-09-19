@@ -42,6 +42,7 @@ from publisher_v2.config.schema import (
 )
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
+from publisher_v2.services.storage_protocol import FileMetadata
 
 
 @pytest.fixture(autouse=True)
@@ -296,8 +297,8 @@ class BaseDummyStorage:
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return f"https://example.com/tmp/{filename}"
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        return {"id": "id:XYZ", "rev": "123"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="id:XYZ", revision="123", modified_at=None, size=None)
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecar_text = text

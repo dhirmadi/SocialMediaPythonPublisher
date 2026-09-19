@@ -10,6 +10,7 @@ from PIL import Image
 
 from publisher_v2.config.schema import ManagedStorageConfig
 from publisher_v2.services.managed_storage import ManagedStorage
+from publisher_v2.services.storage_protocol import FileMetadata
 
 
 def _png(color: str) -> bytes:
@@ -29,7 +30,9 @@ def _storage(bucket: str, image: bytes, etag: str = "etag-1") -> ManagedStorage:
     )
     storage = ManagedStorage(cfg)
     storage.download_image = AsyncMock(return_value=image)  # type: ignore[method-assign]
-    storage.get_file_metadata = AsyncMock(return_value={"ETag": etag})  # type: ignore[method-assign]
+    storage.get_file_metadata = AsyncMock(
+        return_value=FileMetadata(file_id="k", revision=etag, modified_at=None, size=None)
+    )  # type: ignore[method-assign]
     return storage
 
 
@@ -58,7 +61,9 @@ async def test_reupload_with_new_etag_regenerates() -> None:
     first = await storage.get_thumbnail("/Photos", "img.jpg")
 
     storage.download_image = AsyncMock(return_value=_png("green"))  # type: ignore[method-assign]
-    storage.get_file_metadata = AsyncMock(return_value={"ETag": "etag-2"})  # type: ignore[method-assign]
+    storage.get_file_metadata = AsyncMock(
+        return_value=FileMetadata(file_id="k", revision="etag-2", modified_at=None, size=None)
+    )  # type: ignore[method-assign]
     second = await storage.get_thumbnail("/Photos", "img.jpg")
 
     assert first != second

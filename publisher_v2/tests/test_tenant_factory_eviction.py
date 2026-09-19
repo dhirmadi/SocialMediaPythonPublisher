@@ -7,7 +7,7 @@ from types import SimpleNamespace
 import pytest
 
 from publisher_v2.config.source import RuntimeConfig
-from publisher_v2.services.tenant_factory import TenantServiceFactory
+from publisher_v2.web.tenant_factory import TenantServiceFactory
 
 
 class _FakeService:
@@ -30,7 +30,7 @@ def _runtime(tenant: str, version: str = "v1", ttl: int | None = None) -> Runtim
 
 @pytest.fixture
 def factory(monkeypatch: pytest.MonkeyPatch) -> TenantServiceFactory:
-    monkeypatch.setattr("publisher_v2.services.tenant_factory.WebImageService", _FakeService)
+    monkeypatch.setattr("publisher_v2.web.tenant_factory.WebImageService", _FakeService)
     return TenantServiceFactory(max_size=2, ttl_seconds=600)
 
 
@@ -53,7 +53,7 @@ async def test_no_service_growth_over_ttl_cycles(
     monkeypatch: pytest.MonkeyPatch, factory: TenantServiceFactory
 ) -> None:
     fake_now = {"t": 1000.0}
-    monkeypatch.setattr("publisher_v2.services.tenant_factory.time.time", lambda: fake_now["t"])
+    monkeypatch.setattr("publisher_v2.web.tenant_factory.time.time", lambda: fake_now["t"])
     created: list[_FakeService] = []
 
     class _Tracking(_FakeService):
@@ -61,7 +61,7 @@ async def test_no_service_growth_over_ttl_cycles(
             super().__init__(runtime, config_source)
             created.append(self)
 
-    monkeypatch.setattr("publisher_v2.services.tenant_factory.WebImageService", _Tracking)
+    monkeypatch.setattr("publisher_v2.web.tenant_factory.WebImageService", _Tracking)
     for _ in range(3):
         await factory.get_service(None, _runtime("a", ttl=100))  # type: ignore[arg-type]
         fake_now["t"] += 101
