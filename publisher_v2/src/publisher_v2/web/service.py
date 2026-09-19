@@ -586,8 +586,18 @@ class WebImageService:
     async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
-        # Ensure file exists by trying to get a temp link
-        temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, filename)
+        # #140: the presigned link is a billed storage op, and since #93 vision
+        # reads bytes — only the legacy vision_max_dimension == 0 path still needs
+        # it. Existence is checked against the (cached) listing instead, keeping
+        # the 404 semantics of the old "get a temp link to prove it exists" call.
+        # Existence is already enforced by the analyze_and_caption wrapper's
+        # ensure_known_image() call, so nothing here needs to prove it. That
+        # check reads the cached listing, so on Dropbox an image deleted since
+        # the last listing now fails in the download instead of the (dropped)
+        # temp-link call — same request, different exception, until the TTL.
+        temp_link = ""
+        if self.config.openai.vision_max_dimension <= 0:
+            temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, filename)
 
         # Sidecar-first cache path when not forcing refresh. #80: only a real
         # social caption (published/edited `caption` or a `caption_generated`

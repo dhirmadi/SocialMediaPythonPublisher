@@ -56,6 +56,11 @@ def _is_transient_s3_error(exc: BaseException) -> bool:
     return False
 
 
+# #140: (endpoint, bucket, key, size) → (thumbnail bytes, stored_at, etag)
+_ThumbKey = tuple[str, str, str, str]
+_ThumbEntry = tuple[bytes, float, str]
+
+
 class ManagedStorage:
     """S3-compatible storage backend implementing StorageProtocol."""
 
@@ -83,7 +88,13 @@ class ManagedStorage:
         # (endpoint, bucket, object_key, etag, size) with TTL + byte budget —
         # a module-global cache let tenants with the same key path see each
         # other's thumbnails and served stale entries after re-uploads.
-        self._thumb_cache: OrderedDict[tuple[str, str, str, str, str], tuple[bytes, float]] = OrderedDict()
+        # #140: keyed by (endpoint, bucket, key, size) — NOT by ETag, so a cache
+        # hit needs no head_object. The ETag rides along in the entry and is only
+        # re-checked once the entry is older than the TTL.
+        self._thumb_cache: OrderedDict[_ThumbKey, _ThumbEntry] = OrderedDict()
+        # #140: bumped on every write to a key; a thumbnail read that started
+        # before the bump is dropped instead of cached.
+        self._thumb_generation: dict[str, int] = {}
         self._thumb_cache_bytes = 0
 
     def _count_ops(self, n: int = 1) -> None:
@@ -347,6 +358,7 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_archive)
+            self.invalidate_thumbnail(self._key(folder, filename), self._key(archive_folder, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to archive {filename}: {exc}") from exc
 
@@ -383,6 +395,8 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_move)
+            dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
+            self.invalidate_thumbnail(self._key(folder, filename), self._key(dest_prefix, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
 
@@ -405,6 +419,7 @@ class ManagedStorage:
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar)
 
             await asyncio.to_thread(_delete)
+            self.invalidate_thumbnail(self._key(folder, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to delete {filename}: {exc}") from exc
 
@@ -470,6 +485,7 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_put)
+            self.invalidate_thumbnail(key)
         except ClientError as exc:
             raise StorageError(f"Failed to put object {key}: {exc}") from exc
 
@@ -512,6 +528,7 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_delete)
+            self.invalidate_thumbnail(key)
         except ClientError as exc:
             raise StorageError(f"Failed to delete object {key}: {exc}") from exc
 
@@ -525,6 +542,7 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_move)
+            self.invalidate_thumbnail(src_key, dst_key)
         except ClientError as exc:
             raise StorageError(f"Failed to move {src_key} -> {dst_key}: {exc}") from exc
 
@@ -539,47 +557,92 @@ class ManagedStorage:
         size: ThumbnailSize = ThumbnailSize.W960H640,
         format: ThumbnailFormat = ThumbnailFormat.JPEG,
     ) -> bytes:
-        """Generate thumbnail via Pillow with a tenant-safe, TTL-bounded cache (#86)."""
+        """Generate thumbnail via Pillow with a tenant-safe, TTL-bounded cache (#86, #140)."""
         key = self._key(folder, filename)
-        etag = ""
-        with contextlib.suppress(Exception):
-            meta = await self.get_file_metadata(folder, filename)
-            etag = meta.revision or ""
-        cache_key = (self.config.endpoint_url, self._bucket, key, etag, str(size))
+        cache_key = (self.config.endpoint_url, self._bucket, key, str(size))
 
         now = time.time()
         entry = self._thumb_cache.get(cache_key)
         if entry is not None:
-            data, stored_at = entry
+            data, stored_at, etag = entry
             if now - stored_at <= _thumb_cache_ttl_seconds():
+                # #140: a fresh entry costs nothing — no head_object, no download.
+                self._thumb_cache.move_to_end(cache_key)
+                return data
+            current_etag = ""
+            with contextlib.suppress(Exception):
+                meta = await self.get_file_metadata(folder, filename)
+                current_etag = meta.revision or ""
+            if current_etag and current_etag == etag:
+                # Object unchanged: renew the entry instead of downloading again.
+                self._thumb_cache[cache_key] = (data, now, etag)
                 self._thumb_cache.move_to_end(cache_key)
                 return data
             self._evict_thumb(cache_key)
+            # The HEAD above already produced the new ETag — don't pay for it twice.
+            return await self._regenerate_thumbnail(folder, filename, cache_key, size, format, now, current_etag)
 
+        etag = ""
+        with contextlib.suppress(Exception):
+            meta = await self.get_file_metadata(folder, filename)
+            etag = meta.revision or ""
+        return await self._regenerate_thumbnail(folder, filename, cache_key, size, format, now, etag)
+
+    async def _regenerate_thumbnail(
+        self,
+        folder: str,
+        filename: str,
+        cache_key: _ThumbKey,
+        size: ThumbnailSize,
+        format: ThumbnailFormat,
+        now: float,
+        etag: str,
+    ) -> bytes:
+        """Download and render one thumbnail, caching it unless the object changed meanwhile."""
+        generation = self._thumb_generation.get(cache_key[2], 0)
         image_bytes = await self.download_image(folder, filename)
         thumb_bytes = await asyncio.to_thread(_generate_thumbnail, image_bytes, str(size), str(format))
-        self._store_thumb(cache_key, thumb_bytes, now)
+        # #140: cache only when no write landed on this key while we were
+        # downloading — otherwise these bytes are already stale, so they go to
+        # this caller and nowhere else.
+        if self._thumb_generation.get(cache_key[2], 0) == generation:
+            self._store_thumb(cache_key, thumb_bytes, now, etag)
         return thumb_bytes
 
-    def _evict_thumb(self, cache_key: tuple[str, str, str, str, str]) -> None:
+    def invalidate_thumbnail(self, *keys: str) -> None:
+        """Drop every cached thumbnail for these object keys (#140).
+
+        Called by this class's own write methods, so every caller — library
+        router, curation, publish-archive — is covered. The generation counter
+        also discards a thumbnail whose download started before the write, which
+        would otherwise be stored after the eviction and served for a full TTL.
+        """
+        for key in keys:
+            normalized = key.strip("/")
+            self._thumb_generation[normalized] = self._thumb_generation.get(normalized, 0) + 1
+            for cache_key in [k for k in self._thumb_cache if k[2] == normalized]:
+                self._evict_thumb(cache_key)
+
+    def _evict_thumb(self, cache_key: _ThumbKey) -> None:
         entry = self._thumb_cache.pop(cache_key, None)
         if entry is not None:
             self._thumb_cache_bytes -= len(entry[0])
 
-    def _store_thumb(self, cache_key: tuple[str, str, str, str, str], data: bytes, now: float) -> None:
+    def _store_thumb(self, cache_key: _ThumbKey, data: bytes, now: float, etag: str) -> None:
         budget = _thumb_cache_max_bytes()
         if len(data) > budget:
             return
         while self._thumb_cache and self._thumb_cache_bytes + len(data) > budget:
             oldest_key = next(iter(self._thumb_cache))
             self._evict_thumb(oldest_key)
-        self._thumb_cache[cache_key] = (data, now)
+        self._thumb_cache[cache_key] = (data, now, etag)
         self._thumb_cache_bytes += len(data)
 
     async def aclose(self) -> None:
         """Close the underlying boto3 client and drop the thumbnail cache (#86)."""
         self._thumb_cache.clear()
         self._thumb_cache_bytes = 0
+        self._thumb_generation.clear()
         with contextlib.suppress(Exception):
             await asyncio.to_thread(self.client.close)
 

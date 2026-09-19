@@ -443,13 +443,14 @@ class TestStorageOpsCounter:
         body.read.return_value = buf.getvalue()
         mock_s3_client.get_object.return_value = {"Body": body}
 
-        # #86: the cache key includes the object ETag, so a cache miss costs
-        # one head_object (etag lookup) + one get_object (download) = 2 ops;
-        # a later hit costs only the head_object.
+        # #140: a cache miss still costs one head_object (ETag for later
+        # revalidation) + one get_object (download) = 2 ops, but a hit inside the
+        # TTL now costs zero — the ETag is stored with the entry instead of being
+        # re-fetched on every request (#86 charged one head_object per hit).
         await storage.get_thumbnail("folder", "thumb-uncached.jpg")
         assert storage.drain_ops_count() == 2
         await storage.get_thumbnail("folder", "thumb-uncached.jpg")
-        assert storage.drain_ops_count() == 1
+        assert storage.drain_ops_count() == 0
 
     async def test_download_sidecar_404_still_increments_counter(self, storage, mock_s3_client) -> None:
         """AC-A6: a 404 sidecar fetch still cost an R2 request, must be counted."""
