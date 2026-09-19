@@ -10,6 +10,7 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from conftest import BaseDummyStorage
 from PIL import Image
 from pydantic import ValidationError
 
@@ -591,3 +592,149 @@ class TestFallback:
         assert usage is not None
         assert isinstance(usage, AIUsage)
         assert usage.total_tokens >= 300
+
+
+class TestBytesInputNeverFetches:
+    """#93 (PERF-2): analyze(bytes) must not touch the network for the image."""
+
+    def _analyzer(self, max_dimension: int = 1024):
+        import json as _json
+        from types import SimpleNamespace
+        from unittest.mock import AsyncMock
+
+        from publisher_v2.services.ai import VisionAnalyzerOpenAI
+
+        analyzer = VisionAnalyzerOpenAI.__new__(VisionAnalyzerOpenAI)
+        analyzer.model = "gpt-4o"
+        analyzer.max_completion_tokens = 512
+        analyzer.logger = __import__("logging").getLogger("test")
+        analyzer._vision_max_dimension = max_dimension
+        analyzer._vision_detail = "low"
+        analyzer._vision_fallback_enabled = False
+        analyzer._vision_fallback_max_dimension = 2048
+        analyzer._vision_fallback_detail = "high"
+        payload = _json.dumps({"description": "d", "mood": "m", "tags": [], "nsfw": False, "safety_labels": []})
+        resp = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=payload))], usage=None, id="r")
+        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(return_value=resp))))
+        analyzer.client = client
+        return analyzer, client
+
+    async def test_bytes_input_skips_shared_http_client(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def _boom():
+            raise AssertionError("shared HTTP client must not be used for bytes input")
+
+        monkeypatch.setattr("publisher_v2.services._http.get_shared_client", _boom)
+
+        analyzer, client = self._analyzer()
+        image = _make_png(64, 64)
+        result, _usage = await analyzer.analyze(image)
+        assert result.description == "d"
+
+        sent = client.chat.completions.create.await_args.kwargs["messages"]
+        image_parts = [
+            part
+            for message in sent
+            if isinstance(message.get("content"), list)
+            for part in message["content"]
+            if isinstance(part, dict) and part.get("type") == "image_url"
+        ]
+        assert image_parts and image_parts[0]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+
+    async def test_bytes_input_resizes_exactly_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = {"n": 0}
+        from publisher_v2.utils.images import resize_image_bytes as real_resize
+
+        def _counting(data: bytes, max_dimension: int, quality: int = 85) -> bytes:
+            calls["n"] += 1
+            return real_resize(data, max_dimension, quality)
+
+        monkeypatch.setattr("publisher_v2.services.ai.resize_image_bytes", _counting)
+        analyzer, _client = self._analyzer()
+        image = _make_png(64, 64)
+        await analyzer.analyze(image)
+        assert calls["n"] == 1
+
+
+def _make_png(width: int, height: int) -> bytes:
+    import io
+
+    from PIL import Image
+
+    buf = io.BytesIO()
+    with Image.new("RGB", (width, height), color="red") as img:
+        img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
+class TestOneStorageGetPerRun:
+    """#93 acceptance: exactly one storage GET per selected image per run."""
+
+    async def test_workflow_downloads_once_and_passes_bytes(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        from publisher_v2.config.schema import (
+            ApplicationConfig,
+            ContentConfig,
+            DropboxConfig,
+            PlatformsConfig,
+            StoragePathConfig,
+        )
+        from publisher_v2.core.models import ImageAnalysis
+        from publisher_v2.core.workflow import WorkflowOrchestrator
+        from publisher_v2.services.ai import AIService
+
+        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+
+        class _CountingStorage(BaseDummyStorage):
+            def __init__(self) -> None:
+                super().__init__(images=["test.jpg"])
+                self.download_calls = 0
+                self.temp_link_calls = 0
+
+            async def download_image(self, folder: str, filename: str) -> bytes:
+                self.download_calls += 1
+                return await super().download_image(folder, filename)
+
+            async def get_temporary_link(self, folder: str, filename: str) -> str:
+                self.temp_link_calls += 1
+                return await super().get_temporary_link(folder, filename)
+
+        received: dict[str, str] = {}
+
+        class _Analyzer:
+            async def analyze(self, source):
+                received["source_type"] = type(source).__name__
+                return ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), None
+
+        class _Generator:
+            async def generate(self, analysis, spec):
+                return "caption", None
+
+        class _AI(AIService):
+            def __init__(self) -> None:
+                self.analyzer = _Analyzer()  # type: ignore[assignment]
+                self.generator = _Generator()  # type: ignore[assignment]
+
+                class _NoopLimiter:
+                    async def __aenter__(self):
+                        return None
+
+                    async def __aexit__(self, *a):
+                        return False
+
+                self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
+
+        cfg = ApplicationConfig(
+            dropbox=DropboxConfig(
+                app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
+            ),
+            storage_paths=StoragePathConfig(image_folder="/Photos"),
+            openai=OpenAIConfig(api_key="sk-test"),  # vision_max_dimension defaults to 1024
+            platforms=PlatformsConfig(),
+            content=ContentConfig(hashtag_string="", archive=False, debug=False),
+        )
+        storage = _CountingStorage()
+        result = await WorkflowOrchestrator(cfg, storage, _AI(), []).execute()
+
+        assert result.error is None
+        assert storage.download_calls == 1
+        assert storage.temp_link_calls == 0  # bytes path: no presigned link needed
+        assert received["source_type"] == "bytes"

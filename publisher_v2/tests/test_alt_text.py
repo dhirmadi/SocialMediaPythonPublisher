@@ -147,6 +147,7 @@ async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch
     svc.config = SimpleNamespace(
         storage_paths=SimpleNamespace(image_folder="/images"),
         features=SimpleNamespace(analyze_caption_enabled=True, alt_text_enabled=True),
+        openai=SimpleNamespace(vision_max_dimension=1024),
         content=SimpleNamespace(debug=False),
     )
 
@@ -156,6 +157,9 @@ async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch
 
         async def download_sidecar_if_exists(self, folder: str, filename: str):
             return None
+
+        async def download_image(self, folder: str, filename: str) -> bytes:
+            return b"image-bytes"
 
         async def list_images(self, folder: str) -> list[str]:
             # #91 (SEC-11): analyze validates against the image listing.

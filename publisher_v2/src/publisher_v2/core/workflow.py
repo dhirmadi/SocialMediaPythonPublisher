@@ -336,7 +336,16 @@ class WorkflowOrchestrator:
             with contextlib.suppress(Exception):
                 os.chmod(tmp_path, 0o600)
 
-            temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, selected_image)
+            # #93 (PERF-2): the bytes are already in hand from the dedup
+            # download — vision resizes them locally, so the presigned link
+            # (a billed storage op on some backends) is only needed when the
+            # legacy URL path is configured or preview wants a display URL.
+            vision_uses_bytes = self.config.openai.vision_max_dimension > 0
+            if preview_mode or not vision_uses_bytes:
+                temp_link = await self.storage.get_temporary_link(
+                    self.config.storage_paths.image_folder, selected_image
+                )
+            analysis_source: str | bytes = sel.content if vision_uses_bytes else temp_link
 
             # 3. Analyze image with vision AI (feature-gated)
             if self.config.features.analyze_caption_enabled:
@@ -353,7 +362,7 @@ class WorkflowOrchestrator:
                 ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
                 try:
                     analysis, vision_usage = await asyncio.wait_for(
-                        self.ai_service.analyzer.analyze(temp_link),
+                        self.ai_service.analyzer.analyze(analysis_source),
                         timeout=max(0.05, ai_stage_deadline - now_monotonic()),
                     )
                 except TimeoutError as exc:
