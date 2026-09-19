@@ -6,6 +6,7 @@ import re
 from unittest.mock import patch
 
 import pytest
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 
 
@@ -169,3 +170,57 @@ class TestRateLimiterKeyCap:
         library._check_rate_limit(request)
         assert "stale-cookie" not in library._upload_rate_limit
         library._upload_rate_limit.clear()
+
+
+class TestFilenameAllowList:
+    """SEC-11 (#91 D): only listed image names may reach storage operations."""
+
+    def _service(self, monkeypatch: pytest.MonkeyPatch, tmp_path):
+        from unittest.mock import AsyncMock
+
+        ini = tmp_path / "test.ini"
+        ini.write_text(
+            "[Dropbox]\nimage_folder = /Photos\narchive_folder = archive\n\n[OpenAI]\n\n"
+            "[Content]\nhashtag_string = \narchive = false\ndebug = false\n\n"
+            "[Platforms]\ntelegram_enabled = false\ninstagram_enabled = false\nemail_enabled = false\n"
+        )
+        monkeypatch.setenv("CONFIG_PATH", str(ini))
+        monkeypatch.setenv("DROPBOX_APP_KEY", "k")
+        monkeypatch.setenv("DROPBOX_APP_SECRET", "s")
+        monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "r")
+        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+        with patch("publisher_v2.services.storage.dropbox.Dropbox"):
+            from publisher_v2.web.service import WebImageService
+
+            service = WebImageService()
+        service.storage.list_images = AsyncMock(return_value=["real.jpg"])  # type: ignore[method-assign]
+        service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
+        service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)  # type: ignore[method-assign]
+        return service
+
+    async def test_sidecar_txt_name_rejected(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        service = self._service(monkeypatch, tmp_path)
+        with pytest.raises(FileNotFoundError):
+            await service.get_image_details("real.txt")
+
+    async def test_traversal_name_rejected(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        service = self._service(monkeypatch, tmp_path)
+        with pytest.raises(FileNotFoundError):
+            await service.analyze_and_caption("../../etc/passwd.jpg")
+
+    async def test_unlisted_image_rejected_listed_allowed(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        service = self._service(monkeypatch, tmp_path)
+        with pytest.raises(FileNotFoundError):
+            await service.get_image_details("other.jpg")
+        result = await service.get_image_details("real.jpg")
+        assert result.filename == "real.jpg"
+
+    async def test_curation_paths_gated(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+        service = self._service(monkeypatch, tmp_path)
+        with pytest.raises(FileNotFoundError):
+            await service.keep_image("../real.jpg")
+        with pytest.raises(FileNotFoundError):
+            await service.remove_image("nope.jpg")
+        with pytest.raises(FileNotFoundError):
+            await service.delete_image("real.txt")

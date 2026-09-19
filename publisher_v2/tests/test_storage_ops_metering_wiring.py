@@ -169,6 +169,8 @@ class TestWebServiceWiring:
         # storage.get_temporary_link must be awaitable
         svc.storage.get_temporary_link = AsyncMock(return_value="https://link")
         svc.storage.download_sidecar_if_exists = AsyncMock(return_value=None)
+        # #91 (SEC-11): analyze validates against the image listing.
+        svc.storage.list_images = AsyncMock(return_value=["img.jpg"])
 
         # Disable analyze feature path so we exit early but still hit the flush.
         svc.config.features.analyze_caption_enabled = False

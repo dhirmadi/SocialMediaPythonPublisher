@@ -36,6 +36,11 @@ def test_delete_endpoint_success_flow(client: TestClient, monkeypatch: pytest.Mo
     from publisher_v2.web.app import get_service
 
     svc = get_service()
+    # #91 (SEC-11): filename ops validate against the image listing —
+    # stub it so no real Dropbox call happens.
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    monkeypatch.setattr(svc.storage, "list_images", _AsyncMock(return_value=["test.jpg"]))
 
     async def _fake_delete(filename: str, *, preview_mode: bool = False, dry_run: bool = False) -> None:
         return None
