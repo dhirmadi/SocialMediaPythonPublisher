@@ -183,7 +183,8 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
     "- Use EXACTLY these keys (lowercase):\n"
     "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
-    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette, alt_text\n\n"
+    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette, alt_text, "
+    "distinctive_detail\n\n"
     "TYPES & CONSTRAINTS:\n"
     "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
     "- mood: string\n"
@@ -204,7 +205,8 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- background: string (environment/backdrop/texture)\n"
     "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n"
     "- alt_text: string (≤125 characters, plain descriptive sentence for screen readers; describe what is visually "
-    "depicted, not mood or interpretation; no hashtags or promotional language)\n\n"
+    "depicted, not mood or interpretation; no hashtags or promotional language)\n"
+    "- distinctive_detail: string or null (one concrete, unusual, specific visual detail, ≤ 20 words)\n\n"
     "ADDITIONAL RULES:\n"
     "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
     "- Avoid explicit terminology or slang; no sexual description.\n"
@@ -217,7 +219,8 @@ _DEFAULT_VISION_USER_PROMPT = (
     "Analyze this image and return strict JSON with keys:\n"
     "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
     "subject, style, lighting, camera, clothing_or_accessories,\n"
-    "aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text.\n\n"
+    "aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text,\n"
+    "distinctive_detail.\n\n"
     "GUIDELINES:\n"
     "- description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.\n"
     "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
@@ -231,6 +234,7 @@ _DEFAULT_VISION_USER_PROMPT = (
     "- color_palette: 3–6 dominant colors (hex preferred).\n"
     "- alt_text: ≤125 characters, plain descriptive sentence for screen readers; describe what is visually depicted "
     "(no hashtags, no promotional language, no mood/interpretation).\n"
+    "- distinctive_detail: one concrete, unusual, specific visual detail (≤ 20 words); null if nothing stands out.\n"
     "- Unknown values → null or [].\n\n"
     "Return ONE JSON object ONLY — no extra text."
 )
@@ -456,6 +460,7 @@ class VisionAnalyzerOpenAI:
                 background=self._opt_str(data.get("background")),
                 color_palette=self._opt_str(data.get("color_palette")),
                 alt_text=self._opt_str(data.get("alt_text")),
+                distinctive_detail=self._opt_str(data.get("distinctive_detail")),
             )
             ai_usage = _extract_usage(resp)
             ok = True
@@ -537,31 +542,46 @@ def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
     return cleaned[:max_len]
 
 
-def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> str:
-    """Build a bounded analysis-context string for caption prompts (PUB-041).
+_ANALYSIS_TAG_COUNT_CAP = 25
+_ANALYSIS_TAG_LEN_CAP = 40
+
+
+def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 240) -> str:
+    """Build a bounded analysis-context string for caption prompts (PUB-041, #81).
 
     Each free-text field is run through ``_sanitize_analysis_field`` so that
     attacker-controlled content extracted by Vision cannot inject new
-    instructions into the downstream caption prompt.
+    instructions into the downstream caption prompt. #81 raised the field cap
+    from 50 to 240 (a 30-word description is ~180 chars — the old cap threw
+    away most of what Vision produced) and passes subject/background/camera/
+    clothing plus the distinctive_detail so captions stop converging on the
+    tag list and mood word.
     """
 
-    parts: list[str] = [
+    parts: list[str] = []
+
+    detail = _sanitize_analysis_field(analysis.distinctive_detail, max_field_len)
+    if detail:
+        parts.append(f"distinctive_detail='{detail}'")
+
+    parts += [
         f"description='{_sanitize_analysis_field(analysis.description, max_field_len) or ''}'",
         f"mood='{_sanitize_analysis_field(analysis.mood, max_field_len) or ''}'",
-        f"tags={[_sanitize_analysis_field(t, max_field_len) for t in analysis.tags if t]}",
+        f"tags={[_sanitize_analysis_field(t, _ANALYSIS_TAG_LEN_CAP) for t in analysis.tags[:_ANALYSIS_TAG_COUNT_CAP] if t]}",
     ]
 
-    lighting = _sanitize_analysis_field(analysis.lighting, max_field_len)
-    if lighting:
-        parts.append(f"lighting='{lighting}'")
-
-    composition = _sanitize_analysis_field(analysis.composition, max_field_len)
-    if composition:
-        parts.append(f"composition='{composition}'")
-
-    pose = _sanitize_analysis_field(analysis.pose, max_field_len)
-    if pose:
-        parts.append(f"pose='{pose}'")
+    for name in (
+        "subject",
+        "background",
+        "camera",
+        "clothing_or_accessories",
+        "lighting",
+        "composition",
+        "pose",
+    ):
+        value = _sanitize_analysis_field(getattr(analysis, name), max_field_len)
+        if value:
+            parts.append(f"{name}='{value}'")
 
     if analysis.aesthetic_terms:
         terms = [_sanitize_analysis_field(t, max_field_len) for t in analysis.aesthetic_terms[:10] if t]

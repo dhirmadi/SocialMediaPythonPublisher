@@ -50,6 +50,8 @@ class ImageAnalysis:
     background: str | None = None
     color_palette: str | None = None
     alt_text: str | None = None
+    # #81 (CAP-4): one concrete, unusual, specific visual detail (≤ 20 words)
+    distinctive_detail: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
