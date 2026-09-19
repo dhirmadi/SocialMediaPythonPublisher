@@ -79,7 +79,7 @@ def admin_headers() -> dict[str, str]:
 def admin_cookies() -> dict[str, str]:
     from publisher_v2.web.auth import mint_admin_cookie_value
 
-    return {"pv2_admin": mint_admin_cookie_value()}
+    return {"pv2_admin": mint_admin_cookie_value(host="testserver")}
 
 
 # Sample S3 objects for tests

@@ -69,7 +69,7 @@ def admin_cookies() -> dict[str, str]:
     """Admin cookie for admin requests (signed value)."""
     from publisher_v2.web.auth import mint_admin_cookie_value
 
-    return {"pv2_admin": mint_admin_cookie_value()}
+    return {"pv2_admin": mint_admin_cookie_value(host="testserver")}
 
 
 @pytest.fixture
