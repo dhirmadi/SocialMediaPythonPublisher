@@ -74,13 +74,17 @@ class SlidingWindowLimiter:
 
 
 def remote_ip(request: Request) -> str:
-    """Best-effort client IP. Falls back to "unknown" rather than mixing buckets."""
-    # Honour X-Forwarded-For only when a trusted-proxy env var is set —
-    # otherwise an attacker can spoof the header and bypass per-IP limits.
+    """Best-effort client IP. Falls back to "unknown" rather than mixing buckets.
+
+    Honours X-Forwarded-For only when WEB_TRUST_FORWARDED_FOR is set, and takes
+    the RIGHTMOST entry: Heroku's router appends the real client IP to the end
+    of the header, so every entry to its left is attacker-supplied. Taking the
+    leftmost entry would let a client mint a fresh rate-limit key per request.
+    """
     import os
 
     if os.environ.get("WEB_TRUST_FORWARDED_FOR", "").lower() in ("1", "true", "yes"):
         fwd = request.headers.get("x-forwarded-for", "")
         if fwd:
-            return fwd.split(",")[0].strip() or "unknown"
+            return fwd.rsplit(",", 1)[-1].strip() or "unknown"
     return request.client.host if request.client else "unknown"
