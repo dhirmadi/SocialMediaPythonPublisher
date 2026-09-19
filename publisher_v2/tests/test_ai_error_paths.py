@@ -63,8 +63,10 @@ async def test_analyzer_non_json_response_raises(monkeypatch: pytest.MonkeyPatch
 
 
 @pytest.mark.asyncio
-async def test_analyzer_rejects_bytes_input(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
+async def test_analyzer_rejects_invalid_bytes_input(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#93 changed the contract: bytes ARE supported now (resized locally,
+    never fetched) — but bytes that don't decode as an image still fail."""
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=1024, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     with pytest.raises(AIServiceError):
         await analyzer.analyze(b"\x01\x02")

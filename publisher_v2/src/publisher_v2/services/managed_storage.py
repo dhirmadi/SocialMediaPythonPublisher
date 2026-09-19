@@ -59,7 +59,8 @@ class ManagedStorage:
         boto_config = BotoConfig(
             connect_timeout=30,
             read_timeout=60,
-            retries={"max_attempts": 3, "mode": "adaptive"},
+            # #93: tenacity is the single retry layer (mirrors #84/#88).
+            retries={"max_attempts": 1, "mode": "standard"},
         )
         self.client: Any = boto3.client(
             "s3",

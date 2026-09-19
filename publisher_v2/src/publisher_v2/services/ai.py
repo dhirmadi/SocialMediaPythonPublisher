@@ -330,15 +330,24 @@ class VisionAnalyzerOpenAI:
         b64 = base64.b64encode(resized).decode("ascii")
         return f"data:image/jpeg;base64,{b64}"
 
-    async def _prepare_image_url(self, url: str, max_dimension: int) -> tuple[str, bool]:
+    async def _prepare_image_url(self, source: str | bytes, max_dimension: int) -> tuple[str, bool]:
         """Return the image_url string to send to OpenAI plus whether it was resized.
 
         Done once per analyze chain (NOT inside the OpenAI retry loop) so that
-        transient OpenAI errors do not cause repeat downloads.
+        transient OpenAI errors do not cause repeat downloads. #93 (PERF-2):
+        bytes input is resized locally and NEVER fetched — the workflow already
+        holds the image bytes from the dedup download.
         """
+        if isinstance(source, bytes):
+            try:
+                resized = await asyncio.to_thread(resize_image_bytes, source, max_dimension)
+            except Exception as exc:
+                raise AIServiceError(f"Image bytes could not be decoded: {type(exc).__name__}") from exc
+            b64 = base64.b64encode(resized).decode("ascii")
+            return f"data:image/jpeg;base64,{b64}", max_dimension > 0
         if max_dimension > 0:
-            return await self._download_and_resize(url, max_dimension), True
-        return url, False
+            return await self._download_and_resize(source, max_dimension), True
+        return source, False
 
     async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, AIUsage | None]:
         """Analyze an image, with optional quality-escalation fallback (PUB-041).
@@ -351,13 +360,11 @@ class VisionAnalyzerOpenAI:
         - Each chain (primary, fallback) downloads/resizes the source image at most once;
           OpenAI-side retries reuse the prepared data URL.
         """
-        if isinstance(url_or_bytes, bytes):
-            raise AIServiceError("Byte input not supported in V2 analysis; provide a temporary URL.")
-        url = url_or_bytes
+        source = url_or_bytes
 
         primary_usage: AIUsage | None = None
         try:
-            primary_image_url, primary_resized = await self._prepare_image_url(url, self._vision_max_dimension)
+            primary_image_url, primary_resized = await self._prepare_image_url(source, self._vision_max_dimension)
             result, primary_usage = await self._analyze_core(
                 primary_image_url, self._vision_max_dimension, self._vision_detail, primary_resized
             )
@@ -375,7 +382,7 @@ class VisionAnalyzerOpenAI:
                 fallback_detail=self._vision_fallback_detail,
             )
             try:
-                fb_image_url, fb_resized = await self._prepare_image_url(url, self._vision_fallback_max_dimension)
+                fb_image_url, fb_resized = await self._prepare_image_url(source, self._vision_fallback_max_dimension)
                 fallback_result, fallback_usage = await self._analyze_core(
                     fb_image_url,
                     self._vision_fallback_max_dimension,

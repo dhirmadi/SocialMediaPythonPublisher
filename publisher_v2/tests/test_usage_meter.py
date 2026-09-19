@@ -36,6 +36,7 @@ async def test_emit_calls_post_usage_with_correct_args() -> None:
 
     usage = AIUsage(response_id="resp-123", total_tokens=500, prompt_tokens=300, completion_tokens=200)
     await meter.emit(usage)
+    await meter.aclose()  # #93: emit enqueues; flush before asserting
 
     client.post_usage.assert_called_once()
     call_kwargs = client.post_usage.call_args.kwargs
@@ -64,6 +65,7 @@ async def test_emit_swallows_exception_and_logs() -> None:
     with patch("publisher_v2.services.usage_meter.log_json") as mock_log:
         # Should NOT raise
         await meter.emit(usage)
+        await meter.aclose()  # #93: emit enqueues; flush before asserting
 
         # Should have logged the failure
         mock_log.assert_called_once()
@@ -91,6 +93,7 @@ async def test_emit_all_skips_none_and_zero_tokens() -> None:
         AIUsage(response_id="r2", total_tokens=100, prompt_tokens=60, completion_tokens=40),  # Should emit
     ]
     await meter.emit_all(usages)  # type: ignore[arg-type]
+    await meter.aclose()  # #93: flush the queue
 
     assert client.post_usage.call_count == 1
     call_kwargs = client.post_usage.call_args.kwargs
@@ -109,6 +112,7 @@ async def test_emit_all_emits_multiple_valid_entries() -> None:
         AIUsage(response_id="r2", total_tokens=200, prompt_tokens=120, completion_tokens=80),
     ]
     await meter.emit_all(usages)
+    await meter.aclose()  # #93: flush the queue
 
     assert client.post_usage.call_count == 2
 
@@ -122,3 +126,51 @@ def test_standalone_mode_no_meter() -> None:
     # The actual integration is tested via workflow/web, but we verify None is a valid state.
     meter: UsageMeter | None = None
     assert meter is None  # Callers guard on None before calling
+
+
+class TestNonBlockingEmit:
+    """#93 (PERF-3): emit enqueues; a background drainer posts; aclose flushes."""
+
+    def _meter(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from publisher_v2.services.usage_meter import UsageMeter
+
+        client = MagicMock()
+        client.post_usage = AsyncMock(return_value={"ok": True})
+        return UsageMeter(client=client, tenant_id="t1"), client
+
+    def _usage(self, resp_id: str = "r1", tokens: int = 10):
+        from publisher_v2.core.models import AIUsage
+
+        return AIUsage(response_id=resp_id, total_tokens=tokens, prompt_tokens=6, completion_tokens=4)
+
+    async def test_emit_returns_before_post(self) -> None:
+        import asyncio
+
+        meter, client = self._meter()
+        gate = asyncio.Event()
+
+        async def _blocked_post(**kwargs):
+            await gate.wait()
+            return {"ok": True}
+
+        client.post_usage.side_effect = _blocked_post
+
+        await asyncio.wait_for(meter.emit(self._usage()), timeout=0.5)  # must not block on the post
+        gate.set()
+        await meter.aclose()
+        assert client.post_usage.await_count == 1
+
+    async def test_drainer_posts_all_queued_events(self) -> None:
+        meter, client = self._meter()
+        await meter.emit_all([self._usage("a", 5), self._usage("b", 6), self._usage("c", 7)])
+        await meter.aclose()
+        keys = sorted(call.kwargs["idempotency_key"] for call in client.post_usage.await_args_list)
+        assert keys == ["a", "b", "c"]
+
+    async def test_aclose_flushes_pending(self) -> None:
+        meter, client = self._meter()
+        await meter.emit(self._usage("x", 3))
+        await meter.aclose()
+        assert client.post_usage.await_count == 1

@@ -228,6 +228,12 @@ class WebImageService:
                 await meter.stop_periodic_flush()
             except Exception:
                 log_json(self.logger, logging.WARNING, "storage_ops_meter_close_failed", exc_info=True)
+        usage_meter = self._usage_meter
+        if usage_meter is not None:
+            try:
+                await usage_meter.aclose()
+            except Exception:
+                log_json(self.logger, logging.WARNING, "usage_meter_close_failed", exc_info=True)
         for target in (self.ai_service, self.storage):
             close = getattr(target, "aclose", None)
             if close is None:
@@ -670,9 +676,14 @@ class WebImageService:
         from publisher_v2.core.workflow import _ai_stage_timeout_seconds
 
         ai_stage_deadline = time.monotonic() + _ai_stage_timeout_seconds()
+        # #93 (PERF-2): pass bytes so vision never re-downloads the image; the
+        # legacy presigned-URL path remains for vision_max_dimension == 0.
+        analysis_source: str | bytes = temp_link
+        if self.config.openai.vision_max_dimension > 0:
+            analysis_source = await self.storage.download_image(self.config.storage_paths.image_folder, filename)
         try:
             analysis, vision_usage = await asyncio.wait_for(
-                ai.analyzer.analyze(temp_link),
+                ai.analyzer.analyze(analysis_source),
                 timeout=max(0.05, ai_stage_deadline - time.monotonic()),
             )
         except TimeoutError as exc:
