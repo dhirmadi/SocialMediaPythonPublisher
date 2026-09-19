@@ -75,3 +75,18 @@ class PublishRecord(Base):
             f"<PublishRecord(tenant={self.tenant!r}, hash={self.content_hash[:12]!r}, "
             f"platform={self.platform!r}, status={self.status!r})>"
         )
+
+
+class InstagramSession(Base):
+    """Encrypted instagrapi session per tenant (#94, standalone mode)."""
+
+    __tablename__ = "pv2_instagram_session"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    tenant: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    session_blob: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    def __repr__(self) -> str:
+        return f"<InstagramSession(tenant={self.tenant!r}, blocked_until={self.blocked_until})>"

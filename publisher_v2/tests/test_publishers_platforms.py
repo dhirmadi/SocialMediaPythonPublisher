@@ -175,21 +175,19 @@ class _FakeInstagramClient:
         self.fail_session = fail_session
         self.fail_upload = fail_upload
         self.login_calls: list[tuple[str, str]] = []
-        self.dumped = False
+        self.settings_saved = False
+        self.delay_range: list = []
 
-    def load_settings(self, _path: str) -> None:
+    def set_settings(self, settings: dict) -> None:
         if self.fail_session:
             raise RuntimeError("bad session")
 
+    def get_settings(self) -> dict:
+        self.settings_saved = True
+        return {"device_settings": {"model": "test"}}
+
     def login(self, user: str, pwd: str) -> None:
         self.login_calls.append((user, pwd))
-
-    def get_timeline_feed(self) -> None:
-        if self.fail_session:
-            raise RuntimeError("timeline fail")
-
-    def dump_settings(self, _path: str) -> None:
-        self.dumped = True
 
     def photo_upload(self, processed_path: str, caption: str):
         if self.fail_upload:
@@ -199,7 +197,9 @@ class _FakeInstagramClient:
 
 @pytest.mark.asyncio
 async def test_instagram_publisher_handles_session_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    client = _FakeInstagramClient(fail_session=True, fail_upload=False)
+    # #94: a fresh publisher with no stored session logs in once and persists
+    # the settings afterwards (dump_settings/get_timeline_feed are gone).
+    client = _FakeInstagramClient(fail_session=False, fail_upload=False)
     monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", lambda: client)
 
     async def fake_to_thread(func, *args, **kwargs):
@@ -207,13 +207,18 @@ async def test_instagram_publisher_handles_session_fallback(monkeypatch: pytest.
 
     monkeypatch.setattr("publisher_v2.services.publishers.instagram.asyncio.to_thread", fake_to_thread)
 
+    from publisher_v2.services.instagram_session import FileSessionStore
+
     config = InstagramConfig(username="user", password="pass", session_file=str(tmp_path / "session.json"))
-    publisher = InstagramPublisher(config=config, enabled=True)
+    publisher = InstagramPublisher(
+        config=config, enabled=True, session_store=FileSessionStore(str(tmp_path / "session.json"))
+    )
 
     result = await publisher.publish(str(tmp_path / "image.jpg"), "caption text")
     assert result.success is True
-    assert client.dumped is True
-    assert len(client.login_calls) >= 1
+    assert client.settings_saved is True
+    assert (tmp_path / "session.json").exists()
+    assert len(client.login_calls) == 1
 
 
 @pytest.mark.asyncio
@@ -226,8 +231,12 @@ async def test_instagram_publisher_returns_error(monkeypatch: pytest.MonkeyPatch
 
     monkeypatch.setattr("publisher_v2.services.publishers.instagram.asyncio.to_thread", fake_to_thread)
 
+    from publisher_v2.services.instagram_session import FileSessionStore
+
     config = InstagramConfig(username="user", password="pass", session_file=str(tmp_path / "session.json"))
-    publisher = InstagramPublisher(config=config, enabled=True)
+    publisher = InstagramPublisher(
+        config=config, enabled=True, session_store=FileSessionStore(str(tmp_path / "session.json"))
+    )
 
     result = await publisher.publish(str(tmp_path / "image.jpg"), "caption text")
     assert result.success is False
@@ -293,3 +302,93 @@ async def test_telegram_publisher_handles_errors(monkeypatch: pytest.MonkeyPatch
     result = await publisher.publish(str(image_path), "caption")
     assert result.success is False
     assert bot.shutdown_called is True
+
+
+# ---------------------------------------------------------------------------
+# #94 (REL-9): persistent sessions, one login, explicit challenge handling
+# ---------------------------------------------------------------------------
+
+
+class _SessionFakeClient:
+    login_calls = 0  # class-level counter across instances
+
+    def __init__(self) -> None:
+        self.delay_range: list = []
+        self._settings: dict = {}
+
+    def set_settings(self, settings: dict) -> None:
+        self._settings = dict(settings)
+
+    def get_settings(self) -> dict:
+        return dict(self._settings) or {"device_settings": {"model": "test"}, "uuids": {"x": "1"}}
+
+    def login(self, username: str, password: str) -> None:
+        type(self).login_calls += 1
+
+    def photo_upload(self, path: str, caption: str):
+        return SimpleNamespace(id="media-1")
+
+
+@pytest.mark.asyncio
+async def test_instagram_one_login_across_two_publishes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from publisher_v2.services.instagram_session import FileSessionStore
+
+    _SessionFakeClient.login_calls = 0
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", _SessionFakeClient)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.asyncio.to_thread", fake_to_thread)
+
+    config = InstagramConfig(username="user", password="pass", session_file=str(tmp_path / "session.json"))
+    store = FileSessionStore(str(tmp_path / "session.json"))
+    publisher = InstagramPublisher(config=config, enabled=True, session_store=store)
+
+    image = tmp_path / "img.jpg"
+    image.write_bytes(b"img")
+
+    first = await publisher.publish(str(image), "caption one")
+    second = await publisher.publish(str(image), "caption two")
+
+    assert first.success and second.success
+    assert _SessionFakeClient.login_calls == 1
+    # Session persisted after login/upload.
+    assert (tmp_path / "session.json").exists()
+
+
+@pytest.mark.asyncio
+async def test_instagram_challenge_fails_and_backs_off(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from instagrapi.exceptions import ChallengeRequired
+
+    from publisher_v2.services.instagram_session import FileSessionStore
+
+    class _ChallengingClient(_SessionFakeClient):
+        def login(self, username: str, password: str) -> None:
+            type(self).login_calls += 1
+            raise ChallengeRequired("challenge_required")
+
+    _ChallengingClient.login_calls = 0
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", _ChallengingClient)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.asyncio.to_thread", fake_to_thread)
+
+    config = InstagramConfig(username="user", password="pass", session_file=str(tmp_path / "session.json"))
+    store = FileSessionStore(str(tmp_path / "session.json"))
+    publisher = InstagramPublisher(config=config, enabled=True, session_store=store)
+
+    image = tmp_path / "img.jpg"
+    image.write_bytes(b"img")
+
+    first = await publisher.publish(str(image), "caption")
+    assert first.success is False
+    assert "challenge" in (first.error or "").lower()
+    assert _ChallengingClient.login_calls == 1
+
+    # Backoff active: the second publish never attempts a password login.
+    second = await publisher.publish(str(image), "caption")
+    assert second.success is False
+    assert _ChallengingClient.login_calls == 1
