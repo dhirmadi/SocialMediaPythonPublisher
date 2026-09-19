@@ -273,7 +273,9 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
 
 # --- #82 (CAP-5/CAP-6): caption diversity helpers ---
 
-_WORD_RE = re.compile(r"[a-z0-9']+")
+# #144: [^\W_] is "word character but not underscore", so accented letters stay
+# inside their word instead of splitting it ("café" was "caf" + a dropped tail).
+_WORD_RE = re.compile(r"[^\W_]+(?:'[^\W_]+)*", re.UNICODE)
 
 
 def _words(text: str) -> list[str]:
