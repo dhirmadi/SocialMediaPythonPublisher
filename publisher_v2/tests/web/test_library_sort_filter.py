@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Generator
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
@@ -44,6 +44,7 @@ def mock_service() -> MagicMock:
     svc.config.storage_paths.folder_keep = "keep"
     svc.config.storage_paths.folder_remove = "reject"
     svc.storage = MagicMock()
+    svc.ensure_known_image = AsyncMock(return_value=None)
     svc.storage._bucket = "test-bucket"
     svc.storage.client = MagicMock()
     return svc

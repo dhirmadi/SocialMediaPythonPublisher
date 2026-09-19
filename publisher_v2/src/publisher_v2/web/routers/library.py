@@ -638,6 +638,15 @@ async def move_object(
             detail=f"Invalid target_folder: {body.target_folder}. Must be one of: {', '.join(VALID_TARGET_FOLDERS)}",
         )
 
-    result = await _move_in_storage(service, filename, body.target_folder)
-    log_json(logger, logging.INFO, "library_move", filename=filename, destination=body.target_folder)
+    # #144: the raw path parameter used to be interpolated straight into the
+    # source and destination keys. Sanitize it and require it to be in the
+    # listing, as the delete endpoint does.
+    safe_name = _sanitize_filename(filename)
+    try:
+        await service.ensure_known_image(safe_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {safe_name}") from exc
+
+    result = await _move_in_storage(service, safe_name, body.target_folder)
+    log_json(logger, logging.INFO, "library_move", filename=safe_name, destination=body.target_folder)
     return LibraryMoveResponse(**result)
