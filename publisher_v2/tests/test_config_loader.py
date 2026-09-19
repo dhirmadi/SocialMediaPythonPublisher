@@ -477,3 +477,96 @@ def test_feature_toggles_invalid_value_raises(tmp_path, valid_ini_content, valid
 
     with pytest.raises(ConfigurationError):
         load_application_config(str(config_file))
+
+
+# ---------------------------------------------------------------------------
+# #97 stage 1: phantom / mismatched feature flags
+# ---------------------------------------------------------------------------
+
+
+def test_feature_delete_env_sets_delete_enabled(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """FEATURE_DELETE=true is parsed by the loader (was a phantom flag)."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("FEATURE_DELETE", "true")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.delete_enabled is True
+
+
+def test_feature_delete_defaults_false(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("FEATURE_DELETE", raising=False)
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.delete_enabled is False
+
+
+def test_feature_auto_view_documented_name_works(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """FEATURE_AUTO_VIEW (the documented name) is honored."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("AUTO_VIEW", raising=False)
+    monkeypatch.setenv("FEATURE_AUTO_VIEW", "true")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.auto_view_enabled is True
+
+
+def test_auto_view_legacy_alias_works_with_deprecation_log(
+    tmp_path, valid_ini_content, valid_env_vars, monkeypatch, caplog
+):
+    """AUTO_VIEW still works as a deprecated alias and logs a deprecation warning."""
+    import logging
+
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("FEATURE_AUTO_VIEW", raising=False)
+    monkeypatch.setenv("AUTO_VIEW", "true")
+    # reset the log-once guard so this test is order-independent
+    import publisher_v2.config.loader as loader_mod
+
+    monkeypatch.setattr(loader_mod, "_auto_view_alias_warned", False, raising=False)
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    with caplog.at_level(logging.WARNING):
+        cfg = load_application_config(str(config_file))
+    assert cfg.features.auto_view_enabled is True
+    assert any("AUTO_VIEW" in rec.getMessage() and "deprecat" in rec.getMessage().lower() for rec in caplog.records)
+
+
+def test_feature_auto_view_takes_precedence_over_alias(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("FEATURE_AUTO_VIEW", "false")
+    monkeypatch.setenv("AUTO_VIEW", "true")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.auto_view_enabled is False
+
+
+def test_library_enabled_populated_by_loader(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """FEATURE_LIBRARY env resolves into features.library_enabled (was resolved ad hoc)."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.setenv("FEATURE_LIBRARY", "true")
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.library_enabled is True
+
+
+def test_library_enabled_defaults_false_without_managed(tmp_path, valid_ini_content, valid_env_vars, monkeypatch):
+    """Dropbox-only instance without FEATURE_LIBRARY: library stays off."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+    config_file = tmp_path / "test.ini"
+    config_file.write_text(valid_ini_content)
+
+    cfg = load_application_config(str(config_file))
+    assert cfg.features.library_enabled is False

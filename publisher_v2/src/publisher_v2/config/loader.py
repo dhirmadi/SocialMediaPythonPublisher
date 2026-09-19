@@ -41,6 +41,39 @@ REDACT_KEYS: set[str] = {
 }
 
 
+# #97 stage 1: log the AUTO_VIEW deprecation only once per process.
+_auto_view_alias_warned = False
+
+
+def _env_auto_view_enabled() -> bool:
+    """FEATURE_AUTO_VIEW is the documented name; AUTO_VIEW is a deprecated alias."""
+    global _auto_view_alias_warned
+    documented = os.environ.get("FEATURE_AUTO_VIEW")
+    if documented is not None:
+        return parse_bool_env(documented, False, var_name="FEATURE_AUTO_VIEW")
+    legacy = os.environ.get("AUTO_VIEW")
+    if legacy is not None:
+        if not _auto_view_alias_warned:
+            logger.warning("AUTO_VIEW is deprecated; use FEATURE_AUTO_VIEW instead")
+            _auto_view_alias_warned = True
+        return parse_bool_env(legacy, False, var_name="AUTO_VIEW")
+    return False
+
+
+def resolve_library_enabled_env(managed_present: bool) -> bool:
+    """Resolve features.library_enabled (#97 stage 1, formerly config/features.py).
+
+    FEATURE_LIBRARY env var takes precedence; otherwise auto-enable when a
+    managed storage backend is configured.
+    """
+    env_val = os.environ.get("FEATURE_LIBRARY", "").strip().lower()
+    if env_val in ("true", "1", "yes"):
+        return True
+    if env_val in ("false", "0", "no"):
+        return False
+    return managed_present
+
+
 def _parse_json_env(var_name: str) -> dict | list | None:
     """
     Parse JSON from an environment variable.
@@ -800,7 +833,7 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             remove_enabled=parse_bool_env(
                 os.environ.get("FEATURE_REMOVE_CURATE"), True, var_name="FEATURE_REMOVE_CURATE"
             ),
-            auto_view_enabled=parse_bool_env(os.environ.get("AUTO_VIEW"), False, var_name="AUTO_VIEW"),
+            auto_view_enabled=_env_auto_view_enabled(),
             alt_text_enabled=parse_bool_env(os.environ.get("FEATURE_ALT_TEXT"), True, var_name="FEATURE_ALT_TEXT"),
             smart_hashtags_enabled=parse_bool_env(
                 os.environ.get("FEATURE_SMART_HASHTAGS"), True, var_name="FEATURE_SMART_HASHTAGS"
@@ -813,6 +846,8 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 False,
                 var_name="FEATURE_STORAGE_OPS_METERING",
             ),
+            delete_enabled=parse_bool_env(os.environ.get("FEATURE_DELETE"), False, var_name="FEATURE_DELETE"),
+            library_enabled=resolve_library_enabled_env(managed is not None),
         )
 
     except KeyError as exc:
