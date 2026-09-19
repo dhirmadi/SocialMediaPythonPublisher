@@ -104,6 +104,8 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `WEB_DEBUG` | Enable FastAPI debug mode | `false` |
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
+| `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
+| `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |
@@ -514,6 +516,7 @@ In multi-tenant mode, the web UI still needs a consistent security posture per `
 | `ADMIN_LOGIN_EMAILS` (or `AUTH0_ADMIN_EMAIL_ALLOWLIST`) | Admin allowlist |
 | `WEB_SESSION_SECRET` | Session signing secret |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin cookie TTL (server-enforced clamp) |
+| `WEB_TRUST_FORWARDED_FOR` | Set `true` on Heroku so per-IP rate limits key on the rightmost `X-Forwarded-For` entry (the router-appended real client IP) |
 
 ### 10.3 Orchestrator-delivered runtime config (non-secret)
 

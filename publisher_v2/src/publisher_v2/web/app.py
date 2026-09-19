@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import os
@@ -60,6 +61,26 @@ __all__ = [
 # README. Brute-force login: 5 attempts per 15 min per IP. Cost endpoints:
 # 10 per minute per IP, 100 per hour per IP (per-admin keys layered on top).
 _LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=5, label="login")
+# Unkeyed budget (SEC-2): bounds brute force even when per-IP keys are spoofed
+# via X-Forwarded-For. Counts FAILED attempts only, process-wide.
+_GLOBAL_LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=30, label="login/global")
+_consecutive_login_failures = 0
+
+
+def _login_failure_delay(failures: int) -> float:
+    """Exponential backoff after consecutive login failures, capped.
+
+    WEB_LOGIN_BACKOFF_CAP_SECONDS=0 disables the delay (used by tests).
+    """
+    try:
+        cap = float(os.environ.get("WEB_LOGIN_BACKOFF_CAP_SECONDS", "5"))
+    except ValueError:
+        cap = 5.0
+    if cap <= 0:
+        return 0.0
+    return min(0.1 * (2 ** min(failures, 8)), cap)
+
+
 _ANALYZE_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="analyze/min")
 _ANALYZE_LIMITER_HOUR = SlidingWindowLimiter(window_seconds=3600, max_events=100, label="analyze/hour")
 _PUBLISH_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="publish/min")
@@ -340,10 +361,19 @@ async def api_admin_login(
     # Brute-force guard: rate-limit by client IP regardless of outcome.
     _LOGIN_LIMITER.check(remote_ip(request))
 
+    global _consecutive_login_failures
     if not verify_admin_password(body.password, actual_pass):
+        _consecutive_login_failures += 1
+        delay = _login_failure_delay(_consecutive_login_failures)
+        if delay > 0:
+            await asyncio.sleep(delay)
         log_json(logger, logging.WARNING, "admin_login_failed", remote=remote_ip(request))
+        # Unkeyed budget: raises 429 (with Retry-After) once the process-wide
+        # failed-attempt window is exhausted, regardless of spoofed IP keys.
+        _GLOBAL_LOGIN_LIMITER.check("global")
         # 401 enables the client to re-prompt
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
+    _consecutive_login_failures = 0
 
     bind_tenant, bind_host = request_binding(request)
     set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="password")
