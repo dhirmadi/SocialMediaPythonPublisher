@@ -6,6 +6,7 @@ Instagram record; the next run publishes only to Instagram.
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
@@ -103,6 +104,45 @@ class _ScriptedPublisher(Publisher):
         return PublishResult(success=False, platform=self._name, error="scripted failure")
 
 
+class _HangingPublisher(Publisher):
+    """Never returns before the publish timeout, to exercise the timeout->unknown path."""
+
+    def __init__(self, name: str, calls: dict[str, int]) -> None:
+        self._name = name
+        self._calls = calls
+
+    @property
+    def platform_name(self) -> str:
+        return self._name
+
+    def is_enabled(self) -> bool:
+        return True
+
+    async def publish(self, image_path: str, caption: str, context: Any = None) -> PublishResult:
+        self._calls[self._name] = self._calls.get(self._name, 0) + 1
+        await asyncio.sleep(3600)
+        raise AssertionError("should have been cancelled by the publish timeout")
+
+
+class _RaisingPublisher(Publisher):
+    """Raises instead of returning a PublishResult, to exercise the failed-mapping path."""
+
+    def __init__(self, name: str, calls: dict[str, int]) -> None:
+        self._name = name
+        self._calls = calls
+
+    @property
+    def platform_name(self) -> str:
+        return self._name
+
+    def is_enabled(self) -> bool:
+        return True
+
+    async def publish(self, image_path: str, caption: str, context: Any = None) -> PublishResult:
+        self._calls[self._name] = self._calls.get(self._name, 0) + 1
+        raise ConnectionError("boom at https://example.com/secret-path")
+
+
 def _config() -> ApplicationConfig:
     return ApplicationConfig(
         dropbox=DropboxConfig(
@@ -197,3 +237,90 @@ async def test_preview_and_dry_publish_never_touch_the_table(publish_store: Publ
         rows = (await session.execute(select(PublishRecord))).scalars().all()
     assert rows == []
     assert calls == {}
+
+
+async def test_publisher_timeout_marks_row_unknown_never_archives_never_auto_retries(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A publisher that hangs past the deadline is marked ``unknown``, not ``failed``.
+
+    ``unknown`` rows are never auto-retried (the upload may have completed
+    upstream) and the run must not archive, since not every platform reached
+    ``published``.
+    """
+    import publisher_v2.core.workflow as workflow_module
+
+    monkeypatch.setattr(workflow_module, "_publish_timeout_seconds", lambda: 0.05)
+    monkeypatch.setattr(workflow_module, "_publish_timeout_for", lambda platform, default: 0.05)
+
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [
+        _ScriptedPublisher("telegram", [True], calls),
+        _HangingPublisher("instagram", calls),
+    ]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+    )
+
+    result = await orchestrator.execute()
+
+    assert result.success is False
+    assert result.partial is True
+    assert result.archived is False
+    assert storage.archived == []
+    assert result.publish_results["instagram"].error == "publish timeout"
+
+    from sqlalchemy import select
+
+    from publisher_v2.db.models import PublishRecord
+
+    async with publish_store._session_factory() as session:  # noqa: SLF001 — test introspection
+        rows = (await session.execute(select(PublishRecord))).scalars().all()
+    by_platform = {r.platform: r.status for r in rows}
+    assert by_platform == {"telegram": "published", "instagram": "unknown"}
+
+    # unknown rows are never auto-retried: a second run must not re-publish instagram.
+    second = await orchestrator.execute()
+    assert calls == {"telegram": 1, "instagram": 1}
+    assert second.archived is False
+
+
+async def test_publisher_exception_marks_row_failed_with_sanitized_message(
+    publish_store: PublishStore,
+) -> None:
+    """A publisher raising an exception is mapped to ``failed`` with a sanitized, non-duplicated message."""
+    calls: dict[str, int] = {}
+    publishers: list[Publisher] = [
+        _ScriptedPublisher("telegram", [True], calls),
+        _RaisingPublisher("instagram", calls),
+    ]
+    storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+    )
+
+    result = await orchestrator.execute()
+
+    assert result.success is False
+    assert result.partial is True
+    assert result.archived is False
+
+    error = result.publish_results["instagram"].error
+    assert error is not None
+    # sanitize_publisher_error() prepends the type name exactly once (not duplicated)
+    # and strips the embedded URL.
+    assert error.count("ConnectionError") == 1
+    assert error.startswith("ConnectionError: boom at ")
+    assert "example.com" not in error
+
+    from sqlalchemy import select
+
+    from publisher_v2.db.models import PublishRecord
+
+    async with publish_store._session_factory() as session:  # noqa: SLF001 — test introspection
+        rows = (await session.execute(select(PublishRecord))).scalars().all()
+    by_platform = {r.platform: r.status for r in rows}
+    assert by_platform == {"telegram": "published", "instagram": "failed"}
+    failed_row = next(r for r in rows if r.platform == "instagram")
+    assert failed_row.error == error

@@ -541,7 +541,8 @@ class WorkflowOrchestrator:
                         elif isinstance(res, BaseException):
                             from publisher_v2.services.publishers._sanitize import sanitize_publisher_error
 
-                            detail = f"{type(res).__name__}: {sanitize_publisher_error(res)}"
+                            # sanitize_publisher_error() already prepends type(exc).__name__.
+                            detail = sanitize_publisher_error(res)
                             pr = PublishResult(success=False, platform=pub.platform_name, error=detail)
                             await self._mark_publish(lease_hash, pub.platform_name, "failed", error=detail)
                         else:
