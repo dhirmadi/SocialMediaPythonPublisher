@@ -48,9 +48,19 @@ Expected JSON:
 }
 ```
 
+### Caption-facing fields (#138)
+The same vision call also returns two fields written **for the caption writer, not the dataset**:
+`sensory_detail` (2–3 concrete, evocative details: texture, tension, temperature, gaze, breath; warm
+adult register, no explicit acts) and `mood_note` (one sentence in the voice of someone who finds
+the image beautiful). They lead the caption prompt's analysis context and are **never** written to
+the SD/sidecar metadata, which stays neutral.
+
 ## 3. Caption Prompt (OpenAI)
-System:
-“You are a senior social media copywriter. Write authentic, concise, platform‑aware captions that feel human and avoid generic clichés.”
+System (shipped default, `config/static/ai_prompts.yaml` `caption.system`, #138):
+“You write in the account owner's voice; adult, warm, specific, unhurried. …” followed by the
+BANNED CONSTRUCTIONS list. User prompt opens with the one-sentence brief “Write one caption per
+platform below about this photograph, in the account owner's voice.” and ends with one
+`Constraints:` line carrying every platform's hard length limit.
 
 User:
 - Inputs:
@@ -87,12 +97,27 @@ Post‑Processing:
   - Example: “kinky, playful, respectful; consent‑forward; no hashtags or emojis; ≤240 chars; end with an open question”
 - Prompts can be iterated safely with `--preview` to audition variations
 
-## 8. Voice Examples and Caption Diversity (#82)
+## 8. Voice Examples and Caption Diversity (#82, #138)
 
-- **Tenant voice profile wins.** When `content.voice_profile` is set, its examples fully
-  replace the static email examples in `config/static/ai_prompts.yaml`. The static examples
-  are a **fallback only** for tenants with no voice profile — they share one structural shape
-  (observation, then question) and homogenize output across tenants otherwise.
+- **Tenant voice profile is the only source of examples (#138).** No static example captions
+  ship with the app; `PlatformCaptionStyle` rejects an `examples` key. A tenant without a
+  `content.voice_profile` gets no few-shot examples at all.
+- **Default persona is tenant-neutral (#138).** The shipped `caption.system` is "You write in
+  the account owner's voice; adult, warm, specific, unhurried." plus the banned-constructions
+  list. A tenant's own persona belongs in its `system_prompt`. A tenant `system_prompt`
+  **replaces the whole shipped `caption.system`**, so copy the BANNED CONSTRUCTIONS list from
+  `config/static/ai_prompts.yaml` into it. For example (persona part):
+
+  > You are the artist writing about your own fine-art rope and figure photography, speaking to
+  > an adult audience of collectors and kink-aware art lovers. Voice: first person, concrete,
+  > unhurried, confident; specific sensory detail over abstraction.
+
+- **Platform briefs state register and length, not shape (#138).** The email brief is "30 to 35
+  words, one moment, first person, no hashtags"; it no longer mandates a closing question.
+  `platform_captions.<name>.closing` (`question` | `statement` | `any`, default `any`) can
+  mandate a closing; when it does, that platform's "closing patterns to avoid" line is skipped.
+  Hard length limits appear once, in a trailing `Constraints:` line. Platforms whose style has
+  `hashtags: false` get no hashtag-generation instruction.
 - `features.voice_matching_enabled` now defaults to **true when `content.voice_profile` is
   non-empty**; an explicit value in config always wins.
 - Caption history reaches the prompt as **constraints, not examples**: the first six words of
@@ -102,6 +127,8 @@ Post‑Processing:
   sensory fragment / second person / quiet observation / short line), picked least-recently-used
   against the history.
 - A **similarity gate** compares each generated caption against that platform's history using
-  word-trigram Jaccard; above 0.45 it regenerates once with a different directive and a
-  must-differ clause. Every run logs a `caption_similarity` event per platform
+  word-trigram Jaccard; above 0.45 it regenerates once with a must-differ clause. Each
+  offending platform gets a new directive picked with the rejected draft as the most recent
+  entry, and that directive replaces the platform's original one: a prompt never carries two
+  structure directives for the same platform (#138). Every run logs a `caption_similarity` event per platform
   (`platform`, `max_similarity`, `regenerated`) — preview mode included.

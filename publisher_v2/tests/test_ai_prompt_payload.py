@@ -221,3 +221,64 @@ async def test_service_path_sends_caption_persona_system_message(monkeypatch: py
     assert messages[0]["content"] == generator.system_prompt
     assert "prompt engineer" not in messages[0]["content"].lower()
     assert "sd_caption" in messages[1]["content"]
+
+
+# ---------- #138: tenant-neutral default persona, fewer machine tells ----------
+
+
+def _captured_user_prompt(monkeypatch: pytest.MonkeyPatch) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
+    completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+    return CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test")), completions
+
+
+def test_default_system_prompt_is_tenant_neutral_and_keeps_banned_list(monkeypatch: pytest.MonkeyPatch) -> None:
+    gen, _ = _captured_user_prompt(monkeypatch)
+    system = gen.system_prompt.lower()
+    assert "banned" in system
+    assert "rope" not in system
+    assert "kink" not in system
+
+
+async def test_user_prompt_has_no_machine_tells(monkeypatch: pytest.MonkeyPatch) -> None:
+    gen, completions = _captured_user_prompt(monkeypatch)
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="", max_length=4096),
+        "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+    }
+    analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
+    await gen.generate_multi_with_sd(analysis, specs)
+    user = completions.calls[-1]["messages"][-1]["content"]
+    assert "Write a caption for:" not in user
+    assert "will be truncated" not in user.lower()
+    # Hard limits live in one trailing Constraints line.
+    assert user.count("Constraints:") == 1
+
+
+def test_condense_pass_writes_as_the_same_writer() -> None:
+    from publisher_v2.services.ai import CONDENSE_SYSTEM_PROMPT
+
+    assert "same writer" in CONDENSE_SYSTEM_PROMPT
+    assert "text editor" not in CONDENSE_SYSTEM_PROMPT
+    # Injection hardening stays.
+    assert "untrusted" in CONDENSE_SYSTEM_PROMPT
+
+
+async def test_email_word_limit_reaches_the_real_prompt_and_matches_brief(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#138 review: the Constraints line carries each platform's limit and agrees with the 30-35 word brief."""
+    gen, completions = _captured_user_prompt(monkeypatch)
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="", max_length=4096),
+        "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+    }
+    await gen.generate_multi_with_sd(ImageAnalysis(description="d", mood="m", tags=["t"]), specs)
+    user = completions.calls[-1]["messages"][-1]["content"]
+    assert "email at most 40 words (aim for 30-35)" in user
+    assert "telegram at most 4096 characters" in user
+
+
+def test_vision_completion_cap_fits_caption_facing_fields() -> None:
+    from publisher_v2.services.ai import VisionAnalyzerOpenAI
+
+    analyzer = VisionAnalyzerOpenAI(OpenAIConfig(api_key="sk-test"))
+    assert analyzer.max_completion_tokens >= 1024

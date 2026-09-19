@@ -77,7 +77,10 @@ class _GateStubGenerator:
         self.calls: list[str | None] = []
         self._responses = [first, second]
 
-    async def generate_multi(self, analysis, specs, history=None, voice_examples=None, diversity_clause=None):
+    async def generate_multi(
+        self, analysis, specs, history=None, voice_examples=None, diversity_clause=None, directives=None
+    ):
+        # #138: the regeneration now also passes per-platform ``directives``.
         self.calls.append(diversity_clause)
         text = self._responses[min(len(self.calls) - 1, len(self._responses) - 1)]
         return dict.fromkeys(specs, text), None

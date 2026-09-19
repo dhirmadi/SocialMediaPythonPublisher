@@ -2,10 +2,10 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 logger = logging.getLogger("publisher_v2.config.static")
 
@@ -44,13 +44,27 @@ class AISDCaptionPrompts(BaseModel):
 
 
 class PlatformCaptionStyle(BaseModel):
+    # #138: no static example captions ship with the app — the tenant
+    # voice_profile is the only source of examples. A reintroduced ``examples``
+    # key is rejected; other unknown keys stay ignored so an older
+    # PV2_STATIC_CONFIG_DIR override cannot stop the app at startup.
+    model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_static_examples(cls, data: Any) -> Any:
+        if isinstance(data, dict) and data.get("examples"):
+            raise ValueError("static example captions are not supported; use the tenant voice_profile (#138)")
+        return data
+
     style: str = Field(default="minimal_poetic", description="Caption style directive for this platform")
     max_length: int = Field(default=2200, description="Maximum caption length")
     hashtags: bool = Field(default=True, description="Whether to include hashtags")
-    examples: list[str] = Field(
-        default_factory=list, max_length=10, description="Voice examples for few-shot prompting"
+    guidance: str = Field(default="", max_length=1000, description="Platform length/register brief")
+    closing: Literal["question", "statement", "any"] = Field(
+        default="any",
+        description="Mandated closing; when set, the closing-pattern-to-avoid constraint is skipped",
     )
-    guidance: str = Field(default="", max_length=1000, description="Platform-specific trend guidance")
 
 
 class ConfirmationTagsConfig(BaseModel):
@@ -87,9 +101,10 @@ class AIPromptsConfig(BaseModel):
                 hashtags=True,
             ),
             "email": PlatformCaptionStyle(
-                style="one intimate sentence + one brief question, FetLife-appropriate, no hashtags",
+                style="intimate, FetLife-appropriate",
                 max_length=240,
                 hashtags=False,
+                guidance="FetLife email subject. 30 to 35 words, one moment, first person, no hashtags.",
             ),
             "generic": PlatformCaptionStyle(style="minimal_poetic", max_length=2200, hashtags=True),
         },

@@ -8,9 +8,9 @@ vision:
     description, mood, tags (array), nsfw (boolean), safety_labels (array),
     subject, style, lighting, camera, clothing_or_accessories,
     aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text,
-    distinctive_detail.
+    distinctive_detail, sensory_detail (array), mood_note.
 
-    GUIDELINES:
+    GUIDELINES (metadata fields — neutral, for the dataset sidecar):
     - description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.
     - tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).
     - nsfw: true if nudity, erotic context, or rope bondage.
@@ -26,17 +26,23 @@ vision:
     - distinctive_detail: one concrete, unusual, specific visual detail (≤ 20 words); null if nothing stands out.
     - Unknown values → null or [].
 
+    CAPTION-FACING FIELDS (not metadata — written for the caption writer, warm and adult, never explicit acts):
+    - sensory_detail: 2–3 concrete, evocative details a person would feel or notice (texture, tension,
+      temperature, gaze, breath), each ≤ 15 words.
+    - mood_note: one sentence in the voice of someone who finds this image beautiful — not an analyst.
+
     Return ONE JSON object ONLY — no extra text.
 
 caption:
+  # #138: tenant-neutral default. A tenant's own persona belongs in its system_prompt
+  # (example in docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md).
   system: >
-    You are the artist writing about your own fine-art rope and figure photography, speaking to an
-    adult audience of collectors and kink-aware art lovers. Voice: first person, concrete, unhurried,
-    confident; specific sensory detail over abstraction.
+    You write in the account owner's voice; adult, warm, specific, unhurried. First person, concrete;
+    specific sensory detail over abstraction; let the image carry the feeling.
     BANNED CONSTRUCTIONS (never use): rhetorical-question openers; the "isn't just X, it's Y" pattern;
     "step into"; strings of trailing emoji; ellipsis endings ("..."); generic engagement bait
     ("tag someone who...", "double tap if...").
-  role: "Write a caption for:"
+  role: "Write one caption per platform below about this photograph, in the account owner's voice."
 
 sd_caption:
   system: >
@@ -59,15 +65,12 @@ platform_captions:
     max_length: 2200
     hashtags: true
   email:
-    style: "one intimate sentence + one brief question, FetLife-appropriate, no hashtags"
+    style: "intimate, FetLife-appropriate"
     max_length: 240
     hashtags: false
-    examples:
-      - "Soft rope, steady hands, and a gaze that doesn't flinch. What does trust look like on you?"
-      - "This kind of tension doesn't need words. But tell me — what caught your eye first?"
-      - "Bare skin, bold lines, quiet surrender. What would you add to this scene?"
-      - "Silk and steel have more in common than you think. Which one draws you in?"
-    guidance: "FetLife email subject. Aim for 30-35 words. One flirtatious observation + one open question. Never exceed 40 words."
+    # #138: a length and register brief only — no mandated shape, no static examples.
+    guidance: "FetLife email subject. 30 to 35 words, one moment, first person, no hashtags."
+    closing: any
   generic:
     style: "minimal_poetic"
     max_length: 2200

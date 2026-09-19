@@ -44,11 +44,7 @@ email:
     style: "one intimate sentence + one brief question, FetLife-appropriate, no hashtags"
     max_length: 240
     hashtags: false
-    examples:
-      - "Soft rope, steady hands, and a gaze that doesn't flinch. What does trust look like on you?"
-      - "This kind of tension doesn't need words. But tell me — what caught your eye first?"
-      - "Bare skin, bold lines, quiet surrender. What would you add to this scene?"
-      - "Silk and steel have more in common than you think. Which one draws you in?"
+    examples:  # [removed #138: static example captions no longer ship; tenant voice_profile is the only source]
     guidance: "FetLife email subject. Aim for 30-35 words. One flirtatious observation + one open question. Never exceed 40 words."
 ```
 

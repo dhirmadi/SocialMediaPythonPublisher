@@ -118,3 +118,88 @@ async def test_analyzer_distinctive_detail_none_safe(monkeypatch: pytest.MonkeyP
     analyzer = VisionAnalyzerOpenAI(cfg)
     result, _usage = await analyzer.analyze("http://tmp-url")
     assert result.distinctive_detail is None
+
+
+# ---------- #138: caption-facing sensory_detail + mood_note ----------
+
+
+class _WarmCompletions:
+    def __init__(self) -> None:
+        self.messages: list = []
+
+    async def create(self, model: str, messages, response_format, temperature: float):
+        self.messages = messages
+        payload = {
+            "description": "Figure in a jute harness against a grey wall.",
+            "mood": "calm",
+            "tags": ["rope"],
+            "nsfw": True,
+            "safety_labels": ["bondage_or_restraints"],
+            "alt_text": "A person in a rope harness.",
+            "sensory_detail": ["the jute pressing a shallow line into warm skin", "breath held at the last wrap"],
+            "mood_note": "It feels like the quiet second before someone lets go.",
+        }
+        return _DummyResp(json.dumps(payload))
+
+
+class _WarmClient:
+    def __init__(self, completions: _WarmCompletions) -> None:
+        self.chat = type("Chat", (), {"completions": completions})()
+
+
+async def _warm_analysis(monkeypatch: pytest.MonkeyPatch):
+    completions = _WarmCompletions()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _WarmClient(completions))
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
+    result, _usage = await VisionAnalyzerOpenAI(cfg).analyze("http://tmp-url")
+    return result, completions
+
+
+async def test_vision_prompt_requests_caption_facing_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    _result, completions = await _warm_analysis(monkeypatch)
+    sent = json.dumps(completions.messages)
+    assert "sensory_detail" in sent
+    assert "mood_note" in sent
+
+
+async def test_sensory_detail_and_mood_note_parsed(monkeypatch: pytest.MonkeyPatch) -> None:
+    result, _ = await _warm_analysis(monkeypatch)
+    assert result.sensory_detail == [
+        "the jute pressing a shallow line into warm skin",
+        "breath held at the last wrap",
+    ]
+    assert result.mood_note == "It feels like the quiet second before someone lets go."
+
+
+async def test_caption_facing_fields_come_first_in_analysis_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    from publisher_v2.services.ai import build_analysis_context
+
+    result, _ = await _warm_analysis(monkeypatch)
+    context = build_analysis_context(result)
+    assert context.startswith("sensory_detail=")
+    assert context.index("mood_note=") < context.index("description=")
+
+
+async def test_caption_facing_fields_absent_from_sidecar_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+    from publisher_v2.utils.captions import build_caption_sidecar, build_metadata_phase2
+
+    result, _ = await _warm_analysis(monkeypatch)
+    text = build_caption_sidecar("rope, figure", build_metadata_phase2(result))
+    view = rehydrate_sidecar_view(text)
+    assert "sensory_detail" not in text and "mood_note" not in text
+    assert "sensory_detail" not in (view.get("metadata") or {})
+    assert "mood_note" not in (view.get("metadata") or {})
+
+
+async def test_sensory_detail_string_is_kept_as_one_item(monkeypatch: pytest.MonkeyPatch) -> None:
+    completions = _WarmCompletions()
+
+    async def _create(model: str, messages, response_format, temperature: float):
+        return _DummyResp(json.dumps({"description": "d", "mood": "m", "sensory_detail": "cool jute on a warm wrist"}))
+
+    completions.create = _create  # type: ignore[method-assign]
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _WarmClient(completions))
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
+    result, _ = await VisionAnalyzerOpenAI(cfg).analyze("http://tmp-url")
+    assert result.sensory_detail == ["cool jute on a warm wrist"]

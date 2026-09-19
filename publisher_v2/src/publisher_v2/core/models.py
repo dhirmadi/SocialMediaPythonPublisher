@@ -36,6 +36,10 @@ class ImageAnalysis:
     alt_text: str | None = None
     # #81 (CAP-4): one concrete, unusual, specific visual detail (≤ 20 words)
     distinctive_detail: str | None = None
+    # #138: caption-facing fields (warm, adult register). Fed to the caption
+    # prompt first; never written to the SD/sidecar metadata.
+    sensory_detail: list[str] = field(default_factory=list)
+    mood_note: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +51,9 @@ class CaptionSpec:
     examples: tuple[str, ...] = ()
     guidance: str = ""
     smart_hashtags: bool = False
+    # #138: "question" | "statement" | "any" — a mandated closing skips the
+    # closing-pattern-to-avoid constraint for this platform.
+    closing: str = "any"
 
     @staticmethod
     def for_platforms(config: "ApplicationConfig") -> dict[str, "CaptionSpec"]:
@@ -82,19 +89,18 @@ class CaptionSpec:
                 if style_cfg is None:
                     continue
                 hashtags = config.content.hashtag_string if style_cfg.hashtags else ""
-                # #82: tenant voice-profile examples REPLACE the static YAML
-                # examples; the shared static ones are only a fallback for
-                # tenants with no voice profile (they share one shape and
-                # homogenize output across tenants otherwise).
-                examples = voice_profile_examples if voice_profile_examples else tuple(style_cfg.examples)
+                # #138: the tenant voice profile is the only source of examples;
+                # no static example captions ship with the app.
                 specs[name] = CaptionSpec(
                     platform=name,
                     style=style_cfg.style,
                     hashtags=hashtags,
                     max_length=style_cfg.max_length,
-                    examples=examples,
+                    examples=voice_profile_examples,
                     guidance=style_cfg.guidance,
-                    smart_hashtags=smart_hashtags,
+                    # #138: no hashtag instruction for a platform whose style has none.
+                    smart_hashtags=smart_hashtags and style_cfg.hashtags,
+                    closing=style_cfg.closing,
                 )
 
         if not specs:
