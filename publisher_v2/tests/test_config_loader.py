@@ -145,7 +145,8 @@ def test_load_config_with_instagram_publisher(valid_env_vars, monkeypatch):
     assert config.instagram is not None
     assert config.instagram.username == "testuser"
     assert config.instagram.password == "insta_pass"
-    assert config.instagram.session_file == "instasession.json"
+    # #133: no fixed relative "instasession.json"; None lets the session store use $XDG_CACHE_HOME.
+    assert config.instagram.session_file is None
 
 
 def test_load_config_captionfile_extended_metadata(valid_env_vars, monkeypatch):

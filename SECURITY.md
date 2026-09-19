@@ -21,7 +21,7 @@ We release security updates for the following versions:
 
 2. **Credential Storage**:
    - Application stores credentials in `.env` file
-   - Session tokens stored in `instasession.json`
+   - Instagram session settings stored encrypted in Postgres (`pv2_instagram_session`) when `DATABASE_URL` and `WEB_SESSION_SECRET` are set, otherwise in `$XDG_CACHE_HOME/publisher_v2/instagram_session.json` (mode 0600)
    - **Recommendation**: Implement keyring-based credential storage (see documentation)
 
 3. **Temporary Files**:
@@ -94,7 +94,7 @@ Please provide:
    # Set restrictive file permissions
    chmod 600 .env
    chmod 600 configfiles/*.ini
-   chmod 600 instasession.json
+   chmod 600 "${XDG_CACHE_HOME:-$HOME/.cache}/publisher_v2/instagram_session.json"
    ```
 
 4. **Regular Updates**

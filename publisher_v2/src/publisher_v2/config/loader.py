@@ -396,7 +396,8 @@ def _load_publishers_from_env(
             instagram = InstagramConfig(
                 username=username,
                 password=password,
-                session_file="instasession.json",
+                # #133: no fixed relative path; the session store defaults to $XDG_CACHE_HOME.
+                session_file=None,
             )
             instagram_enabled = True
 
