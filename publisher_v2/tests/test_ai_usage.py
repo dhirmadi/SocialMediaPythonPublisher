@@ -308,13 +308,19 @@ async def test_ai_service_create_caption_from_analysis_returns_usage_list() -> N
 # --- AC-B6: NullAIService returns empty usage lists ---
 
 
-def test_null_ai_service_has_no_crash_attributes() -> None:
-    """AC-B6: NullAIService should not crash when attributes are checked."""
+def test_null_ai_service_fails_loudly_on_misgated_call() -> None:
+    """AC-B6, amended by #95: a mis-gated analyze call raises a clear
+    AIServiceError instead of an AttributeError on None."""
+    from publisher_v2.core.exceptions import AIServiceError
     from publisher_v2.services.ai import NullAIService
 
     svc = NullAIService()
-    assert svc.analyzer is None
     assert svc.generator is None
+    assert svc.analyzer is not None
+    import asyncio as _asyncio
+
+    with pytest.raises(AIServiceError, match="disabled"):
+        _asyncio.get_event_loop().run_until_complete(svc.analyzer.analyze("http://x"))
 
 
 @pytest.mark.asyncio

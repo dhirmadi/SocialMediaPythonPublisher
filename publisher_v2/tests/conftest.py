@@ -449,12 +449,6 @@ class BaseDummyAI:
 
         self._rate_limiter = _NoopLimiter()
 
-    async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
-        return self._caption
-
-    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str]:
-        return self._caption, self.generator._sd_caption
-
     async def create_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec
     ) -> tuple[str, str, list]:

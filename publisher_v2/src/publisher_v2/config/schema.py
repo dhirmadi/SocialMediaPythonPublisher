@@ -179,12 +179,6 @@ class OpenAIConfig(BaseModel):
             raise ValueError(f"Model '{v}' must be printable ASCII")
         return candidate
 
-    def model_post_init(self, __context) -> None:
-        """Handle legacy 'model' field for backward compatibility"""
-        # This method is called after __init__ but validation has already happened
-        # The config loader handles the legacy model field, so this is just for documentation
-        pass
-
 
 class PlatformsConfig(BaseModel):
     telegram_enabled: bool = False
