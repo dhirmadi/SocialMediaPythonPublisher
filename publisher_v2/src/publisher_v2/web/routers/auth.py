@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import RedirectResponse
 
 from publisher_v2.utils.logging import log_json
-from publisher_v2.web.auth import clear_admin_cookie, set_admin_cookie
+from publisher_v2.web.auth import clear_admin_cookie, request_binding, set_admin_cookie
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.service import WebImageService
 
@@ -162,7 +162,8 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
         # Success
         log_json(logger, logging.INFO, "auth_login_success", email=email)
         response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
-        set_admin_cookie(response)
+        bind_tenant, bind_host = request_binding(request)
+        set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="auth0", email=email)
         request.session.clear()  # OIDC state no longer needed
         return response
 

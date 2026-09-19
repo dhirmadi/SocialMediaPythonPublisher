@@ -184,41 +184,91 @@ def _serializer() -> URLSafeTimedSerializer:
     return URLSafeTimedSerializer(_cookie_secret(), salt=_ADMIN_COOKIE_SALT)
 
 
-def mint_admin_cookie_value() -> str:
+def _normalize_host(value: str | None) -> str | None:
+    """Normalize a Host header / runtime host for binding comparisons."""
+    if not value:
+        return None
+    return value.strip().lower() or None
+
+
+def mint_admin_cookie_value(
+    *,
+    tenant: str | None = None,
+    host: str | None = None,
+    mode: str = "password",
+    email: str | None = None,
+) -> str:
     """
-    Mint a signed admin-cookie payload.
+    Mint a signed admin-cookie payload bound to a tenant and host (SEC-1).
 
-    Payload is a random session-id; signature + timestamp are embedded by
-    URLSafeTimedSerializer. Exposed so tests can construct valid cookies.
+    Payload: {"sid", "tenant", "host", "mode", "email"?}. Signature and
+    timestamp are embedded by URLSafeTimedSerializer. Exposed so tests can
+    construct valid cookies.
     """
-    session_id = secrets.token_urlsafe(16)
-    return _serializer().dumps({"sid": session_id})
+    payload: dict[str, str | None] = {
+        "sid": secrets.token_urlsafe(16),
+        "tenant": tenant,
+        "host": _normalize_host(host),
+        "mode": mode,
+    }
+    if email:
+        payload["email"] = email
+    return _serializer().dumps(payload)
 
 
-def _verify_admin_cookie(token: str | None) -> bool:
+def _load_admin_cookie(token: str | None) -> dict | None:
+    """Verify signature and age, then require the bound-payload shape.
+
+    Legacy cookies (pre tenant/host binding) lack the required claims and are
+    rejected. Returns the payload dict, or None when the cookie is invalid.
+    """
     if not token:
-        return False
+        return None
     try:
-        _serializer().loads(token, max_age=_admin_cookie_ttl_seconds())
+        data = _serializer().loads(token, max_age=_admin_cookie_ttl_seconds())
     except SignatureExpired:
-        return False
+        return None
     except BadSignature:
-        return False
+        return None
     except Exception:  # pragma: no cover — defensive
         logger.warning("admin_cookie_decode_unexpected", exc_info=True)
-        return False
-    return True
+        return None
+    if not isinstance(data, dict):
+        return None
+    if not all(key in data for key in ("sid", "tenant", "host", "mode")):
+        return None
+    return data
 
 
-def set_admin_cookie(response: Response, expires_in_seconds: int | None = None) -> None:
+def request_binding(request: Request) -> tuple[str | None, str | None]:
     """
-    Set the signed admin-mode cookie on the response.
+    Resolve the (tenant, host) pair the admin cookie must be bound to.
+
+    Orchestrator mode: tenant middleware sets request.state.tenant/.host.
+    Standalone mode: no tenant; the normalized Host header is the binding.
+    """
+    tenant = getattr(request.state, "tenant", None)
+    host = getattr(request.state, "host", None) or request.headers.get("host")
+    return tenant, _normalize_host(host)
+
+
+def set_admin_cookie(
+    response: Response,
+    expires_in_seconds: int | None = None,
+    *,
+    tenant: str | None = None,
+    host: str | None = None,
+    mode: str = "password",
+    email: str | None = None,
+) -> None:
+    """
+    Set the signed admin-mode cookie on the response, bound to tenant/host.
     """
     ttl = expires_in_seconds if expires_in_seconds is not None else _admin_cookie_ttl_seconds()
     secure = (_get_env("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes")
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
-        value=mint_admin_cookie_value(),
+        value=mint_admin_cookie_value(tenant=tenant, host=host, mode=mode, email=email),
         max_age=ttl,
         httponly=True,
         secure=secure,
@@ -234,18 +284,48 @@ def clear_admin_cookie(response: Response) -> None:
 def is_admin_request(request: Request) -> bool:
     """
     Determine whether the incoming request is in admin mode by verifying the
-    signed cookie. Returns False on missing, tampered, or expired cookies.
+    signed cookie AND its tenant/host binding (SEC-1). Returns False on
+    missing, tampered, expired, legacy, or cross-tenant cookies.
     """
-    return _verify_admin_cookie(request.cookies.get(ADMIN_COOKIE_NAME))
+    payload = _load_admin_cookie(request.cookies.get(ADMIN_COOKIE_NAME))
+    if payload is None:
+        return False
+    tenant, host = request_binding(request)
+    if payload.get("tenant") != tenant:
+        return False
+    return payload.get("host") == host
+
+
+def _tenant_admin_available(request: Request) -> bool | None:
+    """
+    Per-tenant admin auth policy from the orchestrator runtime config.
+
+    Returns None in standalone mode (no request.state.config); otherwise True
+    when the resolved tenant allows some admin login (Auth0 enabled via a
+    non-None auth0 config, or a password login configured on this instance).
+    """
+    cfg = getattr(request.state, "config", None)
+    if cfg is None:
+        return None
+    auth0_enabled = getattr(cfg, "auth0", None) is not None
+    return auth0_enabled or get_admin_password() is not None
 
 
 def require_admin(request: Request) -> None:
     """
     Enforce admin mode for web-triggered mutating actions.
 
-    If no admin auth (password or Auth0) is configured, admin mode is considered unavailable.
+    Orchestrator mode: the resolved tenant's runtime config decides whether
+    any admin login exists for the tenant; a disabled tenant gets 403 even
+    with a validly signed cookie. Standalone mode: env-based configuration.
     """
-    if not is_admin_configured():
+    tenant_policy = _tenant_admin_available(request)
+    if tenant_policy is False:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Admin mode disabled for this tenant",
+        )
+    if tenant_policy is None and not is_admin_configured():
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Admin mode not configured",

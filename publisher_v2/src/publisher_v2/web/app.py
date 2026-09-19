@@ -23,6 +23,7 @@ from publisher_v2.web.auth import (
     get_auth_mode,
     is_admin_configured,
     is_admin_request,
+    request_binding,
     require_admin,
     require_auth,
     set_admin_cookie,
@@ -344,7 +345,8 @@ async def api_admin_login(
         # 401 enables the client to re-prompt
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
 
-    set_admin_cookie(response)
+    bind_tenant, bind_host = request_binding(request)
+    set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="password")
     log_json(logger, logging.INFO, "web_admin_login_success")
     return AdminStatusResponse(admin=True)
 

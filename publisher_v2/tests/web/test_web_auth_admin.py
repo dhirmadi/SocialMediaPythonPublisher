@@ -51,7 +51,7 @@ def test_require_admin_accepts_with_valid_cookie(monkeypatch: pytest.MonkeyPatch
 
     client = TestClient(app)
     # Mint a valid signed cookie — plain "1" is no longer accepted post-hardening.
-    client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value())
+    client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(host="testserver"))
     res = client.get("/protected")
     assert res.status_code == 200
     assert res.json() == {"ok": True}

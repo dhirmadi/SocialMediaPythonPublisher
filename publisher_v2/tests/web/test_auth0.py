@@ -143,7 +143,7 @@ async def test_callback_auth0_error(client, mock_service, mock_oauth):
 def test_logout(client):
     from publisher_v2.web.auth import mint_admin_cookie_value
 
-    client.cookies.set("pv2_admin", mint_admin_cookie_value())
+    client.cookies.set("pv2_admin", mint_admin_cookie_value(host="testserver"))
     response = client.get("/auth/logout", follow_redirects=False)
     assert response.status_code == 303
     assert response.headers["location"] == "/"
@@ -199,3 +199,22 @@ def test_get_auth0_callback_url_remote_host_forces_https():
     }
     req = Request(scope)
     assert get_auth0_callback_url(req) == "https://staging.example.com/auth/callback"
+
+
+def test_get_auth0_callback_url_without_hostname_returns_none():
+    from starlette.requests import Request
+
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "GET",
+        "scheme": "http",
+        "path": "/auth/login",
+        "raw_path": b"/auth/login",
+        "query_string": b"",
+        "headers": [],
+        "client": ("10.0.0.1", 50000),
+        "server": None,
+    }
+    req = Request(scope)
+    assert get_auth0_callback_url(req) is None
