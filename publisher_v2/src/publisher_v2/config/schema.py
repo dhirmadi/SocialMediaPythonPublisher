@@ -179,12 +179,6 @@ class OpenAIConfig(BaseModel):
             raise ValueError(f"Model '{v}' must be printable ASCII")
         return candidate
 
-    def model_post_init(self, __context) -> None:
-        """Handle legacy 'model' field for backward compatibility"""
-        # This method is called after __init__ but validation has already happened
-        # The config loader handles the legacy model field, so this is just for documentation
-        pass
-
 
 class PlatformsConfig(BaseModel):
     telegram_enabled: bool = False
@@ -211,6 +205,11 @@ class EmailConfig(BaseModel):
     password: str | None = Field(default=None, description="Email (app) password")
     smtp_server: str = Field(default="smtp.gmail.com")
     smtp_port: int = Field(default=587)
+    # #97 stage 3: previously-dead orchestrator email_server fields, now wired.
+    use_tls: bool = Field(default=True, description="Issue STARTTLS before login (email_server.use_tls)")
+    smtp_username: str | None = Field(
+        default=None, description="SMTP login user (email_server.username); falls back to sender"
+    )
     # Confirmation after service email is sent (recipients: admin login emails when configured, else SMTP sender)
     confirmation_to_sender: bool = Field(
         default=True,

@@ -15,6 +15,7 @@ from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.services.storage_protocol import FileMetadata
 
 
 class _StubStorage:
@@ -32,8 +33,8 @@ class _StubStorage:
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         return "http://temp-link"
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        return {"id": "file-id", "rev": "1"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="file-id", revision="1", modified_at=None, size=None)
 
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         self.sidecar_writes += 1

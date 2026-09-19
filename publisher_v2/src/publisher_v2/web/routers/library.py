@@ -7,6 +7,7 @@ All endpoints require require_auth + require_admin.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import time
@@ -17,9 +18,9 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
-from publisher_v2.config.features import resolve_library_enabled
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import StoragePathConfig
-from publisher_v2.services.managed_storage import ManagedStorage
+from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.auth import require_admin, require_auth
 from publisher_v2.web.dependencies import get_request_service
@@ -172,7 +173,7 @@ class LibraryMoveResponse(BaseModel):
 
 def _check_library_available(service: WebImageService) -> None:
     """Raise 404 if library is not available for this instance."""
-    if service.config.managed is None or not resolve_library_enabled(service.config):
+    if service.config.managed is None or not service.config.features.library_enabled:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Library not available for Dropbox instances",
@@ -180,13 +181,8 @@ def _check_library_available(service: WebImageService) -> None:
 
 
 def _get_max_upload_bytes() -> int:
-    """Get max upload size in bytes from env (default 20 MB)."""
-    raw = os.environ.get("LIBRARY_MAX_UPLOAD_MB", "20")
-    try:
-        mb = int(raw)
-    except ValueError:
-        mb = 20
-    return mb * 1024 * 1024
+    """Max upload size in bytes (LIBRARY_MAX_UPLOAD_MB, default 20 MB; #97: centralized)."""
+    return load_runtime_settings().library_max_upload_mb * 1024 * 1024
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -275,19 +271,8 @@ def _sanitize_filter(q: str | None) -> str | None:
 
 
 def _get_scan_budget() -> int:
-    """Get scan budget from env (default 5000)."""
-    raw = os.environ.get("LIBRARY_SCAN_BUDGET", "5000")
-    try:
-        return int(raw)
-    except ValueError:
-        return 5000
-
-
-def _count_storage_op(service: WebImageService, n: int = 1) -> None:
-    """Increment the R2 ops counter if the storage backend supports it."""
-    storage = service.storage
-    if isinstance(storage, ManagedStorage):
-        storage._count_ops(n)
+    """Listing scan budget (LIBRARY_SCAN_BUDGET, default 5000; #97: centralized)."""
+    return load_runtime_settings().library_scan_budget
 
 
 _SORT_KEYS = {
@@ -317,113 +302,76 @@ async def _list_objects_buffered(
     containing that filename (same sort/filter), so the grid opens on the
     page that holds the anchor image.
     """
-    storage: Any = service.storage
-    bucket = storage._bucket
+    storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     _image_suffixes = (".jpg", ".jpeg", ".png")
     sanitized_q = _sanitize_filter(q)
-    is_managed = isinstance(storage, ManagedStorage)
-    count_op = storage._count_ops if is_managed else (lambda n=1: None)
-    _lib_logger = logging.getLogger("publisher_v2.storage_ops_metering")
-    _meter = getattr(service, "_storage_ops_meter", None)
-    log_json(
-        _lib_logger,
-        logging.INFO,
-        "library_scan_start",
-        is_managed=is_managed,
-        storage_type=type(storage).__name__,
-        storage_id=id(storage),
-        meter_storage_id=id(_meter._storage) if _meter is not None else None,
-        has_meter=_meter is not None,
-    )
 
-    def _scan() -> dict[str, Any]:
-        items: list[dict[str, Any]] = []
-        continuation: str | None = None
-        truncated = False
-
-        for _ in range(500):  # safety cap on S3 pages
-            if len(items) >= scan_budget:
-                truncated = True
-                break
-            kwargs: dict[str, Any] = {
-                "Bucket": bucket,
-                "Prefix": prefix,
-                "Delimiter": "/",
-                "MaxKeys": min(1000, scan_budget - len(items)),
-            }
-            if continuation:
-                kwargs["ContinuationToken"] = continuation
-            resp = storage.client.list_objects_v2(**kwargs)
-            count_op()  # PUB-045: each S3 list page is a billable R2 request
-            log_json(
-                _lib_logger,
-                logging.INFO,
-                "library_scan_page",
-                ops_count=storage._ops_count if is_managed else -1,
-                storage_id=id(storage),
+    # #96: the router talks ONLY to the storage protocol; page fetching,
+    # bucket names and PUB-045 metering live inside ManagedStorage.
+    items: list[dict[str, Any]] = []
+    continuation: str | None = None
+    truncated = False
+    for _ in range(500):  # safety cap on pages
+        if len(items) >= scan_budget:
+            truncated = True
+            break
+        page = await storage.list_objects(prefix, cursor=continuation, limit=min(1000, scan_budget - len(items)))
+        for obj in page["items"]:
+            key: str = obj["key"]
+            fname = key.rsplit("/", 1)[-1] if "/" in key else key
+            if not fname.lower().endswith(_image_suffixes):
+                continue
+            items.append(
+                {
+                    "key": fname,
+                    "size": obj.get("size", 0),
+                    "last_modified_raw": obj.get("last_modified") or "",
+                    "last_modified": str(obj.get("last_modified") or ""),
+                }
             )
-
-            for obj in resp.get("Contents", []):
-                key: str = obj["Key"]
-                fname = key.rsplit("/", 1)[-1] if "/" in key else key
-                if not fname.lower().endswith(_image_suffixes):
-                    continue
-                items.append(
-                    {
-                        "key": fname,
-                        "size": obj.get("Size", 0),
-                        "last_modified_raw": obj.get("LastModified", ""),
-                        "last_modified": str(obj.get("LastModified", "")),
-                    }
-                )
-                if len(items) >= scan_budget:
-                    if resp.get("IsTruncated"):
-                        truncated = True
-                    break
-
-            if not resp.get("IsTruncated"):
+            if len(items) >= scan_budget:
+                if page["is_truncated"]:
+                    truncated = True
                 break
-            continuation = resp.get("NextContinuationToken")
-            if not continuation:
+        if not page["is_truncated"] or not page["cursor"]:
+            break
+        continuation = page["cursor"]
+
+    # Apply filter
+    if sanitized_q:
+        q_lower = sanitized_q.lower()
+        items = [it for it in items if q_lower in it["key"].lower()]
+
+    # Sort
+    sort_key = _SORT_KEYS[sort]
+    items.sort(key=sort_key, reverse=(order == "desc"))
+
+    total_in_window = len(items)
+
+    # When anchor_key is given, find its position and override offset
+    anchor_offset: int | None = None
+    effective_offset = offset
+    if anchor_key:
+        for idx, it in enumerate(items):
+            if it["key"] == anchor_key:
+                effective_offset = (idx // limit) * limit
+                anchor_offset = effective_offset
                 break
+        # anchor not found in window → keep caller-supplied offset
 
-        # Apply filter
-        if sanitized_q:
-            q_lower = sanitized_q.lower()
-            items = [it for it in items if q_lower in it["key"].lower()]
+    # Paginate
+    page_items = items[effective_offset : effective_offset + limit]
 
-        # Sort
-        sort_key = _SORT_KEYS[sort]
-        items.sort(key=sort_key, reverse=(order == "desc"))
+    # Build response objects (drop last_modified_raw)
+    objects = [{"key": it["key"], "size": it["size"], "last_modified": it["last_modified"]} for it in page_items]
 
-        total_in_window = len(items)
-
-        # When anchor_key is given, find its position and override offset
-        anchor_offset: int | None = None
-        effective_offset = offset
-        if anchor_key:
-            for idx, it in enumerate(items):
-                if it["key"] == anchor_key:
-                    effective_offset = (idx // limit) * limit
-                    anchor_offset = effective_offset
-                    break
-            # anchor not found in window → keep caller-supplied offset
-
-        # Paginate
-        page = items[effective_offset : effective_offset + limit]
-
-        # Build response objects (drop last_modified_raw)
-        objects = [{"key": it["key"], "size": it["size"], "last_modified": it["last_modified"]} for it in page]
-
-        return {
-            "objects": objects,
-            "cursor": None,
-            "total_in_window": total_in_window,
-            "truncated": truncated,
-            "anchor_offset": anchor_offset,
-        }
-
-    return await asyncio.to_thread(_scan)
+    return {
+        "objects": objects,
+        "cursor": None,
+        "total_in_window": total_in_window,
+        "truncated": truncated,
+        "anchor_offset": anchor_offset,
+    }
 
 
 async def _list_objects_from_storage(
@@ -437,120 +385,70 @@ async def _list_objects_from_storage(
     incorrectly as files in the library "root" view.
     """
     # Library endpoints only run for ManagedStorage (guarded by _check_library_available)
-    storage: Any = service.storage
-    bucket = storage._bucket
+    storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     _image_suffixes = (".jpg", ".jpeg", ".png")
-    count_op = storage._count_ops if isinstance(storage, ManagedStorage) else (lambda n=1: None)
 
-    def _list() -> dict[str, Any]:
-        objects: list[dict[str, Any]] = []
-        continuation: str | None = cursor
-        page_cap = min(max(limit, 1), 200)
+    objects: list[dict[str, Any]] = []
+    continuation: str | None = cursor
+    page_cap = min(max(limit, 1), 200)
 
-        for _ in range(100):
+    for _ in range(100):
+        if len(objects) >= limit:
+            break
+        page = await storage.list_objects(prefix, cursor=continuation, limit=page_cap)
+        for obj in page["items"]:
+            key: str = obj["key"]
+            fname = key.rsplit("/", 1)[-1] if "/" in key else key
+            if not fname.lower().endswith(_image_suffixes):
+                continue
+            objects.append(
+                {
+                    "key": fname,
+                    "size": obj.get("size", 0),
+                    "last_modified": str(obj.get("last_modified") or ""),
+                }
+            )
             if len(objects) >= limit:
-                break
-            kwargs: dict[str, Any] = {
-                "Bucket": bucket,
-                "Prefix": prefix,
-                "Delimiter": "/",
-                "MaxKeys": page_cap,
-            }
-            if continuation:
-                kwargs["ContinuationToken"] = continuation
-            resp = storage.client.list_objects_v2(**kwargs)
-            count_op()  # PUB-045: each S3 list page is a billable R2 request
-            for obj in resp.get("Contents", []):
-                key: str = obj["Key"]
-                fname = key.rsplit("/", 1)[-1] if "/" in key else key
-                if not fname.lower().endswith(_image_suffixes):
-                    continue
-                objects.append(
-                    {
-                        "key": fname,
-                        "size": obj.get("Size", 0),
-                        "last_modified": str(obj.get("LastModified", "")),
-                    }
-                )
-                if len(objects) >= limit:
-                    next_cursor: str | None = resp.get("NextContinuationToken") if resp.get("IsTruncated") else None
-                    return {"objects": objects[:limit], "cursor": next_cursor}
-            if not resp.get("IsTruncated"):
-                return {"objects": objects, "cursor": None}
-            continuation = resp.get("NextContinuationToken")
-            if not continuation:
-                return {"objects": objects, "cursor": None}
+                next_cursor: str | None = page["cursor"] if page["is_truncated"] else None
+                return {"objects": objects[:limit], "cursor": next_cursor}
+        if not page["is_truncated"] or not page["cursor"]:
+            return {"objects": objects, "cursor": None}
+        continuation = page["cursor"]
 
-        return {"objects": objects[:limit], "cursor": None}
-
-    return await asyncio.to_thread(_list)
+    return {"objects": objects[:limit], "cursor": None}
 
 
 async def _upload_to_storage(service: WebImageService, filename: str, data: bytes, content_type: str) -> dict[str, Any]:
-    """Upload file to managed storage."""
-    storage: Any = service.storage
+    """Upload file to managed storage (protocol-only, #96; metering inside)."""
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
-
-    def _upload() -> None:
-        storage.client.put_object(
-            Bucket=storage._bucket,
-            Key=key,
-            Body=data,
-            ContentType=content_type,
-        )
-
-    await asyncio.to_thread(_upload)
-    _count_storage_op(service)  # PUB-045: put_object
+    storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
+    await storage.put_object(key, data, content_type)
     return {"key": key, "size": len(data)}
 
 
 async def _delete_from_storage(service: WebImageService, filename: str) -> dict[str, Any]:
-    """Delete image + sidecar from managed storage."""
-    storage: Any = service.storage
+    """Delete image + sidecar from managed storage (protocol-only, #96)."""
+    storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
 
-    ops = 0
-
-    def _check_exists() -> bool:
-        try:
-            storage.client.head_object(Bucket=storage._bucket, Key=key)
-            return True
-        except Exception:
-            return False
-
-    exists = await asyncio.to_thread(_check_exists)
-    ops += 1  # head_object
-    if not exists:
-        _count_storage_op(service, ops)
+    if await storage.head_object(key) is None:
         raise FileNotFoundError(f"File not found: {filename}")
+    await storage.delete_object(key)
 
-    # Delete image
-    def _delete() -> bool:
-        storage.client.delete_object(Bucket=storage._bucket, Key=key)
-        # Try to delete sidecar
-        stem = os.path.splitext(filename)[0]
-        sidecar_key = f"{folder.strip('/')}/{stem}.txt".lstrip("/")
-        sidecar_deleted = False
-        try:
-            storage.client.head_object(Bucket=storage._bucket, Key=sidecar_key)
-            storage.client.delete_object(Bucket=storage._bucket, Key=sidecar_key)
+    stem = os.path.splitext(filename)[0]
+    sidecar_key = f"{folder.strip('/')}/{stem}.txt".lstrip("/")
+    sidecar_deleted = False
+    if await storage.head_object(sidecar_key) is not None:
+        with contextlib.suppress(Exception):
+            await storage.delete_object(sidecar_key)
             sidecar_deleted = True
-        except Exception:  # noqa: S110
-            pass  # Sidecar may not exist
-        return sidecar_deleted
-
-    sidecar_deleted = await asyncio.to_thread(_delete)
-    # head_object check + delete_object + (sidecar head + sidecar delete if found)
-    ops += 2 if not sidecar_deleted else 4
-    _count_storage_op(service, ops)
     return {"deleted": filename, "sidecar_deleted": sidecar_deleted}
 
 
 async def _move_in_storage(service: WebImageService, filename: str, target_folder: str) -> dict[str, Any]:
     """Move image + sidecar to target folder in managed storage."""
-    storage: Any = service.storage
     paths = service.config.storage_paths
     source_folder = paths.image_folder
 
@@ -569,31 +467,14 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
     src_key = f"{source_folder.strip('/')}/{filename}".lstrip("/")
     dst_key = f"{dest_folder.strip('/')}/{filename}".lstrip("/")
 
-    def _move() -> int:
-        bucket = storage._bucket
-        ops = 0
-        # Copy then delete
-        storage.client.copy_object(Bucket=bucket, Key=dst_key, CopySource={"Bucket": bucket, "Key": src_key})
-        ops += 1
-        storage.client.delete_object(Bucket=bucket, Key=src_key)
-        ops += 1
-        # Move sidecar if exists
-        stem = os.path.splitext(filename)[0]
-        sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")
-        sidecar_dst = f"{dest_folder.strip('/')}/{stem}.txt".lstrip("/")
-        try:
-            storage.client.copy_object(
-                Bucket=bucket, Key=sidecar_dst, CopySource={"Bucket": bucket, "Key": sidecar_src}
-            )
-            ops += 1
-            storage.client.delete_object(Bucket=bucket, Key=sidecar_src)
-            ops += 1
-        except Exception:  # noqa: S110
-            ops += 1  # failed copy attempt is still a billable R2 request
-        return ops
+    storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
+    await storage.move_object(src_key, dst_key)
 
-    move_ops = await asyncio.to_thread(_move)
-    _count_storage_op(service, move_ops)
+    stem = os.path.splitext(filename)[0]
+    sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")
+    sidecar_dst = f"{dest_folder.strip('/')}/{stem}.txt".lstrip("/")
+    with contextlib.suppress(Exception):
+        await storage.move_object(sidecar_src, sidecar_dst)
     return {"moved": filename, "destination": target_folder}
 
 

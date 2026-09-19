@@ -43,10 +43,10 @@ class TestLibraryEnabledFeatureFlag:
             content=ContentConfig(),
         )
 
-        # Import the helper that resolves the flag
-        from publisher_v2.config.features import resolve_library_enabled
+        # #97 stage 1: helper lives in config/loader.py and takes managed presence
+        from publisher_v2.config.loader import resolve_library_enabled_env
 
-        result = resolve_library_enabled(cfg)
+        result = resolve_library_enabled_env(cfg.managed is not None)
         assert result is True
 
     def test_library_disabled_by_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -66,9 +66,9 @@ class TestLibraryEnabledFeatureFlag:
             content=ContentConfig(),
         )
 
-        from publisher_v2.config.features import resolve_library_enabled
+        from publisher_v2.config.loader import resolve_library_enabled_env
 
-        result = resolve_library_enabled(cfg)
+        result = resolve_library_enabled_env(cfg.managed is not None)
         assert result is False
 
     def test_library_disabled_for_dropbox(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -90,7 +90,7 @@ class TestLibraryEnabledFeatureFlag:
             content=ContentConfig(),
         )
 
-        from publisher_v2.config.features import resolve_library_enabled
+        from publisher_v2.config.loader import resolve_library_enabled_env
 
-        result = resolve_library_enabled(cfg)
+        result = resolve_library_enabled_env(cfg.managed is not None)
         assert result is False

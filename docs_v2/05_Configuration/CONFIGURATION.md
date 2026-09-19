@@ -90,7 +90,13 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `FEATURE_PUBLISH` | `true` | When `false`, skips publishing (CLI + web); Web `/publish` returns HTTP 403. |
 | `FEATURE_KEEP_CURATE` | `true` | When `false`, disables Keep curation action; buttons hidden, `/keep` returns 403. |
 | `FEATURE_REMOVE_CURATE` | `true` | When `false`, disables Remove curation action; buttons hidden, `/remove` returns 403. |
-| `AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. |
+| `FEATURE_DELETE` | `false` | When `true`, enables the permanent-delete action in the admin review workflow. |
+| `FEATURE_AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. (`AUTO_VIEW` still works as a deprecated alias and logs a warning; `FEATURE_AUTO_VIEW` wins when both are set.) |
+| `FEATURE_ALT_TEXT` | `true` | When `false`, AI alt text is not attached to published images. |
+| `FEATURE_SMART_HASHTAGS` | `true` | When `false`, disables smart hashtag generation. |
+| `FEATURE_VOICE_MATCHING` | `false` | When `true`, enables brand-voice caption matching (requires a voice profile). |
+| `FEATURE_STORAGE_OPS_METERING` | `false` | When `true`, meters managed-storage operations to the orchestrator (orchestrator mode only). |
+| `FEATURE_LIBRARY` | auto | Overrides the library UI flag. Unset: auto-enabled when managed storage is configured, off for Dropbox-only. |
 
 **Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).
 **Invalid values:** Raise `ConfigurationError` at startup.
@@ -98,6 +104,8 @@ Environment variables provide coarse-grained feature switches without editing IN
 **Note:** Storage/Dropbox integration is always enabled (base feature, cannot be disabled).
 
 ### 2.2 Advanced Environment Overrides
+
+Runtime tunables below the web/auth bootstrap layer are parsed centrally in `publisher_v2/config/runtime_settings.py` (#97 stage 2).
 
 | Variable | Purpose | Default |
 |----------|---------|---------|
@@ -114,6 +122,15 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
+| `PUBLISH_TIMEOUT_SECONDS` | Default per-publisher timeout (min 5s) | 120 |
+| `PUBLISH_TIMEOUT_<PLATFORM>_SECONDS` | Per-platform publish timeout override (e.g. `PUBLISH_TIMEOUT_TELEGRAM_SECONDS`) | (default timeout) |
+| `AI_STAGE_TIMEOUT_SECONDS` | Hard deadline for the combined vision+caption stage (min 0.1s) | 150 |
+| `WEB_IMAGE_CACHE_TTL_SECONDS` | Override web image-listing cache TTL | (from static config) |
+| `PV2_CAPTION_HISTORY_RETENTION_DAYS` | Caption history retention window | 90 |
+| `TENANT_SERVICE_CACHE_MAX_SIZE` | Max cached tenant services (orchestrator mode) | 1000 |
+| `TENANT_SERVICE_TTL_SECONDS` | Tenant service cache TTL | 600 |
+| `LIBRARY_MAX_UPLOAD_MB` | Library upload size cap | 20 |
+| `LIBRARY_SCAN_BUDGET` | Library listing scan budget (objects per request) | 5000 |
 | `CONFIG_PATH` | Deprecated (#97 stage 4): INI removed; value is ignored | (unused) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |
@@ -358,6 +375,11 @@ EMAIL_PASSWORD=your-app-password
 STORAGE_PATHS={"root": "/Photos/MySocialMedia", "archive": "sent", "keep": "favorites", "remove": "trash"}
 PUBLISHERS=[{"type": "fetlife", "recipient": "user@fetlife.com", "caption_target": "subject", "subject_mode": "normal"}]
 EMAIL_SERVER={"sender": "mybot@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
+
+# Optional (#97 stage 3): "use_tls" (default true, STARTTLS) and "smtp_username"
+# (login user; defaults to sender). Orchestrator mode maps email_server.use_tls /
+# email_server.username to the same fields. SMTP socket timeout comes from
+# service_limits.yaml smtp.timeout_seconds (fallback 30s).
 CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
 CONTENT_SETTINGS={"archive": true, "debug": false}
 ```

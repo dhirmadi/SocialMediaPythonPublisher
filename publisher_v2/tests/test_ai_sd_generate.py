@@ -24,7 +24,9 @@ async def test_ai_generate_with_sd_pair_parsing(monkeypatch: pytest.MonkeyPatch)
     ai = AIService(analyzer=BaseDummyAnalyzer(), generator=gen)  # type: ignore[arg-type]
 
     spec = CaptionSpec(platform="generic", style="minimal", hashtags="#tag", max_length=100)
-    caption, sd_caption = await ai.create_caption_pair("http://tmp", spec)
+    # #95: create_caption_pair was removed; the analysis-first variant is the API.
+    analysis, _usage = await ai.analyzer.analyze("http://tmp")
+    caption, sd_caption, _usages = await ai.create_caption_pair_from_analysis(analysis, spec)
 
     assert caption == "c"
     assert sd_caption == "s"

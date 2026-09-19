@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import logging
-import os
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.db.models import CaptionHistory
 
 logger = logging.getLogger("publisher_v2.db.caption_store")
@@ -25,10 +25,8 @@ class CaptionStore:
 
     @property
     def _retention_days(self) -> int:
-        try:
-            return int(os.environ.get("PV2_CAPTION_HISTORY_RETENTION_DAYS", _DEFAULT_RETENTION_DAYS))
-        except (ValueError, TypeError):
-            return _DEFAULT_RETENTION_DAYS
+        # #97 stage 2: env override parsed centrally.
+        return load_runtime_settings().caption_history_retention_days
 
     async def save_captions_batch(
         self,

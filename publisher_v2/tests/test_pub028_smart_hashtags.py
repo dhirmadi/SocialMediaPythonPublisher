@@ -487,7 +487,8 @@ class TestAIServiceSmokeStillWorks:
             max_length=100,
             smart_hashtags=True,
         )
-        caption, sd = await ai.create_caption_pair("http://tmp", spec)
+        analysis, _usage = await ai.analyzer.analyze("http://tmp")
+        caption, sd, _usages = await ai.create_caption_pair_from_analysis(analysis, spec)
         assert caption == "c"
         assert sd == "s"
 

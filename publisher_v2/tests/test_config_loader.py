@@ -247,3 +247,74 @@ def test_feature_toggles_invalid_value_raises(valid_env_vars, monkeypatch):
 
     with pytest.raises(ConfigurationError):
         load_application_config()
+
+
+# ---------------------------------------------------------------------------
+# #97 stage 1: phantom / mismatched feature flags
+# (rebased onto stage 4's env-only fixtures — INI support is gone)
+# ---------------------------------------------------------------------------
+
+
+def test_feature_delete_env_sets_delete_enabled(valid_env_vars, monkeypatch):
+    """FEATURE_DELETE=true is parsed by the loader (was a phantom flag)."""
+    monkeypatch.setenv("FEATURE_DELETE", "true")
+
+    cfg = load_application_config()
+    assert cfg.features.delete_enabled is True
+
+
+def test_feature_delete_defaults_false(valid_env_vars, monkeypatch):
+    monkeypatch.delenv("FEATURE_DELETE", raising=False)
+
+    cfg = load_application_config()
+    assert cfg.features.delete_enabled is False
+
+
+def test_feature_auto_view_documented_name_works(valid_env_vars, monkeypatch):
+    """FEATURE_AUTO_VIEW (the documented name) is honored."""
+    monkeypatch.delenv("AUTO_VIEW", raising=False)
+    monkeypatch.setenv("FEATURE_AUTO_VIEW", "true")
+
+    cfg = load_application_config()
+    assert cfg.features.auto_view_enabled is True
+
+
+def test_auto_view_legacy_alias_works_with_deprecation_log(valid_env_vars, monkeypatch, caplog):
+    """AUTO_VIEW still works as a deprecated alias and logs a deprecation warning."""
+    import logging
+
+    monkeypatch.delenv("FEATURE_AUTO_VIEW", raising=False)
+    monkeypatch.setenv("AUTO_VIEW", "true")
+    # reset the log-once guard so this test is order-independent
+    import publisher_v2.config.loader as loader_mod
+
+    monkeypatch.setattr(loader_mod, "_auto_view_alias_warned", False, raising=False)
+
+    with caplog.at_level(logging.WARNING):
+        cfg = load_application_config()
+    assert cfg.features.auto_view_enabled is True
+    assert any("AUTO_VIEW" in rec.getMessage() and "deprecat" in rec.getMessage().lower() for rec in caplog.records)
+
+
+def test_feature_auto_view_takes_precedence_over_alias(valid_env_vars, monkeypatch):
+    monkeypatch.setenv("FEATURE_AUTO_VIEW", "false")
+    monkeypatch.setenv("AUTO_VIEW", "true")
+
+    cfg = load_application_config()
+    assert cfg.features.auto_view_enabled is False
+
+
+def test_library_enabled_populated_by_loader(valid_env_vars, monkeypatch):
+    """FEATURE_LIBRARY env resolves into features.library_enabled (was resolved ad hoc)."""
+    monkeypatch.setenv("FEATURE_LIBRARY", "true")
+
+    cfg = load_application_config()
+    assert cfg.features.library_enabled is True
+
+
+def test_library_enabled_defaults_false_without_managed(valid_env_vars, monkeypatch):
+    """Dropbox-only instance without FEATURE_LIBRARY: library stays off."""
+    monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
+
+    cfg = load_application_config()
+    assert cfg.features.library_enabled is False

@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from publisher_v2.db.caption_store import CaptionStore
     from publisher_v2.db.publish_store import PublishStore
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
@@ -40,13 +41,8 @@ from publisher_v2.utils.state import (
 
 
 def _publish_timeout_seconds() -> float:
-    """Default per-publisher timeout. Configurable via env for ops."""
-    raw = os.environ.get("PUBLISH_TIMEOUT_SECONDS")
-    try:
-        v = float(raw) if raw else 120.0
-    except ValueError:
-        v = 120.0
-    return max(5.0, v)
+    """Default per-publisher timeout. Configurable via env for ops (#97: centralized)."""
+    return load_runtime_settings().publish_timeout_seconds
 
 
 def _ai_stage_timeout_seconds() -> float:
@@ -55,25 +51,13 @@ def _ai_stage_timeout_seconds() -> float:
     Bounds the worst case (hung upstream, stacked fallbacks) so a run fails
     fast instead of holding a dyno for minutes. Env: AI_STAGE_TIMEOUT_SECONDS.
     """
-    raw = os.environ.get("AI_STAGE_TIMEOUT_SECONDS")
-    try:
-        v = float(raw) if raw else 150.0
-    except ValueError:
-        v = 150.0
-    return max(0.1, v)
+    return load_runtime_settings().ai_stage_timeout_seconds
 
 
 def _publish_timeout_for(platform: str, default: float) -> float:
     """Per-platform override, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
-    key = f"PUBLISH_TIMEOUT_{platform.upper()}_SECONDS"
-    raw = os.environ.get(key)
-    if not raw:
-        return default
-    try:
-        v = float(raw)
-    except ValueError:
-        return default
-    return max(5.0, v)
+    settings = load_runtime_settings()
+    return settings.publish_timeout_overrides.get(platform.lower(), default)
 
 
 @dataclasses.dataclass(slots=True)
@@ -336,7 +320,16 @@ class WorkflowOrchestrator:
             with contextlib.suppress(Exception):
                 os.chmod(tmp_path, 0o600)
 
-            temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, selected_image)
+            # #93 (PERF-2): the bytes are already in hand from the dedup
+            # download — vision resizes them locally, so the presigned link
+            # (a billed storage op on some backends) is only needed when the
+            # legacy URL path is configured or preview wants a display URL.
+            vision_uses_bytes = self.config.openai.vision_max_dimension > 0
+            if preview_mode or not vision_uses_bytes:
+                temp_link = await self.storage.get_temporary_link(
+                    self.config.storage_paths.image_folder, selected_image
+                )
+            analysis_source: str | bytes = sel.content if vision_uses_bytes else temp_link
 
             # 3. Analyze image with vision AI (feature-gated)
             if self.config.features.analyze_caption_enabled:
@@ -353,7 +346,7 @@ class WorkflowOrchestrator:
                 ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
                 try:
                     analysis, vision_usage = await asyncio.wait_for(
-                        self.ai_service.analyzer.analyze(temp_link),
+                        self.ai_service.analyzer.analyze(analysis_source),
                         timeout=max(0.05, ai_stage_deadline - now_monotonic()),
                     )
                 except TimeoutError as exc:
@@ -772,7 +765,7 @@ class WorkflowOrchestrator:
                 # Preview mode fields
                 image_analysis=analysis if preview_mode else None,
                 caption_spec=spec if preview_mode else None,
-                dropbox_url=temp_link if preview_mode else None,
+                source_url=temp_link if preview_mode else None,
                 sha256=selected_hash if preview_mode else None,
                 image_folder=self.config.storage_paths.image_folder if preview_mode else None,
             )
@@ -926,15 +919,8 @@ class WorkflowOrchestrator:
         source_folder = self.config.storage_paths.image_folder
 
         if preview_mode or dry_run:
-            # Non-destructive path: print preview-only description.
-            from publisher_v2.utils.preview import print_curation_action
-
-            print_curation_action(
-                filename=filename,
-                source_folder=source_folder,
-                target_subfolder=target_subfolder,
-                action=action,
-            )
+            # Non-destructive path (#96): no console printing here — the
+            # orchestrator returns data; presentation belongs to the caller.
             log_json(
                 self.logger,
                 logging.INFO,

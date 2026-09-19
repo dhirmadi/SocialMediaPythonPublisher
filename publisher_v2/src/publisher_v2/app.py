@@ -125,7 +125,7 @@ async def main_async() -> int:
             filename=result.image_name,
             folder=result.image_folder or cfg.storage_paths.image_folder,
             sha256=result.sha256 or "unknown",
-            dropbox_url=result.dropbox_url or "unknown",
+            dropbox_url=result.source_url or "unknown",
             is_new=True,
         )
 
@@ -150,15 +150,15 @@ async def main_async() -> int:
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
                 created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
                 model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
-                db_meta = await storage.get_file_metadata(cfg.storage_paths.image_folder, result.image_name)
+                file_meta = await storage.get_file_metadata(cfg.storage_paths.image_folder, result.image_name)
                 phase1 = build_metadata_phase1(
                     image_file=result.image_name,
                     sha256=result.sha256 or "",
                     created_iso=created_iso,
                     sd_caption_version="v1.0",
                     model_version=str(model_version),
-                    dropbox_file_id=db_meta.get("id"),
-                    dropbox_rev=db_meta.get("rev"),
+                    dropbox_file_id=file_meta.file_id,
+                    dropbox_rev=file_meta.revision,
                     artist_alias=cfg.captionfile.artist_alias,
                 )
                 meta = dict(phase1)

@@ -19,6 +19,7 @@ load_dotenv()
 
 from publisher_v2.config.credentials import OpenAICredentials, SMTPCredentials, TelegramCredentials  # noqa: E402
 from publisher_v2.config.loader import load_application_config  # noqa: E402
+from publisher_v2.config.runtime_settings import load_runtime_settings  # noqa: E402
 from publisher_v2.config.schema import ApplicationConfig  # noqa: E402
 from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
@@ -41,13 +42,13 @@ from publisher_v2.services.ai import (  # noqa: E402
 from publisher_v2.services.managed_storage import ManagedStorage  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
 from publisher_v2.services.publishers.base import Publisher  # noqa: E402
+from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 from publisher_v2.services.storage_factory import create_storage  # noqa: E402
 from publisher_v2.services.storage_ops_meter import StorageOpsMeter  # noqa: E402
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
-from publisher_v2.web.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 
 
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
@@ -156,17 +157,9 @@ class WebImageService:
         self._image_cache: list[str] | None = None
         self._image_cache_expiry: float | None = None
         limits = get_static_config().service_limits
-        ttl = limits.web.image_cache_ttl_seconds
-        env_ttl = os.environ.get("WEB_IMAGE_CACHE_TTL_SECONDS")
-        if env_ttl:
-            try:
-                parsed_ttl = float(env_ttl)
-                if parsed_ttl > 0:
-                    ttl = parsed_ttl
-            except ValueError:
-                # Ignore invalid override; keep config/default TTL.
-                pass
-        self._image_cache_ttl_seconds: float = ttl
+        # #97 stage 2: env override parsed centrally; None -> static-config default.
+        env_ttl = load_runtime_settings().web_image_cache_ttl_seconds
+        self._image_cache_ttl_seconds: float = env_ttl if env_ttl is not None else limits.web.image_cache_ttl_seconds
         # #86: bounded — was an unbounded list.
         self._recently_shown: deque[str] = deque(maxlen=50)
         # #86: transient AI credential failures back off instead of flipping
@@ -180,17 +173,14 @@ class WebImageService:
         orchestrator client is available, ``ManagedStorage`` is the storage
         backend, and the feature flag is enabled.
 
-        The flag is checked from both the app config (which covers standalone
-        mode via loader.py and orchestrator mode via runtime config) AND the
-        ``FEATURE_STORAGE_OPS_METERING`` env var as a local override, since
-        the orchestrator runtime response may not include this field yet.
+        The flag comes from the app config only (#97 stage 1): loader.py in
+        standalone mode, runtime config in orchestrator mode. The previous
+        ``FEATURE_STORAGE_OPS_METERING`` env re-read is gone.
         """
         self._storage_ops_meter = None
         if self._runtime is None or self._config_source is None:
             return
-        flag_from_config = getattr(self.config.features, "storage_ops_metering_enabled", False)
-        flag_from_env = os.environ.get("FEATURE_STORAGE_OPS_METERING", "").strip().lower() in ("1", "true", "yes", "on")
-        if not flag_from_config and not flag_from_env:
+        if not getattr(self.config.features, "storage_ops_metering_enabled", False):
             return
         if not isinstance(self.storage, ManagedStorage):
             return
@@ -208,8 +198,6 @@ class WebImageService:
             logging.INFO,
             "storage_ops_meter_initialized",
             tenant_id=self._runtime.tenant,
-            flag_from_config=flag_from_config,
-            flag_from_env=flag_from_env,
         )
 
     def _is_orchestrated(self) -> bool:
@@ -228,6 +216,12 @@ class WebImageService:
                 await meter.stop_periodic_flush()
             except Exception:
                 log_json(self.logger, logging.WARNING, "storage_ops_meter_close_failed", exc_info=True)
+        usage_meter = self._usage_meter
+        if usage_meter is not None:
+            try:
+                await usage_meter.aclose()
+            except Exception:
+                log_json(self.logger, logging.WARNING, "usage_meter_close_failed", exc_info=True)
         for target in (self.ai_service, self.storage):
             close = getattr(target, "aclose", None)
             if close is None:
@@ -670,9 +664,14 @@ class WebImageService:
         from publisher_v2.core.workflow import _ai_stage_timeout_seconds
 
         ai_stage_deadline = time.monotonic() + _ai_stage_timeout_seconds()
+        # #93 (PERF-2): pass bytes so vision never re-downloads the image; the
+        # legacy presigned-URL path remains for vision_max_dimension == 0.
+        analysis_source: str | bytes = temp_link
+        if self.config.openai.vision_max_dimension > 0:
+            analysis_source = await self.storage.download_image(self.config.storage_paths.image_folder, filename)
         try:
             analysis, vision_usage = await asyncio.wait_for(
-                ai.analyzer.analyze(temp_link),
+                ai.analyzer.analyze(analysis_source),
                 timeout=max(0.05, ai_stage_deadline - time.monotonic()),
             )
         except TimeoutError as exc:

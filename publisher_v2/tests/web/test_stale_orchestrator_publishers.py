@@ -28,6 +28,7 @@ from publisher_v2.config.schema import (
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.publishers.base import Publisher
+from publisher_v2.services.storage_protocol import FileMetadata
 from publisher_v2.web.service import WebImageService
 
 
@@ -64,8 +65,8 @@ class _DummyStorage:
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         pass
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        return {"id": "id", "rev": "rev"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="id", revision="rev", modified_at=None, size=None)
 
     async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
         return None

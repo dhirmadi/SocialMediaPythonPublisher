@@ -26,7 +26,12 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.core.exceptions import StorageAuthError, StorageError
-from publisher_v2.services.storage_protocol import ThumbnailFormat, ThumbnailSize
+from publisher_v2.services.storage_protocol import (
+    FileMetadata,
+    StorageNotSupportedError,
+    ThumbnailFormat,
+    ThumbnailSize,
+)
 
 
 def _is_retryable_dropbox_error(exc: BaseException) -> bool:
@@ -190,23 +195,21 @@ class DropboxStorage:
             raise _wrap_dropbox_exception(exc, f"Failed to download sidecar for {filename}") from exc
 
     @_dropbox_retry
-    async def get_file_metadata(self, folder: str, filename: str) -> dict[str, str]:
-        """
-        Return minimal Dropbox file metadata for identity/version fields.
-        Keys: id, rev. Missing values omitted.
-        """
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        """Return normalized file identity/version metadata (#96)."""
         try:
 
-            def _meta() -> dict[str, str]:
+            def _meta() -> FileMetadata:
                 path = os.path.join(folder, filename)
                 md = self.client.files_get_metadata(path)
-                out: dict[str, str] = {}
                 if isinstance(md, dropbox.files.FileMetadata):
-                    if getattr(md, "id", None):
-                        out["id"] = md.id
-                    if getattr(md, "rev", None):
-                        out["rev"] = md.rev
-                return out
+                    return FileMetadata(
+                        file_id=getattr(md, "id", None) or None,
+                        revision=getattr(md, "rev", None) or None,
+                        modified_at=str(getattr(md, "server_modified", "") or "") or None,
+                        size=getattr(md, "size", None),
+                    )
+                return FileMetadata()
 
             return await asyncio.to_thread(_meta)
         except DropboxException as exc:
@@ -375,6 +378,23 @@ class DropboxStorage:
         semantics in one place.
         """
         await self.move_image_with_sidecars(folder, filename, archive_folder)
+
+    # #96: object-level operations are managed-storage-only; the library UI
+    # is guarded by _check_library_available and never reaches Dropbox.
+    async def list_objects(self, prefix: str, cursor: str | None = None, limit: int = 1000) -> dict:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level listing")
+
+    async def put_object(self, key: str, data: bytes, content_type: str) -> None:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level put")
+
+    async def head_object(self, key: str) -> dict | None:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level head")
+
+    async def delete_object(self, key: str) -> None:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level delete")
+
+    async def move_object(self, src_key: str, dst_key: str) -> None:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level move")
 
     def supports_content_hashing(self) -> bool:
         """Dropbox supports content-hash-based dedup via content_hash metadata."""

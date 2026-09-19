@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from publisher_v2.services.storage_protocol import FileMetadata
 from publisher_v2.utils.captions import (
     build_caption_sidecar,
     build_metadata_phase1,
@@ -50,8 +51,8 @@ class _FakeSidecarStorage:
     def __init__(self) -> None:
         self.written: str | None = None
 
-    async def get_file_metadata(self, folder: str, filename: str) -> dict:
-        return {"id": "id:1", "rev": "rev-1"}
+    async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
+        return FileMetadata(file_id="id:1", revision="rev-1", modified_at=None, size=None)
 
     async def write_sidecar_text(self, folder: str, filename: str, content: str) -> None:
         self.written = content

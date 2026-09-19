@@ -15,7 +15,7 @@ from publisher_v2.config.credentials import (
     TelegramCredentials,
 )
 from publisher_v2.config.host_utils import normalize_host, validate_host
-from publisher_v2.config.loader import load_application_config
+from publisher_v2.config.loader import load_application_config, resolve_library_enabled_env
 from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_post_default
 from publisher_v2.config.orchestrator_models import (
     OrchestratorConfigV2,
@@ -470,6 +470,8 @@ class OrchestratorConfigSource:
                         password=None,
                         smtp_server=cfg.email_server.host,
                         smtp_port=int(cfg.email_server.port),
+                        use_tls=bool(cfg.email_server.use_tls),
+                        smtp_username=cfg.email_server.username,
                         confirmation_to_sender=bool(conf.confirmation_to_sender)
                         if conf is not None and conf.confirmation_to_sender is not None
                         else True,
@@ -513,6 +515,9 @@ class OrchestratorConfigSource:
             debug=bool(ct.debug) if ct and ct.debug is not None else False,
             voice_profile=ct.voice_profile if ct else None,
         )
+
+        # #97 stage 1: library flag resolved centrally (env override, else managed presence)
+        features.library_enabled = resolve_library_enabled_env(managed_cfg is not None)
 
         web_cfg, auth0_cfg = load_web_and_auth0_from_env()
         auth0_cfg = _apply_orchestrator_auth_policy(auth0_cfg, cfg)

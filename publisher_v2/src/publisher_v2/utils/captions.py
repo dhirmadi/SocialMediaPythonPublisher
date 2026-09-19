@@ -149,10 +149,14 @@ def build_metadata_phase1(
     meta: dict[str, Any] = {}
     if image_file:
         meta["image_file"] = image_file
+    # #96: backend-agnostic identity keys. The legacy dropbox_* keys stay for
+    # sidecar compatibility (fields are additive-only per the sidecar rules).
     if dropbox_file_id:
         meta["dropbox_file_id"] = dropbox_file_id
+        meta["file_id"] = dropbox_file_id
     if dropbox_rev:
         meta["dropbox_rev"] = dropbox_rev
+        meta["revision"] = dropbox_rev
     if sha256:
         meta["sha256"] = sha256
     if created_iso:
