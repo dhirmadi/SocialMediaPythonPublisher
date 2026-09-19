@@ -240,8 +240,9 @@ templates = Jinja2Templates(directory=templates_dir)
 # Fail fast if SECRET_KEY is missing in production-like environments
 session_secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
 if not session_secret:
-    # Allow dev fallback only if strictly local/debug, otherwise fail
-    if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
+    # #87 (SEC-5): the insecure fallback requires its own explicit opt-in —
+    # WEB_DEBUG is a logging flag and must not weaken the signing secret.
+    if os.environ.get("WEB_DEV_INSECURE_SECRET", "").lower() in ("1", "true", "yes", "on"):
         session_secret = "dev_secret_do_not_use_in_prod"
         logger.warning("Using insecure dev session secret!")
     else:

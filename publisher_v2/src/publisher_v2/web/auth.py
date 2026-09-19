@@ -176,11 +176,13 @@ def _cookie_secret() -> str:
     secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
     if secret:
         return secret
-    if (os.environ.get("WEB_DEBUG") or "").lower() in ("1", "true", "yes", "on"):
+    # #87 (SEC-5): WEB_DEBUG is a logging flag — it must not enable a public
+    # signing secret. The insecure fallback needs its own explicit opt-in.
+    if (os.environ.get("WEB_DEV_INSECURE_SECRET") or "").lower() in ("1", "true", "yes", "on"):
         return "dev_secret_do_not_use_in_prod"
     raise RuntimeError(
         "Missing WEB_SESSION_SECRET / SECRET_KEY required to sign admin cookies. "
-        "Set one in the environment, or enable WEB_DEBUG=1 for local development."
+        "Set one in the environment, or set WEB_DEV_INSECURE_SECRET=1 for local development."
     )
 
 
