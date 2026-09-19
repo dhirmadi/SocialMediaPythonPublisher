@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json as _json
 from unittest.mock import MagicMock
 
 import pytest
+import requests
+from dropbox.dropbox_client import RouteErrorResult, RouteResult
 from dropbox.exceptions import AuthError, BadInputError, InternalServerError, RateLimitError
 
 from publisher_v2.config.schema import DropboxConfig
@@ -99,3 +102,169 @@ class TestClientConstruction:
         DropboxStorage(DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"))
         assert captured.get("timeout") == 30
         assert captured.get("max_retries_on_error") == 0
+
+
+# --- #132: no SDK-internal retry loop; one retry layer for every call ---------
+#
+# These go through the REAL dropbox.Dropbox client (and its
+# request_json_string_with_retry loop). Only the single-attempt HTTP call
+# (request_json_string) and the OAuth refresh are faked — the network boundary.
+
+
+_LIST_OK = _json.dumps(
+    {
+        "entries": [
+            {
+                ".tag": "file",
+                "name": "a.jpg",
+                "id": "id:1",
+                "client_modified": "2020-01-01T00:00:00Z",
+                "server_modified": "2020-01-01T00:00:00Z",
+                "rev": "0123456789",
+                "size": 1,
+                "path_lower": "/photos/a.jpg",
+            }
+        ],
+        "cursor": "c",
+        "has_more": False,
+    }
+)
+_FILE_META = _json.dumps(
+    {
+        "name": "a.txt",
+        "id": "id:2",
+        "client_modified": "2020-01-01T00:00:00Z",
+        "server_modified": "2020-01-01T00:00:00Z",
+        "rev": "0123456789",
+        "size": 7,
+    }
+)
+
+
+def _http_response(body: bytes) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = 200
+    resp._content = body
+    return resp
+
+
+def _real_client_storage(monkeypatch: pytest.MonkeyPatch, responses: list) -> tuple[DropboxStorage, dict]:
+    """DropboxStorage with the real SDK client; each HTTP attempt pops the next response."""
+    counts = {"http": 0, "sdk_sleeps": [], "tenacity_sleeps": []}
+    storage = DropboxStorage(DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"))
+
+    def _attempt(*_args, **_kwargs):
+        counts["http"] += 1
+        item = responses.pop(0)
+        if isinstance(item, BaseException):
+            raise item
+        return item
+
+    monkeypatch.setattr(storage.client, "request_json_string", _attempt)
+    monkeypatch.setattr(storage.client, "check_and_refresh_access_token", lambda: None)
+    monkeypatch.setattr("dropbox.dropbox_client.time.sleep", lambda s: counts["sdk_sleeps"].append(s))
+
+    async def _fake_async_sleep(seconds: float) -> None:
+        counts["tenacity_sleeps"].append(seconds)
+
+    monkeypatch.setattr("asyncio.sleep", _fake_async_sleep)
+    return storage, counts
+
+
+class TestNoSdkRetryLoop:
+    def test_client_built_with_no_sdk_rate_limit_retries(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        captured: dict = {}
+
+        def _fake_dropbox(**kwargs):
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr("publisher_v2.services.storage.dropbox.Dropbox", _fake_dropbox)
+        DropboxStorage(DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"))
+        assert captured.get("max_retries_on_rate_limit") == 0
+
+    async def test_rate_limit_reaches_tenacity_and_honours_backoff(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        storage, counts = _real_client_storage(monkeypatch, [RateLimitError("rid", backoff=2), RouteResult(_LIST_OK)])
+        assert await storage.list_images("/Photos") == ["a.jpg"]
+        assert counts["http"] == 2
+        assert counts["sdk_sleeps"] == [], "the SDK must not retry 429s itself"
+        assert counts["tenacity_sleeps"] == [2.0]
+
+    async def test_persistent_rate_limit_is_bounded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        storage, counts = _real_client_storage(monkeypatch, [RateLimitError("rid", backoff=1) for _ in range(10)])
+        with pytest.raises(StorageError):
+            await storage.list_images("/Photos")
+        assert counts["http"] == 3
+        assert counts["sdk_sleeps"] == []
+        assert counts["tenacity_sleeps"] == [1.0, 1.0]
+
+
+class TestSidecarDownloadRetries:
+    async def test_sidecar_download_retries_transient_errors(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        storage, counts = _real_client_storage(
+            monkeypatch,
+            [
+                InternalServerError("rid", 500, "boom"),
+                InternalServerError("rid", 503, "boom"),
+                RouteResult(_FILE_META, http_resp=_http_response(b"sidecar")),
+            ],
+        )
+        assert await storage.download_sidecar_if_exists("/Photos", "a.jpg") == b"sidecar"
+        assert counts["http"] == 3
+        assert counts["sdk_sleeps"] == []
+
+    async def test_sidecar_not_found_is_a_fast_miss(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        not_found = RouteErrorResult("rid", _json.dumps({"error": {".tag": "path", "path": {".tag": "not_found"}}}))
+        storage, counts = _real_client_storage(monkeypatch, [not_found])
+        assert await storage.download_sidecar_if_exists("/Photos", "a.jpg") is None
+        assert counts["http"] == 1
+        assert counts["tenacity_sleeps"] == []
+
+
+class TestRealHttp429:
+    """A real 429 HTTP response parsed by the SDK reaches tenacity with its (capped) backoff."""
+
+    def _storage_with_http(self, monkeypatch: pytest.MonkeyPatch, responses: list[requests.Response]):
+        counts = {"posts": 0, "sdk_sleeps": [], "tenacity_sleeps": []}
+        storage = DropboxStorage(DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"))
+
+        def _post(*_args, **_kwargs):
+            counts["posts"] += 1
+            return responses.pop(0)
+
+        monkeypatch.setattr(storage.client._session, "post", _post)
+        monkeypatch.setattr(storage.client, "check_and_refresh_access_token", lambda: None)
+        monkeypatch.setattr("dropbox.dropbox_client.time.sleep", lambda s: counts["sdk_sleeps"].append(s))
+
+        async def _sleep(seconds: float) -> None:
+            counts["tenacity_sleeps"].append(seconds)
+
+        monkeypatch.setattr("asyncio.sleep", _sleep)
+        return storage, counts
+
+    @staticmethod
+    def _resp(status: int, body: bytes, headers: dict[str, str] | None = None) -> requests.Response:
+        resp = requests.Response()
+        resp.status_code = status
+        resp._content = body
+        resp.headers.update({"Content-Type": "application/json", "X-Dropbox-Request-Id": "rid", **(headers or {})})
+        return resp
+
+    async def test_json_retry_after_drives_the_wait(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        too_many = self._resp(429, b'{"error": {"reason": {".tag": "too_many_requests"}, "retry_after": 3}}')
+        storage, counts = self._storage_with_http(monkeypatch, [too_many, self._resp(200, _LIST_OK.encode())])
+        assert await storage.list_images("/Photos") == ["a.jpg"]
+        assert counts["posts"] == 2
+        assert counts["sdk_sleeps"] == []
+        assert counts["tenacity_sleeps"] == [3.0]
+
+    async def test_huge_retry_after_is_capped(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """#132: a server backoff must not hold a web request for minutes."""
+        from publisher_v2.services.storage import MAX_RATE_LIMIT_BACKOFF_SECONDS
+
+        # Non-JSON 429: the SDK reads the Retry-After header instead.
+        too_many = self._resp(429, b"slow down", {"Content-Type": "text/plain", "Retry-After": "300"})
+        storage, counts = self._storage_with_http(monkeypatch, [too_many, self._resp(200, _LIST_OK.encode())])
+        assert await storage.list_images("/Photos") == ["a.jpg"]
+        assert counts["tenacity_sleeps"] == [float(MAX_RATE_LIMIT_BACKOFF_SECONDS)]
+        assert MAX_RATE_LIMIT_BACKOFF_SECONDS <= 30
