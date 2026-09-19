@@ -1,3 +1,4 @@
+import json
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -28,9 +29,14 @@ async def generate_and_upload_sidecar(
     log_prefix: str = "sidecar_upload",
     caption_generated: str | None = None,
     caption_edited: bool = False,
+    platform_captions: dict[str, str] | None = None,
 ) -> float:
     """
     Generate and upload a caption sidecar file.
+
+    ``platform_captions`` (#80): the per-platform social captions generated in
+    this run; persisted as a ``caption_generated`` JSON dict so later web
+    Analyze calls can serve the real caption instead of the SD prompt.
 
     Returns:
         float: Duration of the operation in milliseconds.
@@ -61,6 +67,8 @@ async def generate_and_upload_sidecar(
             meta.update(phase2)
 
         # PUB-035: Store edit tracking metadata
+        if platform_captions and not caption_generated:
+            caption_generated = json.dumps(platform_captions, ensure_ascii=False)
         if caption_generated:
             meta["caption_generated"] = caption_generated
         if caption_edited:

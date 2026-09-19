@@ -28,8 +28,11 @@ class AnalysisResponse(BaseModel):
     caption: str
     sd_caption: str | None = None
     alt_text: str | None = None
-    sidecar_written: bool
+    sidecar_written: bool = False
     platform_captions: dict[str, str] | None = None
+    # #80: True when the caption was served from the sidecar cache rather than
+    # a fresh AI run. Default False keeps the response backward compatible.
+    cached: bool = False
 
 
 class PublishRequest(BaseModel):

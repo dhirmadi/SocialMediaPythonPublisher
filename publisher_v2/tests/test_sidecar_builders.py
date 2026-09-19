@@ -42,3 +42,62 @@ def test_build_caption_sidecar_formatting() -> None:
     # Metadata lines are comment-prefixed
     for ln in lines[3:]:
         assert ln.startswith("# ")
+
+
+class _FakeSidecarStorage:
+    """Captures the uploaded sidecar text."""
+
+    def __init__(self) -> None:
+        self.written: str | None = None
+
+    async def get_file_metadata(self, folder: str, filename: str) -> dict:
+        return {"id": "id:1", "rev": "rev-1"}
+
+    async def write_sidecar_text(self, folder: str, filename: str, content: str) -> None:
+        self.written = content
+
+
+async def test_sidecar_with_platform_captions_roundtrips_caption_generated() -> None:
+    """#80: platform captions must be persisted as # caption_generated: JSON
+    so later Analyze calls can serve the social caption instead of the SD prompt."""
+    from publisher_v2.config.schema import (
+        ApplicationConfig,
+        CaptionFileConfig,
+        ContentConfig,
+        DropboxConfig,
+        OpenAIConfig,
+        PlatformsConfig,
+        StoragePathConfig,
+    )
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.sidecar import generate_and_upload_sidecar
+    from publisher_v2.web.sidecar_parser import parse_sidecar_text
+
+    config = ApplicationConfig(
+        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
+        storage_paths=StoragePathConfig(image_folder="/Photos", archive_folder="archive"),
+        openai=OpenAIConfig(api_key="sk-test"),
+        platforms=PlatformsConfig(),
+        content=ContentConfig(hashtag_string="", archive=True, debug=False),
+        captionfile=CaptionFileConfig(extended_metadata_enabled=False),
+    )
+    storage = _FakeSidecarStorage()
+    analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
+    platform_captions = {"telegram": "TG caption", "email": "Email caption?"}
+
+    await generate_and_upload_sidecar(
+        storage=storage,  # type: ignore[arg-type]
+        config=config,
+        filename="img.jpg",
+        analysis=analysis,
+        sd_caption="sd prompt line",
+        model_version="gpt-4o-mini",
+        platform_captions=platform_captions,
+    )
+
+    assert storage.written is not None
+    assert "# caption_generated: {" in storage.written
+    sd, meta = parse_sidecar_text(storage.written)
+    assert sd == "sd prompt line"
+    assert meta is not None
+    assert meta["caption_generated"] == platform_captions
