@@ -58,7 +58,12 @@ def validate_host(host: str) -> bool:
 
 
 def extract_tenant(host: str, base_domain: str) -> str:
-    """
+    """NOT AUTHORITATIVE (#89): for hosts outside the base domain this returns
+    the first DNS label, which collapses distinct custom-domain tenants.
+    Use only for standalone host validation — credential resolution must use
+    the orchestrator's runtime.tenant.
+
+
     Extract tenant label from <tenant>.<base_domain>.
     If host does not end with base_domain, returns first label.
     """

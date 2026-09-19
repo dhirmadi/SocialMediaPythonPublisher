@@ -276,7 +276,7 @@ class WebImageService:
             return None
 
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)
+            data = await self._config_source.get_credentials(self._runtime.host, ref, tenant=self._runtime.tenant)
             creds = OpenAICredentials.model_validate(data)
             new_openai = self.config.openai.model_copy(update={"api_key": creds.api_key})
             self.config = self.config.model_copy(update={"openai": new_openai})
@@ -312,7 +312,7 @@ class WebImageService:
             self.config.platforms.email_enabled = False
             return
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)
+            data = await self._config_source.get_credentials(self._runtime.host, ref, tenant=self._runtime.tenant)
             creds = SMTPCredentials.model_validate(data)
             new_email = self.config.email.model_copy(update={"password": creds.password})
             self.config = self.config.model_copy(update={"email": new_email})
@@ -341,7 +341,7 @@ class WebImageService:
             self.config.platforms.telegram_enabled = False
             return
         try:
-            data = await self._config_source.get_credentials(self._runtime.host, ref)
+            data = await self._config_source.get_credentials(self._runtime.host, ref, tenant=self._runtime.tenant)
             creds = TelegramCredentials.model_validate(data)
             new_tg = self.config.telegram.model_copy(update={"bot_token": creds.bot_token})
             self.config = self.config.model_copy(update={"telegram": new_tg})

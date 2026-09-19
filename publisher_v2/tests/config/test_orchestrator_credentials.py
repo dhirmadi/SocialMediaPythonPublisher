@@ -58,13 +58,13 @@ async def test_resolve_each_provider(monkeypatch: pytest.MonkeyPatch) -> None:
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
 
-    r1 = await src.get_credentials("xxx.shibari.photo", "oa-ref")
+    r1 = await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
     assert r1["provider"] == "openai"
-    r2 = await src.get_credentials("xxx.shibari.photo", "tg-ref")
+    r2 = await src.get_credentials("xxx.shibari.photo", "tg-ref", tenant="xxx")
     assert r2["provider"] == "telegram"
-    r3 = await src.get_credentials("xxx.shibari.photo", "smtp-ref")
+    r3 = await src.get_credentials("xxx.shibari.photo", "smtp-ref", tenant="xxx")
     assert r3["provider"] == "smtp"
-    r4 = await src.get_credentials("xxx.shibari.photo", "db-ref")
+    r4 = await src.get_credentials("xxx.shibari.photo", "db-ref", tenant="xxx")
     assert r4["provider"] == "dropbox"
     assert calls["resolve"] == 4
 
@@ -82,8 +82,8 @@ async def test_cache_hit_skips_network(monkeypatch: pytest.MonkeyPatch) -> None:
         return httpx.Response(500)
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
-    _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
-    _ = await src.get_credentials("xxx.shibari.photo", "oa-ref")
+    _ = await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
+    _ = await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
     assert calls["resolve"] == 1
 
 
@@ -101,7 +101,7 @@ async def test_403_insufficient_balance_raises_insufficient_balance_error(monkey
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
     with pytest.raises(InsufficientBalanceError, match="insufficient credits"):
-        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+        await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
 
 
 @pytest.mark.asyncio
@@ -115,10 +115,10 @@ async def test_403_forbidden_raises_credential_resolution_error(monkeypatch: pyt
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
     with pytest.raises(CredentialResolutionError, match="403"):
-        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+        await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
     # Must NOT be the subclass
     try:
-        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+        await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
     except InsufficientBalanceError:
         pytest.fail("Should not raise InsufficientBalanceError for 'forbidden' error code")
     except CredentialResolutionError:
@@ -136,10 +136,43 @@ async def test_403_unparseable_body_raises_credential_resolution_error(monkeypat
 
     src = _make_source(httpx.MockTransport(handler), monkeypatch)
     with pytest.raises(CredentialResolutionError):
-        await src.get_credentials("xxx.shibari.photo", "oa-ref")
+        await src.get_credentials("xxx.shibari.photo", "oa-ref", tenant="xxx")
 
 
 def test_insufficient_balance_error_is_subclass_of_credential_resolution_error() -> None:
     """AC-D4: isinstance(InsufficientBalanceError(...), CredentialResolutionError) is True."""
     err = InsufficientBalanceError("test")
     assert isinstance(err, CredentialResolutionError)
+
+
+@pytest.mark.asyncio
+async def test_custom_domains_with_same_first_label_stay_tenant_scoped(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SEC-4 (#89): credential resolution must use the orchestrator's
+    authoritative tenant, never the first DNS label of a custom domain.
+
+    studio.a.com (tenant alpha) and studio.b.com (tenant beta) share the
+    first label "studio"; before the fix they collapsed onto one cache
+    entry and one X-Tenant value."""
+    seen_tenants: list[str] = []
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/v1/credentials/resolve":
+            seen_tenants.append(request.headers.get("X-Tenant", ""))
+            return httpx.Response(
+                200,
+                json={"provider": "openai", "version": "v1", "api_key": "sk-test-key-for-testing-purposes-only"},
+            )
+        return httpx.Response(500)
+
+    src = _make_source(httpx.MockTransport(handler), monkeypatch)
+
+    await src.get_credentials("studio.a.com", "oa-ref", tenant="alpha")
+    await src.get_credentials("studio.b.com", "oa-ref", tenant="beta")
+
+    assert seen_tenants == ["alpha", "beta"]
+    # Two distinct cache entries — a repeat for each tenant hits its own cache.
+    await src.get_credentials("studio.a.com", "oa-ref", tenant="alpha")
+    await src.get_credentials("studio.b.com", "oa-ref", tenant="beta")
+    assert seen_tenants == ["alpha", "beta"]
+    assert ("alpha", "oa-ref") in src._cred_latest_version
+    assert ("beta", "oa-ref") in src._cred_latest_version

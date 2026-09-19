@@ -14,7 +14,7 @@ from publisher_v2.config.credentials import (
     SMTPCredentials,
     TelegramCredentials,
 )
-from publisher_v2.config.host_utils import extract_tenant, normalize_host, validate_host
+from publisher_v2.config.host_utils import normalize_host, validate_host
 from publisher_v2.config.loader import load_application_config
 from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_post_default
 from publisher_v2.config.orchestrator_models import (
@@ -151,7 +151,7 @@ def emit_model_lifecycle_warnings(openai_cfg: OpenAIConfig) -> None:
 class ConfigSource(Protocol):
     async def get_config(self, host: str) -> RuntimeConfig: ...
 
-    async def get_credentials(self, host: str, credentials_ref: str) -> dict[str, Any]: ...
+    async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]: ...
 
     def is_orchestrated(self) -> bool: ...
 
@@ -198,7 +198,7 @@ class EnvConfigSource:
     def orchestrator_client(self) -> None:
         return None
 
-    async def get_credentials(self, host: str, credentials_ref: str) -> dict[str, Any]:
+    async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]:
         # Env-first mode does not support opaque refs; callers should use flat env vars.
         raise ConfigurationError("EnvConfigSource does not support credentials_ref resolution")
 
@@ -304,11 +304,18 @@ class OrchestratorConfigSource:
                 return cached
             raise OrchestratorUnavailableError(f"Failed to load runtime config: {exc}") from exc
 
-    async def get_credentials(self, host: str, credentials_ref: str) -> dict[str, Any]:
+    async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]:
+        """Resolve an opaque credential ref for the AUTHORITATIVE tenant (#89).
+
+        ``tenant`` must come from the orchestrator runtime response — never
+        derive it from the Host header: for custom domains the first DNS
+        label is attacker-adjacent and collapses distinct tenants.
+        """
         if not validate_host(host):
             raise TenantNotFoundError("Invalid host shape")
-        h = normalize_host(host.strip())
-        tenant = extract_tenant(h, self.base_domain)
+        if not tenant or not tenant.strip():
+            raise CredentialResolutionError("Missing authoritative tenant for credential resolution")
+        tenant = tenant.strip()
 
         async def _resolve() -> CredentialPayload:
             request_id = str(uuid.uuid4())
@@ -409,7 +416,7 @@ class OrchestratorConfigSource:
         managed_cfg: ManagedStorageConfig | None = None
 
         if storage.provider == "managed":
-            data = await self.get_credentials(host, storage.credentials_ref)
+            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
             ms_creds = ManagedStorageCredentials.model_validate(data)
             managed_cfg = ManagedStorageConfig(
                 access_key_id=ms_creds.access_key_id,
@@ -419,7 +426,7 @@ class OrchestratorConfigSource:
                 region=ms_creds.region,
             )
         else:
-            data = await self.get_credentials(host, storage.credentials_ref)
+            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
             db_creds = DropboxCredentials.model_validate(data)
             dropbox_cfg = DropboxConfig(
                 app_key=os.environ["DROPBOX_APP_KEY"],
@@ -483,7 +490,7 @@ class OrchestratorConfigSource:
         managed_cfg: ManagedStorageConfig | None = None
 
         if storage.provider == "managed":
-            data = await self.get_credentials(host, storage.credentials_ref)
+            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
             ms_creds = ManagedStorageCredentials.model_validate(data)
             managed_cfg = ManagedStorageConfig(
                 access_key_id=ms_creds.access_key_id,
@@ -493,7 +500,7 @@ class OrchestratorConfigSource:
                 region=ms_creds.region,
             )
         else:
-            data = await self.get_credentials(host, storage.credentials_ref)
+            data = await self.get_credentials(host, storage.credentials_ref, tenant=tenant)
             db_creds = DropboxCredentials.model_validate(data)
             dropbox_cfg = DropboxConfig(
                 app_key=os.environ["DROPBOX_APP_KEY"],
