@@ -9,7 +9,6 @@ Covers all four parts:
 
 from __future__ import annotations
 
-import json
 from typing import Any
 
 import pytest
@@ -159,50 +158,6 @@ class TestCaptionHistoryPrompt:
         assert build_history_block([]) == ""
 
 
-class TestHistoryGracefulFailure:
-    """AC7: If sidecar retrieval fails, generation proceeds without history."""
-
-    async def test_fetch_history_returns_empty_on_error(self) -> None:
-        from publisher_v2.services.ai import fetch_caption_history
-
-        class _FailingStorage:
-            async def list_images(self, folder: str) -> list[str]:
-                raise OSError("Storage unavailable")
-
-            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-                return None
-
-        result = await fetch_caption_history(_FailingStorage(), "images/", window_size=8, max_tokens_budget=1000)
-        assert result == []
-
-    async def test_fetch_history_returns_empty_on_no_sidecars(self) -> None:
-        from publisher_v2.services.ai import fetch_caption_history
-
-        class _EmptyStorage:
-            async def list_images(self, folder: str) -> list[str]:
-                return ["img1.jpg", "img2.jpg"]
-
-            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-                return None
-
-        result = await fetch_caption_history(_EmptyStorage(), "images/", window_size=8, max_tokens_budget=1000)
-        assert result == []
-
-    async def test_window_size_zero_returns_empty(self) -> None:
-        """window_size=0 returns empty list (edge case: images[-0:] would return all)."""
-        from publisher_v2.services.ai import fetch_caption_history
-
-        class _Storage:
-            async def list_images(self, folder: str) -> list[str]:
-                return ["img1.jpg"]
-
-            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-                return b'{"caption": "test"}'
-
-        result = await fetch_caption_history(_Storage(), "images/", window_size=0, max_tokens_budget=1000)
-        assert result == []
-
-
 class TestTokenBudget:
     """AC11: History context does not exceed max_tokens_budget."""
 
@@ -220,102 +175,6 @@ class TestTokenBudget:
 
         result = truncate_history_to_budget(["A caption"], max_tokens_budget=0)
         assert result == []
-
-
-class TestHistoryUsesPublishedCaption:
-    """AC10: History uses caption (published) not caption_generated."""
-
-    async def test_fetch_prefers_caption_over_caption_generated(self) -> None:
-        from publisher_v2.services.ai import fetch_caption_history
-
-        sidecar_content = json.dumps(
-            {"caption": "The edited published version", "caption_generated": "The AI original version"}
-        ).encode()
-
-        class _SidecarStorage:
-            async def list_images(self, folder: str) -> list[str]:
-                return ["img1.jpg"]
-
-            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-                return sidecar_content
-
-        result = await fetch_caption_history(_SidecarStorage(), "images/", window_size=8, max_tokens_budget=1000)
-        assert len(result) == 1
-        assert result[0] == "The edited published version"
-
-    async def test_fetch_fallback_to_caption_generated(self) -> None:
-        """When sidecar has only caption_generated (no caption), use caption_generated."""
-        from publisher_v2.services.ai import fetch_caption_history
-
-        sidecar_content = json.dumps({"caption_generated": "The AI original version"}).encode()
-
-        class _Storage:
-            async def list_images(self, folder: str) -> list[str]:
-                return ["img1.jpg"]
-
-            async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-                return sidecar_content
-
-        result = await fetch_caption_history(_Storage(), "images/", window_size=8, max_tokens_budget=1000)
-        assert len(result) == 1
-        assert result[0] == "The AI original version"
-
-
-class TestSidecarFormatParsing:
-    """C3: Correct handling of real text-format sidecars and edge cases."""
-
-    def test_extract_from_text_sidecar_with_caption_metadata(self) -> None:
-        """Real text sidecar with caption metadata line."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        sidecar = b"SD prompt for stable diffusion\n\n# ---\n# image_file: test.jpg\n# caption: The published caption\n"
-        assert _extract_caption_from_sidecar(sidecar) == "The published caption"
-
-    def test_extract_from_text_sidecar_without_caption_returns_empty(self) -> None:
-        """Real text sidecar without caption metadata returns empty (NOT the SD prompt)."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        sidecar = b"SD prompt for stable diffusion\n\n# ---\n# image_file: test.jpg\n# sha256: abc\n"
-        assert _extract_caption_from_sidecar(sidecar) == ""
-
-    def test_extract_from_json_sidecar(self) -> None:
-        """JSON sidecar format is handled correctly."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        sidecar = json.dumps({"caption": "JSON caption"}).encode()
-        assert _extract_caption_from_sidecar(sidecar) == "JSON caption"
-
-    def test_extract_from_malformed_json(self) -> None:
-        """Malformed JSON falls back to metadata line parsing."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        sidecar = b"{broken json\n\n# ---\n# caption: Fallback caption\n"
-        assert _extract_caption_from_sidecar(sidecar) == "Fallback caption"
-
-    def test_extract_skips_oversized_sidecar(self) -> None:
-        """Sidecars larger than 64KB are skipped (H1 size guard)."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        huge = b'{"caption": "test"}' + b" " * (65 * 1024)
-        assert _extract_caption_from_sidecar(huge) == ""
-
-    def test_extract_empty_data(self) -> None:
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        assert _extract_caption_from_sidecar(b"") == ""
-        assert _extract_caption_from_sidecar(b"   ") == ""
-
-    def test_extract_caption_generated_from_metadata(self) -> None:
-        """Text sidecar with caption_generated metadata (no caption key)."""
-        from publisher_v2.services.ai import _extract_caption_from_sidecar
-
-        sidecar = b"SD prompt\n\n# ---\n# caption_generated: Original AI caption\n"
-        assert _extract_caption_from_sidecar(sidecar) == "Original AI caption"
-
-
-# ---------------------------------------------------------------------------
-# Part D: Operator edit tracking
-# ---------------------------------------------------------------------------
 
 
 class TestSidecarEditTracking:

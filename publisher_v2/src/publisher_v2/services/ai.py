@@ -12,7 +12,7 @@ import httpx
 from openai import AsyncOpenAI
 
 if TYPE_CHECKING:
-    from publisher_v2.services.storage_protocol import StorageProtocol
+    pass
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartTextParam,
@@ -775,88 +775,6 @@ def build_voice_examples_block(examples: list[str] | tuple[str, ...]) -> str:
     return "\n".join(lines)
 
 
-_SIDECAR_MAX_SIZE = 64 * 1024  # 64 KB — skip suspiciously large sidecars
-
-
-def _extract_caption_from_sidecar(data: bytes) -> str:
-    """Extract the published caption from a sidecar file.
-
-    Handles both JSON sidecars (``{"caption": "..."}`) and the standard text
-    format (``sd_caption\\n\\n# ---\\n# key: val``).  For text sidecars the
-    published caption is stored in the metadata line ``# caption: ...``;
-    if absent we skip it (the first line is the SD prompt, not a social caption).
-    """
-    if len(data) > _SIDECAR_MAX_SIZE:
-        return ""
-    text = data.decode("utf-8", errors="replace").strip()
-    if not text:
-        return ""
-
-    # Try JSON sidecar format first (future / PUB-035 format)
-    try:
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            return str(parsed.get("caption") or parsed.get("caption_generated") or "").strip()
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Standard text sidecar: parse metadata lines for a 'caption' key
-    for line in text.split("\n"):
-        stripped = line.strip()
-        if stripped.startswith("# caption:"):
-            return stripped[len("# caption:") :].strip()
-        if stripped.startswith("# caption_generated:"):
-            return stripped[len("# caption_generated:") :].strip()
-
-    return ""
-
-
-async def fetch_caption_history(
-    storage: StorageProtocol | Any,
-    folder: str,
-    window_size: int = 8,
-    max_tokens_budget: int = 1000,
-) -> list[str]:
-    """Fetch recent captions from storage sidecars.
-
-    Returns a list of caption strings (most recent last), or empty list on any error.
-    Prefers 'caption' (published/edited) over 'caption_generated' (AI original).
-    Downloads sidecars in parallel for performance.
-    """
-    if window_size <= 0:
-        return []
-
-    try:
-        images = await storage.list_images(folder)
-    except Exception:
-        log_json(logger, logging.WARNING, "caption_history_list_failed", folder=folder)
-        return []
-
-    # Take the most recent N images
-    recent = images[-window_size:] if len(images) > window_size else images
-    if not recent:
-        return []
-
-    # Download sidecars in parallel (H2)
-    async def _safe_download(img: str) -> tuple[str, bytes | None]:
-        try:
-            return img, await storage.download_sidecar_if_exists(folder, img)
-        except Exception:
-            return img, None
-
-    results = await asyncio.gather(*[_safe_download(img) for img in recent])
-
-    captions: list[str] = []
-    for _img, data in results:
-        if data is None:
-            continue
-        cap = _extract_caption_from_sidecar(data)
-        if cap:
-            captions.append(cap)
-
-    return truncate_history_to_budget(captions, max_tokens_budget)
-
-
 class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
         self.client = AsyncOpenAI(
@@ -1372,23 +1290,6 @@ class AIService:
             usages.append(usage)
         return caption, usages
 
-    async def create_caption(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> str:
-        async with self._rate_limiter:
-            analysis, _usage = await self.analyzer.analyze(url_or_bytes)
-        async with self._rate_limiter:
-            caption, _usage2 = await self.generator.generate(analysis, spec)
-        return caption
-
-    async def create_caption_pair(self, url_or_bytes: str | bytes, spec: CaptionSpec) -> tuple[str, str | None]:
-        """
-        Create (caption, sd_caption). If sd generation is disabled or fails,
-        return (caption, None) using legacy caption path.
-        """
-        async with self._rate_limiter:
-            analysis, _usage = await self.analyzer.analyze(url_or_bytes)
-        caption, sd, _usages = await self.create_caption_pair_from_analysis(analysis, spec)
-        return caption, sd
-
     async def create_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec
     ) -> tuple[str, str | None, list[AIUsage]]:
@@ -1555,13 +1456,23 @@ class AIService:
                 logger.warning("openai_client_close_failed", exc_info=True)
 
 
+class _NullAnalyzer:
+    """Fails loudly when AI is invoked despite being disabled (#95)."""
+
+    async def analyze(self, url_or_bytes: str | bytes) -> tuple[ImageAnalysis, AIUsage | None]:
+        raise AIServiceError(
+            "AI analysis is disabled for this tenant (features.analyze_caption_enabled=false); "
+            "this call should have been feature-gated"
+        )
+
+
 class NullAIService:
     """
     Safe stub used when AI is disabled for a tenant.
 
-    WorkflowOrchestrator guards all AI usage behind config.features.analyze_caption_enabled,
-    so this should never be invoked when that flag is False.
+    WorkflowOrchestrator guards all AI usage behind config.features.analyze_caption_enabled;
+    a mis-gated call fails loudly via _NullAnalyzer instead of an AttributeError.
     """
 
-    analyzer = None
+    analyzer = _NullAnalyzer()
     generator = None

@@ -184,7 +184,6 @@ def test_preview_helpers_cover_branches(capfd: pytest.CaptureFixture[str]) -> No
     preview.print_curation_action("image.jpg", "/Photos", "keep", "keep")
     preview.print_preview_footer()
     assert preview._wrap_text("short", 60) == ["short"]
-    assert preview._count_hashtags("#one #two") == 2
 
     out = capfd.readouterr().out
     assert "PREVIEW MODE" in out

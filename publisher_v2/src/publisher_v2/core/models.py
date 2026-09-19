@@ -1,4 +1,3 @@
-import os
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -13,21 +12,6 @@ class AIUsage:
     total_tokens: int
     prompt_tokens: int
     completion_tokens: int
-
-
-@dataclass(frozen=True, slots=True)
-class Image:
-    filename: str
-    dropbox_path: str
-    sha256: str | None = None
-    temp_link: str | None = None
-    local_path: str | None = None
-    size_bytes: int | None = None
-    format: str | None = None
-
-    @property
-    def extension(self) -> str:
-        return os.path.splitext(self.filename)[1]
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,17 +118,6 @@ class CaptionSpec:
                 )
 
         return specs
-
-    @staticmethod
-    def for_config(config: "ApplicationConfig") -> "CaptionSpec":
-        """Build the appropriate CaptionSpec based on platform configuration.
-
-        Deprecated: use for_platforms() for multi-platform generation.
-        Preserved for backwards compatibility with web/service.py and existing tests.
-        """
-        specs = CaptionSpec.for_platforms(config)
-        # Return the first spec (or generic)
-        return next(iter(specs.values()))
 
 
 @dataclass(frozen=True, slots=True)
