@@ -651,9 +651,7 @@ class TestUploadCsrf:
     """Browser uploads ride the admin cookie, not a Bearer header, so the CSRF
     middleware requires ``X-Requested-With`` — the UI's raw XHR must send it."""
 
-    def test_upload_cookie_only_without_xrw_is_csrf_blocked(
-        self, managed_app: TestClient, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_upload_cookie_only_without_xrw_is_csrf_blocked(self, managed_app: TestClient, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
             mock_upload.return_value = {"key": "tenant/instance/test.jpg", "size": 1024}
             res = managed_app.post(
@@ -665,9 +663,7 @@ class TestUploadCsrf:
         assert res.json()["detail"] == "CSRF check failed"
         mock_upload.assert_not_called()
 
-    def test_upload_cookie_only_with_xrw_succeeds(
-        self, managed_app: TestClient, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_upload_cookie_only_with_xrw_succeeds(self, managed_app: TestClient, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
             mock_upload.return_value = {"key": "tenant/instance/test.jpg", "size": 1024}
             res = managed_app.post(
