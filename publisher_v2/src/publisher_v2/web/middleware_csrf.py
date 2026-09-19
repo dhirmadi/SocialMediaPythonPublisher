@@ -25,6 +25,8 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
+from publisher_v2.utils.logging import log_json
+
 logger = logging.getLogger("publisher_v2.web.csrf")
 
 _STATE_CHANGING = frozenset({"POST", "PUT", "PATCH", "DELETE"})
@@ -104,14 +106,14 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 
 def _reject(request: Request, reason: str) -> JSONResponse:
-    logger.warning(
+    log_json(
+        logger,
+        logging.WARNING,
         "csrf_block",
-        extra={
-            "path": request.url.path,
-            "method": request.method,
-            "reason": reason,
-            "remote": request.client.host if request.client else None,
-        },
+        path=request.url.path,
+        method=request.method,
+        reason=reason,
+        remote=request.client.host if request.client else None,
     )
     return JSONResponse(
         status_code=403,

@@ -2011,6 +2011,9 @@
       return new Promise((resolve, reject) => {
         const xhr = new XMLHttpRequest();
         xhr.open("POST", "/api/library/upload");
+        // Raw XHR bypasses the window.fetch CSRF wrapper — set the marker
+        // header explicitly or CSRFMiddleware rejects the upload with 403.
+        xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
         xhr.upload.onprogress = (e) => {
           if (e.lengthComputable) {
             entry.progress = Math.round((e.loaded / e.total) * 100);
