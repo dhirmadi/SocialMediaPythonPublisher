@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from publisher_v2.db.caption_store import CaptionStore
     from publisher_v2.db.publish_store import PublishStore
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
@@ -40,13 +41,8 @@ from publisher_v2.utils.state import (
 
 
 def _publish_timeout_seconds() -> float:
-    """Default per-publisher timeout. Configurable via env for ops."""
-    raw = os.environ.get("PUBLISH_TIMEOUT_SECONDS")
-    try:
-        v = float(raw) if raw else 120.0
-    except ValueError:
-        v = 120.0
-    return max(5.0, v)
+    """Default per-publisher timeout. Configurable via env for ops (#97: centralized)."""
+    return load_runtime_settings().publish_timeout_seconds
 
 
 def _ai_stage_timeout_seconds() -> float:
@@ -55,25 +51,13 @@ def _ai_stage_timeout_seconds() -> float:
     Bounds the worst case (hung upstream, stacked fallbacks) so a run fails
     fast instead of holding a dyno for minutes. Env: AI_STAGE_TIMEOUT_SECONDS.
     """
-    raw = os.environ.get("AI_STAGE_TIMEOUT_SECONDS")
-    try:
-        v = float(raw) if raw else 150.0
-    except ValueError:
-        v = 150.0
-    return max(0.1, v)
+    return load_runtime_settings().ai_stage_timeout_seconds
 
 
 def _publish_timeout_for(platform: str, default: float) -> float:
     """Per-platform override, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
-    key = f"PUBLISH_TIMEOUT_{platform.upper()}_SECONDS"
-    raw = os.environ.get(key)
-    if not raw:
-        return default
-    try:
-        v = float(raw)
-    except ValueError:
-        return default
-    return max(5.0, v)
+    settings = load_runtime_settings()
+    return settings.publish_timeout_overrides.get(platform.lower(), default)
 
 
 @dataclasses.dataclass(slots=True)

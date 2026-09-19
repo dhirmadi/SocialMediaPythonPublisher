@@ -13,12 +13,13 @@ logger = logging.getLogger("publisher_v2.web")
 
 @lru_cache(maxsize=1)
 def _tenant_service_factory() -> TenantServiceFactory:
-    # Defaults can be overridden by env vars (see Story 06)
-    import os
+    # Defaults can be overridden by env vars (see Story 06; #97: parsed centrally)
+    from publisher_v2.config.runtime_settings import load_runtime_settings
 
-    max_size = int(os.environ.get("TENANT_SERVICE_CACHE_MAX_SIZE") or "1000")
-    ttl = int(os.environ.get("TENANT_SERVICE_TTL_SECONDS") or "600")
-    return TenantServiceFactory(max_size=max_size, ttl_seconds=ttl)
+    settings = load_runtime_settings()
+    return TenantServiceFactory(
+        max_size=settings.tenant_service_cache_max_size, ttl_seconds=settings.tenant_service_ttl_seconds
+    )
 
 
 async def tenant_middleware(request: Request, call_next):

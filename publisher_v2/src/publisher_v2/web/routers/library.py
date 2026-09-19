@@ -18,6 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
 from pydantic import BaseModel
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import StoragePathConfig
 from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json
@@ -180,13 +181,8 @@ def _check_library_available(service: WebImageService) -> None:
 
 
 def _get_max_upload_bytes() -> int:
-    """Get max upload size in bytes from env (default 20 MB)."""
-    raw = os.environ.get("LIBRARY_MAX_UPLOAD_MB", "20")
-    try:
-        mb = int(raw)
-    except ValueError:
-        mb = 20
-    return mb * 1024 * 1024
+    """Max upload size in bytes (LIBRARY_MAX_UPLOAD_MB, default 20 MB; #97: centralized)."""
+    return load_runtime_settings().library_max_upload_mb * 1024 * 1024
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -275,12 +271,8 @@ def _sanitize_filter(q: str | None) -> str | None:
 
 
 def _get_scan_budget() -> int:
-    """Get scan budget from env (default 5000)."""
-    raw = os.environ.get("LIBRARY_SCAN_BUDGET", "5000")
-    try:
-        return int(raw)
-    except ValueError:
-        return 5000
+    """Listing scan budget (LIBRARY_SCAN_BUDGET, default 5000; #97: centralized)."""
+    return load_runtime_settings().library_scan_budget
 
 
 _SORT_KEYS = {

@@ -19,6 +19,7 @@ load_dotenv()
 
 from publisher_v2.config.credentials import OpenAICredentials, SMTPCredentials, TelegramCredentials  # noqa: E402
 from publisher_v2.config.loader import load_application_config  # noqa: E402
+from publisher_v2.config.runtime_settings import load_runtime_settings  # noqa: E402
 from publisher_v2.config.schema import ApplicationConfig  # noqa: E402
 from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
@@ -156,17 +157,9 @@ class WebImageService:
         self._image_cache: list[str] | None = None
         self._image_cache_expiry: float | None = None
         limits = get_static_config().service_limits
-        ttl = limits.web.image_cache_ttl_seconds
-        env_ttl = os.environ.get("WEB_IMAGE_CACHE_TTL_SECONDS")
-        if env_ttl:
-            try:
-                parsed_ttl = float(env_ttl)
-                if parsed_ttl > 0:
-                    ttl = parsed_ttl
-            except ValueError:
-                # Ignore invalid override; keep config/default TTL.
-                pass
-        self._image_cache_ttl_seconds: float = ttl
+        # #97 stage 2: env override parsed centrally; None -> static-config default.
+        env_ttl = load_runtime_settings().web_image_cache_ttl_seconds
+        self._image_cache_ttl_seconds: float = env_ttl if env_ttl is not None else limits.web.image_cache_ttl_seconds
         # #86: bounded — was an unbounded list.
         self._recently_shown: deque[str] = deque(maxlen=50)
         # #86: transient AI credential failures back off instead of flipping
