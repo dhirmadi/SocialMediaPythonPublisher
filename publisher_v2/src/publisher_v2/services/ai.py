@@ -100,7 +100,10 @@ SHORT_LIMIT_MAX_TOKENS_SINGLE_SD = 256
 SHORT_LIMIT_MAX_TOKENS_MULTI = 512
 SHORT_LIMIT_TEMPERATURE = 0.5
 DEFAULT_CAPTION_TEMPERATURE = 0.7
-SD_LONG_TEMPERATURE = 0.6  # generate_with_sd / generate_multi_with_sd long-limit default
+SD_LONG_TEMPERATURE = 0.6  # generate_with_sd long-limit default (single-platform path)
+# #79: nudge caption variety on caption calls only — never vision, never condense.
+CAPTION_PRESENCE_PENALTY = 0.6
+MULTI_CALL_MAX_TOKENS_CAP = 4000
 CONDENSE_TEMPERATURE = 0.3
 CONDENSE_TIMEOUT_SECONDS = 10.0
 # #82: similarity gate — regenerate once when a caption's word-trigram Jaccard
@@ -120,6 +123,16 @@ CONDENSE_SYSTEM_PROMPT = (
 
 def _is_short_limit_value(max_length: int) -> bool:
     return max_length <= SHORT_LIMIT_THRESHOLD
+
+
+def _multi_call_max_tokens(specs: dict[str, CaptionSpec]) -> int:
+    """Token budget for a multi-platform call, scaled to the enabled platforms (#79).
+
+    A fixed 512-token cap silently truncated the JSON when Telegram (4096) and
+    Instagram (2200) shared the call with email. Budget ~1 token per 3 caption
+    characters plus headroom for JSON scaffolding and the SD prompt.
+    """
+    return min(sum(min(spec.max_length, 2200) for spec in specs.values()) // 3 + 400, MULTI_CALL_MAX_TOKENS_CAP)
 
 
 def _word_max(max_length: int) -> int:
@@ -192,7 +205,8 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- Return ONE JSON object only — no prose, no markdown, no code fences.\n"
     "- Use EXACTLY these keys (lowercase):\n"
     "  description, mood, tags, nsfw, safety_labels, subject, style, lighting, camera, "
-    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette, alt_text\n\n"
+    "clothing_or_accessories, aesthetic_terms, pose, composition, background, color_palette, alt_text, "
+    "distinctive_detail\n\n"
     "TYPES & CONSTRAINTS:\n"
     "- description: string (≤ 30 words, neutral fine-art tone, no explicit anatomy/acts)\n"
     "- mood: string\n"
@@ -213,7 +227,8 @@ _DEFAULT_VISION_SYSTEM_PROMPT = (
     "- background: string (environment/backdrop/texture)\n"
     "- color_palette: array of 3–6 dominant colors (hex preferred; common names if uncertain)\n"
     "- alt_text: string (≤125 characters, plain descriptive sentence for screen readers; describe what is visually "
-    "depicted, not mood or interpretation; no hashtags or promotional language)\n\n"
+    "depicted, not mood or interpretation; no hashtags or promotional language)\n"
+    "- distinctive_detail: string or null (one concrete, unusual, specific visual detail, ≤ 20 words)\n\n"
     "ADDITIONAL RULES:\n"
     "- Treat shibari as traditional rope art; use respectful fine-art vocabulary (e.g., kinbaku patterning, rope harness, geometric bindings).\n"
     "- Avoid explicit terminology or slang; no sexual description.\n"
@@ -226,7 +241,8 @@ _DEFAULT_VISION_USER_PROMPT = (
     "Analyze this image and return strict JSON with keys:\n"
     "description, mood, tags (array), nsfw (boolean), safety_labels (array),\n"
     "subject, style, lighting, camera, clothing_or_accessories,\n"
-    "aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text.\n\n"
+    "aesthetic_terms (array), pose, composition, background, color_palette (array), alt_text,\n"
+    "distinctive_detail.\n\n"
     "GUIDELINES:\n"
     "- description: ≤ 30 words, neutral fine-art tone, no explicit anatomy/acts.\n"
     "- tags: 10–25 concise items, lowercase_snake_case, most-salient first (mix art, photo, composition, lighting, rope-art terms).\n"
@@ -240,6 +256,7 @@ _DEFAULT_VISION_USER_PROMPT = (
     "- color_palette: 3–6 dominant colors (hex preferred).\n"
     "- alt_text: ≤125 characters, plain descriptive sentence for screen readers; describe what is visually depicted "
     "(no hashtags, no promotional language, no mood/interpretation).\n"
+    "- distinctive_detail: one concrete, unusual, specific visual detail (≤ 20 words); null if nothing stands out.\n"
     "- Unknown values → null or [].\n\n"
     "Return ONE JSON object ONLY — no extra text."
 )
@@ -465,6 +482,7 @@ class VisionAnalyzerOpenAI:
                 background=self._opt_str(data.get("background")),
                 color_palette=self._opt_str(data.get("color_palette")),
                 alt_text=self._opt_str(data.get("alt_text")),
+                distinctive_detail=self._opt_str(data.get("distinctive_detail")),
             )
             ai_usage = _extract_usage(resp)
             ok = True
@@ -546,31 +564,46 @@ def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
     return cleaned[:max_len]
 
 
-def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 50) -> str:
-    """Build a bounded analysis-context string for caption prompts (PUB-041).
+_ANALYSIS_TAG_COUNT_CAP = 25
+_ANALYSIS_TAG_LEN_CAP = 40
+
+
+def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 240) -> str:
+    """Build a bounded analysis-context string for caption prompts (PUB-041, #81).
 
     Each free-text field is run through ``_sanitize_analysis_field`` so that
     attacker-controlled content extracted by Vision cannot inject new
-    instructions into the downstream caption prompt.
+    instructions into the downstream caption prompt. #81 raised the field cap
+    from 50 to 240 (a 30-word description is ~180 chars — the old cap threw
+    away most of what Vision produced) and passes subject/background/camera/
+    clothing plus the distinctive_detail so captions stop converging on the
+    tag list and mood word.
     """
 
-    parts: list[str] = [
+    parts: list[str] = []
+
+    detail = _sanitize_analysis_field(analysis.distinctive_detail, max_field_len)
+    if detail:
+        parts.append(f"distinctive_detail='{detail}'")
+
+    parts += [
         f"description='{_sanitize_analysis_field(analysis.description, max_field_len) or ''}'",
         f"mood='{_sanitize_analysis_field(analysis.mood, max_field_len) or ''}'",
-        f"tags={[_sanitize_analysis_field(t, max_field_len) for t in analysis.tags if t]}",
+        f"tags={[_sanitize_analysis_field(t, _ANALYSIS_TAG_LEN_CAP) for t in analysis.tags[:_ANALYSIS_TAG_COUNT_CAP] if t]}",
     ]
 
-    lighting = _sanitize_analysis_field(analysis.lighting, max_field_len)
-    if lighting:
-        parts.append(f"lighting='{lighting}'")
-
-    composition = _sanitize_analysis_field(analysis.composition, max_field_len)
-    if composition:
-        parts.append(f"composition='{composition}'")
-
-    pose = _sanitize_analysis_field(analysis.pose, max_field_len)
-    if pose:
-        parts.append(f"pose='{pose}'")
+    for name in (
+        "subject",
+        "background",
+        "camera",
+        "clothing_or_accessories",
+        "lighting",
+        "composition",
+        "pose",
+    ):
+        value = _sanitize_analysis_field(getattr(analysis, name), max_field_len)
+        if value:
+            parts.append(f"{name}='{value}'")
 
     if analysis.aesthetic_terms:
         terms = [_sanitize_analysis_field(t, max_field_len) for t in analysis.aesthetic_terms[:10] if t]
@@ -888,6 +921,15 @@ class CaptionGeneratorOpenAI:
             # Keep current default.
             self.sd_caption_role_prompt = self.sd_caption_role_prompt
 
+        # #79: one-line brief for the sd_caption field on the multi-platform
+        # single-call path. A tenant-provided sd role prompt wins; otherwise a
+        # fixed one-liner (the full sd role template describes a two-output
+        # response shape that does not apply to the multi-platform JSON).
+        self.sd_caption_brief = cfg_sd_role or (
+            "optimized for Stable Diffusion prompts "
+            "(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood)"
+        )
+
     @_ai_retry
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
         try:
@@ -913,6 +955,7 @@ class CaptionGeneratorOpenAI:
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": SHORT_LIMIT_TEMPERATURE if short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
             }
             if short:
                 create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_SINGLE
@@ -972,6 +1015,7 @@ class CaptionGeneratorOpenAI:
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": SHORT_LIMIT_TEMPERATURE if short else SD_LONG_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
             }
             if short:
                 # SD variant returns a JSON object with both caption + sd_caption,
@@ -1212,7 +1256,9 @@ class CaptionGeneratorOpenAI:
             )
             if diversity_clause:
                 prompt += f"\n\n{diversity_clause}"
-            any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
+            # #79: one short platform must not throttle the whole call — the
+            # per-platform word budgets and the condense pass handle shorts.
+            all_short = all(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.model,
                 "messages": [
@@ -1220,10 +1266,10 @@ class CaptionGeneratorOpenAI:
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},
-                "temperature": SHORT_LIMIT_TEMPERATURE if any_short else DEFAULT_CAPTION_TEMPERATURE,
+                "temperature": SHORT_LIMIT_TEMPERATURE if all_short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
+                "max_tokens": _multi_call_max_tokens(specs),
             }
-            if any_short:
-                create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_MULTI
             resp = await self.client.chat.completions.create(**create_kwargs)
             data = json.loads((resp.choices[0].message.content or "{}").strip())
             parsed = await self._parse_platform_captions(data, specs)
@@ -1247,12 +1293,13 @@ class CaptionGeneratorOpenAI:
         of the prompt (PUB-029).
         """
         try:
-            sd_suffix = (
-                "Also produce 'sd_caption' optimized for Stable Diffusion prompts "
-                "(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).\n\n"
-            )
+            # #79: social captions are the primary output — the copywriter
+            # persona writes them; sd_caption is a secondary field with a
+            # one-line brief. The prompt-engineer persona stays confined to
+            # the standalone generate_with_sd path.
+            sd_suffix = f"Also produce a secondary field 'sd_caption': {self.sd_caption_brief}.\n\n"
             prompt, _ = self._build_multi_prompt(
-                self.sd_caption_role_prompt,
+                self.role_prompt,
                 analysis,
                 specs,
                 history,
@@ -1261,18 +1308,18 @@ class CaptionGeneratorOpenAI:
             )
             if diversity_clause:
                 prompt += f"\n\n{diversity_clause}"
-            any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
+            all_short = all(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.sd_caption_model,
                 "messages": [
-                    {"role": "system", "content": self.sd_caption_system_prompt},
+                    {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},
-                "temperature": SHORT_LIMIT_TEMPERATURE if any_short else SD_LONG_TEMPERATURE,
+                "temperature": SHORT_LIMIT_TEMPERATURE if all_short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
+                "max_tokens": _multi_call_max_tokens(specs),
             }
-            if any_short:
-                create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_MULTI
             resp = await self.client.chat.completions.create(**create_kwargs)
             data = json.loads((resp.choices[0].message.content or "{}").strip())
             result = await self._parse_platform_captions(data, specs)
@@ -1354,8 +1401,16 @@ class AIService:
                 if usage is not None:
                     usages.append(usage)
                 return pair.get("caption", ""), pair.get("sd_caption") or None, usages
-            except Exception:  # noqa: S110 — intentional fallback to legacy caption-only path below
-                pass
+            except Exception as exc:
+                # Intentional fallback to the legacy caption-only path below —
+                # but the failure is a paid, silent second call, so log it (#79).
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "sd_caption_path_failed",
+                    path="single",
+                    error_type=type(exc).__name__,
+                )
         # Legacy fallback
         async with self._rate_limiter:
             caption_only, usage = await self.generator.generate(analysis, spec)
@@ -1403,8 +1458,16 @@ class AIService:
                     if usage is not None:
                         usages.append(usage)
                     return result, result.pop("sd_caption", None) or None
-                except Exception:  # noqa: S110 — intentional fallback
-                    pass
+                except Exception as exc:
+                    # Intentional fallback to generate_multi below — but the failure
+                    # is a paid, silent second call, so log it (#79).
+                    log_json(
+                        logger,
+                        logging.WARNING,
+                        "sd_caption_path_failed",
+                        path="multi",
+                        error_type=type(exc).__name__,
+                    )
             async with self._rate_limiter:
                 result, usage = await self.generator.generate_multi(
                     analysis, specs, history=history, voice_examples=voice_examples, **extra

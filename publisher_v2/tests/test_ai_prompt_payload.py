@@ -1,0 +1,198 @@
+"""CAP-1/CAP-3/HYG-4 (#79): what actually reaches the OpenAI client.
+
+The default config path (SD single-call enabled) must send the copywriter
+system prompt, not the Stable-Diffusion prompt-engineer persona, and must
+size temperature/max_tokens per platform mix instead of letting one short
+platform (email, 240) throttle the whole multi-platform call.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+
+import pytest
+
+from publisher_v2.config.schema import OpenAIConfig
+from publisher_v2.core.models import CaptionSpec, ImageAnalysis
+from publisher_v2.services.ai import (
+    DEFAULT_CAPTION_TEMPERATURE,
+    SHORT_LIMIT_TEMPERATURE,
+    AIService,
+    CaptionGeneratorOpenAI,
+)
+
+# --- Fakes (same shape as test_ai_multi_caption.py) ---
+
+
+class _Msg:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _Choice:
+    def __init__(self, content: str) -> None:
+        self.message = _Msg(content)
+
+
+class _Resp:
+    def __init__(self, content: str) -> None:
+        self.choices = [_Choice(content)]
+
+
+class _FakeCompletions:
+    def __init__(self, response_content: str) -> None:
+        self._response_content = response_content
+        self.calls: list[dict] = []
+
+    async def create(self, **kwargs) -> _Resp:
+        self.calls.append(kwargs)
+        return _Resp(self._response_content)
+
+
+class _FakeClient:
+    def __init__(self, completions: _FakeCompletions) -> None:
+        self.chat = type("Chat", (), {"completions": completions})()
+
+
+def _make_specs() -> dict[str, CaptionSpec]:
+    return {
+        "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="#a", max_length=4096),
+        "instagram": CaptionSpec(platform="instagram", style="hook-first", hashtags="#a", max_length=2200),
+        "email": CaptionSpec(platform="email", style="engagement question", hashtags="", max_length=240),
+    }
+
+
+def _make_analysis() -> ImageAnalysis:
+    return ImageAnalysis(description="Fine-art portrait", mood="calm", tags=["portrait"])
+
+
+def _default_config() -> OpenAIConfig:
+    return OpenAIConfig(
+        api_key="sk-test",
+        vision_model="gpt-4o",
+        caption_model="gpt-4o-mini",
+        sd_caption_enabled=True,
+        sd_caption_single_call_enabled=True,
+    )
+
+
+def _sd_response() -> str:
+    return json.dumps({"telegram": "t", "instagram": "i", "email": "e", "sd_caption": "sd prompt"})
+
+
+def _make_generator(monkeypatch: pytest.MonkeyPatch, response: str) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
+    completions = _FakeCompletions(response)
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+    return CaptionGeneratorOpenAI(_default_config()), completions
+
+
+class TestDefaultSdMultiPathPersona:
+    async def test_system_message_is_copywriter_not_prompt_engineer(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen, completions = _make_generator(monkeypatch, _sd_response())
+        await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
+
+        assert len(completions.calls) == 1
+        system_content = completions.calls[0]["messages"][0]["content"]
+        # #82 replaced the generic "senior social media copywriter" system prompt with a
+        # named voice brief (still the caption persona, not the SD prompt-engineer persona).
+        # Assert against the actual configured personas rather than the exact wording so this
+        # doesn't re-break every time the voice brief copy is tuned.
+        assert system_content == gen.system_prompt
+        assert system_content != gen.sd_caption_role_prompt
+        assert "prompt engineer" not in system_content
+
+    async def test_sd_caption_still_requested_in_user_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen, completions = _make_generator(monkeypatch, _sd_response())
+        result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
+
+        user_content = completions.calls[0]["messages"][1]["content"]
+        assert "sd_caption" in user_content
+        assert result["sd_caption"] == "sd prompt"
+
+
+class TestMultiCallBudgets:
+    async def test_mixed_platforms_use_default_temperature_and_scaled_tokens(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        gen, completions = _make_generator(monkeypatch, _sd_response())
+        await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
+
+        call = completions.calls[0]
+        assert call["temperature"] == DEFAULT_CAPTION_TEMPERATURE == 0.7
+        assert call["max_tokens"] >= 1500
+        assert call["max_tokens"] <= 4000
+        assert call["presence_penalty"] == 0.6
+
+    async def test_generate_multi_mixed_platforms_not_throttled(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen, completions = _make_generator(monkeypatch, json.dumps({"telegram": "t", "instagram": "i", "email": "e"}))
+        await gen.generate_multi(_make_analysis(), _make_specs())
+
+        call = completions.calls[0]
+        assert call["temperature"] == DEFAULT_CAPTION_TEMPERATURE
+        assert call["max_tokens"] >= 1500
+
+    async def test_email_only_keeps_short_limit_regime(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """PUB-046 regression: an all-short call keeps the low-temperature regime
+        and a small token cap."""
+        gen, completions = _make_generator(monkeypatch, json.dumps({"email": "e", "sd_caption": "sd"}))
+        email_only = {"email": CaptionSpec(platform="email", style="q", hashtags="", max_length=240)}
+        await gen.generate_multi_with_sd(_make_analysis(), email_only)
+
+        call = completions.calls[0]
+        assert call["temperature"] == SHORT_LIMIT_TEMPERATURE
+        assert call["max_tokens"] <= 512
+
+
+class TestSdFallbackLogging:
+    async def test_sd_failure_logged_and_single_fallback_call(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        calls = {"with_sd": 0, "multi": 0}
+
+        class _StubGenerator:
+            sd_caption_enabled = True
+            sd_caption_single_call_enabled = True
+
+            async def generate_multi_with_sd(self, analysis, specs, history=None, voice_examples=None):
+                calls["with_sd"] += 1
+                raise RuntimeError("boom")
+
+            async def generate_multi(self, analysis, specs, history=None, voice_examples=None):
+                calls["multi"] += 1
+                return {name: "caption" for name in specs}, None
+
+        service = AIService(analyzer=None, generator=_StubGenerator())  # type: ignore[arg-type]
+        with caplog.at_level(logging.WARNING, logger="publisher_v2.services.ai"):
+            captions, sd, _usages = await service.create_multi_caption_pair_from_analysis(
+                _make_analysis(), _make_specs()
+            )
+
+        assert calls == {"with_sd": 1, "multi": 1}
+        assert sd is None
+        assert set(captions) == {"telegram", "instagram", "email"}
+        events = [r for r in caplog.records if "sd_caption_path_failed" in r.getMessage()]
+        assert len(events) == 1
+        assert "RuntimeError" in events[0].getMessage()
+
+    async def test_single_platform_sd_failure_logged(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        class _StubGenerator:
+            sd_caption_enabled = True
+            sd_caption_single_call_enabled = True
+
+            async def generate_with_sd(self, analysis, spec):
+                raise RuntimeError("boom")
+
+            async def generate(self, analysis, spec):
+                return "caption", None
+
+        service = AIService(analyzer=None, generator=_StubGenerator())  # type: ignore[arg-type]
+        spec = CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096)
+        with caplog.at_level(logging.WARNING, logger="publisher_v2.services.ai"):
+            caption, sd, _usages = await service.create_caption_pair_from_analysis(_make_analysis(), spec)
+
+        assert caption == "caption"
+        assert sd is None
+        assert any("sd_caption_path_failed" in r.getMessage() for r in caplog.records)

@@ -28,12 +28,21 @@ def test_rehydrate_sidecar_view_prefers_metadata_caption() -> None:
     assert view["has_sidecar"] is True
 
 
-def test_rehydrate_sidecar_view_falls_back_to_sd_caption() -> None:
+def test_rehydrate_sidecar_view_never_falls_back_to_sd_caption() -> None:
+    # #80: the SD prompt must never masquerade as the social caption.
     content = "sd caption only\n\n# ---\n# image_file: test.jpg\n"
     view = rehydrate_sidecar_view(content)
     assert view["sd_caption"] == "sd caption only"
-    assert view["caption"] == "sd caption only"
+    assert view["caption"] is None
     assert view["has_sidecar"] is True
+
+
+def test_rehydrate_sidecar_view_exposes_caption_generated() -> None:
+    content = 'sd caption only\n\n# ---\n# caption_generated: {"telegram": "TG cap", "email": "Email cap?"}\n'
+    view = rehydrate_sidecar_view(content)
+    assert view["caption_generated"] == {"telegram": "TG cap", "email": "Email cap?"}
+    assert view["caption"] is None
+    assert view["sd_caption"] == "sd caption only"
 
 
 def test_parse_sidecar_without_metadata_header() -> None:

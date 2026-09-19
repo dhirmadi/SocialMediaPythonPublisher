@@ -474,21 +474,48 @@ class WebImageService:
             if meter is not None:
                 await meter.flush()
 
+    def _select_cached_social_caption(self, view: dict[str, Any]) -> str | None:
+        """Pick the social caption to serve from a sidecar cache view (#80).
+
+        Preference: the published/edited `caption`, then the `caption_generated`
+        entry for the first enabled platform, then the `email` entry, then any
+        generated entry. Never the SD prompt.
+        """
+        cached = view.get("caption")
+        if cached:
+            return str(cached)
+        generated = view.get("caption_generated")
+        if not isinstance(generated, dict) or not generated:
+            return None
+        from publisher_v2.core.models import CaptionSpec
+
+        for platform in CaptionSpec.for_platforms(self.config):
+            value = generated.get(platform)
+            if isinstance(value, str) and value.strip():
+                return value
+        email_value = generated.get("email")
+        if isinstance(email_value, str) and email_value.strip():
+            return email_value
+        return next((str(v) for v in generated.values() if isinstance(v, str) and v.strip()), None)
+
     async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
         # Ensure file exists by trying to get a temp link
         temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, filename)
 
-        # Sidecar-first cache path when not forcing refresh.
+        # Sidecar-first cache path when not forcing refresh. #80: only a real
+        # social caption (published/edited `caption` or a `caption_generated`
+        # entry) may be served from cache — the SD prompt on line one is a
+        # Stable Diffusion prompt, never a caption. Without a social caption,
+        # fall through to the AI path.
         if not force_refresh:
             blob = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
             if blob:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text)
-                cached_caption = view.get("caption")
-                cached_sd_caption = view.get("sd_caption")
-                if cached_caption or cached_sd_caption:
+                cached_caption = self._select_cached_social_caption(view)
+                if cached_caption:
                     log_json(
                         self.logger,
                         logging.INFO,
@@ -502,9 +529,10 @@ class WebImageService:
                         mood="",
                         tags=[],
                         nsfw=False,
-                        caption=cached_caption or "",
-                        sd_caption=cached_sd_caption,
+                        caption=cached_caption,
+                        sd_caption=view.get("sd_caption"),
                         sidecar_written=False,
+                        cached=True,
                     )
 
         if not self.config.features.analyze_caption_enabled:
@@ -625,6 +653,7 @@ class WebImageService:
                     sha256="",  # Optional here
                     correlation_id=correlation_id,
                     log_prefix="web_sidecar_upload",
+                    platform_captions=platform_captions_dict,
                 )
                 sidecar_written = True
             except Exception:  # noqa: S110 — error already logged in helper

@@ -478,6 +478,7 @@ class WorkflowOrchestrator:
                                 sha256=selected_hash,
                                 correlation_id=correlation_id,
                                 log_prefix="sidecar_upload",
+                                platform_captions=platform_captions,
                             )
                         )
             else:
