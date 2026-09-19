@@ -628,6 +628,13 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
         # =====================================================================
         # FEATURES CONFIG (always from env vars)
         # =====================================================================
+        # #131: pass voice_matching_enabled only when FEATURE_VOICE_MATCHING is set, so
+        # the ApplicationConfig validator can default it from content.voice_profile.
+        voice_matching_kwargs: dict[str, bool] = {}
+        if os.environ.get("FEATURE_VOICE_MATCHING") is not None:
+            voice_matching_kwargs["voice_matching_enabled"] = parse_bool_env(
+                os.environ.get("FEATURE_VOICE_MATCHING"), False, var_name="FEATURE_VOICE_MATCHING"
+            )
         features_cfg = FeaturesConfig(
             analyze_caption_enabled=parse_bool_env(
                 os.environ.get("FEATURE_ANALYZE_CAPTION"), True, var_name="FEATURE_ANALYZE_CAPTION"
@@ -642,9 +649,6 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             smart_hashtags_enabled=parse_bool_env(
                 os.environ.get("FEATURE_SMART_HASHTAGS"), True, var_name="FEATURE_SMART_HASHTAGS"
             ),
-            voice_matching_enabled=parse_bool_env(
-                os.environ.get("FEATURE_VOICE_MATCHING"), False, var_name="FEATURE_VOICE_MATCHING"
-            ),
             storage_ops_metering_enabled=parse_bool_env(
                 os.environ.get("FEATURE_STORAGE_OPS_METERING"),
                 False,
@@ -652,6 +656,7 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
             ),
             delete_enabled=parse_bool_env(os.environ.get("FEATURE_DELETE"), False, var_name="FEATURE_DELETE"),
             library_enabled=resolve_library_enabled_env(managed is not None),
+            **voice_matching_kwargs,
         )
 
     except KeyError as exc:

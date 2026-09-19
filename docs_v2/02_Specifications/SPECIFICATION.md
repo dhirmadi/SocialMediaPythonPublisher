@@ -54,7 +54,7 @@ Feature toggles (env vars, coarse on/off switches independent of config mode):
 | `FEATURE_LIBRARY` | unset (auto-resolve) | `true`/`false` force the admin library panel; when unset, `resolve_library_enabled()` auto-enables it for managed-storage instances and keeps it off for Dropbox-only instances |
 | `FEATURE_ALT_TEXT` | `true` | AI-generated alt text is attached to publisher context (`alt_text_enabled`, PUB-026) |
 | `FEATURE_SMART_HASHTAGS` | `true` | AI generates content-aware hashtags instead of only using the static `hashtag_string` (`smart_hashtags_enabled`, PUB-028) |
-| `FEATURE_VOICE_MATCHING` | `false` | Injects `content.voice_profile` examples into caption prompts for tone matching (`voice_matching_enabled`, PUB-029, PUB-039) |
+| `FEATURE_VOICE_MATCHING` | unset → `true` when a voice profile exists, else `false` | Injects `content.voice_profile` examples into caption prompts for tone matching (`voice_matching_enabled`, PUB-029, PUB-039). Explicit value wins over the profile-derived default (#131) |
 | `FEATURE_STORAGE_OPS_METERING` | `false` | Emits R2 `storage_ops_requests` usage events to the orchestrator (`storage_ops_metering_enabled`, PUB-045) |
 
 `delete_enabled` (permanent delete in the review workflow) is a `FeaturesConfig` field with

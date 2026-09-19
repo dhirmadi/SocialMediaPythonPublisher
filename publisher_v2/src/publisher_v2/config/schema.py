@@ -418,8 +418,12 @@ class ApplicationConfig(BaseModel):
     def default_voice_matching_from_profile(self) -> "ApplicationConfig":
         """#82: voice matching defaults ON when the tenant has a voice profile.
 
-        An explicit ``voice_matching_enabled`` value (either way) always wins;
-        only the untouched default flips when ``content.voice_profile`` is set.
+        Precedence: explicit flag > profile-derived default. An explicit
+        ``voice_matching_enabled`` value (either way: ``FEATURE_VOICE_MATCHING`` in
+        env-first mode, ``features.voice_matching_enabled`` sent by the
+        orchestrator) always wins; only an unset flag flips to True when
+        ``content.voice_profile`` is set. Both loaders omit the field when it was
+        not given, so it stays out of ``model_fields_set`` (#131).
         """
         if (
             self.content is not None

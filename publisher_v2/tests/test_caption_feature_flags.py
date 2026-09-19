@@ -103,7 +103,10 @@ class TestOrchestratorFeatures:
         f = OrchestratorFeatures.model_validate({"publish_enabled": True})
         assert f.alt_text_enabled is True
         assert f.smart_hashtags_enabled is True
-        assert f.voice_matching_enabled is False
+        # #131: unset stays None (not False) so it never counts as an explicit "off";
+        # the resolved ApplicationConfig is still off without a voice profile
+        # (test_null_voice_flag_without_profile_stays_off).
+        assert f.voice_matching_enabled is None
 
 
 class TestOrchestratorContent:
@@ -146,7 +149,11 @@ class TestBuildAppConfigV2:
         from publisher_v2.config.orchestrator_models import OrchestratorFeatures
 
         features = OrchestratorFeatures.model_validate({"publish_enabled": True})
+        # #131: mirrors _build_app_config_v2 — an unset (None) voice flag is dropped so
+        # FeaturesConfig's default applies and the profile-derived default can fire.
         features_dict = features.model_dump()
+        if features_dict.get("voice_matching_enabled") is None:
+            features_dict.pop("voice_matching_enabled", None)
         result = FeaturesConfig(**features_dict)
         assert result.alt_text_enabled is True
         assert result.smart_hashtags_enabled is True
@@ -162,7 +169,11 @@ class TestBuildAppConfigV1:
 
         # v1 only sends a minimal features payload
         features = OrchestratorFeatures.model_validate({"publish_enabled": False})
+        # #131: mirrors _build_app_config_v2 — an unset (None) voice flag is dropped so
+        # FeaturesConfig's default applies and the profile-derived default can fire.
         features_dict = features.model_dump()
+        if features_dict.get("voice_matching_enabled") is None:
+            features_dict.pop("voice_matching_enabled", None)
         result = FeaturesConfig(**features_dict)
         assert result.alt_text_enabled is True
         assert result.smart_hashtags_enabled is True

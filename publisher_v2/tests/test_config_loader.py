@@ -319,3 +319,27 @@ def test_library_enabled_defaults_false_without_managed(valid_env_vars, monkeypa
 
     cfg = load_application_config()
     assert cfg.features.library_enabled is False
+
+
+# --- #131: voice matching defaults on through the real loader when a profile exists ---
+
+
+def test_voice_profile_without_flag_enables_voice_matching(valid_env_vars, monkeypatch):
+    monkeypatch.delenv("FEATURE_VOICE_MATCHING", raising=False)
+    monkeypatch.setenv("CONTENT_SETTINGS", json.dumps({"voice_profile": ["my own caption, my own voice"]}))
+    cfg = load_application_config()
+    assert cfg.content.voice_profile == ["my own caption, my own voice"]
+    assert cfg.features.voice_matching_enabled is True
+
+
+def test_voice_profile_with_explicit_false_keeps_voice_matching_off(valid_env_vars, monkeypatch):
+    monkeypatch.setenv("FEATURE_VOICE_MATCHING", "false")
+    monkeypatch.setenv("CONTENT_SETTINGS", json.dumps({"voice_profile": ["my own caption, my own voice"]}))
+    cfg = load_application_config()
+    assert cfg.features.voice_matching_enabled is False
+
+
+def test_no_voice_profile_and_no_flag_keeps_voice_matching_off(valid_env_vars, monkeypatch):
+    monkeypatch.delenv("FEATURE_VOICE_MATCHING", raising=False)
+    cfg = load_application_config()
+    assert cfg.features.voice_matching_enabled is False

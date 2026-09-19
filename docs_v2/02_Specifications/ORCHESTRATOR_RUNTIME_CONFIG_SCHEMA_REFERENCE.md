@@ -363,7 +363,7 @@ here because they directly gate the caption/analysis behavior described above):
 |------|------|----------|---------|------|
 | `alt_text_enabled` | bool \| null | ❌ | `true` | Enables AI-generated screen-reader `alt_text` (PUB-026) |
 | `smart_hashtags_enabled` | bool \| null | ❌ | `true` | AI generates hashtags from analysis instead of only using `content.hashtag_string` (PUB-028) |
-| `voice_matching_enabled` | bool \| null | ❌ | `false` | Injects `content.voice_profile` examples into caption prompts (PUB-029) |
+| `voice_matching_enabled` | bool \| null | ❌ | `null` (unset) | Injects `content.voice_profile` examples into caption prompts (PUB-029). `null`/absent = tenant never set it: Publisher enables it when `content.voice_profile` is non-empty. An explicit bool always wins (#131) |
 | `storage_ops_metering_enabled` | bool \| null | ❌ | `false` | Emits `storage_ops_requests` usage events for managed-storage instances (PUB-045) |
 
 ### 4.6 `config.captionfile`

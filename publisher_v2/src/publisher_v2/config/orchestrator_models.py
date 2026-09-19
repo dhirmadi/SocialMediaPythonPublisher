@@ -32,7 +32,9 @@ class OrchestratorFeatures(BaseModel):
     auto_view_enabled: bool = False
     alt_text_enabled: bool = True
     smart_hashtags_enabled: bool = True
-    voice_matching_enabled: bool = False
+    # #131: null (or absent) means the tenant never set it; Publisher then derives it
+    # from content.voice_profile. Matches the schema reference (bool | null).
+    voice_matching_enabled: bool | None = None
     storage_ops_metering_enabled: bool = False
 
 
