@@ -103,6 +103,8 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `PV2_STATIC_CONFIG_DIR` | Custom static config directory | `<package>/config/static` |
 | `WEB_DEBUG` | Enable FastAPI debug/verbose logging **only** — it no longer enables the insecure dev signing secret (#87 SEC-5) | `false` |
 | `WEB_DEV_INSECURE_SECRET` | Explicit local-dev opt-in for the built-in insecure session/cookie signing secret when `WEB_SESSION_SECRET` is unset. **Never set in production.** | `false` |
+| `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE` | Strict mode (#91 SEC-3): require Bearer/Basic header auth in addition to the admin cookie when a header backend is configured | `false` |
+| `WEB_ADMIN_COOKIE_EPOCH` | Cookie kill switch (#91 SEC-10): rotate the value to invalidate every outstanding admin cookie without changing `WEB_SESSION_SECRET` | (empty) |
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
 | `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |

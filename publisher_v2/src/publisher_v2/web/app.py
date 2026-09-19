@@ -26,9 +26,9 @@ from publisher_v2.web.auth import (
     is_admin_configured,
     is_admin_request,
     request_binding,
-    revoke_admin_request,
     require_admin,
     require_auth,
+    revoke_admin_request,
     set_admin_cookie,
     verify_admin_password,
 )
