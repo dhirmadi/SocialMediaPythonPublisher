@@ -253,6 +253,7 @@ class WorkflowOrchestrator:
         correlation_id = str(uuid.uuid4())
         caption = ""
         tmp_path = ""
+        variant_paths: dict[str, str] = {}
         temp_link = ""
         analysis = None
         spec = None
@@ -498,11 +499,14 @@ class WorkflowOrchestrator:
                     publish_start = now_monotonic()
                     context = self._build_publisher_context(analysis)
                     timeout = _publish_timeout_seconds()
+                    # #83: render one variant per publisher up front so no
+                    # publisher ever mutates the shared temp file mid-gather.
+                    variant_paths = await self._render_publish_variants(tmp_path, enabled_publishers)
                     results = await asyncio.gather(
                         *[
                             asyncio.wait_for(
                                 p.publish(
-                                    tmp_path,
+                                    variant_paths.get(p.platform_name, tmp_path),
                                     format_caption(
                                         p.platform_name,
                                         platform_captions.get(p.platform_name, caption),
@@ -706,10 +710,51 @@ class WorkflowOrchestrator:
             if tmp_path and os.path.exists(tmp_path):  # noqa: ASYNC240 — fast local FS check in finally cleanup
                 with contextlib.suppress(Exception):
                     os.unlink(tmp_path)
+            # #83: remove per-publisher variants alongside the source temp file.
+            for variant in variant_paths.values():
+                if variant != tmp_path and os.path.exists(variant):  # noqa: ASYNC240 — fast local FS check
+                    with contextlib.suppress(Exception):
+                        os.unlink(variant)
             # PUB-045: flush R2 storage ops counter even in preview mode (real R2 costs).
             meter = getattr(self, "_storage_ops_meter", None)
             if meter is not None:
                 await meter.flush()
+
+    async def _render_publish_variants(self, tmp_path: str, publishers: list[Publisher]) -> dict[str, str]:
+        """Render one resized variant per publisher before the publish gather (#83).
+
+        Widths come from platform_limits.yaml (``resize_width_px``); platforms
+        without a width (e.g. email) get the untouched source path. Publishers
+        never resize — the same shared temp file used to be rewritten to 1280
+        and 1080 concurrently while email attached it mid-write.
+        """
+        from publisher_v2.utils.images import ensure_max_width
+
+        limits = get_static_config().platform_limits
+        base, suffix = os.path.splitext(tmp_path)
+        variants: dict[str, str] = {}
+        for publisher in publishers:
+            platform = publisher.platform_name
+            width = getattr(getattr(limits, platform, None), "resize_width_px", None)
+            if not width:
+                variants[platform] = tmp_path
+                continue
+            out_path = f"{base}.{platform}{suffix}"
+            try:
+                await asyncio.to_thread(ensure_max_width, tmp_path, width, out_path)
+                os.chmod(out_path, 0o600)  # noqa: ASYNC240 — fast local FS call
+                variants[platform] = out_path
+            except Exception:
+                # A failed variant must not sink the publish — fall back to the
+                # source path (pre-#83 behavior minus the concurrent rewrite).
+                log_json(
+                    self.logger,
+                    logging.WARNING,
+                    "publish_variant_render_failed",
+                    platform=platform,
+                )
+                variants[platform] = tmp_path
+        return variants
 
     def _build_publisher_context(self, analysis: ImageAnalysis | None) -> dict[str, Any] | None:
         if analysis is None:
