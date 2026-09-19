@@ -157,11 +157,19 @@ class OpenAIConfig(BaseModel):
     @field_validator("vision_model", "caption_model")
     @classmethod
     def validate_model_names(cls, v: str) -> str:
-        """Validate that model names are reasonable OpenAI model identifiers"""
-        valid_prefixes = ("gpt-4", "gpt-3.5", "o1", "o3")
-        if not any(v.startswith(prefix) for prefix in valid_prefixes):
-            raise ValueError(f"Model '{v}' does not appear to be a valid OpenAI model")
-        return v
+        """Validate model-name shape only (#81): non-empty, printable ASCII, no whitespace.
+
+        No prefix allow-list — newer OpenAI model families must be configurable
+        without a code change. Lifecycle warnings (PUB-040) handle deprecations.
+        """
+        candidate = v.strip()
+        if not candidate:
+            raise ValueError("Model name must be non-empty")
+        if any(ch.isspace() for ch in candidate):
+            raise ValueError(f"Model '{v}' must not contain whitespace")
+        if not all(32 < ord(ch) < 127 for ch in candidate):
+            raise ValueError(f"Model '{v}' must be printable ASCII")
+        return candidate
 
     def model_post_init(self, __context) -> None:
         """Handle legacy 'model' field for backward compatibility"""

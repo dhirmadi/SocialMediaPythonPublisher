@@ -74,3 +74,47 @@ async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) 
     assert "center-weighted" in (result.composition or "")
     assert "studio" in (result.background or "")
     assert "black" in (result.color_palette or "")
+
+
+# ---------- #81 (CAP-4): distinctive_detail ----------
+
+
+class _DetailCompletions:
+    def __init__(self, include_detail: bool) -> None:
+        self._include = include_detail
+
+    async def create(self, model: str, messages, response_format, temperature: float):
+        payload: dict = {
+            "description": "A composed portrait.",
+            "mood": "bold",
+            "tags": ["portrait"],
+            "nsfw": False,
+            "safety_labels": [],
+        }
+        if self._include:
+            payload["distinctive_detail"] = "a single red thread tied around the left wrist"
+        return _DummyResp(json.dumps(payload))
+
+
+class _DetailClient:
+    def __init__(self, include_detail: bool) -> None:
+        completions = _DetailCompletions(include_detail)
+        self.chat = type("Chat", (), {"completions": completions})()
+
+
+@pytest.mark.asyncio
+async def test_analyzer_parses_distinctive_detail(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DetailClient(True))
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
+    analyzer = VisionAnalyzerOpenAI(cfg)
+    result, _usage = await analyzer.analyze("http://tmp-url")
+    assert result.distinctive_detail == "a single red thread tied around the left wrist"
+
+
+@pytest.mark.asyncio
+async def test_analyzer_distinctive_detail_none_safe(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DetailClient(False))
+    cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
+    analyzer = VisionAnalyzerOpenAI(cfg)
+    result, _usage = await analyzer.analyze("http://tmp-url")
+    assert result.distinctive_detail is None

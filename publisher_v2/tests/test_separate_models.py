@@ -41,12 +41,15 @@ def test_defaults_when_no_model_specified():
 
 
 def test_invalid_model_name_rejected():
-    """Test that invalid model names are rejected"""
+    """#81 removed the prefix allow-list (it blocked newer OpenAI families);
+    the validator now rejects malformed shapes: whitespace, empty, non-ASCII."""
     with pytest.raises(ValidationError):
         OpenAIConfig(
             api_key="sk-test123",
-            vision_model="invalid-model-123",
+            vision_model="invalid model with spaces",
         )
+    with pytest.raises(ValidationError):
+        OpenAIConfig(api_key="sk-test123", vision_model="")
 
 
 def test_explicit_separate_models_override():
