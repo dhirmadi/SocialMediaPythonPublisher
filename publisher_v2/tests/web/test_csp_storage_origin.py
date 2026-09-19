@@ -11,6 +11,7 @@ config loader; only the Dropbox SDK is faked.
 
 from __future__ import annotations
 
+import contextlib
 import json
 from collections.abc import Iterator
 from typing import Any
@@ -81,6 +82,11 @@ def dropbox_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[None
         yield
     get_config_source.cache_clear()
     get_service.cache_clear()
+    # Re-prime the standalone singleton while this fixture's env is still set:
+    # sibling web tests rely on a service being cached and do not set the config
+    # env vars themselves, so leaving the cache empty would break them.
+    with contextlib.suppress(Exception):
+        get_service()
 
 
 def _has_blanket_https(csp: str) -> bool:

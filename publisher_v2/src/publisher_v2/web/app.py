@@ -163,13 +163,15 @@ app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=life
 logger = logging.getLogger("publisher_v2.web")
 
 
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# #144: fullmatch, not match — "$" also matches just before a trailing newline,
+# so "abc\n" passed and the newline reached the correlation id and every log line.
+_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 def _get_correlation_id(request: Request) -> str:
     """Echo X-Request-ID only when it is short and log/header-safe (#87 SEC-12)."""
     header = request.headers.get("X-Request-ID")
-    if header and _REQUEST_ID_RE.match(header):
+    if header and _REQUEST_ID_RE.fullmatch(header):
         return header
     return str(uuid.uuid4())
 
