@@ -78,7 +78,7 @@ def _login_failure_delay(failures: int) -> float:
         cap = 5.0
     if cap <= 0:
         return 0.0
-    return min(0.1 * (2 ** min(failures, 8)), cap)
+    return min(0.1 * (2.0 ** min(failures, 8)), cap)
 
 
 _ANALYZE_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="analyze/min")
