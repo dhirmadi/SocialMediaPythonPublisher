@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 
 @pytest.fixture
-def managed_admin_client(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
+def managed_admin_client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> Generator[TestClient, None, None]:
     """TestClient configured for managed storage with admin."""
     monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
     monkeypatch.setenv("web_admin_pw", "secret")

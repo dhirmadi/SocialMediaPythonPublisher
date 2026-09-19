@@ -107,7 +107,9 @@ async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -
     assert isinstance(entry.get("caption_generation_ms"), int)
 
 
-def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_web_random_image_emits_telemetry(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch, request: pytest.FixtureRequest
+) -> None:
     # #97 stage 4: INI removed — this e2e needs a real-ish env-first config.
     # The autouse env-isolation fixture clears the JSON config vars, so re-load
     # them from the workspace .env when present; skip otherwise (e.g. CI).
@@ -132,6 +134,14 @@ def test_web_random_image_emits_telemetry(caplog: pytest.LogCaptureFixture, monk
     monkeypatch.setenv("PUBLISHERS", "[]")
     monkeypatch.delenv("CONFIG_PATH", raising=False)
     monkeypatch.delenv("ORCHESTRATOR_BASE_URL", raising=False)
+    # #135: never reuse a WebImageService/config source cached by an earlier test.
+    from publisher_v2.config.source import get_config_source
+    from publisher_v2.web.dependencies import get_service
+
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    request.addfinalizer(get_service.cache_clear)
+    request.addfinalizer(get_config_source.cache_clear)
     client = TestClient(app)
 
     caplog.set_level(logging.INFO, logger="publisher_v2.web")

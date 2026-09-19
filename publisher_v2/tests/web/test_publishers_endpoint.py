@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -20,8 +18,6 @@ def test_client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         StoragePathConfig,
         TelegramConfig,
     )
-
-    os.environ.setdefault("CONFIG_PATH", "configfiles/fetlife.ini")
 
     # Create minimal config with Telegram enabled and default feature flags.
     cfg = ApplicationConfig(

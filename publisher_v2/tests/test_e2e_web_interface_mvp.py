@@ -1,22 +1,16 @@
 from __future__ import annotations
 
-import os
-
-import pytest
 from fastapi.testclient import TestClient
 
 from publisher_v2.web.app import app
 
 
-@pytest.mark.skipif(
-    not os.path.exists(os.environ.get("CONFIG_PATH", "configfiles/fetlife.ini")),
-    reason="Requires CONFIG_PATH pointing to a real config and Dropbox/OpenAI credentials",
-)
-def test_web_interface_end_to_end() -> None:
+def test_web_interface_end_to_end(env_first_config: None) -> None:
     """
     Lightweight e2e-style test that exercises the web app stack using TestClient.
 
-    In CI this can be enabled when CONFIG_PATH and credentials are available.
+    #135: runs everywhere on the env-first fixture (the INI-file gate it had
+    meant CI always skipped it).
     """
     client = TestClient(app)
 

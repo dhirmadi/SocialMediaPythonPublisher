@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,12 +7,7 @@ from publisher_v2.web.app import app
 
 
 @pytest.fixture
-def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
-    # Ensure CONFIG_PATH exists; if not, skip tests.
-    cfg = os.environ.get("CONFIG_PATH", "configfiles/fetlife.ini")
-    if not os.path.exists(cfg):
-        pytest.skip("CONFIG_PATH does not point to a real config; skip web admin integration tests")
-    monkeypatch.setenv("CONFIG_PATH", cfg)
+def client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> TestClient:
     monkeypatch.setenv("web_admin_pw", "secret-admin")
     # Disable secure cookies for test client (uses HTTP, not HTTPS)
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
@@ -75,11 +68,7 @@ def test_admin_logout_without_csrf_header_is_blocked(client: TestClient) -> None
     assert res.status_code == 403
 
 
-def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = os.environ.get("CONFIG_PATH", "configfiles/fetlife.ini")
-    if not os.path.exists(cfg):
-        pytest.skip("CONFIG_PATH does not point to a real config; skip web admin integration tests")
-    monkeypatch.setenv("CONFIG_PATH", cfg)
+def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> None:
     monkeypatch.setenv("web_admin_pw", "secret-admin")
     client = TestClient(app)
 

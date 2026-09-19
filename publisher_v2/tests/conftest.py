@@ -26,10 +26,12 @@ import os
 # without a session secret, which would abort test collection in env-less CI.
 os.environ.setdefault("WEB_SESSION_SECRET", "test_secret_key_for_testing_only")
 
+
 from collections.abc import Generator
 from types import SimpleNamespace
 from typing import Any
 
+import dotenv as _dotenv
 import pytest
 
 from publisher_v2.config.schema import (
@@ -43,6 +45,22 @@ from publisher_v2.config.schema import (
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
 from publisher_v2.services.storage_protocol import FileMetadata
+
+# #135 (runs before any test module imports the app): web/service.py calls load_dotenv() at import time. Without this, a
+# developer's workspace .env is copied into os.environ for the whole session and
+# hides order dependencies that CI (no .env) then trips over. Only implicit
+# loads are disabled; an explicit dotenv path still loads.
+
+_real_load_dotenv = _dotenv.load_dotenv
+
+
+def _load_dotenv_explicit_only(dotenv_path=None, *args, **kwargs):  # type: ignore[no-untyped-def]
+    if dotenv_path:
+        return _real_load_dotenv(dotenv_path, *args, **kwargs)
+    return False
+
+
+_dotenv.load_dotenv = _load_dotenv_explicit_only
 
 
 @pytest.fixture(autouse=True)
@@ -58,6 +76,38 @@ def _bust_static_config_cache() -> Generator[None, None, None]:
 # ==============================================================================
 # ENVIRONMENT ISOLATION FIXTURES
 # ==============================================================================
+
+
+@pytest.fixture(autouse=True)
+def _reset_web_rate_limiters() -> Generator[None, None, None]:
+    """#135: reset the process-wide limiters in publisher_v2.web.app around every test.
+
+    They are module-level singletons; without a reset a login/analyze/publish test
+    can hit 429 depending on how many earlier tests used the same key. Only acts
+    once the app module is imported, so non-web tests do not import the app.
+    """
+    import sys
+
+    def _reset() -> None:
+        app_module = sys.modules.get("publisher_v2.web.app")
+        if app_module is None:
+            return
+        for name in (
+            "_LOGIN_LIMITER",
+            "_GLOBAL_LOGIN_LIMITER",
+            "_ANALYZE_LIMITER_MIN",
+            "_ANALYZE_LIMITER_HOUR",
+            "_PUBLISH_LIMITER_MIN",
+        ):
+            limiter = getattr(app_module, name, None)
+            if limiter is not None:
+                limiter.reset()
+        if hasattr(app_module, "_consecutive_login_failures"):
+            app_module._consecutive_login_failures = 0  # login backoff delay counter
+
+    _reset()
+    yield
+    _reset()
 
 
 @pytest.fixture(autouse=True)
@@ -145,6 +195,30 @@ def mock_openai_env(monkeypatch: pytest.MonkeyPatch) -> None:
 def mock_full_env(mock_dropbox_env: None, mock_openai_env: None) -> None:
     """Set up all required environment variables for full config loading."""
     pass  # Dependencies handle the setup
+
+
+@pytest.fixture
+def env_first_config(monkeypatch: pytest.MonkeyPatch, mock_full_env: None) -> Generator[None, None, None]:
+    """#135: minimal env-first configuration (INI support was removed in #97).
+
+    Tests that build the real app/service must request this instead of relying
+    on env vars leaked by an earlier test or by a workspace .env. Clears the
+    config-source and web-service caches on both sides so no instance outlives
+    the test.
+    """
+    monkeypatch.setenv("CONFIG_SOURCE", "env")
+    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
+    monkeypatch.setenv("PUBLISHERS", "[]")
+    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
+    monkeypatch.delenv("CONFIG_PATH", raising=False)
+    from publisher_v2.config.source import get_config_source
+    from publisher_v2.web.dependencies import get_service
+
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    yield
+    get_config_source.cache_clear()
+    get_service.cache_clear()
 
 
 # ==============================================================================
