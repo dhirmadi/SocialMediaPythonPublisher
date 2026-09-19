@@ -7,7 +7,6 @@ from publisher_v2.config.schema import InstagramConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.images import ensure_max_width_async
 from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
 
 logger = logging.getLogger("publisher_v2.publishers.instagram")
@@ -33,7 +32,6 @@ class InstagramPublisher(Publisher):
         config = self._config  # bind to local for type narrowing
         start = now_monotonic()
         try:
-            processed_path = await ensure_max_width_async(image_path, max_width=1080)
 
             def _upload() -> str:
                 client = Client()
@@ -50,7 +48,7 @@ class InstagramPublisher(Publisher):
                     # Fallback to fresh login and persist new session
                     client.login(config.username, config.password)
                     client.dump_settings(config.session_file)
-                media = client.photo_upload(processed_path, caption)
+                media = client.photo_upload(image_path, caption)
                 return str(media.id) if hasattr(media, "id") else ""
 
             post_id = await asyncio.to_thread(_upload)

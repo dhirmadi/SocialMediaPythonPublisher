@@ -293,7 +293,11 @@ def _combine_usages(a: AIUsage | None, b: AIUsage | None) -> AIUsage | None:
 
 class VisionAnalyzerOpenAI:
     def __init__(self, config: OpenAIConfig):
-        self.client = AsyncOpenAI(api_key=config.api_key)
+        self.client = AsyncOpenAI(
+            api_key=config.api_key,
+            timeout=httpx.Timeout(config.request_timeout_seconds, connect=5.0),
+            max_retries=0,  # tenacity (_ai_retry) is the only retry layer (#84)
+        )
         self.model = config.vision_model  # Use vision-optimized model
         self.logger = logging.getLogger("publisher_v2.ai.vision")
         # Conservative upper bound for structured JSON response; tuned for expanded analysis schema.
@@ -855,7 +859,11 @@ async def fetch_caption_history(
 
 class CaptionGeneratorOpenAI:
     def __init__(self, config: OpenAIConfig):
-        self.client = AsyncOpenAI(api_key=config.api_key)
+        self.client = AsyncOpenAI(
+            api_key=config.api_key,
+            timeout=httpx.Timeout(config.request_timeout_seconds, connect=5.0),
+            max_retries=0,  # tenacity (_ai_retry) is the only retry layer (#84)
+        )
         self.model = config.caption_model  # Use cost-effective caption model
         # PUB-046: AIService sets this so the condense pass can re-enter the
         # shared rate limiter instead of bypassing it. Stays None when the
@@ -1528,6 +1536,23 @@ class AIService:
                 regenerated=regenerated,
             )
         return captions, sd_caption
+
+    async def aclose(self) -> None:
+        """Close both underlying AsyncOpenAI clients (#84).
+
+        Safe to call multiple times and with test doubles that have no client.
+        """
+        for component in (self.analyzer, self.generator):
+            client = getattr(component, "client", None)
+            close = getattr(client, "close", None)
+            if close is None:
+                continue
+            try:
+                result = close()
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception:  # pragma: no cover — best-effort shutdown
+                logger.warning("openai_client_close_failed", exc_info=True)
 
 
 class NullAIService:

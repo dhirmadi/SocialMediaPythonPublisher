@@ -5,6 +5,7 @@ import logging
 from datetime import UTC, datetime
 
 from publisher_v2.config.loader import load_application_config
+from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 from publisher_v2.services.publishers import build_publishers
@@ -88,9 +89,20 @@ async def main_async() -> int:
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, publishers, caption_store=caption_store)
 
     # Execute workflow (preview implies dry_publish)
-    result = await orchestrator.execute(
-        select_filename=args.select, dry_publish=args.dry_publish or args.preview, preview_mode=args.preview
-    )
+    try:
+        result = await orchestrator.execute(
+            select_filename=args.select, dry_publish=args.dry_publish or args.preview, preview_mode=args.preview
+        )
+    except StorageError as exc:
+        # #88: storage failures (e.g. expired refresh token) exit with a
+        # one-line message instead of an unhandled traceback.
+        log_json(logger, logging.ERROR, "storage_error", error=str(exc))
+        if args.preview:
+            preview_utils.print_error(str(exc))
+        return 1
+    finally:
+        # #84: close the OpenAI HTTP clients at CLI exit.
+        await ai_service.aclose()
 
     # Preview mode: show results
     if args.preview:

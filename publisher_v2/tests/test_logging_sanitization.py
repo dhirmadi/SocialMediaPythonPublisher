@@ -132,3 +132,22 @@ class TestSetupLogging:
         assert logging.getLogger("httpx").level >= logging.WARNING
         assert logging.getLogger("httpcore").level >= logging.WARNING
         assert logging.getLogger("telegram").level >= logging.WARNING
+
+
+def test_log_json_exc_info_reaches_the_log_record(caplog) -> None:
+    """REL-8 (#87): exc_info must be forwarded to logger.log, not JSON-dumped."""
+    import logging as _logging
+
+    from publisher_v2.utils.logging import log_json
+
+    logger = _logging.getLogger("test.exc_info")
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        with caplog.at_level(_logging.WARNING, logger="test.exc_info"):
+            log_json(logger, _logging.WARNING, "something_failed", exc_info=True)
+
+    record = caplog.records[-1]
+    assert record.exc_info is not None
+    assert record.exc_info[0] is ValueError
+    assert '"exc_info"' not in record.getMessage()

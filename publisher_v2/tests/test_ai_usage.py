@@ -315,3 +315,30 @@ def test_null_ai_service_has_no_crash_attributes() -> None:
     svc = NullAIService()
     assert svc.analyzer is None
     assert svc.generator is None
+
+
+@pytest.mark.asyncio
+async def test_transient_error_retries_exactly_three_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#84: tenacity is the only retry layer — exactly 3 total attempts."""
+    import httpx
+
+    from publisher_v2.core.exceptions import AIServiceError
+    from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+    calls = {"n": 0}
+
+    class _FailingCompletions:
+        async def create(self, **kwargs):
+            calls["n"] += 1
+            raise httpx.ConnectError("boom")
+
+    gen = CaptionGeneratorOpenAI.__new__(CaptionGeneratorOpenAI)
+    gen.model = "gpt-4o-mini"
+    gen.system_prompt = "system"
+    gen.role_prompt = "role"
+    gen.client = SimpleNamespace(chat=SimpleNamespace(completions=_FailingCompletions()))
+
+    with pytest.raises(AIServiceError):
+        await gen.generate(_ANALYSIS, _SPEC)
+
+    assert calls["n"] == 3
