@@ -49,7 +49,7 @@ _DROPBOX_CONTENT_ORIGINS = ("https://*.dropboxusercontent.com",)
 # orchestrated mode, tenant-supplied: an unvalidated netloc containing a space
 # or a ";" would smuggle an extra source — or a whole extra directive, which
 # browsers honour in FIRST-occurrence order, overriding the nonce script-src.
-_SAFE_NETLOC_RE = re.compile(r"[A-Za-z0-9.\-]+(?::\d{1,5})?")
+_SAFE_NETLOC_RE = re.compile(r"(?:\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.\-]+)(?::[0-9]{1,5})?")
 
 
 def storage_origins_for_config(config: Any) -> list[str]:
@@ -64,7 +64,12 @@ def storage_origins_for_config(config: Any) -> list[str]:
     managed = getattr(config, "managed", None)
     endpoint = getattr(managed, "endpoint_url", None)
     if endpoint:
-        parsed = urlparse(endpoint)
+        try:
+            parsed = urlparse(endpoint)
+        except ValueError:
+            # e.g. "http://[evil" — a malformed tenant endpoint must degrade to
+            # 'self', not raise on every request for that tenant.
+            return []
         if parsed.scheme in ("http", "https") and _SAFE_NETLOC_RE.fullmatch(parsed.netloc or ""):
             return [f"{parsed.scheme}://{parsed.netloc}"]
         return []

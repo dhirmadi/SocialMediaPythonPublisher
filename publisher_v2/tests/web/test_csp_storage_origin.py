@@ -165,6 +165,46 @@ def test_hostile_endpoint_cannot_inject_a_directive(
             assert len(origins) <= 1, csp
 
 
+def _csp_for_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, endpoint: str) -> str:
+    env = _base_env(tmp_path) | {
+        "STORAGE_PROVIDER": "managed",
+        "R2_ACCESS_KEY_ID": "k",
+        "R2_SECRET_ACCESS_KEY": "s",
+        "R2_ENDPOINT_URL": endpoint,
+        "R2_BUCKET_NAME": "bucket",
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
+        monkeypatch.delenv(key, raising=False)
+    from publisher_v2.config.source import get_config_source
+    from publisher_v2.web.app import get_service
+
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    with patch("publisher_v2.services.managed_storage.boto3"):
+        csp = _csp()
+    get_config_source.cache_clear()
+    get_service.cache_clear()
+    with contextlib.suppress(Exception):
+        get_service()
+    return csp
+
+
+def test_malformed_endpoint_does_not_break_the_request(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """An unparseable endpoint_url must degrade to 'self', not 500 every request."""
+    csp = _csp_for_endpoint(monkeypatch, tmp_path, "http://[evil")
+
+    assert "img-src 'self' data: blob:;" in csp, csp
+    assert not _has_blanket_https(csp), csp
+
+
+def test_ipv6_endpoint_is_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    csp = _csp_for_endpoint(monkeypatch, tmp_path, "https://[2001:db8::1]:9000")
+
+    assert "https://[2001:db8::1]:9000" in csp, csp
+
+
 def test_policy_keeps_its_other_directives(managed_app: None) -> None:
     csp = _csp()
 
