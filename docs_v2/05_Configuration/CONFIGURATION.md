@@ -106,6 +106,7 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
 | `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
+| `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
 | `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |

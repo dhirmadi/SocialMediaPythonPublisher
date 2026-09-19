@@ -29,6 +29,7 @@ from publisher_v2.core.exceptions import (  # noqa: E402
 from publisher_v2.core.workflow import WorkflowOrchestrator  # noqa: E402
 from publisher_v2.db import get_session_factory  # noqa: E402
 from publisher_v2.db.caption_store import CaptionStore  # noqa: E402
+from publisher_v2.db.publish_store import PublishStore  # noqa: E402
 from publisher_v2.services.ai import (  # noqa: E402
     AIService,
     CaptionGeneratorOpenAI,
@@ -120,9 +121,11 @@ class WebImageService:
 
         # Caption history DB store (optional — graceful degradation if no DB)
         self._caption_store: CaptionStore | None = None
+        self._publish_store: PublishStore | None = None
         sf = get_session_factory()
         if sf is not None:
             self._caption_store = CaptionStore(sf)
+            self._publish_store = PublishStore(sf)
 
         self._tenant = runtime.tenant if runtime is not None else "default"
 
@@ -135,7 +138,13 @@ class WebImageService:
                 ai_service = AIService(analyzer, generator)
                 self.ai_service = ai_service
             self.orchestrator: WorkflowOrchestrator | None = WorkflowOrchestrator(
-                cfg, storage, ai_service, publishers, tenant=self._tenant, caption_store=self._caption_store
+                cfg,
+                storage,
+                ai_service,
+                publishers,
+                tenant=self._tenant,
+                caption_store=self._caption_store,
+                publish_store=self._publish_store,
             )
         else:
             self.orchestrator = None
@@ -325,6 +334,7 @@ class WebImageService:
             storage_ops_meter=self._storage_ops_meter,
             tenant=self._tenant,
             caption_store=self._caption_store,
+            publish_store=self._publish_store,
         )
         return self.orchestrator
 
