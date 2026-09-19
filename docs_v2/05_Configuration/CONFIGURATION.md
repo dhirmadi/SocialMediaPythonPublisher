@@ -95,6 +95,8 @@ Environment variables provide coarse-grained feature switches without editing IN
 
 ### 2.2 Advanced Environment Overrides
 
+Runtime tunables below the web/auth bootstrap layer are parsed centrally in `publisher_v2/config/runtime_settings.py` (#97 stage 2).
+
 | Variable | Purpose | Default |
 |----------|---------|---------|
 | `folder_keep` | Override `[Dropbox].folder_keep` | (from INI) |
@@ -110,6 +112,15 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `WEB_TRUST_FORWARDED_FOR` | Trust `X-Forwarded-For` for rate-limit client IPs. Set to `true` **only behind a proxy that appends the real client IP as the rightmost entry** (Heroku router contract); the rightmost entry is used, everything left of it is client-supplied. Set it on Heroku deployments. | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
+| `PUBLISH_TIMEOUT_SECONDS` | Default per-publisher timeout (min 5s) | 120 |
+| `PUBLISH_TIMEOUT_<PLATFORM>_SECONDS` | Per-platform publish timeout override (e.g. `PUBLISH_TIMEOUT_TELEGRAM_SECONDS`) | (default timeout) |
+| `AI_STAGE_TIMEOUT_SECONDS` | Hard deadline for the combined vision+caption stage (min 0.1s) | 150 |
+| `WEB_IMAGE_CACHE_TTL_SECONDS` | Override web image-listing cache TTL | (from static config) |
+| `PV2_CAPTION_HISTORY_RETENTION_DAYS` | Caption history retention window | 90 |
+| `TENANT_SERVICE_CACHE_MAX_SIZE` | Max cached tenant services (orchestrator mode) | 1000 |
+| `TENANT_SERVICE_TTL_SECONDS` | Tenant service cache TTL | 600 |
+| `LIBRARY_MAX_UPLOAD_MB` | Library upload size cap | 20 |
+| `LIBRARY_SCAN_BUDGET` | Library listing scan budget (objects per request) | 5000 |
 | `CONFIG_PATH` | Path to INI config file (web only) | (required for web) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |

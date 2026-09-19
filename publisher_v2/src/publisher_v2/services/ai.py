@@ -4,15 +4,11 @@ import asyncio
 import base64
 import json
 import logging
-import os
 import time
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import Any, Literal, cast
 
 import httpx
 from openai import AsyncOpenAI
-
-if TYPE_CHECKING:
-    from publisher_v2.services.storage_protocol import StorageProtocol
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartTextParam,
@@ -21,10 +17,12 @@ from openai.types.chat import (
 )
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
+from publisher_v2.services.storage_protocol import StorageProtocol
 from publisher_v2.utils.captions import (
     caption_closing_pattern,
     caption_opening,
@@ -1342,16 +1340,8 @@ class AIService:
         self.analyzer = analyzer
         self.generator = generator
         limits = get_static_config().service_limits.ai
-        rate = limits.rate_per_minute
-        env_rate = os.environ.get("AI_RATE_PER_MINUTE")
-        if env_rate:
-            try:
-                parsed = int(env_rate)
-                if parsed > 0:
-                    rate = parsed
-            except ValueError:
-                # Ignore invalid override; keep config/default rate.
-                pass
+        # #97 stage 2: env override parsed centrally; None -> static-config default.
+        rate = load_runtime_settings().ai_rate_per_minute or limits.rate_per_minute
         self._rate_limiter = AsyncRateLimiter(rate_per_minute=rate)
         # PUB-046: share the limiter with the generator so its condense pass
         # acquires a slot instead of bypassing the rate budget.
