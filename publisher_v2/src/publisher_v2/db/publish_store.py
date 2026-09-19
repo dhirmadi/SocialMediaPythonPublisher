@@ -13,6 +13,7 @@ import logging
 from datetime import UTC, datetime
 
 from sqlalchemy import select
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -34,8 +35,19 @@ class PublishStore:
         - ``failed`` row → re-lease (retry allowed) and own it.
         - ``leased`` / ``published`` / ``unknown`` row → skip.
 
-        A concurrent insert losing the unique-constraint race simply does not
-        own that platform.
+        Both branches are race-safe against concurrent callers racing on the
+        *same* (tenant, content_hash, platform):
+
+        - The insert branch relies on the unique constraint — a concurrent
+          insert that loses the race gets an ``IntegrityError`` and simply
+          does not own that platform.
+        - The re-lease branch uses a single conditional
+          ``UPDATE ... WHERE status = 'failed'`` rather than a read-then-write
+          of the ORM object, so only the run whose UPDATE actually flips the
+          row (``rowcount == 1``) owns it. A second concurrent re-lease
+          attempt re-evaluates the WHERE clause against the now-committed row
+          and affects zero rows, instead of a stale in-memory read letting
+          both callers believe they won the lease.
         """
         owned: set[str] = set()
         for platform in platforms:
@@ -60,12 +72,26 @@ class PublishStore:
                         # Lost the race to a concurrent run — it owns the lease.
                         await session.rollback()
                 elif existing.status == "failed":
-                    existing.status = "leased"
-                    existing.leased_at = datetime.now(UTC)
-                    existing.error = None
-                    existing.finished_at = None
+                    result = await session.execute(
+                        sa_update(PublishRecord)
+                        .where(
+                            PublishRecord.tenant == tenant,
+                            PublishRecord.content_hash == content_hash,
+                            PublishRecord.platform == platform,
+                            PublishRecord.status == "failed",
+                        )
+                        .values(
+                            status="leased",
+                            leased_at=datetime.now(UTC),
+                            error=None,
+                            finished_at=None,
+                        )
+                        .execution_options(synchronize_session=False)
+                    )
                     await session.commit()
-                    owned.add(platform)
+                    if getattr(result, "rowcount", 0) == 1:
+                        # Lost the race to a concurrent re-lease attempt otherwise.
+                        owned.add(platform)
         return owned
 
     async def mark(

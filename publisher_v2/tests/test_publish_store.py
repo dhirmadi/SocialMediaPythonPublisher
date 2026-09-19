@@ -6,6 +6,8 @@ test_caption_history_db.py.
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
@@ -48,6 +50,27 @@ class TestAcquireLease:
         await store.mark("t1", "hash1", "instagram", "failed", error="RuntimeError: boom")
         again = await store.acquire_lease("t1", "hash1", ["instagram"])
         assert again == {"instagram"}
+
+    async def test_concurrent_re_lease_of_failed_row_is_exclusive(self, store: PublishStore) -> None:
+        """Two runs racing to re-lease the same failed platform must not both win.
+
+        Regression test for a TOCTOU race: the original implementation read
+        the row, then unconditionally wrote ``status="leased"`` back, so two
+        concurrent callers that both read ``status == "failed"`` before
+        either committed would both believe they owned the lease — silently
+        reintroducing the double-publish bug this store exists to prevent.
+        """
+        await store.acquire_lease("t1", "hash1", ["instagram"])
+        await store.mark("t1", "hash1", "instagram", "failed", error="RuntimeError: boom")
+
+        results = await asyncio.gather(
+            store.acquire_lease("t1", "hash1", ["instagram"]),
+            store.acquire_lease("t1", "hash1", ["instagram"]),
+        )
+
+        owned_union = results[0] | results[1]
+        assert owned_union == {"instagram"}, "exactly one concurrent re-lease attempt must win"
+        assert not (results[0] and results[1]), "both callers must not simultaneously own the same lease"
 
     async def test_unknown_platform_never_auto_retried(self, store: PublishStore) -> None:
         await store.acquire_lease("t1", "hash1", ["instagram"])
