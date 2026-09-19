@@ -640,3 +640,43 @@ class TestLibraryListPrefixResolution:
             archive_folder="archive",
         )
         assert _library_list_prefix(paths, "archive") == "tenant/root/archive/"
+
+
+# ---------------------------------------------------------------------------
+# CSRF: browser upload path (cookie session, no Authorization header)
+# ---------------------------------------------------------------------------
+
+
+class TestUploadCsrf:
+    """Browser uploads ride the admin cookie, not a Bearer header, so the CSRF
+    middleware requires ``X-Requested-With`` — the UI's raw XHR must send it."""
+
+    def test_upload_cookie_only_without_xrw_is_csrf_blocked(self, managed_app: TestClient, admin_cookies: dict) -> None:
+        with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
+            mock_upload.return_value = {"key": "tenant/instance/test.jpg", "size": 1024}
+            res = managed_app.post(
+                "/api/library/upload",
+                cookies=admin_cookies,
+                files={"file": ("test.jpg", _real_jpeg_bytes(), "image/jpeg")},
+            )
+        assert res.status_code == 403
+        assert res.json()["detail"] == "CSRF check failed"
+        mock_upload.assert_not_called()
+
+    def test_upload_cookie_only_with_xrw_succeeds(self, managed_app: TestClient, admin_cookies: dict) -> None:
+        with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
+            mock_upload.return_value = {"key": "tenant/instance/test.jpg", "size": 1024}
+            res = managed_app.post(
+                "/api/library/upload",
+                headers={"X-Requested-With": "XMLHttpRequest"},
+                cookies=admin_cookies,
+                files={"file": ("test.jpg", _real_jpeg_bytes(), "image/jpeg")},
+            )
+        assert res.status_code == 200, res.text
+        assert res.json()["key"] == "tenant/instance/test.jpg"
+
+    def test_upload_xhr_sends_csrf_header(self, managed_app: TestClient, admin_cookies: dict) -> None:
+        """The upload XHR bypasses the fetch() wrapper, so it must set the header itself."""
+        html = managed_app.get("/", cookies=admin_cookies).text
+        assert 'xhr.open("POST", "/api/library/upload");' in html
+        assert 'xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");' in html
