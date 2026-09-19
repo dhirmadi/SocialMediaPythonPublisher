@@ -123,11 +123,6 @@ class TestGetThumbnail:
         body.read.return_value = jpeg_bytes
         mock_s3_client.get_object.return_value = {"Body": body}
 
-        # Clear thumbnail cache
-        from publisher_v2.services.managed_storage import _thumbnail_cache
-
-        _thumbnail_cache.clear()
-
         result = await storage.get_thumbnail("folder", "test.jpg")
         assert len(result) > 0
         # JPEG starts with FF D8
@@ -146,10 +141,6 @@ class TestGetThumbnail:
         body = MagicMock()
         body.read.return_value = jpeg_bytes
         mock_s3_client.get_object.return_value = {"Body": body}
-
-        from publisher_v2.services.managed_storage import _thumbnail_cache
-
-        _thumbnail_cache.clear()
 
         await storage.get_thumbnail("folder", "cached.jpg")
         await storage.get_thumbnail("folder", "cached.jpg")
@@ -451,11 +442,12 @@ class TestStorageOpsCounter:
         body.read.return_value = buf.getvalue()
         mock_s3_client.get_object.return_value = {"Body": body}
 
-        from publisher_v2.services.managed_storage import _thumbnail_cache
-
-        _thumbnail_cache.clear()
+        # #86: the cache key includes the object ETag, so a cache miss costs
+        # one head_object (etag lookup) + one get_object (download) = 2 ops;
+        # a later hit costs only the head_object.
         await storage.get_thumbnail("folder", "thumb-uncached.jpg")
-        # Counts only the underlying download_image call, not an extra thumbnail op
+        assert storage.drain_ops_count() == 2
+        await storage.get_thumbnail("folder", "thumb-uncached.jpg")
         assert storage.drain_ops_count() == 1
 
     async def test_download_sidecar_404_still_increments_counter(self, storage, mock_s3_client) -> None:

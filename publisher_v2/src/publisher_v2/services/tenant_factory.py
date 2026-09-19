@@ -1,9 +1,18 @@
+import contextlib
 import time
 from collections import OrderedDict
 from dataclasses import dataclass
 
 from publisher_v2.config.source import ConfigSource, RuntimeConfig
 from publisher_v2.web.service import WebImageService
+
+
+async def _close_service(service: WebImageService) -> None:
+    """Best-effort resource cleanup for a replaced/evicted service (#86)."""
+    close = getattr(service, "aclose", None)
+    if close is not None:
+        with contextlib.suppress(Exception):
+            await close()
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +49,9 @@ class TenantServiceFactory:
             self._data.move_to_end(tenant)
             if entry.config_version == runtime.config_version and now <= entry.expires_at:
                 return entry.service
+            # #86: the stale entry is being replaced — release its resources
+            # (meter task, OpenAI/boto3 clients) instead of leaking them.
+            await _close_service(entry.service)
 
         # Create new tenant-scoped service
         svc = WebImageService(runtime=runtime, config_source=source)
@@ -48,13 +60,13 @@ class TenantServiceFactory:
         self._data.move_to_end(tenant)
 
         while len(self._data) > self._max_size:
-            self._data.popitem(last=False)
+            _evicted_tenant, evicted = self._data.popitem(last=False)
+            await _close_service(evicted.service)
 
         return svc
 
     async def shutdown(self) -> None:
-        """Stop periodic metering tasks and flush remaining ops for all cached tenants."""
+        """Release resources (meter tasks, clients) for all cached tenants (#86)."""
         for entry in self._data.values():
-            meter = getattr(entry.service, "_storage_ops_meter", None)
-            if meter is not None:
-                await meter.stop_periodic_flush()
+            await _close_service(entry.service)
+        self._data.clear()
