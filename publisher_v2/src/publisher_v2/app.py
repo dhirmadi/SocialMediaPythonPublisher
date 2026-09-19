@@ -100,6 +100,9 @@ async def main_async() -> int:
         if args.preview:
             preview_utils.print_error(str(exc))
         return 1
+    finally:
+        # #84: close the OpenAI HTTP clients at CLI exit.
+        await ai_service.aclose()
 
     # Preview mode: show results
     if args.preview:

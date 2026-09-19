@@ -583,7 +583,19 @@ class WebImageService:
             image=filename,
             correlation_id=correlation_id,
         )
-        analysis, vision_usage = await ai.analyzer.analyze(temp_link)
+        # #84: same hard AI-stage deadline as the workflow — a hung upstream
+        # must fail the request, not hold the dyno past Heroku's H12 window.
+        from publisher_v2.core.exceptions import AIServiceError
+        from publisher_v2.core.workflow import _ai_stage_timeout_seconds
+
+        ai_stage_deadline = time.monotonic() + _ai_stage_timeout_seconds()
+        try:
+            analysis, vision_usage = await asyncio.wait_for(
+                ai.analyzer.analyze(temp_link),
+                timeout=max(0.05, ai_stage_deadline - time.monotonic()),
+            )
+        except TimeoutError as exc:
+            raise AIServiceError("ai stage timeout") from exc
         if self._usage_meter and vision_usage:
             await self._usage_meter.emit(vision_usage)
 
@@ -609,13 +621,19 @@ class WebImageService:
                 log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
 
         try:
+            caption_budget = max(0.05, ai_stage_deadline - time.monotonic())
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
-                platform_captions_dict, sd_caption, caption_usages = await ai.create_multi_caption_pair_from_analysis(
-                    analysis, specs, history=caption_history, voice_examples=voice_examples
+                platform_captions_dict, sd_caption, caption_usages = await asyncio.wait_for(
+                    ai.create_multi_caption_pair_from_analysis(
+                        analysis, specs, history=caption_history, voice_examples=voice_examples
+                    ),
+                    timeout=caption_budget,
                 )
-                caption = next(iter(platform_captions_dict.values()), "")
+                caption = next(iter((platform_captions_dict or {}).values()), "")
             else:
-                caption, sd_caption, caption_usages = await ai.create_caption_pair_from_analysis(analysis, spec)
+                caption, sd_caption, caption_usages = await asyncio.wait_for(
+                    ai.create_caption_pair_from_analysis(analysis, spec), timeout=caption_budget
+                )
             if self._usage_meter and caption_usages:
                 await self._usage_meter.emit_all(caption_usages)
         except Exception as exc:
@@ -627,8 +645,15 @@ class WebImageService:
                 error=str(exc),
                 correlation_id=correlation_id,
             )
-            # Best-effort fallback to legacy caption-only behaviour
-            caption, fallback_usages = await ai.create_caption_from_analysis(analysis, spec)
+            # Best-effort fallback to legacy caption-only behaviour, still
+            # bounded by whatever remains of the AI-stage deadline (#84).
+            try:
+                caption, fallback_usages = await asyncio.wait_for(
+                    ai.create_caption_from_analysis(analysis, spec),
+                    timeout=max(0.05, ai_stage_deadline - time.monotonic()),
+                )
+            except TimeoutError as timeout_exc:
+                raise AIServiceError("ai stage timeout") from timeout_exc
             if self._usage_meter and fallback_usages:
                 await self._usage_meter.emit_all(fallback_usages)
 
