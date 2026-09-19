@@ -636,8 +636,29 @@ async def api_publish_image(
     platforms = body.platforms if body else None
     raw_caption = body.caption if body else None
     caption_override = raw_caption.strip() if raw_caption and raw_caption.strip() else None
+    # #147: per-platform captions from the UI editors; blank entries are dropped.
+    raw_captions = body.captions if body else None
+    caption_overrides = {p: c.strip() for p, c in (raw_captions or {}).items() if c and c.strip()} or None
+    if caption_overrides:
+        # #147: a per-platform dict must cover exactly the enabled platforms, so no
+        # platform ever falls back to (a trimmed copy of) another platform's text.
+        from publisher_v2.core.models import CaptionSpec
+
+        enabled = set(CaptionSpec.for_platforms(service.config))
+        missing = sorted(enabled - set(caption_overrides))
+        unknown = sorted(set(caption_overrides) - enabled)
+        if missing or unknown:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"captions must cover every enabled platform; missing={missing} unknown={unknown}",
+            )
     try:
-        resp = await service.publish_image(filename, platforms, caption_override=caption_override)
+        if caption_overrides:
+            resp = await service.publish_image(
+                filename, platforms, caption_override=caption_override, caption_overrides=caption_overrides
+            )
+        else:
+            resp = await service.publish_image(filename, platforms, caption_override=caption_override)
         await endpoint_telemetry(
             "web_publish",
             response,

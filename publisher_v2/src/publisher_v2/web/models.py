@@ -17,6 +17,10 @@ class ImageResponse(BaseModel):
     sd_caption: str | None = None
     metadata: dict[str, Any] | None = None
     has_sidecar: bool
+    # #147: generated per-platform captions from the sidecar, shown without re-analyzing.
+    caption_generated: dict[str, str] | None = None
+    # #147: caption length limit per enabled platform, so the editors can count before Analyze.
+    platform_limits: dict[str, int] | None = None
 
 
 class AnalysisResponse(BaseModel):
@@ -30,6 +34,8 @@ class AnalysisResponse(BaseModel):
     alt_text: str | None = None
     sidecar_written: bool = False
     platform_captions: dict[str, str] | None = None
+    # #147: caption length limit per enabled platform, for the per-platform editors.
+    platform_limits: dict[str, int] | None = None
     # #80: True when the caption was served from the sidecar cache rather than
     # a fresh AI run. Default False keeps the response backward compatible.
     cached: bool = False
@@ -37,7 +43,10 @@ class AnalysisResponse(BaseModel):
 
 class PublishRequest(BaseModel):
     platforms: list[str] | None = None
+    # Legacy: one caption for every platform.
     caption: str | None = None
+    # #147: per-platform captions (platform name -> text); wins over ``caption``.
+    captions: dict[str, str] | None = None
 
 
 class PublishResponse(BaseModel):

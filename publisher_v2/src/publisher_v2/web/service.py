@@ -54,6 +54,15 @@ from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 
 
+def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
+    """#147: the sidecar's ``caption_generated`` per-platform dict (non-empty strings only)."""
+    generated = view.get("caption_generated")
+    if not isinstance(generated, dict):
+        return None
+    out = {str(k): v for k, v in generated.items() if isinstance(v, str) and v.strip()}
+    return out or None
+
+
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
     """Return voice examples to inject into caption prompts (PUB-029).
 
@@ -478,6 +487,7 @@ class WebImageService:
         sd_caption = None
         metadata: dict[str, Any] | None = None
         has_sidecar = False
+        caption_generated: dict[str, str] | None = None
 
         if sidecar_result:
             text = sidecar_result.decode("utf-8", errors="ignore")
@@ -486,6 +496,7 @@ class WebImageService:
             caption = view.get("caption")
             metadata = view.get("metadata")
             has_sidecar = bool(view.get("has_sidecar"))
+            caption_generated = _generated_captions(view)
 
         thumbnail_url = f"/api/images/{urllib.parse.quote(filename, safe='')}/thumbnail"
 
@@ -498,6 +509,8 @@ class WebImageService:
             sd_caption=sd_caption,
             metadata=metadata,
             has_sidecar=has_sidecar,
+            caption_generated=caption_generated,
+            platform_limits=self._platform_limits(),
         )
 
     async def get_random_image(self) -> ImageResponse:
@@ -598,28 +611,47 @@ class WebImageService:
                 await meter.flush()
 
     def _select_cached_social_caption(self, view: dict[str, Any]) -> str | None:
-        """Pick the social caption to serve from a sidecar cache view (#80).
+        """Pick the legacy single ``caption`` to serve from a sidecar cache view (#80, #147).
 
-        Preference: the published/edited `caption`, then the `caption_generated`
-        entry for the first enabled platform, then the `email` entry, then any
-        generated entry. Never the SD prompt.
+        Email-first: the ``caption_generated`` email entry when email is
+        enabled, then the published/edited ``caption``, then the entry for the
+        first enabled platform, then any generated entry. Never the SD prompt.
+        The full per-platform dict is returned separately as ``platform_captions``.
         """
+        generated = _generated_captions(view) or {}
+        if self.config.platforms.email_enabled and generated.get("email"):
+            return generated["email"]
         cached = view.get("caption")
         if cached:
             return str(cached)
-        generated = view.get("caption_generated")
-        if not isinstance(generated, dict) or not generated:
+        if not generated:
             return None
+        return self._primary_caption(generated) or next(iter(generated.values()), None)
+
+    def _primary_caption(self, captions: dict[str, str] | None) -> str:
+        """#147: the legacy ``caption`` field: email when enabled, else the first enabled platform."""
+        if not captions:
+            return ""
         from publisher_v2.core.models import CaptionSpec
 
+        if self.config.platforms.email_enabled and captions.get("email"):
+            return captions["email"]
         for platform in CaptionSpec.for_platforms(self.config):
-            value = generated.get(platform)
-            if isinstance(value, str) and value.strip():
-                return value
-        email_value = generated.get("email")
-        if isinstance(email_value, str) and email_value.strip():
-            return email_value
-        return next((str(v) for v in generated.values() if isinstance(v, str) and v.strip()), None)
+            if captions.get(platform):
+                return captions[platform]
+        return ""
+
+    def _platform_limits(self) -> dict[str, int]:
+        """#147: caption length limit for each enabled platform, from platform_limits.yaml."""
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.core.models import CaptionSpec
+
+        limits = get_static_config().platform_limits
+        out: dict[str, int] = {}
+        for platform in CaptionSpec.for_platforms(self.config):
+            entry = getattr(limits, platform, None) or limits.generic
+            out[platform] = int(entry.max_caption_length or limits.generic.max_caption_length or 0)
+        return out
 
     async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
@@ -666,6 +698,8 @@ class WebImageService:
                         sd_caption=view.get("sd_caption"),
                         sidecar_written=False,
                         cached=True,
+                        platform_captions=_generated_captions(view),
+                        platform_limits=self._platform_limits(),
                     )
 
         if not self.config.features.analyze_caption_enabled:
@@ -767,7 +801,7 @@ class WebImageService:
                     ),
                     timeout=caption_budget,
                 )
-                caption = next(iter((platform_captions_dict or {}).values()), "")
+                caption = self._primary_caption(platform_captions_dict)
             else:
                 caption, sd_caption, caption_usages = await asyncio.wait_for(
                     ai.create_caption_pair_from_analysis(analysis, spec), timeout=caption_budget
@@ -833,6 +867,7 @@ class WebImageService:
             alt_text=analysis.alt_text if self.config.features.alt_text_enabled else None,
             sidecar_written=sidecar_written,
             platform_captions=platform_captions_dict,
+            platform_limits=self._platform_limits(),
         )
 
     async def publish_image(
@@ -840,6 +875,7 @@ class WebImageService:
         filename: str,
         platforms: list[str] | None = None,
         caption_override: str | None = None,
+        caption_overrides: dict[str, str] | None = None,
     ) -> PublishResponse:
         """
         Publish a specific image by delegating to the existing WorkflowOrchestrator.
@@ -848,7 +884,8 @@ class WebImageService:
         enabled flags from config and still reuse the orchestrator behaviour.
 
         When caption_override is provided, the orchestrator skips AI caption
-        generation and uses the caller-supplied text instead.
+        generation and uses the caller-supplied text instead. ``caption_overrides``
+        (#147) does the same per platform and wins over ``caption_override``.
         """
         await self.ensure_known_image(filename)
         if not self.config.features.publish_enabled:
@@ -860,7 +897,15 @@ class WebImageService:
             )
             raise PermissionError("Publish feature is disabled via FEATURE_PUBLISH toggle")
 
-        if caption_override:
+        if caption_overrides:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_publish_caption_overrides",
+                image=filename,
+                override_lengths={p: len(c) for p, c in caption_overrides.items()},
+            )
+        elif caption_override:
             log_json(
                 self.logger,
                 logging.INFO,
@@ -873,6 +918,9 @@ class WebImageService:
         await self._ensure_publishers()
 
         orchestrator = await self._ensure_orchestrator()
+        execute_kwargs: dict[str, Any] = {"caption_override": caption_override}
+        if caption_overrides:
+            execute_kwargs["caption_overrides"] = caption_overrides
         lock = _publish_lock(self._tenant, filename)
         if lock.locked():
             # Fail fast instead of queueing behind a publish that can run for
@@ -885,7 +933,7 @@ class WebImageService:
                 select_filename=filename,
                 dry_publish=False,
                 preview_mode=False,
-                caption_override=caption_override,
+                **execute_kwargs,
             )
         if result.error and result.error.startswith(ALREADY_PUBLISHED_ERROR):
             # #139: no publish store, and this image is already in the posted set.
