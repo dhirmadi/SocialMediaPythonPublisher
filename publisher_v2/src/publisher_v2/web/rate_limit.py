@@ -5,10 +5,10 @@ deployments should swap the backing store for Redis or similar.
 
 Usage::
 
-    LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=5)
+    ANALYZE_LIMITER = SlidingWindowLimiter(window_seconds=60, max_events=10)
 
-    def login_route(request: Request):
-        LOGIN_LIMITER.check(request_key(request))
+    def analyze_route(request: Request):
+        ANALYZE_LIMITER.check(request_key(request))
         ...
 
 ``request_key`` should be ``remote_ip(request)`` for anonymous endpoints and

@@ -55,7 +55,7 @@ def test_require_auth_basic_success(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_require_auth_fails_closed_without_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Post-hardening: missing auth backend must NOT silently allow mutating
     requests. Operators must opt in explicitly via WEB_ALLOW_UNAUTHENTICATED."""
-    for key in ("WEB_ALLOW_UNAUTHENTICATED", "web_admin_pw", "AUTH0_DOMAIN", "AUTH0_CLIENT_ID"):
+    for key in ("WEB_ALLOW_UNAUTHENTICATED", "AUTH0_DOMAIN", "AUTH0_CLIENT_ID"):
         monkeypatch.delenv(key, raising=False)
     client = _make_app({}, monkeypatch)
     res = client.get("/protected")

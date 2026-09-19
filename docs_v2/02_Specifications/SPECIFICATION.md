@@ -229,7 +229,7 @@ see §12):
 | GET | `/` | HTML admin UI |
 | GET | `/health`, `/health/live`, `/health/ready` | Liveness/readiness (readiness may check orchestrator connectivity) |
 | GET | `/api/admin/status` | Admin session status |
-| POST | `/api/admin/login` / `/api/admin/logout` | Legacy Bearer/Basic admin session (cookie-based) |
+| POST | `/api/admin/logout` | Clear the admin session cookie (deprecated alias of `/api/auth/logout`) |
 | GET | `/auth/login`, `/auth/callback`, `/auth/logout` | Auth0 OIDC login flow (PUB-020) |
 | GET | `/api/images/list` | Paginated/sortable/filterable image list (PUB-032, PUB-033) |
 | GET | `/api/images/random` | Random image + metadata (`thumbnail_url` included) |

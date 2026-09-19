@@ -17,8 +17,8 @@ repo_constraints:
     - "coverage-current.xml"
 acceptance_criteria:
   - "Given the web interface is loaded and no admin password has been entered, when a user views the page, then Analyze & caption and Publish controls are either hidden or clearly disabled and cannot be triggered, while the caption (if present) remains visible."
-  - "Given the .env file contains a valid web_admin_pw and the operator clicks the Administration control and enters the correct password, when the password is accepted, then the UI enters admin mode and the Analyze & caption and Publish buttons become available and clickable, and the status information becomes visible, with admin mode tracked via a cookie that expires in less than one hour."
-  - "Given the application is started without a web_admin_pw environment variable, when a user opens the web interface, then admin mode is not available at all and the UI clearly indicates that admin-only actions are disabled while still allowing image + caption viewing."
+  - "Given the .env file contains a valid [removed #137: admin-password env var] and the operator clicks the Administration control and enters the correct password, when the password is accepted, then the UI enters admin mode and the Analyze & caption and Publish buttons become available and clickable, and the status information becomes visible, with admin mode tracked via a cookie that expires in less than one hour."
+  - "Given the application is started without a [removed #137: admin-password env var] environment variable, when a user opens the web interface, then admin mode is not available at all and the UI clearly indicates that admin-only actions are disabled while still allowing image + caption viewing."
 non_goals:
   - "Introduce any new persistent database or storage beyond existing Dropbox and sidecar files."
   - "Implement a full user management or multi-role access control system."
@@ -49,7 +49,7 @@ tasks:
       request: {}
       response: {}
       signatures:
-        - "def verify_admin_password(candidate: str, actual: str) -> bool"
+        - "def [removed #137: password-check helper](candidate: str, actual: str) -> bool"
         - "def set_admin_cookie(response, expires_in_seconds: int) -> None"
         - "def clear_admin_cookie(response) -> None"
         - "def is_admin_request(request) -> bool"
@@ -64,17 +64,17 @@ tasks:
     files_out: []
     contracts:
       request:
-        POST_/api/admin/login: "{password:string}"
+        POST_[removed #137: password-login route]: "{password:string}"
         GET_/api/admin/status: "none"
         POST_/api/images/{filename}/analyze: "path: filename:string"
         POST_/api/images/{filename}/publish: "path: filename:string; body: {platforms?: string[]}"
       response:
-        POST_/api/admin/login: "{admin:boolean,error?:string}"
+        POST_[removed #137: password-login route]: "{admin:boolean,error?:string}"
         GET_/api/admin/status: "{admin:boolean}"
         POST_/api/images/{filename}/analyze: "{...existing fields...,admin_required:boolean}"
         POST_/api/images/{filename}/publish: "{...existing fields...,admin_required:boolean}"
       signatures:
-        - "@app.post('/api/admin/login') async def api_admin_login(payload: AdminLoginRequest, response: Response) -> AdminStatusResponse"
+        - "@app.post('[removed #137: password-login route]') async def api_admin_login(payload: AdminLoginRequest, response: Response) -> AdminStatusResponse"
         - "@app.get('/api/admin/status') async def api_admin_status(request: Request) -> AdminStatusResponse"
         - "@app.post('/api/images/{filename}/analyze') async def api_analyze_image(filename: str, request: Request) -> AnalysisResponse"
         - "@app.post('/api/images/{filename}/publish') async def api_publish_image(filename: str, request: Request, req: PublishRequest | None = None) -> PublishResponse"
@@ -107,7 +107,7 @@ tasks:
       request: {}
       response: {}
       signatures:
-        - "def test_verify_admin_password_matches() -> None"
+        - "def test_[removed #137: password-check helper]_matches() -> None"
         - "def test_require_admin_rejects_without_cookie() -> None"
         - "def test_require_admin_accepts_with_valid_cookie(test_client) -> None"
     depends_on:

@@ -13,7 +13,7 @@
 ## 1. Summary
 
 - **Problem & context:** The Web Interface MVP currently exposes **Analyze & caption** and **Publish** controls and detailed status information to any user who can access the UI (subject only to HTTP-level auth), which increases the risk of accidental or unauthorized actions and leaks of operational details.
-- **Change:** Introduce a lightweight **admin mode** backed by a `.env`-configured password (`web_admin_pw`) and a short-lived cookie (<1h) so that only the administrator can trigger analysis/publishing and see detailed status, while captions remain visible to all.
+- **Change:** Introduce a lightweight **admin mode** backed by a `.env`-configured password (`[removed #137: admin-password env var]`) and a short-lived cookie (<1h) so that only the administrator can trigger analysis/publishing and see detailed status, while captions remain visible to all.
 - **Goals:** Preserve the existing web architecture (FastAPI app + endpoints + templates), reuse existing auth mechanisms, and keep CLI behavior unchanged, while adding a thin guard layer that aligns with the single-operator assumption.
 - **Non-goals:** No new databases, no full user management or multi-role system, no replacement for existing HTTP-level authentication.
 
@@ -32,13 +32,13 @@
   - Web layer must remain stateless and horizontally scalable.
   - CLI behavior and configuration remain unchanged and backward compatible.
 - **New assumptions for this change:**
-  - A single admin password is configured in `.env` as `web_admin_pw`.
+  - A single admin password is configured in `.env` as `[removed #137: admin-password env var]`.
   - Admin mode can be represented as a short-lived cookie (expiry < 1 hour) indicating “admin authenticated” to the server.
   - Captions are safe to show to non-admins; only action buttons and detailed status fields are admin-only.
-  - If `web_admin_pw` is missing or empty, admin mode is considered disabled and the system should behave as “viewer-only” for admin features.
+  - If `[removed #137: admin-password env var]` is missing or empty, admin mode is considered disabled and the system should behave as “viewer-only” for admin features.
 - **Dependencies:**
   - Internal: `publisher_v2.web.app`, templates under `publisher_v2/web/templates`, web auth helpers (`publisher_v2.web.auth`), `config.loader` / `schema`, structured logging utilities.
-  - External: Environment variables (for `web_admin_pw`), HTTP cookies in the browser, existing HTTP auth mechanisms.
+  - External: Environment variables (for `[removed #137: admin-password env var]`), HTTP cookies in the browser, existing HTTP auth mechanisms.
 
 ## 3. Requirements
 
@@ -54,7 +54,7 @@
   - When **not in admin mode**, detailed status, per-platform results, and other operational details must not be shown (or must be replaced with minimal placeholders).
   - Captions (human-readable caption field) must remain visible to all users regardless of admin mode.
 - **CR4: Env-driven availability**
-  - If `web_admin_pw` is not defined or is empty in the environment, admin mode is disabled:
+  - If `[removed #137: admin-password env var]` is not defined or is empty in the environment, admin mode is disabled:
     - The UI must clearly indicate that admin-only actions are unavailable.
     - No admin login attempt should ever succeed.
 - **CR5: Backend alignment**
@@ -91,7 +91,7 @@
   - Backend endpoints accept requests as long as HTTP auth passes; no additional admin concept.
   - No admin login endpoint, no admin cookie, and no gating in templates or handlers.
 - **Proposed:**
-  - Add a simple **admin login endpoint** that verifies a password from the client against `web_admin_pw` and, on success, issues a short-lived admin cookie.
+  - Add a simple **admin login endpoint** that verifies a password from the client against `[removed #137: admin-password env var]` and, on success, issues a short-lived admin cookie.
   - Update the UI template and JS to:
     - Provide an “Administration” interaction for entering the password.
     - Read admin status (e.g., from a small API or initial render context) and conditionally render/enable admin-only controls and status.
@@ -100,12 +100,12 @@
 ### 4.2 Components & Responsibilities
 
 - `publisher_v2/web/app.py`
-  - Define a new FastAPI route, e.g., `POST /api/admin/login`, to handle admin authentication.
+  - Define a new FastAPI route, e.g., `POST [removed #137: password-login route]`, to handle admin authentication.
   - Optionally define a small `GET /api/admin/status` to expose current admin-mode state to the frontend without leaking sensitive information.
-  - Wire in dependency injection for `web_admin_pw` (from environment/config).
+  - Wire in dependency injection for `[removed #137: admin-password env var]` (from environment/config).
 - `publisher_v2/web/auth.py`
   - Add helpers:
-    - `verify_admin_password(candidate: str, actual: str) -> bool`
+    - `[removed #137: password-check helper](candidate: str, actual: str) -> bool`
     - `set_admin_cookie(response, expires_in_seconds: int) -> None`
     - `require_admin(request) -> None` (raises HTTP 403 if admin cookie not present/valid).
   - Centralize cookie name, expiry, and flag configuration.
@@ -122,11 +122,11 @@
 
 ### 4.3 Data & Contracts
 
-- **New endpoint: `POST /api/admin/login`**
+- **New endpoint: `POST [removed #137: password-login route]`**
   - **Request body:**
     - `{ "password": "<string>" }`
   - **Behavior:**
-    - Compare `password` to `web_admin_pw` (constant-time comparison where feasible).
+    - Compare `password` to `[removed #137: admin-password env var]` (constant-time comparison where feasible).
     - On success:
       - Set an `admin_mode` cookie with expiry <1h.
       - Return `200 OK` with `{ "admin": true }`.
@@ -139,10 +139,10 @@
   - `POST /api/images/{filename}/analyze`
   - `POST /api/images/{filename}/publish`
   - These should be updated to:
-    - Apply `require_admin` middleware/dependency for web-triggered flows when `web_admin_pw` is configured.
+    - Apply `require_admin` middleware/dependency for web-triggered flows when `[removed #137: admin-password env var]` is configured.
     - Preserve existing behavior for HTTP auth and dry/preview modes.
 - **Config / state changes:**
-  - Read `web_admin_pw` from `.env` (e.g., via existing config loading).
+  - Read `[removed #137: admin-password env var]` from `.env` (e.g., via existing config loading).
   - New cookie configuration constants (name, TTL, flags) in web module; no new persistent state.
  - **New endpoint: `POST /api/admin/logout`**
    - **Behavior:**
@@ -151,8 +151,8 @@
 
 ### 4.4 Error Handling & Edge Cases
 
-- **Missing `web_admin_pw`:**
-  - `POST /api/admin/login` returns `503 Service Unavailable` or `400 Bad Request` with a generic message like “Admin mode not configured”.
+- **Missing `[removed #137: admin-password env var]`:**
+  - `POST [removed #137: password-login route]` returns `503 Service Unavailable` or `400 Bad Request` with a generic message like “Admin mode not configured”.
   - UI should surface a clear message: “Admin mode is unavailable (not configured).”
 - **Incorrect password:**
   - Return `401 Unauthorized` with a generic error; never include hints about the expected password.
@@ -185,9 +185,9 @@
    - “Administration” control.
    - Analyze/Publish buttons and status areas in disabled/hidden state if `admin=false`.
 4. Operator clicks **Administration** and enters password.
-5. Frontend sends `POST /api/admin/login` with `{ "password": "<entered>" }`.
+5. Frontend sends `POST [removed #137: password-login route]` with `{ "password": "<entered>" }`.
 6. Backend:
-   - If `web_admin_pw` is not configured → return admin-unavailable error.
+   - If `[removed #137: admin-password env var]` is not configured → return admin-unavailable error.
    - Else verify password:
      - On success: set admin cookie (<1h TTL); return `{ "admin": true }`.
      - On failure: return `{ "admin": false, "error": "Invalid admin password" }`.
@@ -213,8 +213,8 @@
 - **Expiry:**
   - After cookie expiry (<1h), `GET /api/admin/status` returns `admin=false`.
   - If the operator attempts analyze/publish, `require_admin` returns `403`; UI must interpret this as “admin session expired” and re-prompt for password.
-- **Disabled (no `web_admin_pw`):**
-  - `POST /api/admin/login` always returns an error; cookie is never set.
+- **Disabled (no `[removed #137: admin-password env var]`):**
+  - `POST [removed #137: password-login route]` always returns an error; cookie is never set.
   - UI displays a banner or inline message (e.g., “Admin mode is not configured in this deployment”) and keeps admin-only controls unavailable.
  - **Logout:**
    - When the administrator activates the “Exit admin mode” control in the UI, the frontend calls `POST /api/admin/logout`.
@@ -224,14 +224,14 @@
 ## 6. Testing Strategy (for this Change)
 
 - **Unit Tests (e.g., `publisher_v2/tests/web/test_web_auth_admin.py`):**
-  - Verify `verify_admin_password` behavior (including constant-time comparison assumptions where feasible).
+  - Verify `[removed #137: password-check helper]` behavior (including constant-time comparison assumptions where feasible).
   - Verify cookie helper sets correct name, TTL, and flags.
   - Test `require_admin` with/without valid cookie.
 - **Unit/Service Tests (e.g., `tests/web/test_web_admin_service.py`):**
-  - Test `POST /api/admin/login` logic with:
+  - Test `POST [removed #137: password-login route]` logic with:
     - Correct password.
     - Incorrect password.
-    - Missing `web_admin_pw`.
+    - Missing `[removed #137: admin-password env var]`.
 - **Integration Tests (e.g., `publisher_v2/tests/web_integration/test_web_admin_endpoints.py`):**
   - Using FastAPI `TestClient`, test:
     - `GET /api/admin/status` for admin vs non-admin sessions.
@@ -241,8 +241,8 @@
   - When `admin=true`, controls are visible and functional.
 - **E2E / Manual:**
   - On a staging Heroku app:
-    - With `web_admin_pw` set: verify successful login, admin-only actions, and cookie expiry behavior.
-    - Without `web_admin_pw`: verify admin mode is unavailable and that the UI messaging is clear.
+    - With `[removed #137: admin-password env var]` set: verify successful login, admin-only actions, and cookie expiry behavior.
+    - Without `[removed #137: admin-password env var]`: verify admin mode is unavailable and that the UI messaging is clear.
 
 ## 7. Risks & Alternatives
 
@@ -250,7 +250,7 @@
   **Mitigation:** Treat admin mode as an additional guard on top of existing HTTP auth and document operational expectations clearly; keep `require_admin` centralized and tested.
 - **Risk:** Cookie-based admin sessions could be vulnerable to XSS if any script injection vectors exist.
   **Mitigation:** Use `HttpOnly` cookies, preserve existing escaping/sanitization practices, and keep inline JS minimal and controlled.
-- **Risk:** Operator confusion when `web_admin_pw` is missing or misconfigured.
+- **Risk:** Operator confusion when `[removed #137: admin-password env var]` is missing or misconfigured.
   **Mitigation:** Provide explicit UI messaging when admin mode is disabled and surface config expectations in documentation.
 - **Alternatives considered:**
   - **Rely solely on HTTP-level auth (WEB_AUTH_TOKEN/basic):** Stronger from a protocol standpoint, but less convenient for per-device admin toggling and does not provide explicit “admin mode” concept in the UI.
@@ -258,13 +258,13 @@
 
 ## 8. Work Plan (Scoped)
 
-- **Task 1:** Extend web configuration loading to read `web_admin_pw` from `.env` and expose it to the web layer (without logging it).
+- **Task 1:** Extend web configuration loading to read `[removed #137: admin-password env var]` from `.env` and expose it to the web layer (without logging it).
 - **Task 2:** Implement admin auth helpers in `publisher_v2/web/auth.py` (password verification, cookie management, `require_admin`).
-- **Task 3:** Add `POST /api/admin/login` (and optional `GET /api/admin/status`) to `publisher_v2/web/app.py`, wiring in logging and error handling.
-- **Task 4:** Update `publisher_v2/web/app.py` analyze/publish routes (or dependencies) to enforce `require_admin` when `web_admin_pw` is configured.
+- **Task 3:** Add `POST [removed #137: password-login route]` (and optional `GET /api/admin/status`) to `publisher_v2/web/app.py`, wiring in logging and error handling.
+- **Task 4:** Update `publisher_v2/web/app.py` analyze/publish routes (or dependencies) to enforce `require_admin` when `[removed #137: admin-password env var]` is configured.
 - **Task 5:** Update `publisher_v2/web/templates/index.html` (and inline JS) to add the Administration UI, admin-mode indicator, and conditional rendering/enabling of admin-only controls and status sections.
 - **Task 6:** Add unit and integration tests as described in §6; ensure coverage of admin success, failure, expiry, and disabled modes.
-- **Task 7:** Update relevant docs (web MVP implementation doc) to mention admin mode, `web_admin_pw`, and expected behavior when admin is disabled.
+- **Task 7:** Update relevant docs (web MVP implementation doc) to mention admin mode, `[removed #137: admin-password env var]`, and expected behavior when admin is disabled.
 
 ## 9. Open Questions
 

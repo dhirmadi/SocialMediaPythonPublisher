@@ -26,6 +26,7 @@ status:
   admin_mode_on: "Admin mode: on"
   admin_mode_off: "Admin mode: off"
   admin_required: "Admin mode required to view images."
+  admin_unavailable: "Admin mode unavailable: Auth0 login is not configured."
 
 placeholders:
   image_empty: "No image loaded yet."
@@ -34,8 +35,3 @@ placeholders:
 browse_dialog:
   title: "Browse images"
   empty: "No images found."
-
-admin_dialog:
-  title: "Admin login"
-  description: "Enter the admin password to enable analysis and publishing."
-  password_placeholder: "Admin password"

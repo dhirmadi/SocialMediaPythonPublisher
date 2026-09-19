@@ -229,11 +229,6 @@ class WebUITextConfig(BaseModel):
                 "admin_mode_on": "Admin mode: on",
                 "admin_mode_off": "Admin mode: off",
             },
-            "admin_dialog": {
-                "title": "Admin login",
-                "description": "Enter the admin password to enable analysis and publishing.",
-                "password_placeholder": "Admin password",
-            },
         }
     )
 

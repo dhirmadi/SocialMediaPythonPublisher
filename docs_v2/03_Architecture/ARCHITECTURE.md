@@ -114,7 +114,6 @@ Web API (FastAPI):
 - `GET /api/config/publishers` → dict[str, bool] (platform enablement state)
 - `GET /api/config/web_ui_text` → dict (i18n UI text from static config)
 - `GET /api/admin/status` → AdminStatusResponse (admin session status)
-- `POST /api/admin/login` → AdminStatusResponse (admin login)
 - `POST /api/admin/logout` → AdminStatusResponse (admin logout)
 - `GET /health/live` → {"status": "ok"} (liveness)
 - `GET /health/ready` → {"status": "ok"} (readiness; may check orchestrator connectivity when configured)

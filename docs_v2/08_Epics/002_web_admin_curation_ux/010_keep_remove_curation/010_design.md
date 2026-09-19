@@ -103,7 +103,7 @@ Operators must either publish, leave images in place, or manually organize folde
       - “Analyze & caption” and “Publish” buttons.
     - Admin login/logout and admin status panel.
   - JS uses:
-    - `/api/admin/login`, `/api/admin/status`, `/api/admin/logout`.
+    - `[removed #137: password-login route]`, `/api/admin/status`, `/api/admin/logout`.
     - `/api/config/features` to control Analyze/Publish button visibility based on `FeaturesConfig`.
 
 ### Assumptions

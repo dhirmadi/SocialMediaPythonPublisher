@@ -12,7 +12,9 @@ from fastapi.testclient import TestClient
 def managed_admin_client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> Generator[TestClient, None, None]:
     """TestClient configured for managed storage with admin."""
     monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("web_admin_pw", "secret")
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "cs")
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     monkeypatch.setenv("WEB_DEBUG", "true")

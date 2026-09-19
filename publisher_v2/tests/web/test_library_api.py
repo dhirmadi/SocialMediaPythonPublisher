@@ -29,7 +29,8 @@ def _clear_rate_limit():
 def managed_app(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """TestClient with managed storage configured and admin auth set up."""
     monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("web_admin_pw", "secret")
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     monkeypatch.setenv("WEB_DEBUG", "true")
@@ -76,7 +77,8 @@ def admin_cookies() -> dict[str, str]:
 def dropbox_app(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
     """TestClient with Dropbox-only config (no managed storage)."""
     monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("web_admin_pw", "secret")
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     monkeypatch.setenv("WEB_DEBUG", "true")

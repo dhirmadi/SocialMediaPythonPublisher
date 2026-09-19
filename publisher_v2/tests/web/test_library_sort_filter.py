@@ -52,7 +52,8 @@ def mock_service() -> MagicMock:
 def managed_app(monkeypatch: pytest.MonkeyPatch, mock_service: MagicMock) -> Generator[TestClient, None, None]:
     """TestClient with managed storage configured and admin auth set up."""
     monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("web_admin_pw", "secret")
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     monkeypatch.setenv("WEB_DEBUG", "true")

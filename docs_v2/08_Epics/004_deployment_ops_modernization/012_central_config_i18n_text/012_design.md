@@ -47,7 +47,7 @@ This blending makes it harder to:
 
 - **Secrets:**
   - Loaded from `.env` / environment in `publisher_v2.config.loader.load_application_config`.
-  - Examples: `DROPBOX_APP_KEY`, `OPENAI_API_KEY`, `EMAIL_PASSWORD`, `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `web_admin_pw`, etc.
+  - Examples: `DROPBOX_APP_KEY`, `OPENAI_API_KEY`, `EMAIL_PASSWORD`, `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `[removed #137: admin-password env var]`, etc.
 - **Dynamic configuration:**
   - INI (`configfiles/*.ini`) for Dropbox folders, Content, Email, OpenAI models/flags, etc.
   - Environment feature flags via `FeaturesConfig` and `parse_bool_env`:

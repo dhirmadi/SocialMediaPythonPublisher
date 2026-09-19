@@ -14,7 +14,7 @@
 This story implements the core Auth0 OIDC login flow for the Web UI. It replaces the password-based admin login with a secure OIDC redirects to Auth0, leveraging SSO where possible. It adds `authlib` and `httpx` dependencies, updates configuration schemas, implements the `AuthRouter`, integrates `SessionMiddleware` for OIDC state, and updates the `index.html` UI to handle the new flow and error states.
 
 ## 2. Context & Assumptions
-- **Current Behavior:** Users click "Admin" -> Modal asks for password -> POST `/api/admin/login` -> Cookie set.
+- **Current Behavior:** Users click "Admin" -> Modal asks for password -> POST `[removed #137: password-login route]` -> Cookie set.
 - **New Behavior:** Users click "Admin" -> Redirect to Auth0 -> Callback -> Check email allowlist -> Cookie set or Redirect with Error.
 - **Constraints:** Must fail startup if `WEB_SESSION_SECRET` is missing in production. Must parse `ADMIN_LOGIN_EMAILS` robustly (CSV with spaces).
 - **Dependencies:** `authlib`, `httpx`, `starlette.middleware.sessions`.
@@ -35,9 +35,9 @@ This story implements the core Auth0 OIDC login flow for the Web UI. It replaces
 
 ## 4. Architecture & Design (Delta)
 ### 4.1 Current vs. Proposed
-- **Current:** `app.py` has `/api/admin/login` (POST). Frontend has password modal JS.
+- **Current:** `app.py` has `[removed #137: password-login route]` (POST). Frontend has password modal JS.
 - **Proposed:**
-  - `app.py`: Remove `POST /api/admin/login`. Add `SessionMiddleware`. Include `auth_router`.
+  - `app.py`: Remove `POST [removed #137: password-login route]`. Add `SessionMiddleware`. Include `auth_router`.
   - `frontend`: Remove modal HTML/JS. "Admin" button is `<a href="/auth/login">`. JS checks URL for errors on load.
 
 ### 4.2 Components & Responsibilities

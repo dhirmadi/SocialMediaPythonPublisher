@@ -122,7 +122,10 @@ class TestVoiceProfilePost:
         # Same admin setup as `managed_admin_client`, but booting WITH a profile.
         monkeypatch.setenv("CONTENT_SETTINGS", json.dumps({"voice_profile": ["A line.", "Another."]}))
         monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-        monkeypatch.setenv("web_admin_pw", "secret")
+        # #137: Auth0 is the only admin login; web_admin_pw no longer exists.
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+        monkeypatch.setenv("AUTH0_CLIENT_SECRET", "cs")
         monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
         monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
         monkeypatch.setenv("WEB_DEBUG", "true")

@@ -25,9 +25,9 @@
     - Does **not** call `require_auth` or `require_admin`.
     - Always attempts to return a random image (404 on empty folder, 5xx on errors).
   - Admin mode is implemented via:
-    - `.env` password `web_admin_pw`.
+    - `.env` password `[removed #137: admin-password env var]`.
     - Cookie `pv2_admin` with TTL controlled by `WEB_ADMIN_COOKIE_TTL_SECONDS` (clamped 60–3600s).
-    - Endpoints: `/api/admin/login`, `/api/admin/status`, `/api/admin/logout`.
+    - Endpoints: `[removed #137: password-login route]`, `/api/admin/status`, `/api/admin/logout`.
     - Helpers in `publisher_v2.web.auth`: `is_admin_configured`, `require_admin`, `is_admin_request`, `set_admin_cookie`, `clear_admin_cookie`.
   - The HTML/JS template (`index.html`) already:
     - Maintains an `isAdmin` flag in JS.
@@ -40,8 +40,8 @@
 - **New assumptions for this change:**
   - `AUTO_VIEW` is provided via `.env` / Heroku config vars, not INI.
   - **Default** for `AUTO_VIEW` is `false` (images private-by-default).
-  - When `AUTO_VIEW=false`, images should only be retrievable once the user is in admin mode; admin mode itself continues to require `web_admin_pw`.
-  - If admin mode is not configured (no `web_admin_pw`), running with `AUTO_VIEW=false` is considered a misconfiguration, and the safest behavior is to refuse image viewing with a clear error.
+  - When `AUTO_VIEW=false`, images should only be retrievable once the user is in admin mode; admin mode itself continues to require `[removed #137: admin-password env var]`.
+  - If admin mode is not configured (no `[removed #137: admin-password env var]`), running with `AUTO_VIEW=false` is considered a misconfiguration, and the safest behavior is to refuse image viewing with a clear error.
 
 ## 3. Requirements
 
@@ -170,11 +170,11 @@
 - **Web integration tests (`publisher_v2/tests/web_integration/`):**
   - New tests in a file like `test_web_auto_view.py`:
     - `test_random_image_requires_admin_when_auto_view_disabled_and_admin_configured`:
-      - Set `AUTO_VIEW=false`, configure `web_admin_pw`, call `/api/images/random` without admin cookie → expect 403.
+      - Set `AUTO_VIEW=false`, configure `[removed #137: admin-password env var]`, call `/api/images/random` without admin cookie → expect 403.
     - `test_random_image_allows_admin_when_auto_view_disabled`:
       - With `AUTO_VIEW=false` and valid admin login, `/api/images/random` returns 200 and image payload.
     - `test_random_image_unavailable_when_auto_view_disabled_and_admin_unconfigured`:
-      - `AUTO_VIEW=false`, no `web_admin_pw` → `/api/images/random` returns 503.
+      - `AUTO_VIEW=false`, no `[removed #137: admin-password env var]` → `/api/images/random` returns 503.
     - `test_random_image_open_when_auto_view_enabled`:
       - `AUTO_VIEW=true` and no admin cookie → `/api/images/random` returns 200 (given mock image).
 - **Frontend behavior tests:**
@@ -182,12 +182,12 @@
     - When rendered with `auto_view_enabled=false` and no admin, “Next image” is disabled or produces the “Admin mode required to view images.” message.
     - When `auto_view_enabled=true`, initial auto-load and Next behavior remain unchanged for non-admin users.
 - **Manual checks (staging/Heroku):**
-  - Scenario 1: `AUTO_VIEW=false`, `web_admin_pw` set:
+  - Scenario 1: `AUTO_VIEW=false`, `[removed #137: admin-password env var]` set:
     - Open `/` → no image; Next indicates admin required.
     - Log in as admin → Next loads images as normal.
   - Scenario 2: `AUTO_VIEW=true`:
     - Open `/` → image loads as today; admin-only controls still gated.
-  - Scenario 3: `AUTO_VIEW=false`, no `web_admin_pw`:
+  - Scenario 3: `AUTO_VIEW=false`, no `[removed #137: admin-password env var]`:
     - Verify `/api/images/random` returns error and UI surfaces a clear message; document this as “unsupported configuration”.
 
 ## 7. Work Plan (Scoped)

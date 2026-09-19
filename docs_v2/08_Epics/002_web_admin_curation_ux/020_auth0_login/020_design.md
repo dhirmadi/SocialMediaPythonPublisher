@@ -11,7 +11,7 @@
 This feature introduces Auth0 OIDC login for admin authentication while maintaining backward compatibility with the existing simple password mechanism. The system supports a "dual-mode" configuration where deployments can choose between Auth0 (SSO) or the legacy password flow.
 
 ## 2. Context & Assumptions
-- **Current State:** Admin mode relies on `web_admin_pw`.
+- **Current State:** Admin mode relies on `[removed #137: admin-password env var]`.
 - **Architectural Context:** The application is deployed in a distributed environment (Heroku/Docker).
 - **Decision:** Use **Direct OIDC Integration** via `authlib` for Auth0, but preserve the legacy password path as a fallback.
   - **Reasoning:** Ensures zero-downtime migration and allows simpler deployments to stick with passwords if desired.
@@ -21,7 +21,7 @@ This feature introduces Auth0 OIDC login for admin authentication while maintain
 - **FR1:** If configured with Auth0, the "Admin" button redirects to `/auth/login`.
 - **FR2:** If configured with only a password, the "Admin" button opens a password modal (legacy flow).
 - **FR3:** `GET /auth/callback` handles OIDC code exchange and verifies email against `ADMIN_LOGIN_EMAILS`.
-- **FR4:** `POST /api/admin/login` handles password verification (legacy).
+- **FR4:** `POST [removed #137: password-login route]` handles password verification (legacy).
 - **FR5:** Successful login (via either method) sets the `pv2_admin` cookie.
 - **FR6:** Logout endpoint clears the session and cookie.
 
@@ -35,7 +35,7 @@ This feature introduces Auth0 OIDC login for admin authentication while maintain
 ### 4.1 Frontend Logic
 The frontend (`index.html`) queries `/api/config/features` on load to determine the `auth_mode`:
 - `"auth0"`: Admin button is a link to `/auth/login`.
-- `"password"`: Admin button opens the JS modal to POST to `/api/admin/login`.
+- `"password"`: Admin button opens the JS modal to POST to `[removed #137: password-login route]`.
 - `"none"`: Admin button is hidden.
 
 ### 4.2 Backend Components
@@ -43,8 +43,8 @@ The frontend (`index.html`) queries `/api/config/features` on load to determine 
 - **`Auth Helpers` (`web/auth.py`)**:
   - `is_admin_configured()`: Returns true if *either* Auth0 or Password is set.
   - `get_auth_mode()`: Determines the active mode.
-  - `verify_admin_password()`: Legacy check.
-- **`Config`**: Loads both Auth0 env vars and legacy `web_admin_pw`.
+  - [removed #137: password-check helper]: Legacy check.
+- **`Config`**: Loads both Auth0 env vars and legacy `[removed #137: admin-password env var]`.
 
 ### 4.3 Data Model
 New `Auth0Config` model added to schema. Legacy password remains as an environment variable read directly by helper functions.
@@ -52,7 +52,7 @@ New `Auth0Config` model added to schema. Legacy password remains as an environme
 ### 4.4 API/Contracts
 - **`GET /auth/login`**: Redirects to Auth0.
 - **`GET /auth/callback`**: OIDC Callback.
-- **`POST /api/admin/login`**: Legacy password login (JSON body `{"password": "..."}`).
+- **`POST [removed #137: password-login route]`**: Legacy password login (JSON body `{"password": "..."}`).
 - **`GET /auth/logout`**: Unified logout.
 
 ## 5. Security, Privacy, Compliance

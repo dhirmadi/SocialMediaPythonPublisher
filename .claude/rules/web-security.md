@@ -15,7 +15,8 @@ paths:
 - CSP uses a per-request `script-src` nonce (no `'unsafe-inline'` scripts); HSTS is sent whenever `WEB_SECURE_COOKIES` is on; logout is `POST /api/auth/logout` (CSRF-covered — never reintroduce a GET logout); Auth0 uses PKCE (S256).
 - Filename allow-list (#91 SEC-11): every per-filename route (view/analyze/publish/thumbnail/curation) validates the name against the cached image listing + image-suffix allow-list before touching storage; non-members are 404.
 - Admin cookie is **bound to tenant and host** (SEC-1): the signed payload carries `{sid, tenant, host, mode, email?}`. Verification compares `tenant`/`host` against `request.state.tenant`/`request.state.host` (orchestrator mode) or the normalized `Host` header (standalone) on every request; any mismatch — including legacy cookies without the claims — is not admin. Never remove this binding or accept a cookie minted for another tenant/host.
-- Per-tenant auth policy: in orchestrator mode `require_admin` reads `request.state.config`; a tenant whose runtime config has Auth0 disabled (`auth0 is None`) and no password login gets 403 even with a validly signed cookie.
+- Per-tenant auth policy: in orchestrator mode `require_admin` reads `request.state.config`; a tenant whose runtime config has Auth0 disabled (`auth0 is None`) gets 403 even with a validly signed cookie.
+- Auth0 is the only admin login (#137): the admin cookie is minted only by the Auth0 callback with `mode="auth0"`; any other mode is rejected on mint and on verify. Never add, keep or reintroduce a password login path.
 - Server is source of truth: `/api/admin/status` and 401/403 must clear admin state client-side.
 - Mobile-first: no horizontal scrolling on 320–768px widths.
 - Preserve dark-red admin theme; keep contrast accessible.

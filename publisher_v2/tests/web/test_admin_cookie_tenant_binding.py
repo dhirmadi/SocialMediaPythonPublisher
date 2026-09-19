@@ -52,14 +52,14 @@ def _request_with_state(
 
 def test_cookie_minted_for_tenant_a_rejected_on_tenant_b(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="password")
+    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
     request = _request_with_state(cookie, tenant="b", host="b.example.test")
     assert is_admin_request(request) is False
 
 
 def test_cookie_minted_for_tenant_a_accepted_on_tenant_a(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="password")
+    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
     request = _request_with_state(cookie, tenant="a", host="a.example.test")
     assert is_admin_request(request) is True
 
@@ -80,9 +80,8 @@ def test_standalone_mode_binds_to_host_header(monkeypatch: pytest.MonkeyPatch) -
 
 
 def test_require_admin_403_when_tenant_auth_disabled(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Tenant policy with Auth0 disabled (auth0=None) and no password login → 403 despite valid cookie."""
+    """Tenant policy with Auth0 disabled (auth0=None) → 403 despite valid cookie."""
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    monkeypatch.delenv("web_admin_pw", raising=False)
     monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
     monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
     cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
@@ -110,6 +109,9 @@ def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPa
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orch.test")
     monkeypatch.delenv("CONFIG_SOURCE", raising=False)
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
 
     def _tenant_config() -> SimpleNamespace:
         # Real config models, not stand-ins: the endpoints this replay drives

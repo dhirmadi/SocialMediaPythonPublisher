@@ -74,11 +74,11 @@ tasks:
         rationale: "Cover AUTO_VIEW=false/true combinations with and without admin configuration"
     test_cases:
       - name: "test_random_requires_admin_when_auto_view_disabled_and_admin_configured"
-        description: "AUTO_VIEW=false and web_admin_pw set → /api/images/random without admin cookie returns 403"
+        description: "AUTO_VIEW=false and [removed #137: admin-password env var] set → /api/images/random without admin cookie returns 403"
       - name: "test_random_allows_admin_when_auto_view_disabled"
         description: "AUTO_VIEW=false and admin logged in → /api/images/random returns 200 and image payload"
       - name: "test_random_unavailable_when_auto_view_disabled_and_admin_unconfigured"
-        description: "AUTO_VIEW=false and no web_admin_pw → /api/images/random returns 503"
+        description: "AUTO_VIEW=false and no [removed #137: admin-password env var] → /api/images/random returns 503"
       - name: "test_random_open_when_auto_view_enabled"
         description: "AUTO_VIEW=true → /api/images/random returns 200 for anonymous client (given a mock image)"
     dependencies:
@@ -156,7 +156,7 @@ release:
     - Extended /api/config/features and web UI to surface and respect this flag.
   deployment_notes: |
     - New env var: AUTO_VIEW (truthy/falsey; default is false/private).
-    - For strict private deployments, leave AUTO_VIEW unset or set to false and configure web_admin_pw.
+    - For strict private deployments, leave AUTO_VIEW unset or set to false and configure [removed #137: admin-password env var].
     - For viewer-friendly deployments, set AUTO_VIEW=true; admin mode is still required for analyze/publish/keep/remove.
   rollback_plan: |
     - Revert changes to config.schema, config.loader, web.app, and index.html.

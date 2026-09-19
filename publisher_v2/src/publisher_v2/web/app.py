@@ -26,23 +26,17 @@ from publisher_v2.core.exceptions import (
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic, setup_logging
 from publisher_v2.web.auth import (
     clear_admin_cookie,
-    get_admin_password,
-    get_auth_mode,
     is_admin_configured,
     is_admin_request,
-    request_binding,
     require_admin,
     require_auth,
     revoke_admin_request,
-    set_admin_cookie,
-    verify_admin_password,
 )
 from publisher_v2.web.dependencies import get_request_service, get_service
 from publisher_v2.web.middleware import tenant_middleware
 from publisher_v2.web.middleware_csrf import CSRFMiddleware
 from publisher_v2.web.middleware_security import SecurityHeadersMiddleware
 from publisher_v2.web.models import (
-    AdminLoginRequest,
     AdminStatusResponse,
     AnalysisResponse,
     CurationResponse,
@@ -64,30 +58,8 @@ __all__ = [
     "get_service",  # legacy import path used by tests and older code
 ]
 
-# Module-level limiters (process-local). Tuned conservatively; documented in
-# README. Brute-force login: 5 attempts per 15 min per IP. Cost endpoints:
-# 10 per minute per IP, 100 per hour per IP (per-admin keys layered on top).
-_LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=5, label="login")
-# Unkeyed budget (SEC-2): bounds brute force even when per-IP keys are spoofed
-# via X-Forwarded-For. Counts FAILED attempts only, process-wide.
-_GLOBAL_LOGIN_LIMITER = SlidingWindowLimiter(window_seconds=900, max_events=30, label="login/global")
-_consecutive_login_failures = 0
-
-
-def _login_failure_delay(failures: int) -> float:
-    """Exponential backoff after consecutive login failures, capped.
-
-    WEB_LOGIN_BACKOFF_CAP_SECONDS=0 disables the delay (used by tests).
-    """
-    try:
-        cap = float(os.environ.get("WEB_LOGIN_BACKOFF_CAP_SECONDS", "5"))
-    except ValueError:
-        cap = 5.0
-    if cap <= 0:
-        return 0.0
-    return min(0.1 * (2.0 ** min(failures, 8)), cap)
-
-
+# Module-level limiters (process-local). Cost endpoints: 10 per minute per IP,
+# 100 per hour per IP (per-admin keys layered on top).
 _ANALYZE_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="analyze/min")
 _ANALYZE_LIMITER_HOUR = SlidingWindowLimiter(window_seconds=3600, max_events=100, label="analyze/hour")
 _PUBLISH_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, label="publish/min")
@@ -402,48 +374,6 @@ async def api_admin_status(request: Request) -> AdminStatusResponse:
     return AdminStatusResponse(admin=admin)
 
 
-@app.post(
-    "/api/admin/login",
-    response_model=AdminStatusResponse,
-    responses={401: {"model": ErrorResponse}},
-)
-async def api_admin_login(
-    body: AdminLoginRequest,
-    response: Response,
-    request: Request,
-) -> AdminStatusResponse:
-    """
-    Exchange a password for an admin session cookie.
-    Only available if legacy password auth is configured.
-    """
-    actual_pass = get_admin_password()
-    if not actual_pass:
-        # Legacy login disabled
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Legacy login not enabled")
-
-    # Brute-force guard: rate-limit by client IP regardless of outcome.
-    _LOGIN_LIMITER.check(remote_ip(request))
-
-    global _consecutive_login_failures
-    if not verify_admin_password(body.password, actual_pass):
-        _consecutive_login_failures += 1
-        delay = _login_failure_delay(_consecutive_login_failures)
-        if delay > 0:
-            await asyncio.sleep(delay)
-        log_json(logger, logging.WARNING, "admin_login_failed", remote=remote_ip(request))
-        # Unkeyed budget: raises 429 (with Retry-After) once the process-wide
-        # failed-attempt window is exhausted, regardless of spoofed IP keys.
-        _GLOBAL_LOGIN_LIMITER.check("global")
-        # 401 enables the client to re-prompt
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid password")
-    _consecutive_login_failures = 0
-
-    bind_tenant, bind_host = request_binding(request)
-    set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="password")
-    log_json(logger, logging.INFO, "web_admin_login_success")
-    return AdminStatusResponse(admin=True)
-
-
 @app.post("/api/auth/logout", response_model=AdminStatusResponse)
 async def api_auth_logout(response: Response, request: Request) -> AdminStatusResponse:
     """Log out of admin mode (#91 SEC-8): POST under /api so CSRF applies."""
@@ -597,8 +527,8 @@ async def api_analyze_image(
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> AnalysisResponse:
     await require_auth(request)
-    if is_admin_configured():
-        require_admin(request)
+    # #137: always admin-gated; Auth0 is the only admin login (503 when not configured).
+    require_admin(request)
     # Cost guard: vision + caption calls are expensive. Limit per IP across
     # both short (per-minute) and long (per-hour) windows.
     ip = remote_ip(request)
@@ -634,8 +564,8 @@ async def api_publish_image(
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> PublishResponse:
     await require_auth(request)
-    if is_admin_configured():
-        require_admin(request)
+    # #137: always admin-gated; Auth0 is the only admin login (503 when not configured).
+    require_admin(request)
     _PUBLISH_LIMITER_MIN.check(remote_ip(request))
     platforms = body.platforms if body else None
     raw_caption = body.caption if body else None
@@ -684,8 +614,8 @@ async def api_keep_image(
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> CurationResponse:
     await require_auth(request)
-    if is_admin_configured():
-        require_admin(request)
+    # #137: always admin-gated; Auth0 is the only admin login (503 when not configured).
+    require_admin(request)
     try:
         resp = await service.keep_image(filename)
         await endpoint_telemetry(
@@ -717,8 +647,8 @@ async def api_remove_image(
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> CurationResponse:
     await require_auth(request)
-    if is_admin_configured():
-        require_admin(request)
+    # #137: always admin-gated; Auth0 is the only admin login (503 when not configured).
+    require_admin(request)
     try:
         resp = await service.remove_image(filename)
         await endpoint_telemetry(
@@ -750,8 +680,8 @@ async def api_delete_image(
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> CurationResponse:
     await require_auth(request)
-    if is_admin_configured():
-        require_admin(request)
+    # #137: always admin-gated; Auth0 is the only admin login (503 when not configured).
+    require_admin(request)
     try:
         resp = await service.delete_image(filename)
         await endpoint_telemetry(
@@ -870,8 +800,8 @@ async def api_get_features_config(
     """
     features = service.config.features
 
-    # Determine auth mode
-    auth_mode = get_auth_mode()
+    # #137: Auth0 is the only admin login; the (tenant-scoped) service config decides.
+    auth_mode = "auth0" if service.config.auth0 is not None else "none"
 
     # #97 stage 1: resolved at config load (env override, else auto for managed storage)
     library_enabled = service.config.features.library_enabled

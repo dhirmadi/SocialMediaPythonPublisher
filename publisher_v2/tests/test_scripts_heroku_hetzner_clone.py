@@ -331,7 +331,7 @@ def test_main_rejects_invalid_subdomain() -> None:
     assert rc == 1
 
 
-def test_main_requires_folder_and_password_for_create() -> None:
+def test_main_requires_folder_for_create() -> None:
     module = _load_script_module()
     rc = module.main(["--action", "create", "--name", "ok"])  # type: ignore[attr-defined]
     assert rc == 1
@@ -390,8 +390,6 @@ def test_main_create_missing_fetlife_ini(monkeypatch) -> None:  # type: ignore[o
             "ok",
             "--folder",
             "/Photos/ok",
-            "--password",
-            "pw",
             "--heroku-source-app",
             "fetlife-prod",
             "--dry-run",
@@ -408,8 +406,6 @@ def test_main_create_missing_fetlife_ini(monkeypatch) -> None:  # type: ignore[o
             "ok",
             "--folder",
             "/Photos/ok",
-            "--password",
-            "pw",
             "--heroku-source-app",
             "fetlife-prod",
         ]
@@ -464,8 +460,6 @@ def test_main_create_missing_dns_target(monkeypatch) -> None:  # type: ignore[ov
             "ok",
             "--folder",
             "/Photos/ok",
-            "--password",
-            "pw",
         ]
     )  # type: ignore[attr-defined]
     assert rc == 1
@@ -538,8 +532,6 @@ def test_main_logs_warning_when_servers_log_fails(monkeypatch) -> None:
             "warn",
             "--folder",
             "/Photos/warn",
-            "--password",
-            "pw",
         ]
     )  # type: ignore[attr-defined]
     assert rc == 0
@@ -714,7 +706,7 @@ def test_normalize_heroku_app_name_and_parse_url_roundtrip() -> None:
 
 def test_main_create_dry_run_requires_only_name() -> None:
     module = _load_script_module()
-    # Should not raise even without --folder/--password because dry-run short-circuits
+    # Should not raise even without --folder because dry-run short-circuits
     rc = module.main(["--action", "create", "--name", "dryrun", "--dry-run"])  # type: ignore[attr-defined]
     assert rc == 0
 
@@ -817,8 +809,6 @@ def test_main_create_happy_path_uses_clients(monkeypatch) -> None:  # type: igno
             "tati",
             "--folder",
             "/Photos/tati",
-            "--password",
-            "pw",
             "--heroku-source-app",
             "fetlife-prod",
             "--heroku-staging-app",
@@ -841,7 +831,6 @@ def test_main_create_happy_path_uses_clients(monkeypatch) -> None:  # type: igno
     assert new_cfg["FEATURE_ANALYZE_CAPTION"] == "false"
     assert new_cfg["FEATURE_PUBLISH"] == "false"
     assert new_cfg["AUTO_VIEW"] == "false"
-    assert new_cfg["web_admin_pw"] == "pw"
     # CNAME was ensured and a server record logged
     assert fake_hetzner.cnames
     assert records and records[0][0] == "tati"

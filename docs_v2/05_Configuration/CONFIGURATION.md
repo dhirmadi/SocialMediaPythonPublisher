@@ -55,11 +55,10 @@ Canonical GUI/validation contract for orchestrator-managed config fields:
 | `WEB_AUTH_PASS` | Basic auth password | Web interface enabled |
 | `AUTH0_CLIENT_SECRET` | Auth0 OIDC client secret | Auth0 admin login enabled |
 | `WEB_SESSION_SECRET` | Web session signing secret (cookie/session middleware) | Auth0 admin login enabled |
-| `web_admin_pw` | Legacy admin password (deprecated by Auth0) | Only if using legacy admin password |
 
 ### Web Admin (Auth0) — Required Non-Secret Env Vars
 
-These are required when enabling Auth0 login (Feature 020). They are not “secrets” except `AUTH0_CLIENT_SECRET` and `WEB_SESSION_SECRET` above.
+Auth0 is the only admin login (#137). Without `AUTH0_DOMAIN` and `AUTH0_CLIENT_ID` admin mode is unavailable and the UI says so. These are required when enabling Auth0 login (Feature 020). They are not “secrets” except `AUTH0_CLIENT_SECRET` and `WEB_SESSION_SECRET` above.
 
 | Variable | Description | Example |
 |----------|-------------|---------|
@@ -128,7 +127,6 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
 | `WEB_TRUST_FORWARDED_FOR` | Trust the proxy's forwarded headers. Set to `true` **only behind a proxy that appends the real client IP as the rightmost `X-Forwarded-For` entry and sets `X-Forwarded-Proto`** (Heroku router contract). Rate limits key on the rightmost `X-Forwarded-For` entry (everything left of it is client-supplied); the CSRF same-origin check and the Auth0 callback URL take the scheme from `X-Forwarded-Proto` (`http`/`https` only), and only when every value it carries agrees — a header whose values disagree is not trusted and the scheme falls back to the connection's own. **Required on Heroku**: without it every browser `POST` under `/api` returns 403 "CSRF check failed" (#129). | `false` |
-| `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. Concurrent publishes of the same image are then serialized **in-process only** (#139): run a single web worker without a database, or set `DATABASE_URL` so the DB lease covers multi-worker deployments. | (unset) |
 | `PUBLISH_TIMEOUT_SECONDS` | Default per-publisher timeout (min 5s) | 120 |
 | `PUBLISH_TIMEOUT_<PLATFORM>_SECONDS` | Per-platform publish timeout override (e.g. `PUBLISH_TIMEOUT_TELEGRAM_SECONDS`) | (default timeout) |
@@ -144,6 +142,10 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `CONFIG_PATH` | Deprecated (#97 stage 4): INI removed; value is ignored | (unused) |
 | `ENV_PATH` | Path to `.env` file | `.env` |
 | `PORT` | Web server port | 8000 |
+
+### Removed
+
+- 2026-09-19 (#137): the password admin login is removed: the `web_admin_pw` env var, `POST /api/admin/login`, `verify_admin_password` and `WEB_LOGIN_BACKOFF_CAP_SECONDS` no longer exist. Auth0 is the only admin login; admin cookies minted by the old password route are rejected. Analyze, publish, keep, remove and delete now always require the Auth0 admin cookie: a `WEB_AUTH_TOKEN`/Basic header alone gets 503 (no Auth0 configured) or 403 (no admin cookie), and a tenant without Auth0 gets 403. `WEB_ALLOW_UNAUTHENTICATED` no longer opens these routes either.
 
 ### 2.3 INI Schema (REMOVED — historical reference only)
 

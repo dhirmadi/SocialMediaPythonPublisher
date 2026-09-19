@@ -194,7 +194,6 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
         "WEB_AUTH_TOKEN",
         "WEB_AUTH_USER",
         "WEB_AUTH_PASS",
-        "web_admin_pw",
         # Auth0-related
         "AUTH0_DOMAIN",
         "AUTH0_CLIENT_ID",
