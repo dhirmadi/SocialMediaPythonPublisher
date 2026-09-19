@@ -1,7 +1,7 @@
-import asyncio
+import shutil
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
 
 def resize_image_bytes(data: bytes, max_dimension: int, quality: int = 85) -> bytes:
@@ -27,22 +27,25 @@ def resize_image_bytes(data: bytes, max_dimension: int, quality: int = 85) -> by
     return buf.getvalue()
 
 
-def ensure_max_width(image_path: str, max_width: int = 1280) -> str:
+def ensure_max_width(image_path: str, max_width: int = 1280, out_path: str | None = None, quality: int = 90) -> str:
+    """Ensure the image is at most ``max_width`` pixels wide (#83).
+
+    When ``out_path`` is given, the result is written there and the source file
+    is NEVER modified (a straight copy when no resize is needed, so a variant
+    path always exists). Without ``out_path`` the legacy in-place behavior is
+    kept. EXIF orientation is applied before resizing so rotated phone photos
+    don't come out sideways.
+    """
     with Image.open(image_path) as img:
-        width, height = img.size
+        oriented = ImageOps.exif_transpose(img) or img
+        width, height = oriented.size
         if width <= max_width:
+            if out_path and out_path != image_path:
+                shutil.copyfile(image_path, out_path)
+                return out_path
             return image_path
         new_height = int((max_width / width) * height)
-        resized = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
-        out_path = image_path
-        resized.save(out_path)
-        return out_path
-
-
-async def ensure_max_width_async(image_path: str, max_width: int = 1280) -> str:
-    """
-    Async helper that ensures the image does not exceed max_width by delegating
-    to the synchronous ensure_max_width implementation in a thread pool.
-    """
-
-    return await asyncio.to_thread(ensure_max_width, image_path, max_width)
+        resized = oriented.resize((max_width, new_height), Image.Resampling.LANCZOS)
+        target = out_path or image_path
+        resized.save(target, quality=quality)
+        return target

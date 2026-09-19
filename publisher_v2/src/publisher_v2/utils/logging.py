@@ -90,12 +90,15 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 
 def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) -> None:
+    # #87 (REL-8): exc_info is a logging directive, not payload — forward it to
+    # logger.log so tracebacks actually appear instead of '"exc_info": true'.
+    exc_info = kwargs.pop("exc_info", None)
     entry: dict[str, Any] = {
         "timestamp": datetime.now(UTC).isoformat(),
         "message": sanitize(message),
         **kwargs,
     }
-    logger.log(level, json.dumps(entry))
+    logger.log(level, json.dumps(entry), exc_info=exc_info)
 
 
 def now_monotonic() -> float:

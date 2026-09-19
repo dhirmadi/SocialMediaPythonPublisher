@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -145,9 +146,13 @@ app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=life
 logger = logging.getLogger("publisher_v2.web")
 
 
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
 def _get_correlation_id(request: Request) -> str:
+    """Echo X-Request-ID only when it is short and log/header-safe (#87 SEC-12)."""
     header = request.headers.get("X-Request-ID")
-    if header:
+    if header and _REQUEST_ID_RE.match(header):
         return header
     return str(uuid.uuid4())
 
@@ -235,12 +240,18 @@ templates = Jinja2Templates(directory=templates_dir)
 # Fail fast if SECRET_KEY is missing in production-like environments
 session_secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
 if not session_secret:
-    # Allow dev fallback only if strictly local/debug, otherwise fail
-    if os.environ.get("WEB_DEBUG", "").lower() in ("1", "true", "yes"):
+    # #87 (SEC-5): the insecure fallback requires its own explicit opt-in —
+    # WEB_DEBUG is a logging flag and must not weaken the signing secret.
+    if os.environ.get("WEB_DEV_INSECURE_SECRET", "").lower() in ("1", "true", "yes", "on"):
         session_secret = "dev_secret_do_not_use_in_prod"
         logger.warning("Using insecure dev session secret!")
     else:
         raise RuntimeError("Missing WEB_SESSION_SECRET or SECRET_KEY env var for SessionMiddleware")
+
+# #87 (SEC-12): register the tenant middleware FIRST so it runs INSIDE the
+# security-header middleware — later add_middleware calls wrap earlier ones,
+# and the tenant 404/503 JSON responses must carry CSP/nosniff too.
+app.middleware("http")(tenant_middleware)
 
 # Secure cookies default to True (prod), but can be disabled via env for local dev
 secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
@@ -255,7 +266,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router.router)
 app.include_router(library_router.router)
-app.middleware("http")(tenant_middleware)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -732,7 +742,10 @@ async def api_get_thumbnail(
             content=thumb_bytes,
             media_type="image/jpeg",
             headers={
-                "Cache-Control": "public, max-age=3600",
+                # #87 (SEC-7): the route is permission-gated — a shared cache
+                # must never serve one viewer's thumbnail to another.
+                "Cache-Control": "private, max-age=3600",
+                "Vary": "Cookie",
                 "X-Correlation-ID": telemetry.correlation_id,
             },
         )

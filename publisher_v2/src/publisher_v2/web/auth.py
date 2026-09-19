@@ -85,7 +85,9 @@ def _verify_bearer(auth_header: str) -> bool:
     provided = auth_header[7:].strip()
     if not provided:
         return False
-    return hmac.compare_digest(provided, token_cfg)
+    # #87 (SEC-9): compare bytes — compare_digest raises TypeError on
+    # non-ASCII str input, which surfaced as a 500 instead of a 401.
+    return hmac.compare_digest(provided.encode("utf-8"), token_cfg.encode("utf-8"))
 
 
 def _verify_basic(auth_header: str) -> bool:
@@ -101,8 +103,10 @@ def _verify_basic(auth_header: str) -> bool:
     if ":" not in decoded:
         return False
     user, pwd = decoded.split(":", 1)
-    # Constant-time compare on both components.
-    return hmac.compare_digest(user, user_cfg) and hmac.compare_digest(pwd, pass_cfg)
+    # Constant-time compare on both components (bytes: see SEC-9 note above).
+    return hmac.compare_digest(user.encode("utf-8"), user_cfg.encode("utf-8")) and hmac.compare_digest(
+        pwd.encode("utf-8"), pass_cfg.encode("utf-8")
+    )
 
 
 # --- Admin-mode helpers (UI-level guard on top of HTTP auth) ---
@@ -172,11 +176,13 @@ def _cookie_secret() -> str:
     secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
     if secret:
         return secret
-    if (os.environ.get("WEB_DEBUG") or "").lower() in ("1", "true", "yes", "on"):
+    # #87 (SEC-5): WEB_DEBUG is a logging flag — it must not enable a public
+    # signing secret. The insecure fallback needs its own explicit opt-in.
+    if (os.environ.get("WEB_DEV_INSECURE_SECRET") or "").lower() in ("1", "true", "yes", "on"):
         return "dev_secret_do_not_use_in_prod"
     raise RuntimeError(
         "Missing WEB_SESSION_SECRET / SECRET_KEY required to sign admin cookies. "
-        "Set one in the environment, or enable WEB_DEBUG=1 for local development."
+        "Set one in the environment, or set WEB_DEV_INSECURE_SECRET=1 for local development."
     )
 
 

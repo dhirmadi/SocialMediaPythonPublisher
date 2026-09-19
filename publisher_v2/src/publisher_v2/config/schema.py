@@ -115,6 +115,14 @@ class OpenAIConfig(BaseModel):
         default=None, description="Advisory lifecycle metadata for caption model"
     )
 
+    # #84 (PERF-1): explicit HTTP timeout for OpenAI calls. SDK retries are
+    # disabled (max_retries=0); tenacity in services/ai.py is the only retry layer.
+    request_timeout_seconds: float = Field(
+        default=60.0,
+        gt=0,
+        description="Overall HTTP timeout in seconds for each OpenAI request (connect timeout is fixed at 5s)",
+    )
+
     # PUB-041: Vision cost optimization
     vision_max_dimension: int = Field(
         default=1024,

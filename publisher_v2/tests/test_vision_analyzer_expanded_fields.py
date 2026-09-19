@@ -53,7 +53,7 @@ class _DummyClient:
 @pytest.mark.asyncio
 async def test_analyzer_parses_expanded_fields(monkeypatch: pytest.MonkeyPatch) -> None:
     # Monkeypatch AsyncOpenAI client used inside VisionAnalyzerOpenAI
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DummyClient())
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _DummyClient())
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     result, _usage = await analyzer.analyze("http://tmp-url")
@@ -104,7 +104,7 @@ class _DetailClient:
 
 @pytest.mark.asyncio
 async def test_analyzer_parses_distinctive_detail(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DetailClient(True))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _DetailClient(True))
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     result, _usage = await analyzer.analyze("http://tmp-url")
@@ -113,7 +113,7 @@ async def test_analyzer_parses_distinctive_detail(monkeypatch: pytest.MonkeyPatc
 
 @pytest.mark.asyncio
 async def test_analyzer_distinctive_detail_none_safe(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _DetailClient(False))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _DetailClient(False))
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     result, _usage = await analyzer.analyze("http://tmp-url")

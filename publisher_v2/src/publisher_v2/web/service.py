@@ -6,6 +6,7 @@ import os
 import random
 import time
 import urllib.parse
+from collections import deque
 from typing import Any
 
 from dotenv import load_dotenv
@@ -90,7 +91,9 @@ class WebImageService:
             # (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS)
             cfg = load_application_config(config_path, env_path)
         else:
-            cfg = runtime.config
+            # #86: deep-copy so nothing this service does can mutate the
+            # runtime config object cached inside the orchestrator source.
+            cfg = runtime.config.model_copy(deep=True)
 
         storage: StorageProtocol = create_storage(cfg)
 
@@ -164,7 +167,11 @@ class WebImageService:
                 # Ignore invalid override; keep config/default TTL.
                 pass
         self._image_cache_ttl_seconds: float = ttl
-        self._recently_shown: list[str] = []
+        # #86: bounded — was an unbounded list.
+        self._recently_shown: deque[str] = deque(maxlen=50)
+        # #86: transient AI credential failures back off instead of flipping
+        # feature flags; re-resolution is retried after the window expires.
+        self._ai_unavailable_until: float | None = None
 
     def _init_storage_ops_meter(self) -> None:
         """PUB-045: build the storage ops meter when conditions are met.
@@ -208,23 +215,64 @@ class WebImageService:
     def _is_orchestrated(self) -> bool:
         return self._runtime is not None and self._config_source is not None
 
+    async def aclose(self) -> None:
+        """Release per-tenant resources on eviction/replacement (#86).
+
+        Stops the storage-ops meter (final flush included), closes the OpenAI
+        clients when the AI service provides ``aclose`` and the storage client
+        when it does. Never raises.
+        """
+        meter = self._storage_ops_meter
+        if meter is not None:
+            try:
+                await meter.stop_periodic_flush()
+            except Exception:
+                log_json(self.logger, logging.WARNING, "storage_ops_meter_close_failed", exc_info=True)
+        for target in (self.ai_service, self.storage):
+            close = getattr(target, "aclose", None)
+            if close is None:
+                continue
+            try:
+                await close()
+            except Exception:
+                log_json(self.logger, logging.WARNING, "service_resource_close_failed", exc_info=True)
+
     def _cred_ref(self, key: str) -> str | None:
         if not self._runtime or not self._runtime.credentials_refs:
             return None
         return self._runtime.credentials_refs.get(key)
 
+    _AI_BACKOFF_SECONDS = 60.0
+
+    def _ai_backed_off(self) -> bool:
+        until = self._ai_unavailable_until
+        return until is not None and time.monotonic() < until
+
+    def _start_ai_backoff(self) -> None:
+        self._ai_unavailable_until = time.monotonic() + self._AI_BACKOFF_SECONDS
+
     async def _ensure_ai_service(self) -> AIService | None:
+        """Resolve the AI service lazily in orchestrator mode.
+
+        #86: failures NEVER mutate feature flags (the config used to be shared
+        by reference with the orchestrator runtime cache, so one transient
+        credential failure disabled AI for the tenant until eviction). Instead
+        a 60s instance-level backoff suppresses retries, then resolution is
+        attempted again.
+        """
         if self.ai_service is not None:
             return self.ai_service
         if not self._is_orchestrated() or self._runtime is None or self._config_source is None:
             return None
         if not self.config.features.analyze_caption_enabled:
             return None
+        if self._ai_backed_off():
+            return None
 
         ref = self._cred_ref("openai")
         if not ref:
-            # No ref available -> disable feature
-            self.config.features.analyze_caption_enabled = False
+            # No ref available — treat as unavailable for now, retry later.
+            self._start_ai_backoff()
             return None
 
         try:
@@ -235,10 +283,11 @@ class WebImageService:
             analyzer = VisionAnalyzerOpenAI(new_openai)
             generator = CaptionGeneratorOpenAI(new_openai)
             self.ai_service = AIService(analyzer, generator)
+            self._ai_unavailable_until = None
             return self.ai_service
         except (CredentialResolutionError, OrchestratorUnavailableError):
             log_json(self.logger, logging.WARNING, "ai_credential_resolution_failed", host=self._runtime.host)
-            self.config.features.analyze_caption_enabled = False
+            self._start_ai_backoff()
             return None
         except (ValidationError, json.JSONDecodeError, TenantNotFoundError, TypeError) as exc:
             log_json(
@@ -248,7 +297,7 @@ class WebImageService:
                 host=self._runtime.host,
                 error=str(exc),
             )
-            self.config.features.analyze_caption_enabled = False
+            self._start_ai_backoff()
             return None
 
     async def _ensure_email_publisher(self) -> None:
@@ -321,6 +370,11 @@ class WebImageService:
     async def _ensure_orchestrator(self) -> WorkflowOrchestrator:
         if self.orchestrator is not None:
             self.orchestrator.publishers = self.publishers
+            # #86: never leave a cached NullAIService in place once the real
+            # AI service becomes resolvable again.
+            refreshed = await self._ensure_ai_service()
+            if refreshed is not None:
+                self.orchestrator.ai_service = refreshed
             return self.orchestrator
 
         ai = await self._ensure_ai_service()
@@ -593,7 +647,19 @@ class WebImageService:
             image=filename,
             correlation_id=correlation_id,
         )
-        analysis, vision_usage = await ai.analyzer.analyze(temp_link)
+        # #84: same hard AI-stage deadline as the workflow — a hung upstream
+        # must fail the request, not hold the dyno past Heroku's H12 window.
+        from publisher_v2.core.exceptions import AIServiceError
+        from publisher_v2.core.workflow import _ai_stage_timeout_seconds
+
+        ai_stage_deadline = time.monotonic() + _ai_stage_timeout_seconds()
+        try:
+            analysis, vision_usage = await asyncio.wait_for(
+                ai.analyzer.analyze(temp_link),
+                timeout=max(0.05, ai_stage_deadline - time.monotonic()),
+            )
+        except TimeoutError as exc:
+            raise AIServiceError("ai stage timeout") from exc
         if self._usage_meter and vision_usage:
             await self._usage_meter.emit(vision_usage)
 
@@ -619,13 +685,19 @@ class WebImageService:
                 log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
 
         try:
+            caption_budget = max(0.05, ai_stage_deadline - time.monotonic())
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
-                platform_captions_dict, sd_caption, caption_usages = await ai.create_multi_caption_pair_from_analysis(
-                    analysis, specs, history=caption_history, voice_examples=voice_examples
+                platform_captions_dict, sd_caption, caption_usages = await asyncio.wait_for(
+                    ai.create_multi_caption_pair_from_analysis(
+                        analysis, specs, history=caption_history, voice_examples=voice_examples
+                    ),
+                    timeout=caption_budget,
                 )
-                caption = next(iter(platform_captions_dict.values()), "")
+                caption = next(iter((platform_captions_dict or {}).values()), "")
             else:
-                caption, sd_caption, caption_usages = await ai.create_caption_pair_from_analysis(analysis, spec)
+                caption, sd_caption, caption_usages = await asyncio.wait_for(
+                    ai.create_caption_pair_from_analysis(analysis, spec), timeout=caption_budget
+                )
             if self._usage_meter and caption_usages:
                 await self._usage_meter.emit_all(caption_usages)
         except Exception as exc:
@@ -637,8 +709,15 @@ class WebImageService:
                 error=str(exc),
                 correlation_id=correlation_id,
             )
-            # Best-effort fallback to legacy caption-only behaviour
-            caption, fallback_usages = await ai.create_caption_from_analysis(analysis, spec)
+            # Best-effort fallback to legacy caption-only behaviour, still
+            # bounded by whatever remains of the AI-stage deadline (#84).
+            try:
+                caption, fallback_usages = await asyncio.wait_for(
+                    ai.create_caption_from_analysis(analysis, spec),
+                    timeout=max(0.05, ai_stage_deadline - time.monotonic()),
+                )
+            except TimeoutError as timeout_exc:
+                raise AIServiceError("ai stage timeout") from timeout_exc
             if self._usage_meter and fallback_usages:
                 await self._usage_meter.emit_all(fallback_usages)
 

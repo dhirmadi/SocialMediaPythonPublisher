@@ -199,11 +199,6 @@ class _FakeInstagramClient:
 
 @pytest.mark.asyncio
 async def test_instagram_publisher_handles_session_fallback(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    async def fake_resize(path: str, max_width: int) -> str:
-        return path
-
-    monkeypatch.setattr("publisher_v2.services.publishers.instagram.ensure_max_width_async", fake_resize)
-
     client = _FakeInstagramClient(fail_session=True, fail_upload=False)
     monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", lambda: client)
 
@@ -223,11 +218,6 @@ async def test_instagram_publisher_handles_session_fallback(monkeypatch: pytest.
 
 @pytest.mark.asyncio
 async def test_instagram_publisher_returns_error(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    async def fake_resize(path: str, max_width: int) -> str:
-        return path
-
-    monkeypatch.setattr("publisher_v2.services.publishers.instagram.ensure_max_width_async", fake_resize)
-
     client = _FakeInstagramClient(fail_session=False, fail_upload=True)
     monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", lambda: client)
 
@@ -273,10 +263,6 @@ class _FakeTelegramBot:
 
 @pytest.mark.asyncio
 async def test_telegram_publisher_success(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    async def fake_resize(path: str, max_width: int) -> str:
-        return path
-
-    monkeypatch.setattr("publisher_v2.services.publishers.telegram.ensure_max_width_async", fake_resize)
     bot = _FakeTelegramBot()
     monkeypatch.setattr("publisher_v2.services.publishers.telegram.telegram.Bot", lambda token: bot)
 
@@ -294,10 +280,6 @@ async def test_telegram_publisher_success(monkeypatch: pytest.MonkeyPatch, tmp_p
 
 @pytest.mark.asyncio
 async def test_telegram_publisher_handles_errors(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    async def fake_resize(path: str, max_width: int) -> str:
-        return path
-
-    monkeypatch.setattr("publisher_v2.services.publishers.telegram.ensure_max_width_async", fake_resize)
     bot = _FakeTelegramBot()
     bot.fail = True
     monkeypatch.setattr("publisher_v2.services.publishers.telegram.telegram.Bot", lambda token: bot)

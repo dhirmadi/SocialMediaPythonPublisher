@@ -202,7 +202,7 @@ class TestGenerateHashtagBranching:
     async def test_generate_smart_with_seeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-05: generate() smart=True + seeds → prompt asks AI to generate, includes seeds."""
         completions = _FakeCompletions("a caption")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -221,7 +221,7 @@ class TestGenerateHashtagBranching:
     async def test_generate_smart_no_seeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-05: generate() smart=True + no seeds → 'generate' without seeds."""
         completions = _FakeCompletions("a caption")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -239,7 +239,7 @@ class TestGenerateHashtagBranching:
     async def test_generate_verbatim_when_smart_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-08/AC-12: generate() smart=False uses pre-PUB-028 verbatim clause."""
         completions = _FakeCompletions("a caption")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -257,7 +257,7 @@ class TestGenerateHashtagBranching:
     async def test_generate_with_sd_smart_with_seeds(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-05: generate_with_sd() applies same smart branching."""
         completions = _FakeCompletions(json.dumps({"caption": "c", "sd_caption": "s"}))
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -276,7 +276,7 @@ class TestGenerateHashtagBranching:
     async def test_generate_with_sd_verbatim_when_smart_disabled(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-08/AC-12: generate_with_sd() smart=False uses pre-PUB-028 verbatim clause."""
         completions = _FakeCompletions(json.dumps({"caption": "c", "sd_caption": "s"}))
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -367,7 +367,7 @@ class TestNoExtraOpenAICalls:
     async def test_smart_path_uses_single_openai_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-10: enabling smart_hashtags must not add an OpenAI call."""
         completions = _FakeCompletions("caption with #generated #tags")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         spec = CaptionSpec(
             platform="generic",
@@ -384,7 +384,7 @@ class TestNoExtraOpenAICalls:
         """AC-10: multi-platform smart path also uses a single call."""
         response = json.dumps({"telegram": "t", "instagram": "i", "email": "e"})
         completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         specs = {
             "telegram": CaptionSpec(
@@ -442,7 +442,9 @@ class TestByteIdenticalPrePub028:
     async def test_generate_prompt_byte_identical_when_smart_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-12: generate() prompt is byte-identical to pre-PUB-028 when smart=False."""
         completions_smart_off = _FakeCompletions("c")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _FakeClient(completions_smart_off))
+        monkeypatch.setattr(
+            "publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions_smart_off)
+        )
         gen = CaptionGeneratorOpenAI(_default_openai_config())
         # Use a CaptionSpec that intentionally omits smart_hashtags (default False)
         spec = CaptionSpec(

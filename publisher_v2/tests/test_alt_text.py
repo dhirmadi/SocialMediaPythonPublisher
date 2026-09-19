@@ -75,7 +75,7 @@ async def test_vision_analyzer_parses_alt_text(monkeypatch: pytest.MonkeyPatch) 
             "alt_text": "A person sitting on a chair in soft light.",
         }
     )
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _make_dummy_client(payload))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client(payload))
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     analysis, _usage = await analyzer.analyze("http://tmp-url")
@@ -94,7 +94,7 @@ async def test_vision_analyzer_missing_alt_text_is_none(monkeypatch: pytest.Monk
             "safety_labels": [],
         }
     )
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _make_dummy_client(payload))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client(payload))
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     analysis, _usage = await analyzer.analyze("http://tmp-url")
@@ -109,7 +109,9 @@ async def test_vision_analyzer_json_decode_error_raises(monkeypatch: pytest.Monk
     output to flow into published captions). See CR-S0-vision-fix."""
     from publisher_v2.core.exceptions import AIServiceError
 
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key: _make_dummy_client("not-json"))
+    monkeypatch.setattr(
+        "publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client("not-json")
+    )
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     with pytest.raises(AIServiceError):
