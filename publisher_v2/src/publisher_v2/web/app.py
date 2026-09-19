@@ -2,6 +2,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -145,9 +146,13 @@ app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=life
 logger = logging.getLogger("publisher_v2.web")
 
 
+_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+
+
 def _get_correlation_id(request: Request) -> str:
+    """Echo X-Request-ID only when it is short and log/header-safe (#87 SEC-12)."""
     header = request.headers.get("X-Request-ID")
-    if header:
+    if header and _REQUEST_ID_RE.match(header):
         return header
     return str(uuid.uuid4())
 
@@ -242,6 +247,11 @@ if not session_secret:
     else:
         raise RuntimeError("Missing WEB_SESSION_SECRET or SECRET_KEY env var for SessionMiddleware")
 
+# #87 (SEC-12): register the tenant middleware FIRST so it runs INSIDE the
+# security-header middleware — later add_middleware calls wrap earlier ones,
+# and the tenant 404/503 JSON responses must carry CSP/nosniff too.
+app.middleware("http")(tenant_middleware)
+
 # Secure cookies default to True (prod), but can be disabled via env for local dev
 secure_cookies = (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on")
 app.add_middleware(SessionMiddleware, secret_key=session_secret, https_only=secure_cookies)
@@ -255,7 +265,6 @@ app.add_middleware(SecurityHeadersMiddleware)
 
 app.include_router(auth_router.router)
 app.include_router(library_router.router)
-app.middleware("http")(tenant_middleware)
 
 
 @app.get("/", response_class=HTMLResponse)
