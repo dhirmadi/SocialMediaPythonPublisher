@@ -1,5 +1,10 @@
 import json
+import logging
 from typing import Any
+
+from publisher_v2.utils.logging import log_json
+
+logger = logging.getLogger("publisher_v2.sidecar_parser")
 
 
 def parse_sidecar_text(text: str) -> tuple[str | None, dict[str, Any] | None]:
@@ -54,6 +59,9 @@ def parse_sidecar_text(text: str) -> tuple[str | None, dict[str, Any] | None]:
             try:
                 value = json.loads(raw_value)
             except json.JSONDecodeError:
+                # #134: keep the raw text, but never silently — a corrupt value
+                # (e.g. an old Python-repr dict) means data was lost upstream.
+                log_json(logger, logging.WARNING, "sidecar_metadata_json_invalid", key=key)
                 value = raw_value
         else:
             value = raw_value
@@ -98,6 +106,9 @@ def rehydrate_sidecar_view(text: str) -> dict[str, Any]:
                 if isinstance(decoded, dict):
                     caption_generated = decoded
             except json.JSONDecodeError:
+                # parse_sidecar_text already warned for values that look like JSON.
+                if not raw_generated.lstrip().startswith(("{", "[")):
+                    log_json(logger, logging.WARNING, "sidecar_metadata_json_invalid", key="caption_generated")
                 caption_generated = None
     has_sidecar = bool(sd_caption or metadata)
     return {

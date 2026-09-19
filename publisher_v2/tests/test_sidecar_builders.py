@@ -102,3 +102,121 @@ async def test_sidecar_with_platform_captions_roundtrips_caption_generated() -> 
     assert sd == "sd prompt line"
     assert meta is not None
     assert meta["caption_generated"] == platform_captions
+
+
+# --- #134: editing a caption must not corrupt caption_generated ---------------
+#
+# Real sidecar writer (generate_and_upload_sidecar), real updater
+# (update_sidecar_with_caption) and real parser, on the real DropboxStorage with
+# only the Dropbox SDK client faked in memory.
+
+
+class _InMemoryDropbox:
+    def __init__(self, *_args, **_kwargs) -> None:
+        self.files: dict[str, bytes] = {}
+
+    def files_upload(self, data: bytes, path: str, **_kwargs) -> None:
+        self.files[path] = data
+
+    def files_get_metadata(self, path: str):
+        import dropbox
+
+        return dropbox.files.FileMetadata(name=path.rsplit("/", 1)[1], id="id:1", rev="0123456789", size=1)
+
+    def files_download(self, path: str):
+        import dropbox
+        from dropbox.exceptions import ApiError
+
+        if path not in self.files:
+            raise ApiError("rid", dropbox.files.DownloadError.path(dropbox.files.LookupError.not_found), None, None)
+        from types import SimpleNamespace
+
+        return None, SimpleNamespace(content=self.files[path])
+
+
+def _config():
+    from publisher_v2.config.schema import (
+        ApplicationConfig,
+        CaptionFileConfig,
+        ContentConfig,
+        DropboxConfig,
+        OpenAIConfig,
+        PlatformsConfig,
+        StoragePathConfig,
+    )
+
+    return ApplicationConfig(
+        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
+        storage_paths=StoragePathConfig(image_folder="/Photos", archive_folder="archive"),
+        openai=OpenAIConfig(api_key="sk-test"),
+        platforms=PlatformsConfig(),
+        content=ContentConfig(hashtag_string="", archive=True, debug=False),
+        captionfile=CaptionFileConfig(extended_metadata_enabled=True),
+    )
+
+
+async def test_caption_edit_preserves_caption_generated(monkeypatch) -> None:
+    from publisher_v2.config.schema import DropboxConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.sidecar import generate_and_upload_sidecar, update_sidecar_with_caption
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+    from publisher_v2.services.storage import DropboxStorage
+
+    monkeypatch.setattr("publisher_v2.services.storage.dropbox.Dropbox", _InMemoryDropbox)
+    storage = DropboxStorage(DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"))
+    platform_captions = {"telegram": "TG caption — ünïcode", "email": "Email caption?"}
+    await generate_and_upload_sidecar(
+        storage=storage,
+        config=_config(),
+        filename="img.jpg",
+        analysis=ImageAnalysis(description="d", mood="m", tags=["t"]),
+        sd_caption="sd prompt line",
+        model_version="gpt-4o-mini",
+        platform_captions=platform_captions,
+    )
+    before = rehydrate_sidecar_view((await storage.download_sidecar_if_exists("/Photos", "img.jpg")).decode())
+    assert before["caption_generated"] == platform_captions
+
+    await update_sidecar_with_caption(storage, "/Photos", "img.jpg", "Operator's edited caption")
+    await update_sidecar_with_caption(storage, "/Photos", "img.jpg", "Edited again")
+
+    text = (await storage.download_sidecar_if_exists("/Photos", "img.jpg")).decode()
+    after = rehydrate_sidecar_view(text)
+    assert after["caption_generated"] == platform_captions
+    assert after["caption"] == "Edited again"
+    assert after["metadata"] == {
+        **before["metadata"],
+        **{k: after["metadata"][k] for k in ("caption", "caption_edited", "caption_updated_at")},
+    }
+    assert "{'" not in text  # never a Python repr
+
+
+def test_build_caption_sidecar_renders_dicts_as_json() -> None:
+    import json
+
+    text = build_caption_sidecar("sd", {"caption_generated": {"email": "é"}})
+    line = next(line for line in text.splitlines() if line.startswith("# caption_generated: "))
+    assert json.loads(line.split(": ", 1)[1]) == {"email": "é"}
+
+
+def test_malformed_json_metadata_value_is_logged(caplog) -> None:
+    import logging
+
+    from publisher_v2.services.sidecar_parser import parse_sidecar_text
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.sidecar_parser"):
+        _sd, meta = parse_sidecar_text("sd\n\n# ---\n# caption_generated: {'telegram': 'x'}\n")
+    assert meta is not None and meta["caption_generated"] == "{'telegram': 'x'}"
+    events = [r.getMessage() for r in caplog.records if r.name == "publisher_v2.sidecar_parser"]
+    assert any("sidecar_metadata_json_invalid" in e and "caption_generated" in e for e in events)
+
+
+def test_corrupt_caption_generated_warns_once_per_read(caplog) -> None:
+    import logging
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.sidecar_parser"):
+        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: {'telegram': 'x'}\n")
+    assert view["caption_generated"] is None
+    assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1

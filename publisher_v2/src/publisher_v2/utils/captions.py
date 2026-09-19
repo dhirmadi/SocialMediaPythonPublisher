@@ -218,7 +218,8 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     - First line: sd_caption
     - Blank line
     - '# ---'
-    - '# key: value' lines; arrays encoded as JSON arrays
+    - '# key: value' lines; arrays and objects encoded as JSON (#134: a dict via str()
+      became a Python repr that the parser could not read back)
     """
     lines: list[str] = []
     lines.append(sd_caption.strip())
@@ -227,7 +228,7 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     for key, value in metadata.items():
         if value is None:
             continue
-        rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, list) else str(value)
+        rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, list | dict) else str(value)
         lines.append(f"# {key}: {rendered}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
