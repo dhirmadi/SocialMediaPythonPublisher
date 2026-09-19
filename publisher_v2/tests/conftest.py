@@ -20,6 +20,12 @@ FIXTURE INVENTORY (QC-001 Centralization):
 
 from __future__ import annotations
 
+import os
+
+# Set before any publisher_v2.web import: web/app.py raises at import time
+# without a session secret, which would abort test collection in env-less CI.
+os.environ.setdefault("WEB_SESSION_SECRET", "test_secret_key_for_testing_only")
+
 from collections.abc import Generator
 from types import SimpleNamespace
 from typing import Any

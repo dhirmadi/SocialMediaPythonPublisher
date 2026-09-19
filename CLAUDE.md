@@ -7,7 +7,7 @@
 - **Install**: `uv sync` (prod) / `uv sync --group dev` (dev)
 - **Format + lint fix**: `uv run ruff format . && uv run ruff check --fix .`
 - **Lint only**: `uv run ruff check .`
-- **Type check**: `uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env`
+- **Type check**: `uv run mypy publisher_v2/src --ignore-missing-imports`
 - **Test**: `uv run pytest -v --tb=short`
 - **Test with coverage**: `uv run pytest -v --cov=. --cov-report=term`
 - **Preview (no side effects)**: `PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --config configfiles/fetlife.ini --preview`
@@ -147,7 +147,7 @@ Before considering any roadmap item complete, all gates must pass:
 |------|---------|-----------|
 | Format | `uv run ruff format --check .` | Zero reformats needed |
 | Lint | `uv run ruff check .` | Zero violations |
-| Type check | `uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env` | Zero errors |
+| Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` | Zero errors |
 | Tests | `uv run pytest -v --tb=short` | All pass |
 | Coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` | ≥80% affected, ≥85% overall |
 

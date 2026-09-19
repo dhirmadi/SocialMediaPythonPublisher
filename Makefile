@@ -86,7 +86,7 @@ lint:
 
 type-check:
 	@echo "Running mypy type checker..."
-	uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env || true
+	uv run mypy publisher_v2/src --ignore-missing-imports
 	@echo "✅ Type checking complete"
 
 test:
