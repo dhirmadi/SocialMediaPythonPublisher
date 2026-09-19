@@ -97,12 +97,17 @@ SAMPLE_S3_OBJECTS = [
 
 
 def _setup_s3_list(mock_service: MagicMock, objects: list[dict], is_truncated: bool = False) -> None:
-    """Configure mock S3 list_objects_v2 to return given objects in one page."""
-    mock_service.storage.client.list_objects_v2.return_value = {
-        "Contents": objects,
-        "IsTruncated": is_truncated,
-        "NextContinuationToken": "next-token" if is_truncated else None,
+    """#96: the router now uses only the storage protocol — fake list_objects."""
+    from unittest.mock import AsyncMock
+
+    page = {
+        "items": [
+            {"key": obj["Key"], "size": obj.get("Size", 0), "last_modified": obj.get("LastModified")} for obj in objects
+        ],
+        "cursor": "next-token" if is_truncated else None,
+        "is_truncated": is_truncated,
     }
+    mock_service.storage.list_objects = AsyncMock(return_value=page)
 
 
 # ---------------------------------------------------------------------------
@@ -593,11 +598,7 @@ class TestScanBudget:
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "2")
 
         # S3 returns 2 objects then says IsTruncated=True (more exist)
-        mock_service.storage.client.list_objects_v2.return_value = {
-            "Contents": SAMPLE_S3_OBJECTS[:2],
-            "IsTruncated": True,
-            "NextContinuationToken": "tok",
-        }
+        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS[:2], is_truncated=True)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -622,11 +623,7 @@ class TestScanBudget:
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "3")
 
         # Return 3 objects, S3 says more exist
-        mock_service.storage.client.list_objects_v2.return_value = {
-            "Contents": SAMPLE_S3_OBJECTS[:3],
-            "IsTruncated": True,
-            "NextContinuationToken": "tok",
-        }
+        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS[:3], is_truncated=True)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -679,14 +676,14 @@ class TestLegacyCursorPath:
         """AC13: cursor + no new params uses legacy S3 cursor pagination."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        mock_service.storage.client.list_objects_v2.return_value = {
-            "Contents": [
+        _setup_s3_list(
+            mock_service,
+            [
                 {"Key": "tenant/instance/img1.jpg", "Size": 100, "LastModified": "2026-01-01T00:00:00Z"},
                 {"Key": "tenant/instance/img2.jpg", "Size": 200, "LastModified": "2026-01-02T00:00:00Z"},
             ],
-            "IsTruncated": True,
-            "NextContinuationToken": "page2-token",
-        }
+            is_truncated=True,
+        )
 
         res = managed_app.get(
             "/api/library/objects?cursor=page1-token&limit=2",
@@ -695,7 +692,7 @@ class TestLegacyCursorPath:
         )
         assert res.status_code == 200
         data = res.json()
-        assert data["cursor"] == "page2-token"
+        assert data["cursor"] == "next-token"  # the fake page cursor
         assert data["total_in_window"] == 0
         assert data["truncated"] is False
 
@@ -710,10 +707,11 @@ class TestLegacyCursorPath:
         """AC13: Legacy cursor path has total_in_window=0, truncated=False."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        mock_service.storage.client.list_objects_v2.return_value = {
-            "Contents": [{"Key": "tenant/instance/img.jpg", "Size": 100, "LastModified": "2026-01-01"}],
-            "IsTruncated": False,
-        }
+        _setup_s3_list(
+            mock_service,
+            [{"Key": "tenant/instance/img.jpg", "Size": 100, "LastModified": "2026-01-01"}],
+            is_truncated=False,
+        )
 
         res = managed_app.get(
             "/api/library/objects?cursor=some-token",

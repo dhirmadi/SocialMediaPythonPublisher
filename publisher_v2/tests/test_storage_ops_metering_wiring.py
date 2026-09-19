@@ -171,6 +171,7 @@ class TestWebServiceWiring:
         svc.storage.download_sidecar_if_exists = AsyncMock(return_value=None)
         # #91 (SEC-11): analyze validates against the image listing.
         svc.storage.list_images = AsyncMock(return_value=["img.jpg"])
+        svc.storage.download_image = AsyncMock(return_value=b"image-bytes")
 
         # Disable analyze feature path so we exit early but still hit the flush.
         svc.config.features.analyze_caption_enabled = False

@@ -86,7 +86,13 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `FEATURE_PUBLISH` | `true` | When `false`, skips publishing (CLI + web); Web `/publish` returns HTTP 403. |
 | `FEATURE_KEEP_CURATE` | `true` | When `false`, disables Keep curation action; buttons hidden, `/keep` returns 403. |
 | `FEATURE_REMOVE_CURATE` | `true` | When `false`, disables Remove curation action; buttons hidden, `/remove` returns 403. |
-| `AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. |
+| `FEATURE_DELETE` | `false` | When `true`, enables the permanent-delete action in the admin review workflow. |
+| `FEATURE_AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. (`AUTO_VIEW` still works as a deprecated alias and logs a warning; `FEATURE_AUTO_VIEW` wins when both are set.) |
+| `FEATURE_ALT_TEXT` | `true` | When `false`, AI alt text is not attached to published images. |
+| `FEATURE_SMART_HASHTAGS` | `true` | When `false`, disables smart hashtag generation. |
+| `FEATURE_VOICE_MATCHING` | `false` | When `true`, enables brand-voice caption matching (requires a voice profile). |
+| `FEATURE_STORAGE_OPS_METERING` | `false` | When `true`, meters managed-storage operations to the orchestrator (orchestrator mode only). |
+| `FEATURE_LIBRARY` | auto | Overrides the library UI flag. Unset: auto-enabled when managed storage is configured, off for Dropbox-only. |
 
 **Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).
 **Invalid values:** Raise `ConfigurationError` at startup.

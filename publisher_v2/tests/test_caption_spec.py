@@ -1,4 +1,4 @@
-"""Tests for CaptionSpec.for_platforms() and backwards-compatible for_config() (AC16, AC17, AC8)."""
+"""Tests for CaptionSpec.for_platforms() (AC16, AC8). for_config was removed in #95."""
 
 from __future__ import annotations
 
@@ -87,20 +87,3 @@ class TestForPlatforms:
             assert spec.style
             assert isinstance(spec.style, str)
             assert len(spec.style) > 0
-
-
-class TestForConfigBackcompat:
-    """AC17: Existing for_config() still works (deprecated but functional)."""
-
-    def test_for_config_still_works_deprecated(self) -> None:
-        cfg = _make_config(email=True)
-        spec = CaptionSpec.for_config(cfg)
-        assert isinstance(spec, CaptionSpec)
-
-    def test_for_config_returns_single_spec(self) -> None:
-        cfg = _make_config(telegram=True, instagram=True)
-        spec = CaptionSpec.for_config(cfg)
-        assert isinstance(spec, CaptionSpec)
-        # Should be a valid CaptionSpec regardless
-        assert spec.platform
-        assert spec.max_length > 0

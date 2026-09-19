@@ -128,7 +128,9 @@ async def test_metadata_and_listing_helpers(storage_fixture) -> None:
     storage, client, metadata_cls = storage_fixture
     client.metadata_map["/Photos/image.jpg"] = metadata_cls(name="image.jpg", file_id="id", rev="rev")
     meta = await storage.get_file_metadata("/Photos", "image.jpg")
-    assert meta == {"id": "id", "rev": "rev"}
+    # #96: get_file_metadata returns backend-neutral FileMetadata, not a Dropbox-shaped dict
+    assert meta.file_id == "id"
+    assert meta.revision == "rev"
 
     client.list_entries = [
         metadata_cls(name="photo.JPG", content_hash="hash1"),

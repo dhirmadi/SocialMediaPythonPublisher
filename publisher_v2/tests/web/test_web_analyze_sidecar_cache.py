@@ -52,6 +52,8 @@ def _make_service(monkeypatch: pytest.MonkeyPatch, tmp_path, sidecar_text: str |
     service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
     # #91 (SEC-11): analyze validates the filename against the image listing.
     service.storage.list_images = AsyncMock(return_value=["img.jpg"])  # type: ignore[method-assign]
+    # #93: vision consumes the downloaded bytes instead of the presigned link.
+    service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
     blob = sidecar_text.encode() if sidecar_text is not None else None
     service.storage.download_sidecar_if_exists = AsyncMock(return_value=blob)  # type: ignore[method-assign]
 

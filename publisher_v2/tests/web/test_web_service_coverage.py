@@ -85,6 +85,7 @@ class TestWebImageServiceTTLParsing:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             assert service._image_cache_ttl_seconds == 120.0
 
@@ -106,6 +107,7 @@ class TestWebImageServiceTTLParsing:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Should use the default from static config, not crash
             assert service._image_cache_ttl_seconds > 0
@@ -128,6 +130,7 @@ class TestWebImageServiceTTLParsing:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Should use the default from static config (>0), not negative value
             assert service._image_cache_ttl_seconds > 0
@@ -154,6 +157,7 @@ class TestGetImageDetailsExceptionHandling:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage to raise an error
             service.storage.get_temporary_link = AsyncMock(side_effect=Exception("Storage error"))  # type: ignore[method-assign]
@@ -183,6 +187,7 @@ class TestGetThumbnailSizeMapping:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage get_thumbnail
             service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")  # type: ignore[method-assign]
@@ -211,6 +216,7 @@ class TestGetThumbnailSizeMapping:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage get_thumbnail
             service.storage.get_thumbnail = AsyncMock(return_value=b"thumbnail_bytes")  # type: ignore[method-assign]
@@ -246,6 +252,7 @@ class TestAnalyzeAndCaptionSdCaptionFallback:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage methods
             service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
@@ -293,6 +300,7 @@ class TestAnalyzeAndCaptionSidecarWriteException:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage methods
             service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
@@ -346,6 +354,7 @@ class TestListImages:
             service = WebImageService()
             # #91 (SEC-11): filename ops validate against the image listing.
             service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
+            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Mock storage to return unsorted list
             service.storage.list_images = AsyncMock(return_value=["zebra.jpg", "apple.jpg", "mango.jpg"])  # type: ignore[method-assign]

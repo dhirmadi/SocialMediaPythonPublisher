@@ -28,6 +28,9 @@ ALLOWED = {
     "db/__init__.py",  # DATABASE_URL presence check
     "utils/state.py",  # XDG_CACHE_HOME cache location
     "services/managed_storage.py",  # WEB_THUMBNAIL_CACHE_* (PUB-031 thumbnails)
+    "services/instagram_session.py",  # WEB_SESSION_SECRET/SECRET_KEY (#94 session
+    # encryption key, same category as web/auth.py) and XDG_CACHE_HOME (same
+    # category as utils/state.py)
     "tools/migrate_storage.py",  # standalone CLI with its own env contract
 }
 
