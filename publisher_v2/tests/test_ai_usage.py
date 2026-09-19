@@ -129,6 +129,10 @@ async def test_caption_generator_generate_with_sd_returns_usage_tuple() -> None:
     gen.sd_caption_model = "gpt-4o-mini"
     gen.sd_caption_system_prompt = "system"
     gen.sd_caption_role_prompt = "role"
+    # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
+    gen.system_prompt = "system"
+    gen.role_prompt = "role"
+    gen.sd_caption_brief = "sd brief"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
@@ -188,6 +192,10 @@ async def test_caption_generator_generate_multi_with_sd_returns_usage_tuple() ->
     gen.sd_caption_model = "gpt-4o-mini"
     gen.sd_caption_system_prompt = "system"
     gen.sd_caption_role_prompt = "role"
+    # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
+    gen.system_prompt = "system"
+    gen.role_prompt = "role"
+    gen.sd_caption_brief = "sd brief"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)

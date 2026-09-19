@@ -94,7 +94,10 @@ SHORT_LIMIT_MAX_TOKENS_SINGLE_SD = 256
 SHORT_LIMIT_MAX_TOKENS_MULTI = 512
 SHORT_LIMIT_TEMPERATURE = 0.5
 DEFAULT_CAPTION_TEMPERATURE = 0.7
-SD_LONG_TEMPERATURE = 0.6  # generate_with_sd / generate_multi_with_sd long-limit default
+SD_LONG_TEMPERATURE = 0.6  # generate_with_sd long-limit default (single-platform path)
+# #79: nudge caption variety on caption calls only — never vision, never condense.
+CAPTION_PRESENCE_PENALTY = 0.6
+MULTI_CALL_MAX_TOKENS_CAP = 4000
 CONDENSE_TEMPERATURE = 0.3
 CONDENSE_TIMEOUT_SECONDS = 10.0
 _CHARS_PER_WORD = 6  # rough heuristic for char→word conversion
@@ -111,6 +114,16 @@ CONDENSE_SYSTEM_PROMPT = (
 
 def _is_short_limit_value(max_length: int) -> bool:
     return max_length <= SHORT_LIMIT_THRESHOLD
+
+
+def _multi_call_max_tokens(specs: dict[str, CaptionSpec]) -> int:
+    """Token budget for a multi-platform call, scaled to the enabled platforms (#79).
+
+    A fixed 512-token cap silently truncated the JSON when Telegram (4096) and
+    Instagram (2200) shared the call with email. Budget ~1 token per 3 caption
+    characters plus headroom for JSON scaffolding and the SD prompt.
+    """
+    return min(sum(min(spec.max_length, 2200) for spec in specs.values()) // 3 + 400, MULTI_CALL_MAX_TOKENS_CAP)
 
 
 def _word_max(max_length: int) -> int:
@@ -865,6 +878,15 @@ class CaptionGeneratorOpenAI:
             # Keep current default.
             self.sd_caption_role_prompt = self.sd_caption_role_prompt
 
+        # #79: one-line brief for the sd_caption field on the multi-platform
+        # single-call path. A tenant-provided sd role prompt wins; otherwise a
+        # fixed one-liner (the full sd role template describes a two-output
+        # response shape that does not apply to the multi-platform JSON).
+        self.sd_caption_brief = cfg_sd_role or (
+            "optimized for Stable Diffusion prompts "
+            "(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood)"
+        )
+
     @_ai_retry
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
         try:
@@ -890,6 +912,7 @@ class CaptionGeneratorOpenAI:
                     {"role": "user", "content": prompt},
                 ],
                 "temperature": SHORT_LIMIT_TEMPERATURE if short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
             }
             if short:
                 create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_SINGLE
@@ -949,6 +972,7 @@ class CaptionGeneratorOpenAI:
                 ],
                 "response_format": {"type": "json_object"},
                 "temperature": SHORT_LIMIT_TEMPERATURE if short else SD_LONG_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
             }
             if short:
                 # SD variant returns a JSON object with both caption + sd_caption,
@@ -1184,7 +1208,9 @@ class CaptionGeneratorOpenAI:
             prompt, _ = self._build_multi_prompt(
                 self.role_prompt, analysis, specs, history, voice_examples=voice_examples
             )
-            any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
+            # #79: one short platform must not throttle the whole call — the
+            # per-platform word budgets and the condense pass handle shorts.
+            all_short = all(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.model,
                 "messages": [
@@ -1192,10 +1218,10 @@ class CaptionGeneratorOpenAI:
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},
-                "temperature": SHORT_LIMIT_TEMPERATURE if any_short else DEFAULT_CAPTION_TEMPERATURE,
+                "temperature": SHORT_LIMIT_TEMPERATURE if all_short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
+                "max_tokens": _multi_call_max_tokens(specs),
             }
-            if any_short:
-                create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_MULTI
             resp = await self.client.chat.completions.create(**create_kwargs)
             data = json.loads((resp.choices[0].message.content or "{}").strip())
             parsed = await self._parse_platform_captions(data, specs)
@@ -1218,30 +1244,31 @@ class CaptionGeneratorOpenAI:
         of the prompt (PUB-029).
         """
         try:
-            sd_suffix = (
-                "Also produce 'sd_caption' optimized for Stable Diffusion prompts "
-                "(PG-13 fine-art phrasing; include pose, styling/material, lighting, mood).\n\n"
-            )
+            # #79: social captions are the primary output — the copywriter
+            # persona writes them; sd_caption is a secondary field with a
+            # one-line brief. The prompt-engineer persona stays confined to
+            # the standalone generate_with_sd path.
+            sd_suffix = f"Also produce a secondary field 'sd_caption': {self.sd_caption_brief}.\n\n"
             prompt, _ = self._build_multi_prompt(
-                self.sd_caption_role_prompt,
+                self.role_prompt,
                 analysis,
                 specs,
                 history,
                 sd_suffix,
                 voice_examples=voice_examples,
             )
-            any_short = any(_is_short_limit_value(s.max_length) for s in specs.values())
+            all_short = all(_is_short_limit_value(s.max_length) for s in specs.values())
             create_kwargs: dict[str, Any] = {
                 "model": self.sd_caption_model,
                 "messages": [
-                    {"role": "system", "content": self.sd_caption_system_prompt},
+                    {"role": "system", "content": self.system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 "response_format": {"type": "json_object"},
-                "temperature": SHORT_LIMIT_TEMPERATURE if any_short else SD_LONG_TEMPERATURE,
+                "temperature": SHORT_LIMIT_TEMPERATURE if all_short else DEFAULT_CAPTION_TEMPERATURE,
+                "presence_penalty": CAPTION_PRESENCE_PENALTY,
+                "max_tokens": _multi_call_max_tokens(specs),
             }
-            if any_short:
-                create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_MULTI
             resp = await self.client.chat.completions.create(**create_kwargs)
             data = json.loads((resp.choices[0].message.content or "{}").strip())
             result = await self._parse_platform_captions(data, specs)
@@ -1323,8 +1350,16 @@ class AIService:
                 if usage is not None:
                     usages.append(usage)
                 return pair.get("caption", ""), pair.get("sd_caption") or None, usages
-            except Exception:  # noqa: S110 — intentional fallback to legacy caption-only path below
-                pass
+            except Exception as exc:
+                # Intentional fallback to the legacy caption-only path below —
+                # but the failure is a paid, silent second call, so log it (#79).
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "sd_caption_path_failed",
+                    path="single",
+                    error_type=type(exc).__name__,
+                )
         # Legacy fallback
         async with self._rate_limiter:
             caption_only, usage = await self.generator.generate(analysis, spec)
@@ -1367,8 +1402,16 @@ class AIService:
                     usages.append(usage)
                 sd_caption = result.pop("sd_caption", None) or None
                 return result, sd_caption, usages
-            except Exception:  # noqa: S110 — intentional fallback
-                pass
+            except Exception as exc:
+                # Intentional fallback to generate_multi below — but the failure
+                # is a paid, silent second call, so log it (#79).
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "sd_caption_path_failed",
+                    path="multi",
+                    error_type=type(exc).__name__,
+                )
         # Fallback to multi-caption without SD
         async with self._rate_limiter:
             captions, usage = await self.generator.generate_multi(
