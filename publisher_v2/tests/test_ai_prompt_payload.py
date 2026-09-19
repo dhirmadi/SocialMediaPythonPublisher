@@ -94,7 +94,12 @@ class TestDefaultSdMultiPathPersona:
 
         assert len(completions.calls) == 1
         system_content = completions.calls[0]["messages"][0]["content"]
-        assert "copywriter" in system_content
+        # #82 replaced the generic "senior social media copywriter" system prompt with a
+        # named voice brief (still the caption persona, not the SD prompt-engineer persona).
+        # Assert against the actual configured personas rather than the exact wording so this
+        # doesn't re-break every time the voice brief copy is tuned.
+        assert system_content == gen.system_prompt
+        assert system_content != gen.sd_caption_role_prompt
         assert "prompt engineer" not in system_content
 
     async def test_sd_caption_still_requested_in_user_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:

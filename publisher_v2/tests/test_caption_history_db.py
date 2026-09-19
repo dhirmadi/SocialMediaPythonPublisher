@@ -216,11 +216,22 @@ class TestPerPlatformHistoryBlock:
         from publisher_v2.services.ai import build_platform_block
 
         spec = CaptionSpec(platform="email", style="intimate question", max_length=240, hashtags="")
-        block = build_platform_block(1, "email", spec, platform_history=["Cap A", "Cap B"])
-        assert "Your recent email captions" in block
-        assert '"Cap A"' in block
-        assert '"Cap B"' in block
+        # #82: history renders as constraints, never as full quoted captions.
+        block = build_platform_block(
+            1,
+            "email",
+            spec,
+            platform_history=[
+                "Cap A about the slow morning light in here",
+                "Cap B asking what you would notice first today?",
+            ],
+        )
+        assert "Recent openings to avoid" in block
+        assert "Cap A about the slow morning" in block
+        assert "Cap A about the slow morning light in here" not in block
+        assert "closing patterns to avoid" in block.lower()
         assert "DIFFERENT openings" in block
+        assert "Structure directive:" in block
 
     def test_build_platform_block_without_history(self) -> None:
         from publisher_v2.core.models import CaptionSpec
@@ -253,10 +264,10 @@ class TestMultiPromptPerPlatformHistory:
 
         prompt, _ = CaptionGeneratorOpenAI._build_multi_prompt("Write captions:", analysis, specs, history)
 
-        assert "recent email captions" in prompt
-        assert '"Email cap 1"' in prompt
-        assert "recent telegram captions" in prompt
+        # #82: per-platform history becomes per-platform constraints.
+        assert '"Email cap 1"' in prompt  # ≤6 words → opening equals the caption
         assert '"Telegram cap 1"' in prompt
+        assert "Recent openings to avoid" in prompt
 
     def test_flat_list_history_still_works(self) -> None:
         from publisher_v2.core.models import CaptionSpec, ImageAnalysis
@@ -268,8 +279,9 @@ class TestMultiPromptPerPlatformHistory:
 
         prompt, _ = CaptionGeneratorOpenAI._build_multi_prompt("Write captions:", analysis, specs, history)
 
-        assert "DO NOT repeat phrasing" in prompt
-        assert '"Cap 1"' in prompt
+        # #82: flat legacy history also renders as constraints.
+        assert "openings to avoid" in prompt.lower()
+        assert '"Cap 1"' in prompt  # ≤6 words → opening equals the caption
 
     def test_none_history_produces_no_block(self) -> None:
         from publisher_v2.core.models import CaptionSpec, ImageAnalysis

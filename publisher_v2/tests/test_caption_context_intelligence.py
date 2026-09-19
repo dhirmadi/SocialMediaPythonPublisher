@@ -122,7 +122,9 @@ class TestCaptionHistoryConfig:
         from publisher_v2.config.static_loader import CaptionHistoryConfig
 
         cfg = CaptionHistoryConfig()
-        assert cfg.window_size == 8
+        # #82: window reduced from 8 to 3 — few-shot of the model's own
+        # output anchors style; a small window keeps constraints, not examples.
+        assert cfg.window_size == 3
         assert cfg.max_tokens_budget == 1000
 
     def test_caption_history_custom(self) -> None:
@@ -137,16 +139,19 @@ class TestCaptionHistoryPrompt:
     """AC6/AC8: History is injected into prompt with anti-repetition instructions."""
 
     def test_build_history_block_with_captions(self) -> None:
+        # #82: history is rendered as constraints (openings/closings to avoid),
+        # never as full quoted captions that anchor the model's style.
         from publisher_v2.services.ai import build_history_block
 
-        captions = ["Caption one", "Caption two", "Caption three"]
+        captions = [
+            "Caption one about quiet mornings in the studio today",
+            "Did you notice the second one at all here?",
+        ]
         block = build_history_block(captions)
-        assert "recent captions" in block.lower()
-        assert "1. " in block
-        assert "Caption one" in block
-        assert "Caption three" in block
-        assert "DO NOT repeat" in block
-        assert "DIFFERENT" in block
+        assert "openings to avoid" in block.lower()
+        assert "closing patterns to avoid" in block.lower()
+        for full in captions:
+            assert full not in block
 
     def test_build_history_block_empty(self) -> None:
         from publisher_v2.services.ai import build_history_block
@@ -411,15 +416,22 @@ class TestHistoryIntegration:
 
         analysis = ImageAnalysis(description="test", mood="calm", tags=["art"])
         specs = {"telegram": CaptionSpec(platform="telegram", style="test", hashtags="", max_length=4096)}
-        history = ["Previous caption one", "Previous caption two"]
+        history = [
+            "Previous caption one about the quiet light in the studio",
+            "Previous caption two asking what you would notice first?",
+        ]
 
         await gen.generate_multi(analysis, specs, history=history)
 
         assert len(captured_prompts) == 1
         prompt = captured_prompts[0]
-        assert "Previous caption one" in prompt
-        assert "Previous caption two" in prompt
-        assert "DO NOT repeat" in prompt
+        # #82: history renders as constraints (openings/closings), never as
+        # full quoted captions that anchor the model's style.
+        assert "openings to avoid" in prompt.lower()
+        for full in history:
+            assert full not in prompt
+        assert "Previous caption one about the quiet" in prompt
+        assert "Previous caption two asking what you" in prompt
 
 
 # ---------------------------------------------------------------------------
@@ -499,3 +511,33 @@ class TestUpdateSidecarWithCaption:
         assert meta is not None
         assert meta["caption"] == "My manual caption"
         assert meta["caption_edited"] == "True"
+
+
+class TestHistoryAsConstraints:
+    """#82: no full historical caption is ever quoted into a prompt."""
+
+    def test_platform_block_renders_openings_not_full_captions(self) -> None:
+        from publisher_v2.core.models import CaptionSpec
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
+        history = [
+            "Soft rope steady hands and a gaze that does not flinch tonight",
+            "Did you see how the light wraps around the second knot there?",
+        ]
+        block = build_platform_block(1, "email", spec, platform_history=history)
+        assert "openings to avoid" in block.lower()
+        assert "closing patterns to avoid" in block.lower()
+        for full in history:
+            assert full not in block
+        # First six words of each opening are present as the avoid-list.
+        assert "Soft rope steady hands and a" in block
+        assert "Did you see how the light" in block
+
+    def test_platform_block_includes_structure_directive(self) -> None:
+        from publisher_v2.core.models import CaptionSpec
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
+        block = build_platform_block(1, "email", spec, platform_history=["An earlier caption line here."])
+        assert "Structure directive:" in block

@@ -30,7 +30,12 @@ vision:
 
 caption:
   system: >
-    You are a senior social media copywriter. Write authentic, concise, platform-aware captions.
+    You are the artist writing about your own fine-art rope and figure photography, speaking to an
+    adult audience of collectors and kink-aware art lovers. Voice: first person, concrete, unhurried,
+    confident; specific sensory detail over abstraction.
+    BANNED CONSTRUCTIONS (never use): rhetorical-question openers; the "isn't just X, it's Y" pattern;
+    "step into"; strings of trailing emoji; ellipsis endings ("..."); generic engagement bait
+    ("tag someone who...", "double tap if...").
   role: "Write a caption for:"
 
 sd_caption:
@@ -50,7 +55,7 @@ platform_captions:
     max_length: 4096
     hashtags: false
   instagram:
-    style: "hook-first, hashtags woven naturally, engaging, visual storytelling"
+    style: "open with one specific visual detail from the image; first-person artist voice; no rhetorical-question opener; at most one emoji; hashtags woven at the end"
     max_length: 2200
     hashtags: true
   email:
