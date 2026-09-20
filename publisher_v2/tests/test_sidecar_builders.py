@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from publisher_v2.services.sidecar_parser import parse_sidecar_text
 from publisher_v2.services.storage_protocol import FileMetadata
 from publisher_v2.utils.captions import (
     build_caption_sidecar,
@@ -200,14 +201,21 @@ def test_build_caption_sidecar_renders_dicts_as_json() -> None:
 
 
 def test_malformed_json_metadata_value_is_logged(caplog) -> None:
+    """#134 AC2: a malformed value is kept as raw text and logged, never swallowed.
+
+    This originally used `{'telegram': 'x'}` — a Python repr, which the review
+    follow-up now RECOVERS rather than reporting as lost. The criterion is about
+    values that cannot be salvaged, so the example is now one that genuinely
+    cannot: recovery is covered by its own tests below.
+    """
     import logging
 
     from publisher_v2.services.sidecar_parser import parse_sidecar_text
 
-    with caplog.at_level(logging.WARNING, logger="publisher_v2.sidecar_parser"):
-        _sd, meta = parse_sidecar_text("sd\n\n# ---\n# caption_generated: {'telegram': 'x'}\n")
-    assert meta is not None and meta["caption_generated"] == "{'telegram': 'x'}"
-    events = [r.getMessage() for r in caplog.records if r.name == "publisher_v2.sidecar_parser"]
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        _sd, meta = parse_sidecar_text("sd\n\n# ---\n# caption_generated: {not parseable\n")
+    assert meta is not None and meta["caption_generated"] == "{not parseable"
+    events = [r.getMessage() for r in caplog.records if r.name == "publisher_v2.services.sidecar_parser"]
     assert any("sidecar_metadata_json_invalid" in e and "caption_generated" in e for e in events)
 
 
@@ -216,7 +224,278 @@ def test_corrupt_caption_generated_warns_once_per_read(caplog) -> None:
 
     from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
 
-    with caplog.at_level(logging.WARNING, logger="publisher_v2.sidecar_parser"):
-        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: {'telegram': 'x'}\n")
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: {not parseable\n")
     assert view["caption_generated"] is None
     assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_a_recovered_legacy_value_is_still_reported_once(caplog) -> None:
+    """Recovery must not become silence: the file on disk is still in the broken shape.
+
+    The value is returned intact, so nothing is lost, but one WARNING per read
+    records that a sidecar still needs rewriting.
+    """
+    import logging
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: {'telegram': 'x'}\n")
+
+    assert view["caption_generated"] == {"telegram": "x"}
+    assert sum("sidecar_metadata_legacy_repr_recovered" in r.getMessage() for r in caplog.records) == 1
+
+
+# --- #134 review follow-up -----------------------------------------------------
+
+
+def test_multi_line_string_values_survive_the_round_trip() -> None:
+    """A caption with a blank line lost everything after the first newline.
+
+    The sidecar is a line-oriented `# key: value` format, so a raw multi-line
+    value cannot round-trip; it has to be encoded. This matters as soon as #150
+    persists per-platform caption text, which routinely carries line breaks.
+    """
+    caption = "First line.\n\n#rope #shibari"
+
+    text = build_caption_sidecar("sd", {"caption": caption})
+    _, metadata = parse_sidecar_text(text)
+
+    assert metadata is not None
+    assert metadata["caption"] == caption
+
+
+def test_multi_line_values_inside_a_dict_survive_the_round_trip() -> None:
+    generated = {"telegram": "Line one.\nLine two.", "email": "Subject line"}
+
+    text = build_caption_sidecar("sd", {"caption_generated": generated})
+    _, metadata = parse_sidecar_text(text)
+
+    assert metadata is not None
+    assert metadata["caption_generated"] == generated
+
+
+def test_a_caption_that_merely_starts_with_a_quote_is_left_alone() -> None:
+    """The compatibility trap: quoting strings makes `"Hello"` ambiguous.
+
+    An existing sidecar can hold `# caption: "Hello"` meaning a caption with
+    literal quotes. JSON-decoding every quoted value would silently strip them.
+    Only values carrying a JSON escape — which a multi-line value always does,
+    since its newline must be escaped — are decoded.
+    """
+    quoted = '"Hello"'
+
+    text = build_caption_sidecar("sd", {"caption": quoted})
+    _, metadata = parse_sidecar_text(text)
+
+    assert metadata is not None
+    assert metadata["caption"] == quoted
+
+
+def test_old_single_line_sidecars_parse_exactly_as_before() -> None:
+    """Nothing about the existing on-disk format changes for values without newlines."""
+    text = build_caption_sidecar("sd prompt", {"caption": "A plain caption", "mood": "calm"})
+
+    assert "# caption: A plain caption" in text
+    assert "# mood: calm" in text
+
+    _, metadata = parse_sidecar_text(text)
+    assert metadata == {"caption": "A plain caption", "mood": "calm"}
+
+
+def test_a_python_repr_dict_left_by_the_old_builder_is_recovered() -> None:
+    """Sidecars already written with `str(dict)` are not repaired by the fix alone.
+
+    Every read of one logged a warning and dropped the per-platform captions.
+    The values are recoverable — they are Python literals — so recover them
+    instead of asking the operator to regenerate the file.
+    """
+    corrupt = "sd prompt\n\n# ---\n# caption_generated: {'telegram': 'TG cap', 'email': 'Email cap'}\n"
+
+    _, metadata = parse_sidecar_text(corrupt)
+
+    assert metadata is not None
+    assert metadata["caption_generated"] == {"telegram": "TG cap", "email": "Email cap"}
+
+
+def test_recovery_is_restricted_to_plain_string_mappings(caplog) -> None:
+    """`ast.literal_eval` is safe, but the recovery still should not accept anything exotic."""
+    import logging
+
+    corrupt = "sd\n\n# ---\n# caption_generated: {'a': ('tuple', 'value')}\n"
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        _, metadata = parse_sidecar_text(corrupt)
+
+    assert metadata is not None
+    assert metadata["caption_generated"] == "{'a': ('tuple', 'value')}"
+    assert "sidecar_metadata_json_invalid" in caplog.text
+
+
+def test_an_unrecoverable_value_names_the_file_it_came_from(caplog) -> None:
+    """The warning said which key was bad but not which of thousands of files."""
+    import logging
+
+    corrupt = "sd\n\n# ---\n# caption_generated: {not parseable at all\n"
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        parse_sidecar_text(corrupt, source="IMG_0042.jpg.txt")
+
+    assert "IMG_0042.jpg.txt" in caplog.text
+
+
+def test_an_unhashable_literal_does_not_crash_the_parser(caplog) -> None:
+    """`ast.literal_eval("{{}}")` raises TypeError, which is not a parse error.
+
+    Sidecars come from Dropbox, nothing wraps these call sites in try/except,
+    and four characters on one line would have turned the image listing into a
+    500. Before the recovery existed this value was simply kept as raw text.
+    """
+    import logging
+
+    for hostile in ("{{}}", "{[1]: 2}", "{{1,2}: 3}"):
+        text = f"sd\n\n# ---\n# caption_generated: {hostile}\n"
+
+        with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+            _, metadata = parse_sidecar_text(text)
+
+        assert metadata is not None
+        assert metadata["caption_generated"] == hostile
+
+
+def test_every_line_break_python_recognises_is_encoded() -> None:
+    """`str.splitlines()` splits on more than \\n, so checking for \\n alone is not enough.
+
+    A value containing \\r, \\x0b, \\x0c, \\x85, U+2028 or U+2029 was still
+    truncated at that character, silently and with no warning — the exact bug
+    the multi-line fix was meant to close.
+    """
+    for breaker in ("\r", "\x0b", "\x0c", "\x85", "\u2028", "\u2029"):
+        value = f"before{breaker}after"
+
+        text = build_caption_sidecar("sd", {"caption": value})
+        _, metadata = parse_sidecar_text(text)
+
+        assert metadata is not None, breaker
+        assert metadata["caption"] == value, f"{breaker!r} was not preserved"
+
+
+def test_a_single_line_caption_containing_a_backslash_sequence_is_untouched() -> None:
+    """Quoted + a literal backslash escape must not be mistaken for JSON.
+
+    These read back verbatim before the encoding change, and rewriting them
+    would corrupt real captions: a Windows path, an escaped quote, or text that
+    merely mentions `\\n`.
+    """
+    for value in ('"Type \\n for a newline"', '"C:\\\\Users\\\\me"', '"He said \\"hi\\""'):
+        text = build_caption_sidecar("sd", {"caption": value})
+        _, metadata = parse_sidecar_text(text)
+
+        assert metadata is not None
+        assert metadata["caption"] == value, f"{value!r} was rewritten"
+
+
+def test_recovery_does_not_turn_a_caption_into_a_dict() -> None:
+    """Only `caption_generated` was ever written as a mapping by the old builder.
+
+    A caption whose text happens to look like a dict is a string, and turning
+    it into one makes it vanish from the UI, which requires `caption` to be a
+    str.
+    """
+    text = "sd\n\n# ---\n# caption: {'a': 'b'}\n"
+
+    _, metadata = parse_sidecar_text(text)
+
+    assert metadata is not None
+    assert metadata["caption"] == "{'a': 'b'}"
+
+
+def test_a_corrupt_marked_value_warns_only_once_per_read(caplog) -> None:
+    """The parser and the view both warned for the same unreadable value.
+
+    This originally used a quoted value (`"a" or "b\\n"`). Once the encoded
+    form became an explicit `!json ` marker, a merely-quoted value is ordinary
+    text and warns nowhere — correctly. A marked value that will not decode is
+    the shape that genuinely warns, so the once-per-read guarantee is pinned
+    there instead.
+    """
+    import logging
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: !json {bad\n")
+
+    assert view["caption_generated"] is None
+    assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1
+
+
+def test_a_merely_quoted_value_is_ordinary_text_and_warns_nowhere(caplog) -> None:
+    """Nothing about a quoted value implies it was encoded, so it is not corruption."""
+    import logging
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        _, metadata = parse_sidecar_text('sd\n\n# ---\n# caption: "a" or "b\\n"\n')
+
+    assert metadata is not None
+    assert metadata["caption"] == '"a" or "b\\n"'
+    assert "sidecar_metadata_json_invalid" not in caplog.text
+
+
+def test_a_corrupt_marked_value_is_logged_not_swallowed(caplog) -> None:
+    """A marked value that will not decode is unambiguous corruption.
+
+    The file itself asserts the value was encoded, so a failed decode cannot be
+    mistaken for ordinary text — and silently keeping the raw string is exactly
+    what AC2 forbids.
+    """
+    import logging
+
+    for corrupt in ("!json {bad", "!json 123", '!json "unterminated'):
+        caplog.clear()
+        text = f"sd\n\n# ---\n# caption: {corrupt}\n"
+
+        with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+            _, metadata = parse_sidecar_text(text, source="IMG_7.jpg.txt")
+
+        assert metadata is not None
+        assert metadata["caption"] == corrupt
+        assert "sidecar_metadata_json_invalid" in caplog.text, corrupt
+        assert "IMG_7.jpg.txt" in caplog.text, corrupt
+
+
+def test_a_caption_that_starts_with_the_marker_round_trips() -> None:
+    """The marker is an on-disk contract, so the builder must escape it too.
+
+    Otherwise a caption literally beginning `!json "` is read back as the
+    string it appears to encode, silently losing its prefix and quotes.
+    """
+    for value in ('!json "hi"', "!json hello", "!json [1,2]"):
+        text = build_caption_sidecar("sd", {"caption": value})
+        _, metadata = parse_sidecar_text(text)
+
+        assert metadata is not None
+        assert metadata["caption"] == value, f"{value!r} did not survive"
+
+
+def test_an_undetectable_caption_generated_value_is_still_reported(caplog) -> None:
+    """A plain string under `caption_generated` is dropped, so it has to be reported.
+
+    The parser cannot warn about it — it is not JSON-looking, not marked and
+    not a repr, so as a metadata value it is perfectly well-formed. Only the
+    view knows the key must hold a mapping, so the view is where the loss
+    becomes visible and must be logged.
+    """
+    import logging
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    for undetectable in ("plain text", "!json{bad", "[1,2]"):
+        caplog.clear()
+        with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+            view = rehydrate_sidecar_view(f"sd\n\n# ---\n# caption_generated: {undetectable}\n", source="IMG_9.jpg.txt")
+
+        assert view["caption_generated"] is None, undetectable
+        assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1, undetectable
+        assert "IMG_9.jpg.txt" in caplog.text, undetectable

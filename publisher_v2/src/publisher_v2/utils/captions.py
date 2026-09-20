@@ -212,6 +212,25 @@ def build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, Any]:
     return meta
 
 
+# Everything str.splitlines() splits on. Checking for "\n" alone left a value
+# containing \r or U+2028 truncated at that character, silently.
+LINE_BREAKS = "\n\r\x0b\x0c\x85\u2028\u2029"
+
+# Prefix for a string value the builder had to JSON-encode. Explicit because
+# the encoding is otherwise indistinguishable from a caption that quotes itself
+# and mentions a backslash escape: `"Type \\n for a newline"` decodes to the
+# same thing as a genuinely two-line value.
+ENCODED_STRING_MARKER = "!json "
+
+
+def _escape_line_breaks(rendered: str) -> str:
+    """json.dumps(ensure_ascii=False) leaves these raw, and splitlines() splits on them."""
+    for ch in LINE_BREAKS:
+        if ch in rendered:
+            rendered = rendered.replace(ch, f"\\u{ord(ch):04x}")
+    return rendered
+
+
 def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     """
     Compose the sidecar file content:
@@ -220,6 +239,15 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     - '# ---'
     - '# key: value' lines; arrays and objects encoded as JSON (#134: a dict via str()
       became a Python repr that the parser could not read back)
+    - a string that spans lines is written as `!json "<json string>"`. The
+      format is one line per key, so an unencoded multi-line value loses
+      everything after its first line, and "spans lines" means any character
+      `str.splitlines()` splits on, not just `\n`. The marker is explicit
+      because a quoted value is otherwise ambiguous: `"Type \\n for a newline"`
+      is a valid single-line caption that decodes exactly like a two-line one.
+      A string that merely starts with the marker is encoded too, so the
+      format is total. Every other single-line string is written bare, so
+      existing sidecars keep their current shape.
     """
     lines: list[str] = []
     lines.append(sd_caption.strip())
@@ -228,7 +256,16 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     for key, value in metadata.items():
         if value is None:
             continue
-        rendered = json.dumps(value, ensure_ascii=False) if isinstance(value, list | dict) else str(value)
+        if isinstance(value, list | dict):
+            rendered = _escape_line_breaks(json.dumps(value, ensure_ascii=False))
+        elif isinstance(value, str) and (
+            any(ch in value for ch in LINE_BREAKS) or value.startswith(ENCODED_STRING_MARKER)
+        ):
+            # Marked, so the parser never has to guess whether a quoted value
+            # was encoded or is simply a caption containing quotes.
+            rendered = ENCODED_STRING_MARKER + _escape_line_breaks(json.dumps(value, ensure_ascii=False))
+        else:
+            rendered = str(value)
         lines.append(f"# {key}: {rendered}")
     lines.append("")  # trailing newline
     return "\n".join(lines)
