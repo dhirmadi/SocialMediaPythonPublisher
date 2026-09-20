@@ -28,10 +28,6 @@ class _DummyOrchestrator:
 
 @pytest.fixture
 def web_service_keep_remove(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
-    import os
-
-    os.environ.setdefault("CONFIG_PATH", "configfiles/fetlife.ini")
-
     cfg = ApplicationConfig(
         dropbox=DropboxConfig(
             app_key="k",

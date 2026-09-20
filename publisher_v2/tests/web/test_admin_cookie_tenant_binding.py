@@ -9,7 +9,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
 from publisher_v2.web.auth import (
@@ -94,30 +94,67 @@ def test_require_admin_403_when_tenant_auth_disabled(monkeypatch: pytest.MonkeyP
 
 
 def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Integration-style: same app, two hosts; cookie from host a replayed on host b."""
+    """Real app, real chain (Session -> CSRF -> tenant_middleware -> require_admin).
+
+    The replay is exercised as both a GET and a mutating POST: only the POST
+    passes through the CSRF middleware, and the matching-tenant POST at the end
+    proves the cross-tenant 403 comes from the tenant binding, not from CSRF.
+
+    #135: previously a fake FastAPI app with a fake tenant middleware. Now only the
+    orchestrator config source (external service) and the tenant service factory
+    are stubbed; the real tenant_middleware sets request.state.tenant/host from the
+    Host header, and a cookie minted for tenant a is replayed against tenant b.
+    """
+    from publisher_v2.web.app import app
+
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    monkeypatch.setenv("web_admin_pw", "secret")
+    monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orch.test")
+    monkeypatch.delenv("CONFIG_SOURCE", raising=False)
 
-    app = FastAPI()
+    def _tenant_config() -> SimpleNamespace:
+        return SimpleNamespace(
+            auth0=SimpleNamespace(domain="t.auth0.com"),
+            content=SimpleNamespace(voice_profile=None),
+            features=SimpleNamespace(voice_matching_enabled=False),
+        )
 
-    @app.middleware("http")
-    async def fake_tenant_middleware(request: Request, call_next):
-        host = request.headers.get("host", "")
-        request.state.host = host
-        request.state.tenant = host.split(".", 1)[0]
-        return await call_next(request)
+    class _FakeOrchestratorSource:
+        async def get_config(self, host: str) -> SimpleNamespace:
+            return SimpleNamespace(host=host, tenant=host.split(".", 1)[0], config=_tenant_config())
 
-    @app.post("/mutate")
-    async def mutate(request: Request) -> dict:
-        require_admin(request)
-        return {"ok": True}
+    class _FakeFactory:
+        async def get_service(self, _source: object, runtime: SimpleNamespace) -> SimpleNamespace:
+            return SimpleNamespace(config=runtime.config)
 
-    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="password")
+    monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
+    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda: _FakeFactory())
+
+    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
 
     client_a = TestClient(app, base_url="http://a.example.test")
     client_a.cookies.set(ADMIN_COOKIE_NAME, cookie)
-    assert client_a.post("/mutate").status_code == 200
+    assert client_a.get("/api/config/voice-profile").status_code == 200
 
     client_b = TestClient(app, base_url="http://b.example.test")
     client_b.cookies.set(ADMIN_COOKIE_NAME, cookie)
-    assert client_b.post("/mutate").status_code == 403
+    res = client_b.get("/api/config/voice-profile")
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Admin privileges required"
+
+    # A read never reaches the CSRF middleware, so replay a mutating request too:
+    # this is the request shape an attacker would actually want, and it has to be
+    # refused by the tenant binding, not merely by CSRF.
+    csrf_headers = {"X-Requested-With": "XMLHttpRequest", "Origin": "http://b.example.test"}
+    res = client_b.post("/api/config/voice-profile", json={"voice_profile": ["stolen"]}, headers=csrf_headers)
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Admin privileges required"
+
+    # ...and the same mutation from the tenant the cookie was minted for succeeds,
+    # which proves the 403 above is the tenant binding and not the CSRF gate.
+    client_a.cookies.set(ADMIN_COOKIE_NAME, cookie)
+    res = client_a.post(
+        "/api/config/voice-profile",
+        json={"voice_profile": ["mine"]},
+        headers={"X-Requested-With": "XMLHttpRequest", "Origin": "http://a.example.test"},
+    )
+    assert res.status_code == 200, res.text

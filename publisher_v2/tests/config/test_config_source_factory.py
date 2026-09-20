@@ -6,18 +6,10 @@ from publisher_v2.config.source import clear_config_source_cache, get_config_sou
 from publisher_v2.core.exceptions import ConfigurationError
 
 
-def test_protocol_shape_smoke() -> None:
+def test_protocol_shape_smoke(env_first_config: None) -> None:
     # Just ensure factory returns an object with required methods.
-    # Need minimal env-first config so EnvConfigSource can initialize.
-    import os
-
-    os.environ["STORAGE_PATHS"] = '{"root": "/Photos"}'
-    os.environ["PUBLISHERS"] = "[]"
-    os.environ["OPENAI_SETTINGS"] = "{}"
-    os.environ["DROPBOX_APP_KEY"] = "test_app_key"
-    os.environ["DROPBOX_APP_SECRET"] = "test_app_secret"
-    os.environ["DROPBOX_REFRESH_TOKEN"] = "test_refresh_token"
-    os.environ["OPENAI_API_KEY"] = "sk-test-key-for-testing-purposes-only"
+    # #135: env via the shared fixture (monkeypatch) — this test used to write
+    # os.environ directly and leak env-first config into every later test.
     clear_config_source_cache()
     src = get_config_source()
     assert hasattr(src, "get_config")

@@ -196,3 +196,28 @@ class TestSdFallbackLogging:
         assert caption == "caption"
         assert sd is None
         assert any("sd_caption_path_failed" in r.getMessage() for r in caplog.records)
+
+
+async def test_service_path_sends_caption_persona_system_message(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#135: through AIService.create_multi_caption_pair_from_analysis with the default config —
+    the request that reaches the OpenAI client carries the caption persona, not the SD prompt engineer."""
+    from publisher_v2.services.ai import VisionAnalyzerOpenAI
+
+    completions = _FakeCompletions(_sd_response())
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    cfg = _default_config()
+    generator = CaptionGeneratorOpenAI(cfg)
+    service = AIService(VisionAnalyzerOpenAI(cfg), generator)
+
+    captions, sd_caption, _usages = await service.create_multi_caption_pair_from_analysis(
+        _make_analysis(), _make_specs()
+    )
+
+    assert captions == {"telegram": "t", "instagram": "i", "email": "e"}
+    assert sd_caption == "sd prompt"
+    assert len(completions.calls) == 1
+    messages = completions.calls[0]["messages"]
+    assert messages[0]["role"] == "system"
+    assert messages[0]["content"] == generator.system_prompt
+    assert "prompt engineer" not in messages[0]["content"].lower()
+    assert "sd_caption" in messages[1]["content"]

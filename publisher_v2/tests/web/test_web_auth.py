@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from publisher_v2.web.auth import require_auth
 
 
-def _make_app(env: dict[str, str]) -> TestClient:
+def _make_app(env: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> TestClient:
     app = FastAPI()
 
     @app.get("/protected")
@@ -24,32 +24,30 @@ def _make_app(env: dict[str, str]) -> TestClient:
         app.state.request = request
         return await call_next(request)
 
-    # Patch env for this client only: clear relevant keys then set provided ones
-    import os
-
+    # Patch env for this test only (#135: via monkeypatch, so nothing leaks).
     for key in ("WEB_AUTH_TOKEN", "WEB_AUTH_USER", "WEB_AUTH_PASS"):
-        os.environ.pop(key, None)
+        monkeypatch.delenv(key, raising=False)
     for k, v in env.items():
-        os.environ[k] = v
+        monkeypatch.setenv(k, v)
 
     return TestClient(app)
 
 
 def test_require_auth_bearer_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_app({"WEB_AUTH_TOKEN": "secret-token"})
+    client = _make_app({"WEB_AUTH_TOKEN": "secret-token"}, monkeypatch)
     res = client.get("/protected", headers={"Authorization": "Bearer secret-token"})
     assert res.status_code == 200
 
 
 def test_require_auth_bearer_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_app({"WEB_AUTH_TOKEN": "secret-token"})
+    client = _make_app({"WEB_AUTH_TOKEN": "secret-token"}, monkeypatch)
     res = client.get("/protected", headers={"Authorization": "Bearer wrong"})
     assert res.status_code == 401
 
 
 def test_require_auth_basic_success(monkeypatch: pytest.MonkeyPatch) -> None:
     token = base64.b64encode(b"user:pass").decode("ascii")
-    client = _make_app({"WEB_AUTH_USER": "user", "WEB_AUTH_PASS": "pass"})
+    client = _make_app({"WEB_AUTH_USER": "user", "WEB_AUTH_PASS": "pass"}, monkeypatch)
     res = client.get("/protected", headers={"Authorization": f"Basic {token}"})
     assert res.status_code == 200
 
@@ -59,7 +57,7 @@ def test_require_auth_fails_closed_without_env(monkeypatch: pytest.MonkeyPatch) 
     requests. Operators must opt in explicitly via WEB_ALLOW_UNAUTHENTICATED."""
     for key in ("WEB_ALLOW_UNAUTHENTICATED", "web_admin_pw", "AUTH0_DOMAIN", "AUTH0_CLIENT_ID"):
         monkeypatch.delenv(key, raising=False)
-    client = _make_app({})
+    client = _make_app({}, monkeypatch)
     res = client.get("/protected")
     assert res.status_code == 503
 
@@ -67,7 +65,7 @@ def test_require_auth_fails_closed_without_env(monkeypatch: pytest.MonkeyPatch) 
 def test_require_auth_explicit_dev_optout(monkeypatch: pytest.MonkeyPatch) -> None:
     """WEB_ALLOW_UNAUTHENTICATED=1 is the documented dev escape hatch."""
     monkeypatch.setenv("WEB_ALLOW_UNAUTHENTICATED", "1")
-    client = _make_app({})
+    client = _make_app({}, monkeypatch)
     res = client.get("/protected")
     assert res.status_code == 200
 

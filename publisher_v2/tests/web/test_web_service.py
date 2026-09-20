@@ -107,11 +107,6 @@ class _DummyOrchestrator:
 
 @pytest.fixture
 def web_service(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
-    # Patch CONFIG_PATH to some dummy value; loader will not be used after we patch attributes.
-    import os
-
-    os.environ.setdefault("CONFIG_PATH", "configfiles/fetlife.ini")
-
     # Provide a minimal in-memory config to avoid depending on a real config file.
     cfg = ApplicationConfig(
         dropbox=DropboxConfig(

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -9,11 +7,9 @@ from publisher_v2.web.app import app
 
 
 @pytest.fixture(autouse=True)
-def _set_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Ensure CONFIG_PATH is set to something so WebImageService can be constructed.
-    # In integration tests we rely on a real-ish config file; if not present,
-    # these tests can be skipped by the user.
-    monkeypatch.setenv("CONFIG_PATH", os.environ.get("CONFIG_PATH", "configfiles/fetlife.ini"))
+def _set_env(env_first_config: None) -> None:
+    # #135: env-first config (INI and CONFIG_PATH were removed in #97).
+    return None
 
 
 @pytest.fixture

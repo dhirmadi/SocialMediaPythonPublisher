@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import os
-
 import pytest
 from fastapi.testclient import TestClient
 
@@ -23,9 +21,6 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
     """
 
     def _make(auto_view: bool, admin_password: str | None) -> TestClient:
-        # Ensure CONFIG_PATH is set so WebImageService initialization doesn't fail.
-        os.environ.setdefault("CONFIG_PATH", "configfiles/fetlife.ini")
-
         cfg = ApplicationConfig(
             dropbox=DropboxConfig(
                 app_key="k",
