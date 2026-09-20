@@ -18,6 +18,7 @@ Adds defense-in-depth headers to every response:
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 import secrets
@@ -27,6 +28,10 @@ from urllib.parse import urlparse
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
+
+from publisher_v2.utils.logging import log_json
+
+logger = logging.getLogger("publisher_v2.web")
 
 # #144: {storage} is the configured storage origin the Full Size control fetches
 # from. It used to be a blanket ``https:``, which let any script on the page ship
@@ -76,6 +81,16 @@ def storage_origins_for_config(config: Any) -> list[str]:
             return []
         if parsed.scheme in ("http", "https") and _SAFE_NETLOC_RE.fullmatch(parsed.netloc or ""):
             return [f"{parsed.scheme}://{parsed.netloc}"]
+        # Degrading silently leaves an operator with a typo'd endpoint staring at
+        # a browser console violation and no server-side signal. The netloc is
+        # tenant-supplied, so log the shape of the rejection, never the value.
+        log_json(
+            logger,
+            logging.WARNING,
+            "csp_storage_origin_rejected",
+            scheme=parsed.scheme or "",
+            netloc_length=len(parsed.netloc or ""),
+        )
         return []
     if getattr(config, "dropbox", None) is not None:
         return list(_DROPBOX_CONTENT_ORIGINS)

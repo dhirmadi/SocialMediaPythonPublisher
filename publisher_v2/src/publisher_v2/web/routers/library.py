@@ -419,10 +419,13 @@ async def _list_objects_from_storage(
 
 
 def _invalidate_listing(service: WebImageService) -> None:
-    """Drop the service's cached listing after a write (#144)."""
-    invalidate = getattr(service, "invalidate_image_listing", None)
-    if callable(invalidate):
-        invalidate()
+    """Drop the service's cached listing after a write (#144).
+
+    Called directly rather than through getattr: a rename would then be a type
+    error here instead of a silent no-op that brings back the 30-second window
+    where a just-uploaded file cannot be moved.
+    """
+    service.invalidate_image_listing()
 
 
 async def _upload_to_storage(service: WebImageService, filename: str, data: bytes, content_type: str) -> dict[str, Any]:
