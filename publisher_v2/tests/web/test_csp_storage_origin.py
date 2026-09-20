@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 from collections.abc import Iterator
 from typing import Any
 from unittest.mock import patch
@@ -383,16 +384,31 @@ class TestOrchestratedRequestReachesTheHeader:
             get_service()
 
         assert "tenant-account.r2.cloudflarestorage.com" in csp, csp
-        assert "instance" not in csp, csp
+        # The standalone snapshot for this env is the Dropbox content origin;
+        # seeing it here would mean the tenant config never reached the header.
+        assert "dropbox" not in csp, csp
         assert not _has_blanket_https(csp), csp
 
 
 class TestRejectedEndpointIsVisibleToOperators:
-    """#144 follow-up: a rejected endpoint must leave a server-side signal."""
+    """#144 follow-up: a rejected endpoint must leave a server-side signal — once."""
+
+    @staticmethod
+    def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [r.getMessage() for r in caplog.records if "csp_storage_origin_rejected" in r.getMessage()]
+
+    @pytest.fixture(autouse=True)
+    def _clear_dedup(self) -> Iterator[None]:
+        from publisher_v2.web.middleware_security import _log_rejected_origin
+
+        # Tolerate the de-dup being gone so its own test fails on the count
+        # rather than erroring in setup.
+        clear = getattr(_log_rejected_origin, "cache_clear", lambda: None)
+        clear()
+        yield
+        clear()
 
     def test_an_unusable_endpoint_logs_a_warning_without_the_value(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
-
         from publisher_v2.web.middleware_security import storage_origins_for_config
 
         caplog.set_level(logging.WARNING, logger="publisher_v2.web")
@@ -400,9 +416,42 @@ class TestRejectedEndpointIsVisibleToOperators:
 
         assert storage_origins_for_config(config) == []
 
-        events = [r.getMessage() for r in caplog.records if "csp_storage_origin_rejected" in r.getMessage()]
+        events = self._warnings(caplog)
         assert events, caplog.text
         assert '"scheme": "https"' in events[0]
-        # The netloc is tenant-supplied: its shape may be logged, never its value.
+        # The netloc is tenant-supplied: a fingerprint may be logged, never the
+        # value, and never its length (a length oracle over any userinfo in it).
         assert "evil.example" not in events[0]
         assert "script-src" not in events[0]
+        assert "netloc_length" not in events[0]
+
+    def test_an_unparseable_endpoint_is_logged_too(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The branch an operator is most likely to hit must not be the silent one."""
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("http://[evil")
+
+        assert storage_origins_for_config(config) == []
+
+        events = self._warnings(caplog)
+        assert events, caplog.text
+        assert '"scheme": "unparseable"' in events[0]
+        assert "evil" not in events[0]
+
+    def test_the_warning_does_not_repeat_on_every_request(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The helper runs per response; one broken tenant must not log per request."""
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("https://evil.example; script-src *")
+        other = TestPerTenantOrigins._config("https://other.example; script-src *")
+
+        for _ in range(5):
+            storage_origins_for_config(config)
+
+        assert len(self._warnings(caplog)) == 1, caplog.text
+
+        storage_origins_for_config(other)
+
+        assert len(self._warnings(caplog)) == 2, "a different endpoint is a different signal"
