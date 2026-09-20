@@ -221,6 +221,26 @@ async def _caption_once(
         await ai.aclose()
 
 
+def _baseline_takes_history(worktree: Path) -> bool:
+    """Whether that commit's caption call accepts a ``history`` argument.
+
+    Read before the first paid call: a baseline that ignores history writes a
+    more repetitive "before" and flatters the current side, and the runtime
+    refusal cannot fire on image 1 (which has no history yet) — so without this
+    the run bills both halves of every image before anyone notices.
+    """
+    source = worktree / "publisher_v2" / "src" / "publisher_v2" / "services" / "ai.py"
+    try:
+        text = source.read_text(encoding="utf-8")
+    except OSError:
+        return True
+    marker = "async def create_multi_caption_pair_from_analysis("
+    if marker not in text:
+        return True
+    signature = text[text.index(marker) : text.index(")", text.index(marker))]
+    return "history" in signature
+
+
 def _baseline_analyze_wants_url(worktree: Path) -> bool:
     """True when that commit's VisionAnalyzerOpenAI refuses bytes."""
     source = worktree / "publisher_v2" / "src" / "publisher_v2" / "services" / "ai.py"
@@ -521,6 +541,12 @@ def run(args: argparse.Namespace) -> int:
     try:
         baseline_static = _checkout_baseline_static(args.baseline, worktree)
         _refuse_if_prompts_are_overridden()
+        if not _baseline_takes_history(worktree):
+            raise SystemExit(
+                f"{args.baseline} has no history parameter on create_multi_caption_pair_from_analysis: "
+                "its half would be written without the history the current half gets, which makes the "
+                "'before' look more repetitive than it was. Pick a baseline that takes history."
+            )
         for image in images:
             row = Row(image=image.name)
             for variant, static_dir in (("baseline", baseline_static), ("current", live_static)):

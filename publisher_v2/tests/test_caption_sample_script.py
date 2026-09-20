@@ -266,6 +266,10 @@ def test_the_documented_invocation_supplies_every_required_variable(monkeypatch)
     for name in (*mod._UNUSED_ENV_PLACEHOLDERS, "OPENAI_API_KEY"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    # _fill_unused_env writes os.environ directly, and delenv records no undo for
+    # a name that was already absent — so hand monkeypatch something to restore.
+    for name in mod._UNUSED_ENV_PLACEHOLDERS:
+        monkeypatch.setenv(name, "")
 
     mod._fill_unused_env()
 
@@ -421,7 +425,10 @@ def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path, monkey
 
     message = str(excinfo.value)
     # Reaching the network means every earlier step matched the baseline's API.
-    assert "Connection error" in message or "OpenAI analysis failed" in message, message
+    # Only the connection error: the generic AIServiceError wrapper would also
+    # match a real-endpoint 401, so it would not notice the base-URL override
+    # silently ceasing to work.
+    assert "Connection error" in message, message
     for regression in ("aclose", "Byte input not supported", "UnsupportedProtocol"):
         assert regression not in message, f"worker does not match the baseline API: {message}"
 
@@ -457,3 +464,216 @@ def test_a_baseline_that_ignored_the_history_is_refused(tmp_path: Path, monkeypa
     # With no history asked for, there is nothing to ignore.
     captions, _cost = mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, None)
     assert captions == {"telegram": "baseline text"}
+
+
+def test_a_failing_worker_reports_only_its_last_line(monkeypatch, tmp_path: Path) -> None:
+    """The failure path that fires on every image when the baseline is wrong.
+
+    It was untested, and without the returncode check the next line raises
+    IndexError on empty stdout instead of showing what went wrong. The message
+    carries one line, not the traceback: row.error is written into a Markdown
+    file bound for docs_v2, and a traceback from a process whose environment
+    holds the API key is not a redaction boundary.
+    """
+    mod = _module()
+    secret_ish = "Traceback (most recent call last):\n  File x, line 1\nValueError: boom | with a pipe"
+
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr=secret_ish),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, None)
+
+    message = str(excinfo.value)
+    assert "ValueError: boom" in message
+    assert "Traceback" not in message, "the whole traceback must not reach the report"
+    assert "\n" not in message
+
+
+def test_a_dead_baseline_stops_the_run_instead_of_billing_every_image(tmp_path: Path, monkeypatch) -> None:
+    """#146: with the baseline half broken there is nothing to compare against."""
+    mod = _module()
+    images = tmp_path / "images"
+    images.mkdir()
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        (images / name).write_bytes(b"\xff\xd8\xff")
+    current_calls: list[str] = []
+
+    async def _fake_current(image, static_dir, history=None):
+        current_calls.append(image.name)
+        return {"telegram": "current"}, mod.Cost(calls=1)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("baseline worker failed: AttributeError: no aclose")
+
+    monkeypatch.setattr(mod, "_checkout_baseline_static", lambda commit, into: into)
+    monkeypatch.setattr(mod, "_caption_once_at_baseline", _boom)
+    monkeypatch.setattr(mod, "_caption_once", _fake_current)
+    monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
+    monkeypatch.setattr(mod, "_fill_unused_env", lambda: None)
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
+
+    with pytest.raises(SystemExit, match="baseline half failed"):
+        mod.run(SimpleNamespace(images=str(images), limit=10, baseline="5c086e6", out=str(tmp_path / "r.md")))
+
+    # The baseline half runs first, so the abort lands before the current side is
+    # called at all: zero paid calls, not one per remaining image.
+    assert current_calls == [], "images were paid for with nothing to compare them to"
+
+
+def _stub_publisher_v2(root: Path, *, takes_history: bool) -> Path:
+    """A four-name stand-in for publisher_v2, so the worker runs with no key and no network."""
+    pkg = root / "publisher_v2"
+    (pkg / "config").mkdir(parents=True)
+    (pkg / "core").mkdir()
+    (pkg / "services").mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "config" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "core" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "services" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "config" / "loader.py").write_text(
+        "from types import SimpleNamespace\n"
+        "def load_application_config():\n"
+        "    return SimpleNamespace(openai=SimpleNamespace(api_key='x'))\n",
+        encoding="utf-8",
+    )
+    (pkg / "config" / "static_loader.py").write_text(
+        "def get_static_config():\n    return None\nget_static_config.cache_clear = lambda: None\n",
+        encoding="utf-8",
+    )
+    (pkg / "core" / "models.py").write_text(
+        "class CaptionSpec:\n"
+        "    @staticmethod\n"
+        "    def for_platforms(config):\n"
+        "        return {'telegram': object()}\n",
+        encoding="utf-8",
+    )
+    history_param = ", history=None" if takes_history else ""
+    (pkg / "services" / "ai.py").write_text(
+        "class _Analyzer:\n"
+        "    def __init__(self, *a, **k):\n        pass\n"
+        "    async def analyze(self, subject):\n"
+        "        return object(), None\n"
+        "class VisionAnalyzerOpenAI(_Analyzer):\n    pass\n"
+        "class CaptionGeneratorOpenAI(_Analyzer):\n    pass\n"
+        "class AIService:\n"
+        "    def __init__(self, analyzer, generator):\n        self.analyzer = analyzer\n"
+        f"    async def create_multi_caption_pair_from_analysis(self, analysis, specs{history_param}):\n"
+        "        return {'telegram': 'stub'}, None, []\n",
+        encoding="utf-8",
+    )
+    return pkg.parent
+
+
+class TestTheWorkerReportsWhetherItUsedTheHistory:
+    """#146: a worker that claims it used history when it did not makes the
+    caller-side refusal a no-op, and produces a flattering artefact silently.
+
+    The caller cannot see that; only the worker's own JSON can. It imports
+    exactly four names, so a stub package pins both directions with no key and
+    no network.
+    """
+
+    @staticmethod
+    def _run_worker(mod, src: Path, history: dict) -> dict:
+        payload = {
+            "image": __file__,  # any readable file: the stub analyzer ignores it
+            "static_dir": str(src),
+            "history": history,
+            "analyze_wants_url": False,
+        }
+        proc = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", mod._BASELINE_WORKER, json.dumps(payload)],
+            cwd=str(src),
+            env={**os.environ, "PYTHONPATH": str(src)},
+            capture_output=True,
+            text=True,
+        )
+        assert proc.returncode == 0, proc.stderr[-800:]
+        return json.loads(proc.stdout.strip().splitlines()[-1])
+
+    def test_a_baseline_without_the_parameter_reports_false(self, tmp_path: Path) -> None:
+        mod = _module()
+        src = _stub_publisher_v2(tmp_path / "old", takes_history=False)
+
+        result = self._run_worker(mod, src, {"telegram": ["older"]})
+
+        assert result["history_used"] is False, "claiming history it did not use flatters the current side"
+        assert result["captions"] == {"telegram": "stub"}
+
+    def test_a_baseline_with_the_parameter_reports_true(self, tmp_path: Path) -> None:
+        mod = _module()
+        src = _stub_publisher_v2(tmp_path / "new", takes_history=True)
+
+        result = self._run_worker(mod, src, {"telegram": ["older"]})
+
+        assert result["history_used"] is True
+
+    def test_no_history_asked_for_is_not_reported_as_used(self, tmp_path: Path) -> None:
+        mod = _module()
+        src = _stub_publisher_v2(tmp_path / "new2", takes_history=True)
+
+        result = self._run_worker(mod, src, {})
+
+        assert result["history_used"] is False
+
+
+def test_a_baseline_without_history_support_is_refused_before_any_paid_call(tmp_path: Path, monkeypatch) -> None:
+    """#146: the runtime refusal cannot fire on image 1, which has no history yet.
+
+    Left to the runtime check alone, a history-ignoring baseline bills both
+    halves of every image and only image 1 yields a comparable row.
+    """
+    mod = _module()
+    images = tmp_path / "images"
+    images.mkdir()
+    (images / "a.jpg").write_bytes(b"\xff\xd8\xff")
+    tree = tmp_path / "tree"
+    src = _stub_publisher_v2(tree, takes_history=False)
+    paid: list[str] = []
+
+    async def _fake_current(image, static_dir, history=None):
+        paid.append(image.name)
+        return {"telegram": "current"}, mod.Cost(calls=1)
+
+    def _fake_checkout(commit: str, into: Path) -> Path:
+        # run() creates its own temp worktree, so the stub must land where the
+        # check will look: <worktree>/publisher_v2/src/publisher_v2/services/ai.py
+        target = into / "publisher_v2" / "src" / "publisher_v2" / "services"
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "ai.py").write_text(
+            (src / "publisher_v2" / "services" / "ai.py").read_text(encoding="utf-8"), encoding="utf-8"
+        )
+        static = into / "static"
+        static.mkdir(exist_ok=True)
+        return static
+
+    monkeypatch.setattr(mod, "_checkout_baseline_static", _fake_checkout)
+    monkeypatch.setattr(mod, "_caption_once", _fake_current)
+    monkeypatch.setattr(mod, "_caption_once_at_baseline", lambda *a, **k: paid.append("baseline") or ({}, mod.Cost()))
+    monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
+    monkeypatch.setattr(mod, "_fill_unused_env", lambda: None)
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
+
+    with pytest.raises(SystemExit, match="no history parameter"):
+        mod.run(SimpleNamespace(images=str(images), limit=10, baseline="old", out=str(tmp_path / "r.md")))
+
+    assert paid == [], "the run paid for images it could not compare"
+
+
+def test_a_baseline_with_history_support_is_not_refused(tmp_path: Path) -> None:
+    mod = _module()
+    src = _stub_publisher_v2(tmp_path / "new3", takes_history=True)
+
+    # _baseline_takes_history reads <worktree>/publisher_v2/src/publisher_v2/services/ai.py
+    worktree = tmp_path / "wt"
+    target = worktree / "publisher_v2" / "src" / "publisher_v2" / "services"
+    target.mkdir(parents=True)
+    (target / "ai.py").write_text(
+        (src / "publisher_v2" / "services" / "ai.py").read_text(encoding="utf-8"), encoding="utf-8"
+    )
+
+    assert mod._baseline_takes_history(worktree) is True
