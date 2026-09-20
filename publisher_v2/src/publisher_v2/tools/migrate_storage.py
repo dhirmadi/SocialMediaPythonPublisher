@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import inspect
 import logging
 import os
 import sys
@@ -73,7 +74,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def _copy_sidecar(
     source: Any,
-    target: Any,
+    target: ObjectStorageProtocol,
     src_folder: str,
     filename: str,
     sidecar_key: str,
@@ -156,8 +157,17 @@ async def run_migration(
                         images_processed += 1
                         log_json(logger, logging.DEBUG, "migration_skip_existing", file=filename, target_key=target_key)
                         continue
-                except Exception:  # noqa: S110
-                    pass  # Existence unknown — proceed with the copy.
+                except Exception as exc:
+                    # Existence unknown — proceed with the copy. Re-copying is
+                    # safe (it overwrites), but a 403 or a throttle here means
+                    # the whole resume degrades into a full re-copy, so say so.
+                    log_json(
+                        logger,
+                        logging.WARNING,
+                        "migration_presence_unknown",
+                        file=filename,
+                        error_type=type(exc).__name__,
+                    )
 
             # Download from source
             try:
@@ -204,6 +214,12 @@ async def run_migration(
     # observable effect for an operator, and a resumed run's HEAD cost stays hidden.
     drain = getattr(target, "drain_ops_count", None)
     drained = drain() if callable(drain) else None
+    if inspect.iscoroutine(drained):
+        # A target may expose the counter as a coroutine; the protocol does not
+        # define it either way. Close it so the summary reports null instead of
+        # a coroutine repr, and so nothing is left un-awaited.
+        drained.close()
+        drained = None
     storage_ops = drained if isinstance(drained, int) else None
     log_json(
         logger,

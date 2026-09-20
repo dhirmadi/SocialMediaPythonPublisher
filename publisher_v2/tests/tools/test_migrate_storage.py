@@ -709,3 +709,55 @@ class TestTheMeteredCallsAreReported:
         events = [r.getMessage() for r in caplog.records if "migration_complete" in r.getMessage()]
         assert events, caplog.text
         assert '"storage_ops": null' in events[0]
+
+    async def test_an_async_counter_is_not_logged_as_a_coroutine(self, caplog) -> None:
+        """The protocol does not define the counter, so a target may expose an async one."""
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage()
+        target.drain_ops_count = AsyncMock(return_value=7)
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        caplog.set_level(logging.INFO, logger="publisher_v2.tools.migrate_storage")
+        await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        events = [r.getMessage() for r in caplog.records if "migration_complete" in r.getMessage()]
+        assert events, caplog.text
+        assert '"storage_ops": null' in events[0]
+        assert "coroutine" not in events[0]
+
+
+class TestAnUnreadablePresenceCheckIsReported:
+    """#142: presence is the only resume gate, so failing to read it degrades the
+    whole run into a full re-copy. Safe (a re-copy overwrites), but not silent."""
+
+    async def test_a_raising_exists_logs_and_copies(self, caplog) -> None:
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage(existing_keys={"t/i/img1.jpg": "etag"})
+        target.exists = AsyncMock(side_effect=PermissionError("denied"))
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.tools.migrate_storage")
+        result = await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        assert result.copied == 1, "an unreadable presence check must not skip the image"
+        events = [r.getMessage() for r in caplog.records if "migration_presence_unknown" in r.getMessage()]
+        assert events, caplog.text
+        assert '"error_type": "PermissionError"' in events[0]
