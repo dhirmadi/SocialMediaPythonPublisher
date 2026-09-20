@@ -107,6 +107,31 @@ def _bust_static_config_cache() -> Generator[None, None, None]:
 # ==============================================================================
 
 
+def reset_web_rate_limiters() -> None:
+    """Reset every limiter publisher_v2.web.app holds, discovered, not listed.
+
+    A hard-coded name list silently stops covering a limiter added later; this
+    finds them by type, so a new one is reset the day it is introduced.
+    """
+    import sys
+
+    app_module = sys.modules.get("publisher_v2.web.app")
+    if app_module is None:
+        return
+    # Imported lazily: the app module is already loaded whenever this matters,
+    # and a top-level web import here would run at conftest-collection time.
+    from publisher_v2.web.rate_limit import SlidingWindowLimiter
+
+    # Every loaded web module, not just web.app: a limiter defined in a router
+    # would otherwise be invisible to both this reset and the test guarding it.
+    for module in [m for name, m in list(sys.modules.items()) if name.startswith("publisher_v2.web") and m]:
+        for limiter in vars(module).values():
+            if isinstance(limiter, SlidingWindowLimiter):
+                limiter.reset()
+    if hasattr(app_module, "_consecutive_login_failures"):
+        app_module._consecutive_login_failures = 0  # login backoff delay counter
+
+
 @pytest.fixture(autouse=True)
 def _reset_web_rate_limiters() -> Generator[None, None, None]:
     """#135: reset the process-wide limiters in publisher_v2.web.app around every test.
@@ -115,28 +140,9 @@ def _reset_web_rate_limiters() -> Generator[None, None, None]:
     can hit 429 depending on how many earlier tests used the same key. Only acts
     once the app module is imported, so non-web tests do not import the app.
     """
-    import sys
-
-    def _reset() -> None:
-        app_module = sys.modules.get("publisher_v2.web.app")
-        if app_module is None:
-            return
-        for name in (
-            "_LOGIN_LIMITER",
-            "_GLOBAL_LOGIN_LIMITER",
-            "_ANALYZE_LIMITER_MIN",
-            "_ANALYZE_LIMITER_HOUR",
-            "_PUBLISH_LIMITER_MIN",
-        ):
-            limiter = getattr(app_module, name, None)
-            if limiter is not None:
-                limiter.reset()
-        if hasattr(app_module, "_consecutive_login_failures"):
-            app_module._consecutive_login_failures = 0  # login backoff delay counter
-
-    _reset()
+    reset_web_rate_limiters()
     yield
-    _reset()
+    reset_web_rate_limiters()
 
 
 @pytest.fixture(autouse=True)

@@ -9,6 +9,8 @@ waiting for a future ordering to expose it.
 
 from __future__ import annotations
 
+import sys
+
 # Imported as a top-level module: `publisher_v2/tests/` has no __init__.py and
 # pytest runs in its default "prepend" import mode, which puts the rootdir on
 # sys.path. Adding an __init__.py or switching to --import-mode=importlib would
@@ -48,3 +50,35 @@ def test_a_stale_load_dotenv_reference_is_rebound() -> None:
         assert service.load_dotenv is tests_conftest._load_dotenv_explicit_only
     finally:
         service.load_dotenv = original
+
+
+def _loaded_web_limiters() -> list:
+    """Every limiter instance reachable as an attribute of a loaded web module."""
+    from publisher_v2.web.rate_limit import SlidingWindowLimiter
+
+    found = []
+    for name, module in list(sys.modules.items()):
+        if not name.startswith("publisher_v2.web") or module is None:
+            continue
+        found.extend(value for value in vars(module).values() if isinstance(value, SlidingWindowLimiter))
+    return found
+
+
+def test_every_web_rate_limiter_is_reset_not_just_the_listed_ones() -> None:
+    """The reset discovers limiters by type; a hard-coded list stops covering new ones."""
+    import publisher_v2.web.app  # noqa: F401 — ensure the module holding the limiters is loaded
+
+    limiters = _loaded_web_limiters()
+    assert limiters, "no limiters found — the discovery predicate no longer matches"
+
+    import publisher_v2.web.app as app_module
+
+    for limiter in limiters:
+        limiter.check("isolation-probe")
+    app_module._consecutive_login_failures = 7
+
+    tests_conftest.reset_web_rate_limiters()
+
+    for limiter in limiters:
+        assert not limiter._events, f"{limiter._label} was not reset"
+    assert app_module._consecutive_login_failures == 0
