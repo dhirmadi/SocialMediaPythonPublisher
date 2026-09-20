@@ -371,3 +371,26 @@ async def test_the_service_rejects_a_partial_dict_even_without_the_route(no_arch
 
     assert _FakeSMTP.subjects == [], "email received something from a rejected publish"
     assert _FakeBot.sent == []
+
+
+async def test_a_multi_line_edited_caption_survives_the_round_trip(no_archive: None, client: httpx.AsyncClient) -> None:
+    """Refutes the review's MINOR: multi-line edits are NOT stored first-line only.
+
+    That was true while `build_caption_sidecar` wrote `str(value)` verbatim and
+    the parser kept only `# `-prefixed lines. #155's line-break encoding (the
+    `!json` marker, and JSON for dicts) landed on this base first, so a
+    free-form editor's newlines survive both the scalar and the per-platform
+    dict. Asserted through the real app rather than argued.
+    """
+    await client.post("/api/images/img.jpg/analyze")
+    tg = "First line of the telegram caption.\nSecond line.\n\nFourth, after a blank one."
+    em = "Email line one.\nEmail line two."
+
+    published = await client.post("/api/images/img.jpg/publish", json={"captions": {"telegram": tg, "email": em}})
+    assert published.status_code == 200, published.text
+
+    details = await client.get("/api/images/img.jpg")
+    assert details.json()["caption_generated"] == {"telegram": tg, "email": em}
+
+    cached = await client.post("/api/images/img.jpg/analyze")
+    assert cached.json()["platform_captions"] == {"telegram": tg, "email": em}
