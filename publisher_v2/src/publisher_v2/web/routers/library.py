@@ -590,7 +590,14 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
     file_buf = bytearray()
     header_too_large = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Multipart part headers too large")
     field, value = bytearray(), bytearray()
-    state: dict[str, Any] = {"headers": {}, "header_bytes": 0, "capture": False, "filename": None}
+    state: dict[str, Any] = {
+        "headers": {},
+        "header_bytes": 0,
+        "capture": False,
+        "filename": None,
+        "file_part_ended": False,
+        "body_ended": False,
+    }
     seen_file = False
 
     def _count_header(n: int) -> None:
@@ -633,6 +640,11 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
 
     def on_part_end() -> None:
         state["capture"] = False
+        if seen_file and state["file_part_ended"] is False:
+            state["file_part_ended"] = True
+
+    def on_end() -> None:
+        state["body_ended"] = True
 
     parser = MultipartParser(
         boundary,
@@ -644,6 +656,7 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
             "on_headers_finished": on_headers_finished,
             "on_part_data": on_part_data,
             "on_part_end": on_part_end,
+            "on_end": on_end,
         },
     )
     body_limit = max_bytes + _MULTIPART_OVERHEAD_BYTES
@@ -671,6 +684,12 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload interrupted") from None
     if not seen_file:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing 'file' part")
+    if not state["file_part_ended"] or not state["body_ended"]:
+        # python-multipart's finalize() is a documented no-op, so a body that
+        # stops mid-part — a client that died, or one that lies about
+        # Content-Length — otherwise parses as a complete upload and stores a
+        # truncated object. JPEG verify() does not decode, so Pillow passes it.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incomplete multipart body")
     return file_buf, state["filename"]
 
 

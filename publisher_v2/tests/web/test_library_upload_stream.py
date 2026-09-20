@@ -218,3 +218,57 @@ async def test_bytes_outside_the_file_part_are_capped(library_upload) -> None:
     # as a malformed-request error rather than the file-size 413.
     assert res.status_code == 400, res.text
     assert body.pulled <= 16 * 1024 + 2 * 64 * 1024
+
+
+async def test_a_truncated_body_is_rejected_not_stored(library_upload) -> None:
+    """python-multipart's finalize() is a no-op, so nothing else notices a body that just stops.
+
+    A client that dies mid-upload — or lies about Content-Length — otherwise
+    parses as a complete part and stores a truncated object: JPEG verify()
+    does not decode, so Pillow passes it through.
+    """
+    from .conftest import UPLOAD_BOUNDARY
+
+    payload = library_upload.png(40, 30)
+    body = library_upload.body(payload)
+    body.data = body.data[: -len(f"\r\n--{UPLOAD_BOUNDARY}--\r\n") - 40]
+
+    res = await library_upload.post(body)
+
+    assert res.status_code == 400, res.text
+    assert "Incomplete" in res.text
+    assert library_upload.s3.puts == [], "a truncated object must never reach storage"
+
+
+async def test_a_complete_body_is_not_mistaken_for_a_truncated_one(library_upload) -> None:
+    res = await library_upload.post(library_upload.body(library_upload.png(8, 8), filename="whole.png"))
+
+    assert res.status_code == 200, res.text
+
+
+async def test_a_traversal_filename_cannot_escape_the_image_folder(library_upload) -> None:
+    """The filename's provenance changed here: hand-parsed Content-Disposition, not UploadFile."""
+    res = await library_upload.post(library_upload.body(library_upload.png(8, 8), filename="../../etc/passwd.png"))
+
+    assert res.status_code == 200, res.text
+    assert res.json()["key"] == "tenant/instance/passwd.png"
+    assert library_upload.s3.puts[0]["Key"] == "tenant/instance/passwd.png"
+
+
+async def test_an_rfc2231_encoded_traversal_filename_is_sanitized_too(library_upload) -> None:
+    from .conftest import UPLOAD_BOUNDARY
+
+    payload = library_upload.png(8, 8)
+    body = library_upload.body(payload)
+    head = (
+        f"--{UPLOAD_BOUNDARY}\r\n"
+        'Content-Disposition: form-data; name="file"; '
+        "filename*=UTF-8''%2e%2e%2f%2e%2e%2fevil.png\r\n"
+        "Content-Type: image/png\r\n\r\n"
+    ).encode()
+    body.data = head + payload + f"\r\n--{UPLOAD_BOUNDARY}--\r\n".encode()
+
+    res = await library_upload.post(body)
+
+    assert res.status_code == 200, res.text
+    assert res.json()["key"] == "tenant/instance/evil.png"
