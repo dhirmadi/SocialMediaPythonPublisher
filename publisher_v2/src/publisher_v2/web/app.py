@@ -23,7 +23,6 @@ from publisher_v2.core.exceptions import (
     OrchestratorUnavailableError,
     PublishInProgressError,
 )
-from publisher_v2.core.models import CaptionSpec
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic, setup_logging
 from publisher_v2.web.auth import (
     clear_admin_cookie,
@@ -644,17 +643,10 @@ async def api_publish_image(
     # #147: per-platform captions from the UI editors; blank entries are dropped.
     raw_captions = body.captions if body else None
     caption_overrides = {p: c.strip() for p, c in (raw_captions or {}).items() if c and c.strip()} or None
-    if caption_overrides:
-        # #147: a per-platform dict must cover exactly the enabled platforms, so no
-        # platform ever falls back to (a trimmed copy of) another platform's text.
-        enabled = set(CaptionSpec.for_platforms(service.config))
-        missing = sorted(enabled - set(caption_overrides))
-        unknown = sorted(set(caption_overrides) - enabled)
-        if missing or unknown:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"captions must cover every enabled platform; missing={missing} unknown={unknown}",
-            )
+    # #147: the "must cover exactly the enabled platforms" check lives in
+    # WebImageService.publish_image, so every caller gets it; its
+    # CaptionCoverageError is mapped to 400 below. Duplicating it here would
+    # leave that mapping untested while looking covered.
     try:
         if caption_overrides:
             resp = await service.publish_image(

@@ -499,3 +499,33 @@ def test_an_undetectable_caption_generated_value_is_still_reported(caplog) -> No
         assert view["caption_generated"] is None, undetectable
         assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1, undetectable
         assert "IMG_9.jpg.txt" in caplog.text, undetectable
+
+
+def test_caption_submitted_that_is_not_a_mapping_is_reported_and_dropped(caplog) -> None:
+    """#147: the new key gets the same treatment as caption_generated.
+
+    A value that decoded cleanly into the wrong type is lost either way; the
+    warning is the only signal an operator gets, so it must not be silent.
+    """
+    import logging
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
+        view = rehydrate_sidecar_view('sd\n\n# ---\n# caption_submitted: ["telegram", "email"]\n')
+
+    assert view["caption_submitted"] is None
+    assert any(
+        "sidecar_metadata_json_invalid" in r.getMessage() and "caption_submitted" in r.getMessage()
+        for r in caplog.records
+    ), caplog.text
+
+
+def test_caption_submitted_roundtrips_as_a_mapping() -> None:
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+    from publisher_v2.utils.captions import build_caption_sidecar
+
+    submitted = {"telegram": "Telegram text", "email": "Email text"}
+    text = build_caption_sidecar("sd prompt", {"caption_submitted": submitted})
+
+    assert rehydrate_sidecar_view(text)["caption_submitted"] == submitted

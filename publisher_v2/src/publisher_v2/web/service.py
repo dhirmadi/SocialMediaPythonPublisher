@@ -32,6 +32,7 @@ from publisher_v2.core.exceptions import (  # noqa: E402
     PublishInProgressError,
     TenantNotFoundError,
 )
+from publisher_v2.core.models import CaptionSpec  # noqa: E402
 from publisher_v2.core.workflow import ALREADY_PUBLISHED_ERROR, WorkflowOrchestrator  # noqa: E402
 from publisher_v2.db import get_session_factory  # noqa: E402
 from publisher_v2.db.caption_store import CaptionStore  # noqa: E402
@@ -64,14 +65,42 @@ def _platform_caption_dict(view: dict[str, Any], key: str) -> dict[str, str] | N
     return out or None
 
 
-def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
-    """#147: what the editors should show — what was published, else what the AI wrote.
+def _edited_scalar_caption(view: dict[str, Any]) -> str | None:
+    """A pre-#147 sidecar's operator edit: the scalar ``caption`` with ``caption_edited``.
 
-    ``caption_published`` wins: after a publish with operator edits, showing the
-    AI's original text back would hide the edits and, on a retry of a failed
-    platform, silently re-publish the text the operator had replaced.
+    Sidecars written before this change recorded an edit only in the scalar, so
+    preferring the AI dict for them would show the original text back for every
+    image published before the upgrade — the same symptom the per-platform key
+    fixes for new ones.
     """
-    return _platform_caption_dict(view, "caption_published") or _platform_caption_dict(view, "caption_generated")
+    metadata = view.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if str(metadata.get("caption_edited", "")).strip().lower() not in ("true", "1", "yes"):
+        return None
+    caption = view.get("caption")
+    return str(caption) if isinstance(caption, str) and caption.strip() else None
+
+
+def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
+    """#147: what the editors should show — what was submitted, else what the AI wrote.
+
+    ``caption_submitted`` wins: after a publish with operator edits, showing the
+    AI's original text back would hide the edits and, on a retry of a failed
+    platform, silently re-publish the text the operator had replaced. A legacy
+    sidecar carries that edit in the scalar instead, so it is spread across the
+    platforms the AI dict knows about rather than being lost to it.
+    """
+    submitted = _platform_caption_dict(view, "caption_submitted")
+    if submitted:
+        return submitted
+    generated = _platform_caption_dict(view, "caption_generated")
+    edited = _edited_scalar_caption(view)
+    if edited and generated:
+        return dict.fromkeys(generated, edited)
+    if edited:
+        return None
+    return generated
 
 
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
@@ -624,10 +653,11 @@ class WebImageService:
     def _select_cached_social_caption(self, view: dict[str, Any]) -> str | None:
         """Pick the legacy single ``caption`` to serve from a sidecar cache view (#80, #147).
 
-        Email-first: the ``caption_generated`` email entry when email is
-        enabled, then the published/edited ``caption``, then the entry for the
-        first enabled platform, then any generated entry. Never the SD prompt.
-        The full per-platform dict is returned separately as ``platform_captions``.
+        Email-first among what would be *submitted* — the per-platform email
+        entry when email is enabled — then the published/edited ``caption``,
+        then the entry for the first enabled platform, then any entry. Never the
+        SD prompt. The full per-platform dict is returned separately as
+        ``platform_captions``.
         """
         generated = _generated_captions(view) or {}
         if self.config.platforms.email_enabled and generated.get("email"):
@@ -903,8 +933,6 @@ class WebImageService:
             # #147: validated here, not only in the route — every caller of this
             # method (route, scripts, future callers) must get the same refusal,
             # or a partial dict lets one platform receive another's text.
-            from publisher_v2.core.models import CaptionSpec
-
             enabled = set(CaptionSpec.for_platforms(self.config))
             missing = sorted(enabled - set(caption_overrides))
             unknown = sorted(set(caption_overrides) - enabled)

@@ -236,7 +236,7 @@ see §12):
 | GET | `/api/images/{filename}` | Image details |
 | GET | `/api/images/{filename}/thumbnail` | Fast JPEG/PNG thumbnail (PUB-018) |
 | POST | `/api/images/{filename}/analyze` | Run AI analysis + caption generation |
-| POST | `/api/images/{filename}/publish` | Publish to enabled platforms. Body: `{"captions": {platform: text}}` (#147; must cover every enabled platform, else 400) or legacy `{"caption": text}` for all platforms. `analyze` returns `platform_captions` + `platform_limits`; image details return `caption_generated` + `platform_limits` |
+| POST | `/api/images/{filename}/publish` | Publish to enabled platforms. Body: `{"captions": {platform: text}}` (#147; must cover every enabled platform, else 400 — enforced in `WebImageService.publish_image`, so every caller gets it, not only this route) or legacy `{"caption": text}` for all platforms. `analyze` returns `platform_captions` + `platform_limits`; image details return `caption_generated` + `platform_limits`. After a publish, both serve the sidecar's `caption_submitted` (what the operator actually sent) in preference to the AI's `caption_generated` |
 | POST | `/api/images/{filename}/keep` | Curation: move to keep folder |
 | POST | `/api/images/{filename}/remove` | Curation: move to remove folder |
 | POST | `/api/images/{filename}/delete` | Permanent delete (admin only, gated by `delete_enabled`) |
@@ -345,3 +345,11 @@ uv run python publisher_v2/src/publisher_v2/app.py [--env path/to/.env] [--debug
 - Preview mode never mutates Dropbox/managed storage state, posted-hash cache, or sidecar files.
 - A failing publisher never blocks or fails sibling publishers in the same run.
 - Usage-metering failures never fail the underlying workflow.
+
+### Sidecar caption keys (#147)
+
+| Key | Written by | Meaning |
+|---|---|---|
+| `caption` | publish | The single published/edited caption. One text, so it cannot represent per-platform edits. |
+| `caption_generated` | analyze | The AI's own per-platform output. Never overwritten by a publish. |
+| `caption_submitted` | publish | The per-platform text the last run submitted to the publishers, **including platforms whose publish failed** — a retry must show the operator their own text, not the AI's. Additive; absent on sidecars written before #147, where an operator edit lives in `caption` with `caption_edited: True` and is shown for every platform. |

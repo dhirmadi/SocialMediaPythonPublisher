@@ -341,7 +341,7 @@ async def test_edited_captions_survive_the_publish_and_come_back(no_archive: Non
     assert published.status_code == 200, published.text
 
     sidecar = (_FakeDropbox.last.files[f"{IMAGE_FOLDER}/img.txt"]).decode()
-    assert "caption_published" in sidecar, sidecar
+    assert "caption_submitted" in sidecar, sidecar
     assert tg in sidecar and em in sidecar
 
     details = await client.get("/api/images/img.jpg")
@@ -388,9 +388,72 @@ async def test_a_multi_line_edited_caption_survives_the_round_trip(no_archive: N
 
     published = await client.post("/api/images/img.jpg/publish", json={"captions": {"telegram": tg, "email": em}})
     assert published.status_code == 200, published.text
+    # A 200 alone hid a real failure here: the email subject is a header, and a
+    # multi-line one used to raise HeaderWriteError inside the publisher.
+    assert published.json()["results"]["email"]["success"] is True, published.json()
+    assert published.json()["results"]["telegram"]["success"] is True, published.json()
+    assert _FakeSMTP.subjects[-1] == " ".join(format_caption("email", em).split()), "the subject must be one line"
 
     details = await client.get("/api/images/img.jpg")
     assert details.json()["caption_generated"] == {"telegram": tg, "email": em}
 
     cached = await client.post("/api/images/img.jpg/analyze")
     assert cached.json()["platform_captions"] == {"telegram": tg, "email": em}
+    # The scalar half of the round trip: #155's !json encoding, not #134's dict JSON.
+    assert cached.json()["caption"] == em
+
+
+class TestALegacyEditStillWins:
+    """#147: a sidecar written before this change records the operator's edit in
+    the scalar ``caption`` only. Preferring the AI dict for those re-creates the
+    very symptom the per-platform key fixes, for every image published earlier."""
+
+    @staticmethod
+    def _view(metadata: dict[str, object]) -> dict[str, object]:
+        from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+        from publisher_v2.utils.captions import build_caption_sidecar
+
+        return rehydrate_sidecar_view(build_caption_sidecar("sd prompt", metadata))
+
+    def test_the_edited_scalar_is_shown_for_every_platform(self) -> None:
+        from publisher_v2.web.service import _generated_captions
+
+        view = self._view(
+            {
+                "caption": "OPERATOR EDITED, stored the old way",
+                "caption_edited": "True",
+                "caption_generated": {"telegram": "AI telegram", "email": "AI email"},
+            }
+        )
+
+        assert _generated_captions(view) == {
+            "telegram": "OPERATOR EDITED, stored the old way",
+            "email": "OPERATOR EDITED, stored the old way",
+        }
+
+    def test_an_unedited_legacy_sidecar_still_shows_the_ai_dict(self) -> None:
+        from publisher_v2.web.service import _generated_captions
+
+        view = self._view(
+            {
+                "caption": "AI email",
+                "caption_edited": "False",
+                "caption_generated": {"telegram": "AI telegram", "email": "AI email"},
+            }
+        )
+
+        assert _generated_captions(view) == {"telegram": "AI telegram", "email": "AI email"}
+
+    def test_the_new_key_beats_a_legacy_edit(self) -> None:
+        from publisher_v2.web.service import _generated_captions
+
+        view = self._view(
+            {
+                "caption": "older edit",
+                "caption_edited": "True",
+                "caption_generated": {"telegram": "AI telegram", "email": "AI email"},
+                "caption_submitted": {"telegram": "newer telegram", "email": "newer email"},
+            }
+        )
+
+        assert _generated_captions(view) == {"telegram": "newer telegram", "email": "newer email"}

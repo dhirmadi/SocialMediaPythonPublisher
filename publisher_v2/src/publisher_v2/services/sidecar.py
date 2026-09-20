@@ -152,12 +152,17 @@ async def update_sidecar_with_caption(
                 meta = dict(parsed_meta)
 
         meta["caption"] = published_caption
-        # #147: what each platform actually received, under its own additive key.
-        # ``caption`` can only hold one text and ``caption_generated`` is the AI's
-        # output — overwriting either would lose the operator's per-platform
-        # edits, which is what the web UI reads back after a publish.
+        # #147: the per-platform text this run submitted to the publishers, under
+        # its own additive key. ``caption`` can only hold one text and
+        # ``caption_generated`` is the AI's output — overwriting either would lose
+        # the operator's per-platform edits, which is what the web UI reads back.
+        #
+        # "submitted", not "published": the sidecar is written once per run, when
+        # any platform succeeded, so a platform that failed is recorded too. That
+        # is deliberate — a retry must show the operator the text they wrote, not
+        # the AI's original — and is why the key is not named for publication.
         if published_platform_captions:
-            meta["caption_published"] = dict(published_platform_captions)
+            meta["caption_submitted"] = dict(published_platform_captions)
         meta["caption_edited"] = str(caption_edited)
         meta["caption_updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
