@@ -101,7 +101,9 @@ async def test_oversized_part_header_rejected_fast(library_upload) -> None:
     head = f'--{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'.encode()
     body.data = head + huge + b"\r\n" + library_upload.png(4, 4) + f"\r\n--{UPLOAD_BOUNDARY}--\r\n".encode()
     res = await library_upload.post(body)
-    assert res.status_code in (400, 413), res.text
+    # 400: python-multipart rejects the oversized part header before the file
+    # part is reached, so the 413 cap is never consulted.
+    assert res.status_code == 400, res.text
     assert body.pulled < len(body.data)
 
 
@@ -195,8 +197,10 @@ async def test_missing_file_part_is_400(library_upload) -> None:
 async def test_unparseable_content_length_falls_back_to_the_stream_cap(library_upload) -> None:
     payload = library_upload.png(12, 12)
     res = await library_upload.post(library_upload.body(payload, filename="c.png"), headers={"Content-Length": "abc"})
-    # httpx may refuse to send a non-numeric header; either way no 500 and no bypass.
-    assert res.status_code in (200, 400), res.text
+    # The unparseable header is ignored (the int() raises, the pre-check is
+    # skipped) and the stream cap admits this small payload, so the upload
+    # succeeds. What must not happen is a 500 or a bypass of the cap.
+    assert res.status_code == 200, res.text
 
 
 async def test_bytes_outside_the_file_part_are_capped(library_upload) -> None:
@@ -210,5 +214,7 @@ async def test_bytes_outside_the_file_part_are_capped(library_upload) -> None:
     body = library_upload.body(b"")
     body.data = junk + f"--{UPLOAD_BOUNDARY}--\r\n".encode()
     res = await library_upload.post(body)
-    assert res.status_code in (400, 413), res.text
+    # 400: the envelope cap is hit while parsing non-file parts, which surfaces
+    # as a malformed-request error rather than the file-size 413.
+    assert res.status_code == 400, res.text
     assert body.pulled <= 16 * 1024 + 2 * 64 * 1024
