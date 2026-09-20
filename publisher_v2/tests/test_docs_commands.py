@@ -141,6 +141,98 @@ def test_makefile_only_advertises_targets_it_defines() -> None:
     assert advertised <= defined, f"Makefile tells users to run undefined targets: {sorted(advertised - defined)}"
 
 
+def test_readme_does_not_teach_the_removed_ini_configuration() -> None:
+    """#97 stage 4 removed INI parsing; README's config section must not show an INI file."""
+    readme = (REPO_ROOT / "README.md").read_text()
+
+    assert "```ini" not in readme, "README still carries an INI configuration example"
+    assert "[openAI]" not in readme, "README still documents INI sections"
+
+
+_ENV_ASSIGNMENT = re.compile(r"^(?P<key>[A-Z][A-Z0-9_]*)=(?P<value>.*)$", re.MULTILINE)
+
+
+def _readme_dynamic_config_block() -> dict[str, str]:
+    """The `.env` excerpt README teaches under "Dynamic config in `.env`"."""
+    readme = (REPO_ROOT / "README.md").read_text()
+    start = readme.index("**Dynamic config in `.env`", readme.index("Configuration (Essentials)"))
+    block = readme[
+        readme.index("```bash", start) + len("```bash") : readme.index("```", readme.index("```bash", start) + 7)
+    ]
+    return {m.group("key"): m.group("value").strip() for m in _ENV_ASSIGNMENT.finditer(block)}
+
+
+def test_the_readme_env_example_loads_through_the_real_loader(monkeypatch) -> None:
+    """Failure mode (a): the documented config must survive the real loader, not a fake."""
+    from publisher_v2.config.loader import load_application_config
+
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
+    for key in ("CAPTIONFILE_SETTINGS", "STORAGE_PROVIDER", "INSTA_PASSWORD", "TELEGRAM_BOT_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    for key, value in (
+        ("DROPBOX_APP_KEY", "k"),
+        ("DROPBOX_APP_SECRET", "s"),
+        ("DROPBOX_REFRESH_TOKEN", "r"),
+        ("OPENAI_API_KEY", "sk-test"),
+        ("EMAIL_PASSWORD", "pw"),
+    ):
+        monkeypatch.setenv(key, value)
+
+    documented = _readme_dynamic_config_block()
+    expected = {"STORAGE_PATHS", "PUBLISHERS", "EMAIL_SERVER", "OPENAI_SETTINGS", "CONTENT_SETTINGS"}
+    assert expected <= documented.keys(), documented
+    for key, value in documented.items():
+        monkeypatch.setenv(key, value)
+
+    config = load_application_config()
+
+    assert config.dropbox.image_folder == "/Photos/bondage_fetlife"
+    assert config.platforms.email_enabled is True
+    # The fields README claims come from EMAIL_SERVER really do.
+    assert config.email is not None
+    assert config.email.sender == "you@gmail.com"
+    assert config.email.smtp_server == "smtp.gmail.com"
+    assert config.email.smtp_port == 587
+    assert config.email.caption_target == "subject"
+    assert config.content.archive is True
+
+
+_QUOTED_ENV_NAME = re.compile(r"[\"']([A-Z][A-Z0-9_]{2,})[\"']")
+_README_SECRET = re.compile(r"`([A-Z][A-Z0-9_]{2,})`")
+
+
+def _env_names_the_code_reads() -> set[str]:
+    """Every whole-literal uppercase name in the package.
+
+    Scoped to the whole package, not just `config/loader.py`: `WEB_AUTH_TOKEN`
+    and the `FEATURE_*` flags are real variables read in `web/` and `utils/`,
+    and a loader-only scan would reject them as invented.
+    """
+    src = REPO_ROOT / "publisher_v2" / "src" / "publisher_v2"
+    return {name for path in src.rglob("*.py") for name in _QUOTED_ENV_NAME.findall(path.read_text())}
+
+
+def _readme_documented_secrets() -> set[str]:
+    """The bullet list above the `.env` excerpt names secrets too, and they drift the same way."""
+    readme = (REPO_ROOT / "README.md").read_text()
+    start = readme.index("**Secrets in `.env`", readme.index("Configuration (Essentials)"))
+    return set(_README_SECRET.findall(readme[start : readme.index("**Dynamic config in `.env`", start)]))
+
+
+def test_every_env_var_the_readme_documents_is_one_the_code_reads() -> None:
+    """An invented key (`FEATURE_ARCHIVE`) reads back as the default, so the loader test alone cannot catch it."""
+    read_by_code = _env_names_the_code_reads()
+    documented = set(_readme_dynamic_config_block()) | _readme_documented_secrets()
+    assert documented, "the README config section stopped parsing"
+
+    invented = sorted(key for key in documented if key not in read_by_code)
+
+    assert not invented, (
+        f"README documents env vars no module under publisher_v2/src reads: {invented}. "
+        "Either the README is wrong, or the variable is read somewhere this scan does not cover."
+    )
+
+
 _V1_SCRIPT = re.compile(r"\bpy_[a-z_]+\.py\b")
 
 

@@ -81,47 +81,30 @@ Preview mode shows: image details (temp link, SHA256), vision analysis (descript
 Publisher V2 uses a **three-layer configuration model**:
 
 1. **Secrets** (`.env` only) — API keys, passwords, tokens
-2. **Dynamic Config** (`.env` + INI) — Feature toggles, platform settings, folders
+2. **Dynamic Config** (`.env`, JSON-valued env vars) — Feature toggles, platform settings, folders
 3. **Static Config** (YAML files) — AI prompts, platform limits, UI text
+
+INI configuration was removed in #97 stage 4; `--config` is still accepted but the file is ignored.
 
 **Secrets in `.env` (git‑ignored):**
 - `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`
 - `OPENAI_API_KEY`
-- Optional: `EMAIL_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`, `INSTA_PASSWORD`
+- Optional: `EMAIL_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `INSTA_PASSWORD` (the Telegram channel is not a secret — it comes from the `PUBLISHERS` entry's `channel_id`)
 
-**INI example (excerpt):**
+**Dynamic config in `.env` (excerpt):**
 
-```ini
-[Dropbox]
-image_folder = /Photos/bondage_fetlife
-archive = archive
-
-[Content]
-hashtag_string =; ignored for Email/FetLife in V2
-archive = true
-debug = false
-telegram = false
-instagram = false
-fetlife = true
-
-[openAI]
-vision_model = gpt-4o
-caption_model = gpt-4o-mini
-system_prompt = You write captions for FetLife email posts in a kinky, playful, respectful tone; no hashtags or emojis; ≤240 chars; end with an open question.
-role_prompt = Using the image analysis (description, mood, tags), write 1–2 short sentences in that tone; no hashtags; ≤240; end with an open question.
-
-[Email]
-sender = you@gmail.com
-recipient = 12345-abc@upload.fetlife.com
-smtp_server = smtp.gmail.com
-smtp_port = 587
-; FetLife specifics
-caption_target = subject         ; subject | body | both
-subject_mode = normal            ; normal | private | avatar
-confirmation_to_sender = true
-confirmation_tags_count = 5
-confirmation_tags_nature = short, lowercase, human-friendly topical nouns; no hashtags; no emojis
+```bash
+STORAGE_PATHS={"root": "/Photos/bondage_fetlife", "archive": "archive"}
+PUBLISHERS=[{"type": "fetlife", "recipient": "12345-abc@upload.fetlife.com", "caption_target": "subject", "subject_mode": "normal"}]
+EMAIL_SERVER={"sender": "you@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
+CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
+CONTENT_SETTINGS={"hashtag_string": "", "archive": true, "debug": false}
+OPENAI_SETTINGS={"vision_model": "gpt-4o", "caption_model": "gpt-4o-mini"}
 ```
+
+SMTP transport (`sender`, `smtp_server`, `smtp_port`) lives in `EMAIL_SERVER`, not in the `PUBLISHERS` entry; the entry carries only what is specific to the publisher.
+
+Per-tenant AI prompts (`system_prompt`, `role_prompt`, `voice_profile`) come from the orchestrator runtime config, not from a local file. See `dotenv.v2.example` and `docs_v2/05_Configuration/CONFIGURATION.md` for the full reference.
 
 ---
 
