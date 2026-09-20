@@ -114,21 +114,28 @@ async def _move(client: httpx.AsyncClient, filename: str) -> httpx.Response:
 
 
 @pytest.mark.parametrize(
-    "hostile",
+    ("hostile", "expected_status"),
     [
-        "..%5Cx.jpg",  # backslash survives routing; the sanitizer must strip it
-        "%2e%2e.jpg",  # decodes to "..jpg" — a name, not a traversal, but never listed
-        "..%2Fx.jpg",  # decodes to "../x.jpg": rejected by routing before the handler
+        # 400 is the sanitizer's own rejection. Asserting the exact code is the
+        # point: with ``in (400, 404)`` these two cases pass even when
+        # ``_sanitize_filename`` is removed from the handler, because the
+        # listing check then 404s them instead — so the test could not detect
+        # the loss of the half of the fix it is named after.
+        ("..%5Cx.jpg", 400),  # backslash survives routing; the sanitizer must strip it
+        ("%2e%2e.jpg", 400),  # decodes to "..jpg" — a name, not a traversal, but never listed
+        # Rejected by Starlette's routing before the handler runs at all, so no
+        # sanitizer involved and nothing for it to pin.
+        ("..%2Fx.jpg", 404),
     ],
 )
 async def test_traversal_name_never_reaches_storage(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3], hostile: str
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3], hostile: str, expected_status: int
 ) -> None:
     client, s3 = client_and_s3
 
     response = await _move(client, hostile)
 
-    assert response.status_code in (400, 404), response.text
+    assert response.status_code == expected_status, response.text
     assert s3.copied == []
     assert s3.deleted == []
 
