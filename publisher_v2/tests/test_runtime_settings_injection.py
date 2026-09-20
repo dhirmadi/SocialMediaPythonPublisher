@@ -401,3 +401,29 @@ class TestTheRemovedLoginBackoffKnobStaysRemoved:
             if "WEB_LOGIN_BACKOFF_CAP_SECONDS" in path.read_text(encoding="utf-8")
         ]
         assert hits == [], f"#137 removed this knob; it is still read in {hits}"
+
+
+class TestAVariantBuiltWithoutValidationStillWorks:
+    """Follow-up audit: ``model_copy(update=...)`` and ``model_construct`` skip validation.
+
+    Both hand the field whatever they are given. With a tuple-of-pairs field and
+    a naive scan, a plain dict then makes ``publish_timeout_for`` raise
+    ``ValueError: too many values to unpack`` — on the publish path, from a call
+    the class docstring itself suggests. The scan accepts either shape instead,
+    so the escape hatch degrades to "the value you passed" rather than an
+    unhandled exception mid-workflow.
+    """
+
+    def test_model_copy_with_a_plain_dict_still_resolves(self) -> None:
+        settings = load_runtime_settings().model_copy(update={"publish_timeout_overrides": {"telegram": 30.0}})
+        assert settings.publish_timeout_for("telegram") == 30.0
+        assert settings.publish_timeout_for("email") == settings.publish_timeout_seconds
+
+    def test_model_construct_with_a_plain_dict_still_resolves(self) -> None:
+        settings = RuntimeSettings.model_construct(publish_timeout_overrides={"telegram": 30.0})
+        assert settings.publish_timeout_for("telegram") == 30.0
+
+    def test_a_two_character_platform_name_is_not_mistaken_for_a_pair(self) -> None:
+        """``for a, b in {"ig": …}`` unpacks the *key* into two characters and silently misses."""
+        settings = RuntimeSettings.model_construct(publish_timeout_overrides={"ig": 30.0})
+        assert settings.publish_timeout_for("ig") == 30.0

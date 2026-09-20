@@ -65,13 +65,13 @@ class RuntimeSettings(BaseModel):
     """Runtime tunables. Optional fields fall back to static config at the call site.
 
     Frozen: one instance is shared by every request in the process (#143), so a
-    component must not be able to mutate the snapshot its neighbours read. Use
-    ``model_copy(update=...)`` for a variant.
+    component must not be able to mutate the snapshot its neighbours read.
 
-    ``model_copy(update=...)`` is the way to build a variant, but note that it
-    does **not** re-run validation: passing a plain dict for
-    ``publish_timeout_overrides`` through it stores that dict as-is, mutable and
-    of the wrong type. Pass a tuple of pairs there, or construct a new instance.
+    Build a variant with ``model_copy(update=...)``, bearing in mind that it
+    does **not** re-run validation: a plain dict passed for
+    ``publish_timeout_overrides`` is stored as-is, mutable and of the declared
+    type's opposite shape. ``publish_timeout_for`` tolerates that, but the
+    result is no longer immutable — construct a new instance when that matters.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -117,7 +117,13 @@ class RuntimeSettings(BaseModel):
     def publish_timeout_for(self, platform: str) -> float:
         """Per-platform publish timeout, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
         wanted = platform.lower()
-        for name, timeout in self.publish_timeout_overrides:
+        # ``model_copy(update=...)`` and ``model_construct`` skip validation, so
+        # this field can hold the plain mapping they were handed. Iterating that
+        # would unpack its *keys* — raising, or worse, silently matching nothing
+        # when a platform name happens to be two characters long.
+        overrides = self.publish_timeout_overrides
+        pairs = overrides.items() if isinstance(overrides, Mapping) else overrides
+        for name, timeout in pairs:
             if name == wanted:
                 return timeout
         return self.publish_timeout_seconds
