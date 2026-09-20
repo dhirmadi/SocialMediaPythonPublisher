@@ -61,37 +61,57 @@ _DROPBOX_CONTENT_ORIGINS = ("https://*.dropboxusercontent.com",)
 # IPv6 production, so a browser drops the whole source. Emitting one is worse
 # than emitting nothing — it looks configured while behaving as 'self'.
 _SAFE_NETLOC_RE = re.compile(r"[A-Za-z0-9.\-]+(?::[0-9]{1,5})?")
+# A netloc longer than a legal DNS name is emitted twice per response (img-src
+# and connect-src), so an absurd endpoint gives that tenant a CSP header large
+# enough for a reverse proxy to answer with 502. 253 is the DNS name limit;
+# the port adds at most 6.
+_MAX_NETLOC_LEN = 253 + 6
 
 
 @lru_cache(maxsize=128)
-def _log_rejected_origin(scheme: str, fingerprint: str) -> None:
-    """Warn once per distinct endpoint that an operator's storage origin was dropped.
+def _log_rejected_origin(scheme: str, fingerprint: str, tenant: str | None) -> None:
+    """Warn once per distinct signal that an operator's storage origin was dropped.
 
     ``storage_origins_for_config`` runs on every response, so logging inline
     would give a single misconfigured tenant one WARNING per request forever.
     The lru_cache is the de-dup: a repeat call with the same arguments returns
     the memoised ``None`` without logging. Bounded, so an endpoint rotated in a
-    loop cannot grow the cache.
+    loop cannot grow the cache — at the cost that the de-dup is per *value*, not
+    per process: once 128 distinct signals evict an earlier one, that one warns
+    again. Endpoints come from control-plane config rather than from anything a
+    request can vary, so rotating past the bound needs orchestrator access.
 
-    Neither argument carries tenant text: ``scheme`` comes from urlparse's
-    ``[A-Za-z0-9+.-]`` grammar and is truncated, and the fingerprint is a hash —
-    enough to tell two broken endpoints apart, not enough to read either. The
+    ``tenant`` is included because the event was otherwise unactionable: an
+    operator saw that *some* tenant's origin was dropped, identified only by a
+    hash of a value they would have to already know. A tenant id is not secret;
+    the endpoint is, and it is still only ever logged as a fingerprint — enough
+    to tell two broken endpoints apart, not enough to read either. ``scheme``
+    comes from urlparse's ``[A-Za-z0-9+.-]`` grammar and is truncated. The
     netloc's *length* is deliberately not logged: on a userinfo-bearing endpoint
     that is a length oracle over a credential.
     """
-    log_json(logger, logging.WARNING, "csp_storage_origin_rejected", scheme=scheme, endpoint=fingerprint)
+    log_json(
+        logger,
+        logging.WARNING,
+        "csp_storage_origin_rejected",
+        scheme=scheme,
+        endpoint=fingerprint,
+        tenant=tenant,
+    )
 
 
 def _fingerprint(endpoint: str) -> str:
     return hashlib.sha256(endpoint.encode("utf-8", "replace")).hexdigest()[:8]
 
 
-def storage_origins_for_config(config: Any) -> list[str]:
+def storage_origins_for_config(config: Any, tenant: str | None = None) -> list[str]:
     """Origins a page backed by this config may fetch image bytes from.
 
     Managed storage: the configured endpoint origin. Dropbox: its content hosts.
     Anything unrecognised or unsafe: nothing extra, leaving the directives at
     ``'self'``.
+
+    ``tenant`` only labels the rejection WARNING; it never reaches the policy.
     """
     if config is None:
         return []
@@ -104,13 +124,14 @@ def storage_origins_for_config(config: Any) -> list[str]:
             # e.g. "http://[evil" — a malformed tenant endpoint must degrade to
             # 'self', not raise on every request for that tenant. This is the
             # most operator-visible failure, so it must be logged too.
-            _log_rejected_origin("unparseable", _fingerprint(endpoint))
+            _log_rejected_origin("unparseable", _fingerprint(endpoint), tenant)
             return []
-        if parsed.scheme in ("http", "https") and _SAFE_NETLOC_RE.fullmatch(parsed.netloc or ""):
+        netloc = parsed.netloc or ""
+        if parsed.scheme in ("http", "https") and len(netloc) <= _MAX_NETLOC_LEN and _SAFE_NETLOC_RE.fullmatch(netloc):
             return [f"{parsed.scheme}://{parsed.netloc}"]
         # Degrading silently leaves an operator with a typo'd endpoint staring at
         # a browser console violation and no server-side signal.
-        _log_rejected_origin((parsed.scheme or "")[:16], _fingerprint(endpoint))
+        _log_rejected_origin((parsed.scheme or "")[:16], _fingerprint(endpoint), tenant)
         return []
     if getattr(config, "dropbox", None) is not None:
         return list(_DROPBOX_CONTENT_ORIGINS)
@@ -124,7 +145,7 @@ def _storage_origins(request: Request) -> list[str]:
         service = getattr(request.state, "web_service", None)
         config = getattr(service, "config", None)
     if config is not None:
-        return storage_origins_for_config(config)
+        return storage_origins_for_config(config, tenant=getattr(request.state, "tenant", None))
     # Standalone: resolved once at startup, so a cold process still serves the
     # right policy on its very first page render.
     try:

@@ -470,3 +470,107 @@ class TestRejectedEndpointIsVisibleToOperators:
         assert "a" * 100 not in events[0]
         logged = json.loads(events[0])["scheme"]
         assert len(logged) == 16, logged
+
+
+class TestTheRejectionSignalIsActionable:
+    """#144 security audit: the WARNING named no tenant, so an operator could not act on it.
+
+    The event said "some tenant's storage origin was dropped" and gave an 8-hex
+    fingerprint that maps to nothing an operator holds. On a fleet the signal
+    was unusable. The tenant id is not secret — the endpoint is what must never
+    be logged — so it goes in the event and in the de-dup key.
+    """
+
+    @staticmethod
+    def _warnings(caplog: pytest.LogCaptureFixture) -> list[str]:
+        return [r.getMessage() for r in caplog.records if "csp_storage_origin_rejected" in r.getMessage()]
+
+    @pytest.fixture(autouse=True)
+    def _clear_dedup(self) -> Iterator[None]:
+        from publisher_v2.web.middleware_security import _log_rejected_origin
+
+        clear = getattr(_log_rejected_origin, "cache_clear", lambda: None)
+        clear()
+        yield
+        clear()
+
+    def test_the_warning_names_the_tenant(self, caplog: pytest.LogCaptureFixture) -> None:
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("https://evil.example; script-src *")
+
+        assert storage_origins_for_config(config, tenant="acme") == []
+
+        events = self._warnings(caplog)
+        assert events, caplog.text
+        assert '"tenant": "acme"' in events[0]
+        assert "evil.example" not in events[0]
+
+    def test_two_tenants_sharing_a_broken_endpoint_are_both_reported(self, caplog: pytest.LogCaptureFixture) -> None:
+        """De-dup is per signal, not per endpoint: each tenant needs its own line to act on."""
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("https://evil.example; script-src *")
+
+        storage_origins_for_config(config, tenant="acme")
+        storage_origins_for_config(config, tenant="globex")
+        storage_origins_for_config(config, tenant="acme")
+
+        events = self._warnings(caplog)
+        assert len(events) == 2, caplog.text
+        assert any('"tenant": "acme"' in e for e in events)
+        assert any('"tenant": "globex"' in e for e in events)
+
+    def test_the_request_path_passes_the_tenant_through(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The value has to reach the helper from the request, not just be accepted by it."""
+        from types import SimpleNamespace
+
+        from publisher_v2.web.middleware_security import _storage_origins
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        request = SimpleNamespace(
+            state=SimpleNamespace(
+                config=TestPerTenantOrigins._config("https://evil.example; script-src *"),
+                tenant="acme",
+            ),
+            app=SimpleNamespace(state=SimpleNamespace(csp_storage_origins=[])),
+        )
+
+        assert _storage_origins(request) == []  # type: ignore[arg-type]
+
+        events = self._warnings(caplog)
+        assert events, caplog.text
+        assert '"tenant": "acme"' in events[0]
+
+
+class TestAnEndpointCannotInflateTheHeader:
+    """#144 security audit: the accepted netloc had no length bound.
+
+    ``https://<100k chars>.com`` matched the safe-netloc pattern, so the origin
+    was emitted twice per response — img-src and connect-src — giving that
+    tenant a ~200KB CSP header on every response, which many reverse proxies
+    answer with a 502. Self-inflicted and tenant-scoped, but free to prevent.
+    """
+
+    def test_an_absurdly_long_host_is_rejected(self) -> None:
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        config = TestPerTenantOrigins._config("https://" + "a" * 100_000 + ".com")
+        assert storage_origins_for_config(config) == []
+
+    def test_a_host_at_the_dns_limit_is_still_accepted(self) -> None:
+        """253 is the DNS name limit; the bound must not reject a legal host."""
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        host = ("a" * 49 + ".") * 5 + "com"  # 253 characters
+        assert len(host) == 253
+        config = TestPerTenantOrigins._config(f"https://{host}")
+        assert storage_origins_for_config(config) == [f"https://{host}"]
+
+    def test_an_ordinary_host_with_a_port_still_works(self) -> None:
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        config = TestPerTenantOrigins._config("https://minio.internal:9000")
+        assert storage_origins_for_config(config) == ["https://minio.internal:9000"]
