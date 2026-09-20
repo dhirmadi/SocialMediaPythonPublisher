@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -90,6 +90,8 @@ def _make_mock_managed_storage(existing_keys: dict[str, str] | None = None):
     storage.head_object = AsyncMock(side_effect=_head_object)
     storage.exists = AsyncMock(side_effect=_exists)
     storage.put_object = AsyncMock(side_effect=_put_object)
+    # Sync on the real backend: an AsyncMock here would hand the tool a coroutine.
+    storage.drain_ops_count = MagicMock(return_value=7)
     storage.uploaded = uploaded
 
     return storage
@@ -606,7 +608,7 @@ class TestTargetStorageIsTheRealBackend:
     """#142: the tool must use ManagedStorage itself, not a subclass of it."""
 
     def test_build_target_storage_returns_a_plain_managed_storage(self, monkeypatch) -> None:
-        from unittest.mock import MagicMock, patch
+        from unittest.mock import patch
 
         from publisher_v2.services.managed_storage import ManagedStorage
         from publisher_v2.services.storage_protocol import ObjectStorageProtocol
@@ -653,3 +655,57 @@ class TestCliWiring:
 
         assert await mod.async_main() == 0
         assert captured["resume"] is False
+
+
+class TestTheMeteredCallsAreReported:
+    """#142: the tool reaches storage only through the metered protocol methods.
+
+    Without draining the counter into the summary, "every call is counted" has
+    no observable effect for an operator running the tool, and the HEAD cost of
+    a resumed run stays invisible.
+    """
+
+    async def test_the_summary_reports_the_storage_op_count(self, caplog) -> None:
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage()
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        caplog.set_level(logging.INFO, logger="publisher_v2.tools.migrate_storage")
+        await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        events = [r.getMessage() for r in caplog.records if "migration_complete" in r.getMessage()]
+        assert events, caplog.text
+        assert '"storage_ops": 7' in events[0]
+        target.drain_ops_count.assert_called_once()
+
+    async def test_a_target_without_a_counter_still_summarises(self, caplog) -> None:
+        """The tool is typed against the protocol, which does not require the counter."""
+        source = _make_mock_dropbox_storage(files={"/Photos/img1.jpg": b"image-data"})
+        target = _make_mock_managed_storage()
+        del target.drain_ops_count
+
+        from publisher_v2.tools.migrate_storage import run_migration
+
+        caplog.set_level(logging.INFO, logger="publisher_v2.tools.migrate_storage")
+        await run_migration(
+            source=source,
+            target=target,
+            source_folder="/Photos",
+            target_prefix="t/i",
+            subfolders=[],
+            dry_run=False,
+            limit=None,
+        )
+
+        events = [r.getMessage() for r in caplog.records if "migration_complete" in r.getMessage()]
+        assert events, caplog.text
+        assert '"storage_ops": null' in events[0]

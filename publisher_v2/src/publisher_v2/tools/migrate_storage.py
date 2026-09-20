@@ -18,6 +18,7 @@ import sys
 from dataclasses import dataclass
 from typing import Any
 
+from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json, setup_logging
 
 logger = logging.getLogger("publisher_v2.tools.migrate_storage")
@@ -91,7 +92,7 @@ async def _copy_sidecar(
 
 async def run_migration(
     source: Any,
-    target: Any,
+    target: ObjectStorageProtocol,
     source_folder: str,
     target_prefix: str,
     subfolders: list[str],
@@ -198,7 +199,12 @@ async def run_migration(
         if limit is not None and images_processed >= limit:
             break
 
-    # Final summary
+    # Final summary. #142: the tool now goes through the metered protocol methods,
+    # so drain the counter and report it — otherwise "every call is counted" has no
+    # observable effect for an operator, and a resumed run's HEAD cost stays hidden.
+    drain = getattr(target, "drain_ops_count", None)
+    drained = drain() if callable(drain) else None
+    storage_ops = drained if isinstance(drained, int) else None
     log_json(
         logger,
         logging.INFO,
@@ -209,6 +215,7 @@ async def run_migration(
         total_files=result.total_files,
         total_bytes=result.total_bytes,
         dry_run=dry_run,
+        storage_ops=storage_ops,
     )
 
     return result
