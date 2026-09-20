@@ -26,3 +26,12 @@ class TestNullGenerator:
 
         with pytest.raises(AIServiceError):
             await NullAIService.generator.generate_multi(_analysis(), [])
+
+    async def test_the_sd_entry_points_raise_too(self) -> None:
+        """sd_caption_enabled defaults to True, so these are what a mis-gated run calls first."""
+        from publisher_v2.services.ai import NullAIService
+
+        with pytest.raises(AIServiceError):
+            await NullAIService.generator.generate_with_sd(_analysis(), None)
+        with pytest.raises(AIServiceError):
+            await NullAIService.generator.generate_multi_with_sd(_analysis(), [])

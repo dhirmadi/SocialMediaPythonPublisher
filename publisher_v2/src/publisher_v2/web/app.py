@@ -1,5 +1,4 @@
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -134,10 +133,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # process's first page render already names it. Orchestrated requests use
     # their own tenant config instead.
     app.state.csp_storage_origins = []
-    with contextlib.suppress(Exception):
+    try:
         from publisher_v2.web.middleware_security import storage_origins_for_config
 
-        app.state.csp_storage_origins = storage_origins_for_config(get_service().config)
+        # Building the standalone service is synchronous (config load, storage
+        # client, DB wiring), so keep it off the event loop.
+        service = await asyncio.to_thread(get_service)
+        app.state.csp_storage_origins = storage_origins_for_config(service.config)
+    except Exception:
+        # Orchestrated instances have no standalone config; the CSP then falls
+        # back to 'self', which is correct but worth saying out loud.
+        _logger.info("csp_storage_origin_unresolved", exc_info=True)
 
     yield
 

@@ -1480,9 +1480,13 @@ class _NullGenerator:
     async def generate(self, analysis: ImageAnalysis, spec: Any) -> tuple[str, AIUsage | None]:
         raise AIServiceError(self._DISABLED)
 
-    async def generate_multi(
-        self, analysis: ImageAnalysis, specs: Any, **kwargs: Any
-    ) -> tuple[tuple[dict[str, str], str | None], AIUsage | None]:
+    async def generate_multi(self, analysis: ImageAnalysis, specs: Any, **kwargs: Any) -> Any:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: Any, **kwargs: Any) -> Any:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_multi_with_sd(self, analysis: ImageAnalysis, specs: Any, **kwargs: Any) -> Any:
         raise AIServiceError(self._DISABLED)
 
 

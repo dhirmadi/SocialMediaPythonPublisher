@@ -81,9 +81,11 @@ def dropbox_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[None
         yield
     get_config_source.cache_clear()
     get_service.cache_clear()
-    # Re-prime the standalone singleton while this fixture's env is still set:
-    # sibling web tests rely on a service being cached and do not set the config
-    # env vars themselves, so leaving the cache empty would break them.
+    # Re-prime the standalone singleton while this fixture's env is still set.
+    # tests/web/test_web_settings_voice_profile.py builds no service of its own and reuses whatever the
+    # get_service lru_cache happens to hold; clearing it without re-priming fails
+    # 6 tests there with "required env vars not set". Pre-existing isolation debt,
+    # not introduced here — noted as a follow-up on #128.
     with contextlib.suppress(Exception):
         get_service()
 
@@ -211,3 +213,79 @@ def test_policy_keeps_its_other_directives(managed_app: None) -> None:
     assert "default-src 'self'" in csp
     assert "frame-ancestors 'none'" in csp
     assert "script-src 'self' 'nonce-" in csp
+
+
+class TestPerTenantOrigins:
+    """#144: in orchestrated mode the policy must come from the request's own tenant config.
+
+    This is the branch the standalone tests never reach: there the origin comes
+    from the startup snapshot on app.state.
+    """
+
+    @staticmethod
+    def _config(endpoint: str | None):
+        from publisher_v2.config.schema import (
+            ApplicationConfig,
+            ContentConfig,
+            DropboxConfig,
+            ManagedStorageConfig,
+            OpenAIConfig,
+            PlatformsConfig,
+            StoragePathConfig,
+        )
+
+        common = {
+            "storage_paths": StoragePathConfig(image_folder="/Photos"),
+            "openai": OpenAIConfig(api_key="sk-test"),
+            "platforms": PlatformsConfig(),
+            "content": ContentConfig(hashtag_string="", archive=True, debug=False),
+        }
+        if endpoint is None:
+            return ApplicationConfig(
+                dropbox=DropboxConfig(
+                    app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
+                ),
+                **common,
+            )
+        return ApplicationConfig(
+            managed=ManagedStorageConfig(
+                access_key_id="k", secret_access_key="s", endpoint_url=endpoint, bucket="b", region="auto"
+            ),
+            **common,
+        )
+
+    def test_each_tenant_gets_its_own_storage_origin(self) -> None:
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        tenant_a = self._config("https://a-account.r2.cloudflarestorage.com")
+        tenant_b = self._config("https://b-account.r2.cloudflarestorage.com")
+        tenant_dropbox = self._config(None)
+
+        assert storage_origins_for_config(tenant_a) == ["https://a-account.r2.cloudflarestorage.com"]
+        assert storage_origins_for_config(tenant_b) == ["https://b-account.r2.cloudflarestorage.com"]
+        assert storage_origins_for_config(tenant_dropbox) == ["https://*.dropboxusercontent.com"]
+
+    def test_the_request_scoped_config_wins_over_the_startup_snapshot(self) -> None:
+        """A tenant's config must never be overridden by the instance-level value."""
+        from types import SimpleNamespace
+
+        from publisher_v2.web.middleware_security import _storage_origins
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(config=self._config("https://tenant.r2.cloudflarestorage.com")),
+            app=SimpleNamespace(state=SimpleNamespace(csp_storage_origins=["https://instance.example"])),
+        )
+
+        assert _storage_origins(request) == ["https://tenant.r2.cloudflarestorage.com"]
+
+    def test_a_tenant_with_no_resolvable_storage_gets_nothing_extra(self) -> None:
+        from types import SimpleNamespace
+
+        from publisher_v2.web.middleware_security import _storage_origins
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(config=None, web_service=SimpleNamespace(config=None)),
+            app=SimpleNamespace(state=SimpleNamespace(csp_storage_origins=[])),
+        )
+
+        assert _storage_origins(request) == []

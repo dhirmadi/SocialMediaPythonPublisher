@@ -418,12 +418,20 @@ async def _list_objects_from_storage(
     return {"objects": objects[:limit], "cursor": None}
 
 
+def _invalidate_listing(service: WebImageService) -> None:
+    """Drop the service's cached listing after a write (#144)."""
+    invalidate = getattr(service, "invalidate_image_listing", None)
+    if callable(invalidate):
+        invalidate()
+
+
 async def _upload_to_storage(service: WebImageService, filename: str, data: bytes, content_type: str) -> dict[str, Any]:
     """Upload file to managed storage (protocol-only, #96; metering inside)."""
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     await storage.put_object(key, data, content_type)
+    _invalidate_listing(service)
     return {"key": key, "size": len(data)}
 
 
@@ -436,6 +444,7 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
     if await storage.head_object(key) is None:
         raise FileNotFoundError(f"File not found: {filename}")
     await storage.delete_object(key)
+    _invalidate_listing(service)
 
     stem = os.path.splitext(filename)[0]
     sidecar_key = f"{folder.strip('/')}/{stem}.txt".lstrip("/")
@@ -469,6 +478,7 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
 
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     await storage.move_object(src_key, dst_key)
+    _invalidate_listing(service)
 
     stem = os.path.splitext(filename)[0]
     sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")

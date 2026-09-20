@@ -30,9 +30,13 @@ class _FakeS3:
     def __init__(self) -> None:
         self.copied: list[tuple[str, str]] = []
         self.deleted: list[str] = []
+        self.keys: list[str] = [f"{KEY_PREFIX}/known.jpg"]
+
+    def add_object(self, name: str) -> None:
+        self.keys.append(f"{KEY_PREFIX}/{name}")
 
     def get_paginator(self, _name: str) -> Any:
-        keys = [f"{KEY_PREFIX}/known.jpg"]
+        keys = list(self.keys)
 
         class _Paginator:
             def paginate(self, **_kwargs: Any) -> Any:
@@ -109,10 +113,20 @@ async def _move(client: httpx.AsyncClient, filename: str) -> httpx.Response:
     return await client.post(f"/api/library/objects/{filename}/move", json={"target_folder": "archive"})
 
 
-async def test_traversal_name_never_reaches_storage(client_and_s3: tuple[httpx.AsyncClient, _FakeS3]) -> None:
+@pytest.mark.parametrize(
+    "hostile",
+    [
+        "..%5Cx.jpg",  # backslash survives routing; the sanitizer must strip it
+        "%2e%2e.jpg",  # decodes to "..jpg" — a name, not a traversal, but never listed
+        "..%2Fx.jpg",  # decodes to "../x.jpg": rejected by routing before the handler
+    ],
+)
+async def test_traversal_name_never_reaches_storage(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3], hostile: str
+) -> None:
     client, s3 = client_and_s3
 
-    response = await _move(client, "..%2Fx.jpg")
+    response = await _move(client, hostile)
 
     assert response.status_code in (400, 404), response.text
     assert s3.copied == []
@@ -126,6 +140,22 @@ async def test_unlisted_name_is_404(client_and_s3: tuple[httpx.AsyncClient, _Fak
 
     assert response.status_code == 404, response.text
     assert s3.copied == []
+
+
+async def test_an_object_uploaded_moments_ago_can_be_moved(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """#144: ensure_known_image reads a 30s listing cache — a write must invalidate it."""
+    client, s3 = client_and_s3
+    # Warm the listing cache, as any page load would.
+    await _move(client, "known.jpg")
+    s3.copied.clear()
+    s3.add_object("fresh.jpg")
+
+    response = await _move(client, "fresh.jpg")
+
+    assert response.status_code == 200, response.text
+    assert (f"{KEY_PREFIX}/fresh.jpg", f"{KEY_PREFIX}/archive/fresh.jpg") in s3.copied
 
 
 async def test_listed_name_still_moves(client_and_s3: tuple[httpx.AsyncClient, _FakeS3]) -> None:

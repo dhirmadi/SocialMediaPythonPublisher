@@ -85,9 +85,11 @@ def real_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[None]:
         yield
     get_config_source.cache_clear()
     get_service.cache_clear()
-    # Re-prime the standalone singleton while this fixture's env is still set:
-    # sibling web tests rely on a service being cached and do not set the config
-    # env vars themselves, so leaving the cache empty would break them.
+    # Re-prime the standalone singleton while this fixture's env is still set.
+    # tests/web/test_web_settings_voice_profile.py builds no service of its own and reuses whatever the
+    # get_service lru_cache happens to hold; clearing it without re-priming fails
+    # 6 tests there with "required env vars not set". Pre-existing isolation debt,
+    # not introduced here — noted as a follow-up on #128.
     with contextlib.suppress(Exception):
         get_service()
 
