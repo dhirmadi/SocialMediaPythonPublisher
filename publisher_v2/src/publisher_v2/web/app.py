@@ -160,6 +160,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # in place would hand the next app built in this process a dead factory
         # holding the previous app's settings — the same leak the
         # ``app.state.runtime_settings`` reset below prevents.
+        #
+        # A request arriving between the drop and the shutdown would build a
+        # second factory whose services this shutdown never closes. Measured and
+        # accepted: the previous shape leaked the same single service (a request
+        # after ``shutdown()`` repopulated the factory it had just cleared), and
+        # uvicorn drains in-flight requests before emitting lifespan.shutdown.
+        # A ``_SHUTTING_DOWN`` gate would close it, at the cost of serving that
+        # request from an already-closed factory.
         factory = reset_tenant_service_factory()
         if factory is not None:
             await factory.shutdown()

@@ -23,9 +23,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Mapping
-from types import MappingProxyType
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 def _float_env(name: str, default: float | None) -> float | None:
@@ -69,9 +68,10 @@ class RuntimeSettings(BaseModel):
     component must not be able to mutate the snapshot its neighbours read. Use
     ``model_copy(update=...)`` for a variant.
 
-    Not hashable, despite what ``frozen=True`` usually implies: the override
-    mapping is a ``MappingProxyType``, which is itself unhashable. Do not key a
-    cache on a settings instance without giving this field a hashable form.
+    ``model_copy(update=...)`` is the way to build a variant, but note that it
+    does **not** re-run validation: passing a plain dict for
+    ``publish_timeout_overrides`` through it stores that dict as-is, mutable and
+    of the wrong type. Pass a tuple of pairs there, or construct a new instance.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -86,25 +86,28 @@ class RuntimeSettings(BaseModel):
     tenant_service_ttl_seconds: int = 600
     library_max_upload_mb: int = 20
     library_scan_budget: int = 5000
-    publish_timeout_overrides: Mapping[str, float] = Field(default_factory=dict)
+    # A tuple of pairs, not a dict: the snapshot is shared process-wide, and a
+    # dict field stays writable through its items even under ``frozen=True``.
+    # A MappingProxyType would also be immutable but is neither picklable,
+    # deep-copyable nor JSON-serialisable, which would make an ordinary
+    # ``model_dump_json()`` or ``model_copy(deep=True)`` raise. Construct it
+    # from a plain mapping; the validator below converts.
+    publish_timeout_overrides: tuple[tuple[str, float], ...] = ()
     # #143: web/service-layer tunables that used to be ad-hoc os.environ reads.
     thumbnail_cache_ttl_seconds: float = 900.0
     thumbnail_cache_max_bytes: int = 50 * 1024 * 1024
     trust_forwarded_for: bool = False
     secure_cookies: bool = True
-    login_backoff_cap_seconds: float = 5.0
     config_source: str = ""
     orchestrator_base_url: str = ""
 
-    @field_validator("publish_timeout_overrides", mode="after")
+    @field_validator("publish_timeout_overrides", mode="before")
     @classmethod
-    def _freeze_overrides(cls, value: Mapping[str, float]) -> Mapping[str, float]:
-        """``frozen=True`` stops attribute assignment but not ``settings.overrides[k] = v``.
-
-        One snapshot is shared by every tenant in the process, so a write through
-        this dict would change a publish timeout fleet-wide.
-        """
-        return MappingProxyType(dict(value))
+    def _as_pairs(cls, value: object) -> object:
+        """Accept the natural ``{"telegram": 30.0}`` form and store it immutably."""
+        if isinstance(value, Mapping):
+            return tuple(value.items())
+        return value
 
     @property
     def is_standalone(self) -> bool:
@@ -113,7 +116,11 @@ class RuntimeSettings(BaseModel):
 
     def publish_timeout_for(self, platform: str) -> float:
         """Per-platform publish timeout, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
-        return self.publish_timeout_overrides.get(platform.lower(), self.publish_timeout_seconds)
+        wanted = platform.lower()
+        for name, timeout in self.publish_timeout_overrides:
+            if name == wanted:
+                return timeout
+        return self.publish_timeout_seconds
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -133,10 +140,6 @@ def load_runtime_settings() -> RuntimeSettings:
     ttl = _float_env("WEB_IMAGE_CACHE_TTL_SECONDS", None)
     if ttl is not None and ttl <= 0:
         ttl = None
-
-    login_backoff_cap = _float_env("WEB_LOGIN_BACKOFF_CAP_SECONDS", defaults.login_backoff_cap_seconds)
-    if login_backoff_cap is None:
-        login_backoff_cap = defaults.login_backoff_cap_seconds
 
     # 0 is a meaningful value for both (disable cache / unlimited), so no ``or`` fallback.
     thumb_ttl = _float_env("WEB_THUMBNAIL_CACHE_TTL_SECONDS", defaults.thumbnail_cache_ttl_seconds)
@@ -176,7 +179,7 @@ def load_runtime_settings() -> RuntimeSettings:
         tenant_service_ttl_seconds=_int_env("TENANT_SERVICE_TTL_SECONDS", None) or defaults.tenant_service_ttl_seconds,
         library_max_upload_mb=_int_env("LIBRARY_MAX_UPLOAD_MB", None) or defaults.library_max_upload_mb,
         library_scan_budget=_int_env("LIBRARY_SCAN_BUDGET", None) or defaults.library_scan_budget,
-        publish_timeout_overrides=overrides,
+        publish_timeout_overrides=tuple(overrides.items()),
         thumbnail_cache_ttl_seconds=defaults.thumbnail_cache_ttl_seconds if thumb_ttl is None else thumb_ttl,
         thumbnail_cache_max_bytes=defaults.thumbnail_cache_max_bytes if thumb_max is None else thumb_max,
         # WEB_TRUST_FORWARDED_FOR historically did not accept "on"; keep it that way.
@@ -185,7 +188,6 @@ def load_runtime_settings() -> RuntimeSettings:
         # "true " (a padded Heroku config var) has always meant on, and must keep
         # meaning on — otherwise the admin cookie silently loses its Secure flag.
         secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on"), strip=True),
-        login_backoff_cap_seconds=login_backoff_cap,
         config_source=(os.environ.get("CONFIG_SOURCE") or "").strip().lower(),
         orchestrator_base_url=os.environ.get("ORCHESTRATOR_BASE_URL") or "",
     )

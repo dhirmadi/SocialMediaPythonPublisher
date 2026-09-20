@@ -89,11 +89,9 @@ class TestTunablesLiveInRuntimeSettings:
     def test_proxy_and_cookie_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
         monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
-        monkeypatch.setenv("WEB_LOGIN_BACKOFF_CAP_SECONDS", "9")
         settings = load_runtime_settings()
         assert settings.trust_forwarded_for is True
         assert settings.secure_cookies is False
-        assert settings.login_backoff_cap_seconds == 9.0
 
     def test_mode_selection_settings(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("CONFIG_SOURCE", "env")
@@ -109,7 +107,6 @@ class TestTunablesLiveInRuntimeSettings:
             "WEB_THUMBNAIL_CACHE_MAX_BYTES",
             "WEB_TRUST_FORWARDED_FOR",
             "WEB_SECURE_COOKIES",
-            "WEB_LOGIN_BACKOFF_CAP_SECONDS",
             "CONFIG_SOURCE",
             "ORCHESTRATOR_BASE_URL",
         ):
@@ -119,7 +116,6 @@ class TestTunablesLiveInRuntimeSettings:
         assert settings.thumbnail_cache_max_bytes == 50 * 1024 * 1024
         assert settings.trust_forwarded_for is False
         assert settings.secure_cookies is True
-        assert settings.login_backoff_cap_seconds == 5.0
         assert settings.is_standalone is True  # no orchestrator configured
 
 
@@ -351,3 +347,57 @@ class TestTheSharedSnapshotCannotBeMutated:
         assert settings.publish_timeout_for("telegram") == 30.0
         assert settings.publish_timeout_for("email") == settings.publish_timeout_seconds
         assert dict(settings.publish_timeout_overrides) == {"telegram": 30.0}
+
+
+class TestTheSnapshotSurvivesOrdinaryHandling:
+    """Follow-up audit of #143: ``MappingProxyType`` made the model unusable in ways nothing catches.
+
+    A snapshot that cannot be deep-copied, pickled or serialised is a latent
+    failure in code that does not exist yet — a debug ``model_dump_json()`` in a
+    log line would 500 the request, and ``model_copy(deep=True)`` is already the
+    idiom one module over. The overrides are stored as a tuple of pairs instead:
+    immutable, and none of that breaks.
+    """
+
+    def test_deep_copy_pickle_and_json_all_work(self) -> None:
+        import copy
+        import pickle
+
+        settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
+        assert copy.deepcopy(settings).publish_timeout_for("telegram") == 30.0
+        assert settings.model_copy(deep=True).publish_timeout_for("telegram") == 30.0
+        # S301: round-tripping a model this test just built, not untrusted input.
+        assert pickle.loads(pickle.dumps(settings)).publish_timeout_for("telegram") == 30.0  # noqa: S301
+        assert "telegram" in settings.model_dump_json()
+
+    def test_the_snapshot_is_hashable(self) -> None:
+        """``frozen=True`` advertises hashability; a cache keyed on settings must not blow up."""
+        settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
+        assert len({settings, settings.model_copy()}) == 1
+
+    def test_the_overrides_still_cannot_be_written_through(self) -> None:
+        settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
+        with pytest.raises(TypeError):
+            settings.publish_timeout_overrides["telegram"] = 9999.0  # type: ignore[index]
+        assert settings.publish_timeout_for("telegram") == 30.0
+
+
+class TestTheRemovedLoginBackoffKnobStaysRemoved:
+    """#137 deleted the password login and ``WEB_LOGIN_BACKOFF_CAP_SECONDS`` with it.
+
+    #143 re-added it to ``RuntimeSettings`` as a parsed field with no consumer,
+    while ``CONFIGURATION.md`` and ``SPECIFICATION.md`` both say it no longer
+    exists. An inert knob tied to a deliberately removed auth path still reads
+    as supported.
+    """
+
+    def test_runtime_settings_has_no_login_backoff_field(self) -> None:
+        assert "login_backoff_cap_seconds" not in RuntimeSettings.model_fields
+
+    def test_the_env_var_is_not_read_anywhere_in_the_source(self) -> None:
+        hits = [
+            path.relative_to(SRC).as_posix()
+            for path in SRC.rglob("*.py")
+            if "WEB_LOGIN_BACKOFF_CAP_SECONDS" in path.read_text(encoding="utf-8")
+        ]
+        assert hits == [], f"#137 removed this knob; it is still read in {hits}"
