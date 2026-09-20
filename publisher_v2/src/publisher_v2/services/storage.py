@@ -84,9 +84,10 @@ def _dropbox_wait(retry_state) -> float:  # type: ignore[no-untyped-def]
 # One retry layer (#88, #132): the SDK's own retries are disabled below for both
 # 5xx (max_retries_on_error=0) and 429 (max_retries_on_rate_limit=0), so every
 # transient error reaches this decorator (before #132 a 429 retried inside the
-# SDK with no bound at all). Bound per decorated call: 3 attempts and 2 waits,
-# each wait at most 8s (exponential) or the server backoff capped at
-# MAX_RATE_LIMIT_BACKOFF_SECONDS. Each attempt is one or more HTTP calls
+# SDK with no bound at all). Bound per decorated call: 3 attempts and 2 waits.
+# Each wait is the server backoff capped at MAX_RATE_LIMIT_BACKOFF_SECONDS, or
+# exponential: 1s then 2s. At 3 attempts only two waits are ever computed, so
+# the 8s ceiling below is unreachable. Each attempt is one or more HTTP calls
 # (pagination, sidecar moves, and at most one token-refresh resend inside the
 # SDK), each bounded by the 30s connect/read timeout — not a total deadline, so
 # a slow but steady download stream can run longer.

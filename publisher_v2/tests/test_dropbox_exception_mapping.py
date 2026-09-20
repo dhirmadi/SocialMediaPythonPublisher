@@ -267,4 +267,61 @@ class TestRealHttp429:
         storage, counts = self._storage_with_http(monkeypatch, [too_many, self._resp(200, _LIST_OK.encode())])
         assert await storage.list_images("/Photos") == ["a.jpg"]
         assert counts["tenacity_sleeps"] == [float(MAX_RATE_LIMIT_BACKOFF_SECONDS)]
-        assert MAX_RATE_LIMIT_BACKOFF_SECONDS <= 30
+
+
+# --- #132 review follow-up: the operator-visible trade-off must be documented ---
+
+
+def test_the_rate_limit_backoff_cap_is_documented_for_operators() -> None:
+    """Capping `Retry-After` is a deliberate deviation with a cost.
+
+    Dropbox may ask for minutes; we wait at most 30s and try again, which can
+    spend calls against an account that is already throttled. That trade-off
+    is defensible on a web request path, but an operator debugging repeated
+    429s will not find it by reading a comment in `storage.py`.
+    """
+    from pathlib import Path
+
+    from publisher_v2.services.storage import MAX_RATE_LIMIT_BACKOFF_SECONDS
+
+    repo_root = Path(__file__).resolve().parents[2]
+    architecture = (repo_root / "docs_v2/03_Architecture/ARCHITECTURE.md").read_text()
+
+    # Whitespace-insensitive: the sentence wraps in the markdown source.
+    flattened = " ".join(architecture.split())
+    assert f"capped at {MAX_RATE_LIMIT_BACKOFF_SECONDS} seconds" in flattened, (
+        "ARCHITECTURE.md does not state the backoff cap the code enforces"
+    )
+    assert "Retry-After" in architecture, "ARCHITECTURE.md does not explain what is being capped"
+
+
+def test_the_documented_backoff_waits_are_the_ones_tenacity_actually_computes() -> None:
+    """The doc quoted an 8s ceiling that three attempts can never reach.
+
+    That unreachable number then produced a wrong "~16s" figure for the sidecar
+    path. Prose about timings drifts; pin the real values so it cannot.
+    """
+    from pathlib import Path
+
+    from publisher_v2.services.storage import _EXPONENTIAL_WAIT
+
+    class _RetryState:
+        def __init__(self, attempt_number: int) -> None:
+            self.attempt_number = attempt_number
+            self.outcome = None
+            self.idle_for = 0
+            self.seconds_since_start = 0
+
+    # Derived from the real stop condition, not hardcoded: raising
+    # stop_after_attempt would make the doc's "3 attempts" and "1s then 2s"
+    # false while a test pinned to (1, 2) kept passing.
+    from publisher_v2.services.storage import DropboxStorage
+
+    attempts = DropboxStorage.list_images.retry.stop.max_attempt_number
+    waits = [float(_EXPONENTIAL_WAIT(_RetryState(n))) for n in range(1, attempts)]
+    assert waits == [1.0, 2.0], waits
+
+    architecture = (Path(__file__).resolve().parents[2] / "docs_v2/03_Architecture/ARCHITECTURE.md").read_text()
+    assert f"{attempts} attempts" in architecture, "ARCHITECTURE.md does not state the real attempt count"
+    assert "1s then 2s" in architecture, "ARCHITECTURE.md does not state the waits that actually happen"
+    assert "~16s" not in architecture, "the unreachable-ceiling figure is back"
