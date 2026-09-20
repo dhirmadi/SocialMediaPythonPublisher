@@ -41,7 +41,7 @@ uv run mypy publisher_v2/src --ignore-missing-imports
 uv run pytest -v --tb=short
 
 # Gate 5: Coverage
-uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing --tb=short
+uv run pytest -v --cov --cov-report=term-missing --tb=short
 ```
 
 ### 3. Acceptance criteria check (if roadmap item path provided)

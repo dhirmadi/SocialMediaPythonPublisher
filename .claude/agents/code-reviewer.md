@@ -25,7 +25,7 @@ fix them in one pass.
    uv run ruff format --check .
    uv run ruff check .
    uv run mypy publisher_v2/src --ignore-missing-imports
-   uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing --tb=short
+   uv run pytest -v --cov --cov-report=term-missing --tb=short
    ```
 4. Check spec-to-test traceability: do the actual test function names match the handoff doc's
    "Test name (exact function)" column? A mismatch is spec drift, not a nitpick — call it out by

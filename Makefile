@@ -1,7 +1,7 @@
 # Makefile for Social Media Python Publisher
 # Simplifies common development tasks
 
-.PHONY: help install install-dev format lint type-check test security clean setup-dev
+.PHONY: help install install-dev format lint type-check test test-cov-file security clean setup-dev
 
 # Default target
 help:
@@ -19,6 +19,7 @@ help:
 	@echo "  make lint            Run linter (ruff check)"
 	@echo "  make type-check      Run type checker (mypy)"
 	@echo "  make test            Run tests with coverage"
+	@echo "  make test-cov-file   Coverage for one FILE=... (no 85% gate)"
 	@echo "  make check           Run all quality checks"
 	@echo ""
 	@echo "Security:"
@@ -83,8 +84,14 @@ type-check:
 
 test:
 	@echo "Running tests with coverage..."
-	uv run pytest -v --cov=. --cov-report=term --cov-report=html
+	uv run pytest -v --cov --cov-report=term-missing --cov-report=html
 	@echo "✅ Tests complete - see htmlcov/index.html for coverage report"
+
+# Coverage for one file or directory. The 85% gate is a whole-run gate, so a
+# partial run has to opt out of it or it fails on everything it did not touch.
+test-cov-file:
+	@if [ -z "$(FILE)" ]; then echo "Usage: make test-cov-file FILE=publisher_v2/tests/test_x.py"; exit 1; fi
+	COVERAGE_FILE=.coverage.partial uv run pytest -v --cov --cov-report=term-missing --cov-fail-under=0 $(FILE)
 
 check: format lint type-check test
 	@echo "Running pre-commit hooks..."

@@ -91,6 +91,16 @@ warn_unused_configs = true
 ignore_missing_imports = true
 exclude = ["code_v1", "docs_v1", "build", "dist"]
 
+[tool.coverage.run]
+# #141: measure the source tree only — `--cov=.` also counted tests and tools,
+# which inflated the figure the CLAUDE.md gates are written against.
+source = ["publisher_v2/src/publisher_v2"]
+
+[tool.coverage.report]
+fail_under = 85
+show_missing = true
+skip_covered = false
+
 [tool.pytest.ini_options]
 pythonpath = ["publisher_v2/src"]
 asyncio_mode = "auto"
@@ -106,4 +116,10 @@ markers = [
 addopts = [
     "-v",
     "--tb=short",
+    # #141: pytest resolves addopts from rootdir, so the gate holds even when
+    # pytest is invoked from a subdirectory (coverage's own config lookup is
+    # cwd-relative and would silently drop fail_under there). Inert when no
+    # --cov is passed. Partial runs that legitimately cover little should pass
+    # --cov-fail-under=0 explicitly.
+    "--cov-fail-under=85",
 ]

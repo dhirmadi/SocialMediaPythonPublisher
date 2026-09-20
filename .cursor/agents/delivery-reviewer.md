@@ -42,7 +42,7 @@ grep for secrets), but you never edit code, tests, or docs.
 3. **Quality gate verification** — run these yourself, don't trust a summary doc's numbers:
    ```bash
    uv run pytest -v --tb=short
-   uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
+   uv run pytest -v --cov --cov-report=term-missing
    uv run ruff check
    uv run mypy publisher_v2/src/publisher_v2 --ignore-missing-imports
    ```
