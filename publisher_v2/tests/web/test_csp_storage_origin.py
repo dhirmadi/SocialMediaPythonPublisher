@@ -125,7 +125,9 @@ def test_dropbox_content_host_is_allowed_not_all_of_https(dropbox_app: None) -> 
     [
         "https://evil.example; script-src *",
         "https://evil.example *",
-        "https://evil.example\tfoo",
+        # A comma is preserved by urlparse (a tab is stripped, so that vector
+        # could not tell a permissive regex from a strict one).
+        "https://evil.example,other.example",
     ],
 )
 def test_hostile_endpoint_cannot_inject_a_directive(
@@ -161,6 +163,9 @@ def test_hostile_endpoint_cannot_inject_a_directive(
     assert csp.count("script-src") == 1, csp
     assert "*" not in csp, csp
     assert not _has_blanket_https(csp), csp
+    # A comma would split the header into two whole policies, so it must never
+    # survive into a source either.
+    assert "," not in csp, csp
     for directive in csp.split(";"):
         if directive.strip().startswith(("img-src", "connect-src")):
             origins = [t for t in directive.split() if t.startswith("http")]
@@ -298,3 +303,106 @@ class TestPerTenantOrigins:
         )
 
         assert _storage_origins(request) == []
+
+    def test_a_malformed_tenant_endpoint_degrades_instead_of_raising(self) -> None:
+        """``_storage_origins`` has no guard of its own, so the ValueError must be caught below it.
+
+        ``ManagedStorageConfig`` does not validate ``endpoint_url``, and
+        ``urlparse("http://[evil")`` raises ``ValueError: Invalid IPv6 URL``.
+        Without the try/except in ``storage_origins_for_config`` this raises
+        inside ``SecurityHeadersMiddleware.dispatch`` — a 500 on every request
+        for that tenant. The standalone path hides this behind its own blanket
+        ``except``, so only the per-tenant call proves the guard is load-bearing.
+        """
+        from types import SimpleNamespace
+
+        from publisher_v2.web.middleware_security import _storage_origins
+
+        request = SimpleNamespace(
+            state=SimpleNamespace(config=self._config("http://[evil")),
+            app=SimpleNamespace(state=SimpleNamespace(csp_storage_origins=["https://instance.example"])),
+        )
+
+        assert _storage_origins(request) == []
+
+
+class TestOrchestratedRequestReachesTheHeader:
+    """#144 item 1: the tenant config set by the inner middleware must be visible to the outer one.
+
+    `TestPerTenantOrigins` fakes the request, so it cannot prove that
+    `SecurityHeadersMiddleware` (outermost) can read `request.state.config`
+    written by `tenant_middleware` (innermost) after `call_next`. That works
+    today only because Starlette backs `request.state` with `scope["state"]`;
+    a middleware-ordering or Starlette change would silently drop every
+    orchestrated tenant back to the standalone snapshot.
+    """
+
+    def test_the_tenant_origin_reaches_the_served_policy(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+        from types import SimpleNamespace
+
+        from fastapi.testclient import TestClient
+
+        env = _base_env(tmp_path) | {
+            "STORAGE_PROVIDER": "dropbox",
+            "DROPBOX_APP_KEY": "k",
+            "DROPBOX_APP_SECRET": "s",
+            "DROPBOX_REFRESH_TOKEN": "r",
+            "ORCHESTRATOR_BASE_URL": "https://orchestrator.example",
+        }
+        for key, value in env.items():
+            monkeypatch.setenv(key, value)
+        monkeypatch.delenv("CONFIG_SOURCE", raising=False)
+
+        tenant_config = TestPerTenantOrigins._config("https://tenant-account.r2.cloudflarestorage.com")
+        runtime = SimpleNamespace(host="tenant.example", tenant="tenant-1", config=tenant_config)
+
+        class _Source:
+            async def get_config(self, host: str) -> Any:
+                return runtime
+
+        class _Factory:
+            async def get_service(self, source: Any, runtime_config: Any) -> Any:
+                return SimpleNamespace(config=runtime_config.config)
+
+        from publisher_v2.config.source import get_config_source
+        from publisher_v2.web.app import app, get_service
+
+        get_config_source.cache_clear()
+        get_service.cache_clear()
+        with (
+            patch("publisher_v2.web.middleware.get_config_source", lambda: _Source()),
+            patch("publisher_v2.web.middleware._tenant_service_factory", lambda: _Factory()),
+            patch("publisher_v2.services.storage.dropbox.Dropbox"),
+            TestClient(app) as client,
+        ):
+            response = client.get("/", headers={"host": "tenant.example"})
+        csp = response.headers["Content-Security-Policy"]
+        get_config_source.cache_clear()
+        get_service.cache_clear()
+        with contextlib.suppress(Exception):
+            get_service()
+
+        assert "tenant-account.r2.cloudflarestorage.com" in csp, csp
+        assert "instance" not in csp, csp
+        assert not _has_blanket_https(csp), csp
+
+
+class TestRejectedEndpointIsVisibleToOperators:
+    """#144 follow-up: a rejected endpoint must leave a server-side signal."""
+
+    def test_an_unusable_endpoint_logs_a_warning_without_the_value(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("https://evil.example; script-src *")
+
+        assert storage_origins_for_config(config) == []
+
+        events = [r.getMessage() for r in caplog.records if "csp_storage_origin_rejected" in r.getMessage()]
+        assert events, caplog.text
+        assert '"scheme": "https"' in events[0]
+        # The netloc is tenant-supplied: its shape may be logged, never its value.
+        assert "evil.example" not in events[0]
+        assert "script-src" not in events[0]
