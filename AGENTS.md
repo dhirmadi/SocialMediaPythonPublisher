@@ -15,7 +15,7 @@ Treat `code_v1/` and `docs_v1/` as **archived — never edit**.
 | Lint | `make lint` |
 | Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` |
 | Test | `uv run pytest -v --tb=short` |
-| Test + coverage | `uv run pytest -v --cov --cov-report=term-missing` |
+| Test + coverage | `uv run pytest -v --cov --cov-report=term-missing` (source tree only; fails under 85%) |
 | All checks | `make check` |
 | Preview | `make preview-v2` (env-first; `--config` is accepted but ignored since #97 stage 4) |
 
@@ -68,6 +68,15 @@ publisher_v2/src/publisher_v2/
 | Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` | Zero errors |
 | Tests | `uv run pytest -v --tb=short` | All pass |
 | Coverage | `uv run pytest -v --cov --cov-report=term-missing` | ≥80% affected, ≥85% overall |
+
+`--cov-fail-under=85` lives in pytest's `addopts` so the gate survives being run
+from a subdirectory. Two consequences worth knowing:
+
+- Any **partial** coverage run (`pytest --cov -k one_test`, a single file) fails
+  on the whole-run threshold. Add `--cov-fail-under=0`, or use
+  `make test-cov-file FILE=<path>`.
+- `pytest -p no:cov` is **not supported**: disabling the plugin leaves
+  `--cov-fail-under=85` unrecognised and pytest exits on the unknown argument.
 
 ## Development workflow
 
