@@ -128,8 +128,6 @@ def reset_web_rate_limiters() -> None:
         for limiter in vars(module).values():
             if isinstance(limiter, SlidingWindowLimiter):
                 limiter.reset()
-    if hasattr(app_module, "_consecutive_login_failures"):
-        app_module._consecutive_login_failures = 0  # login backoff delay counter
 
 
 _shared_http_client_reset_count = 0
@@ -194,7 +192,6 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
         "WEB_AUTH_TOKEN",
         "WEB_AUTH_USER",
         "WEB_AUTH_PASS",
-        "web_admin_pw",
         # Auth0-related
         "AUTH0_DOMAIN",
         "AUTH0_CLIENT_ID",

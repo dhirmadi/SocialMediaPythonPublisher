@@ -132,7 +132,7 @@ Array of publisher configurations. **Secrets are NOT embedded** — they're read
 
 | Config Var | Description | Example |
 |------------|-------------|---------|
-| `web_admin_pw` | Admin password for web UI | `supersecret` |
+| `[removed #137: admin-password env var]` | Admin password for web UI | `supersecret` |
 | `WEB_SESSION_SECRET` | Session signing key | (auto-generated if unset) |
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` (default) |
 | `AUTH0_DOMAIN` | Auth0 domain (optional SSO) | `myapp.auth0.com` |

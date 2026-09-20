@@ -4,11 +4,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from publisher_v2.web.app import app
+from publisher_v2.web.auth import ADMIN_COOKIE_NAME, mint_admin_cookie_value
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> TestClient:
-    monkeypatch.setenv("web_admin_pw", "secret-admin")
+    # #137: Auth0 is the only admin login; there is no password to set.
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     return TestClient(app)
 
@@ -23,8 +27,8 @@ def test_delete_requires_admin(client: TestClient) -> None:
 
 
 def test_delete_endpoint_success_flow(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
+    # Become admin (#137: Auth0 is the only login; Auth0-mode cookie stands in for its callback)
+    client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(host="testserver", mode="auth0"))
     assert client.get("/api/admin/status").json()["admin"] is True
 
     from publisher_v2.web.app import get_service

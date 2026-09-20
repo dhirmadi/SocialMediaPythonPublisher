@@ -195,7 +195,7 @@ All changes are scoped to V2 modules and do not touch archived V1 code or CLI ar
   - `OPENAI_API_KEY`
   - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`
   - `INSTA_PASSWORD`, `EMAIL_PASSWORD`
-  - `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `web_admin_pw`
+  - `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `[removed #137: admin-password env var]`
 - **Dynamic variables (env + INI; unchanged semantics)**
   - Feature flags: `FEATURE_ANALYZE_CAPTION`, `FEATURE_PUBLISH`, `FEATURE_KEEP_CURATE`, `FEATURE_REMOVE_CURATE`, `AUTO_VIEW`
   - INI-based configuration under `[Dropbox]`, `[Content]`, `[Email]`, `[openAI]`, `[CaptionFile]`, etc.

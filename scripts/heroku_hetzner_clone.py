@@ -530,11 +530,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Explicit name for the new Heroku app (otherwise derived from source app and --name).",
     )
     parser.add_argument(
-        "--password",
-        required=False,
-        help="Web admin password for the new app; sets the web_admin_pw config var.",
-    )
-    parser.add_argument(
         "--heroku-staging-app",
         default="fetlife",
         help="Staging Heroku app to promote code from via pipelines (default: fetlife).",
@@ -579,8 +574,6 @@ def main(argv: list[str] | None = None) -> int:
         missing: list[str] = []
         if not args.folder:
             missing.append("--folder")
-        if not args.password:
-            missing.append("--password")
         if missing:
             sys.stderr.write(f"error: {', '.join(missing)} required when action=create (non-dry-run)\n")
             return 1
@@ -665,9 +658,6 @@ def main(argv: list[str] | None = None) -> int:
         # Always set/overwrite AUTO_VIEW to false on new servers
         auto_view_existed = "AUTO_VIEW" in new_cfg
         new_cfg["AUTO_VIEW"] = "false"
-        # Always set/overwrite web_admin_pw from the CLI password
-        admin_pw_existed = "web_admin_pw" in new_cfg
-        new_cfg["web_admin_pw"] = args.password
 
         heroku.set_config_vars(new_app_name, new_cfg)
         _print(f"  -> Copied {len(source_cfg)} config vars from {args.heroku_source_app}")
@@ -683,8 +673,6 @@ def main(argv: list[str] | None = None) -> int:
         _print(f"  -> {publish_action} FEATURE_PUBLISH=false")
         auto_view_action = "Set" if not auto_view_existed else "Overwritten"
         _print(f"  -> {auto_view_action} AUTO_VIEW=false")
-        admin_action = "Set" if not admin_pw_existed else "Overwritten"
-        _print(f"  -> {admin_action} web_admin_pw from --password")
 
         _print("\n[3/7] Enabling Automated Certificate Management (ACM)...")
         heroku.enable_acm(new_app_name)

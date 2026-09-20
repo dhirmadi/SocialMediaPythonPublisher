@@ -4,11 +4,15 @@ import pytest
 from fastapi.testclient import TestClient
 
 from publisher_v2.web.app import app
+from publisher_v2.web.auth import ADMIN_COOKIE_NAME, mint_admin_cookie_value
 
 
 @pytest.fixture
 def client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> TestClient:
-    monkeypatch.setenv("web_admin_pw", "secret-admin")
+    # #137: Auth0 is the only admin login; there is no password to set.
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
     # Disable secure cookies for test client (uses HTTP, not HTTPS)
     monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
     # For admin tests we do not require WEB_AUTH_TOKEN to be set; if it is,
@@ -16,18 +20,9 @@ def client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> TestClien
     return TestClient(app)
 
 
-def test_admin_login_success(client: TestClient) -> None:
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
-    data = res.json()
-    assert data["admin"] is True
-    # Cookie should be set
-    assert "pv2_admin" in client.cookies
-
-
-def test_admin_login_failure(client: TestClient) -> None:
-    res = client.post("/api/admin/login", json={"password": "wrong"})
-    assert res.status_code == 401
+def _become_admin(client: TestClient) -> None:
+    """#137: Auth0 is the only login; stand in for its callback with an Auth0-mode cookie."""
+    client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(host="testserver", mode="auth0"))
 
 
 def test_admin_status_and_cookie_flow(client: TestClient) -> None:
@@ -36,9 +31,8 @@ def test_admin_status_and_cookie_flow(client: TestClient) -> None:
     assert res.status_code == 200
     assert res.json()["admin"] is False
 
-    # Login to become admin
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
+    # Become admin (Auth0 callback stand-in)
+    _become_admin(client)
 
     # Now status should report admin=true
     res = client.get("/api/admin/status")
@@ -47,9 +41,7 @@ def test_admin_status_and_cookie_flow(client: TestClient) -> None:
 
 
 def test_admin_logout_clears_cookie(client: TestClient) -> None:
-    # Login to become admin
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
+    _become_admin(client)
     assert client.get("/api/admin/status").json()["admin"] is True
 
     # Logout (state-changing POST) — browser callers carry X-Requested-With
@@ -62,14 +54,15 @@ def test_admin_logout_clears_cookie(client: TestClient) -> None:
 
 def test_admin_logout_without_csrf_header_is_blocked(client: TestClient) -> None:
     """POSTing logout from a cross-origin form (no X-Requested-With) is blocked."""
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
+    _become_admin(client)
     res = client.post("/api/admin/logout")  # no CSRF header
     assert res.status_code == 403
 
 
 def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> None:
-    monkeypatch.setenv("web_admin_pw", "secret-admin")
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
     client = TestClient(app)
 
     # Without admin cookie, should be blocked. Post-hardening returns 401

@@ -75,13 +75,15 @@ def test_every_web_rate_limiter_is_reset_not_just_the_listed_ones() -> None:
 
     for limiter in limiters:
         limiter.check("isolation-probe")
-    app_module._consecutive_login_failures = 7
 
     tests_conftest.reset_web_rate_limiters()
 
     for limiter in limiters:
         assert not limiter._events, f"{limiter._label} was not reset"
-    assert app_module._consecutive_login_failures == 0
+    # #137 removed the login backoff counter. This used to set
+    # app_module._consecutive_login_failures itself and then assert it was
+    # reset, which passed whether or not the attribute existed.
+    assert not hasattr(app_module, "_consecutive_login_failures"), "the login backoff counter is gone (#137)"
 
 
 def test_the_shared_http_client_is_reset_around_every_test() -> None:

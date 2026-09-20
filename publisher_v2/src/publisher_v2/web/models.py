@@ -61,10 +61,6 @@ class ErrorResponse(BaseModel):
     detail: str | None = None
 
 
-class AdminLoginRequest(BaseModel):
-    password: str
-
-
 class AdminStatusResponse(BaseModel):
     admin: bool
     error: str | None = None

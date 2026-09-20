@@ -738,6 +738,9 @@
       <button id="btn-login-cta" class="primary hidden" style="padding: 0.75rem 1.5rem; font-size: 1rem;">
         {{ web_ui_text.buttons.login or "Login to manage images" }}
       </button>
+      <div id="admin-unavailable" class="status hidden" role="status">
+        {{ web_ui_text.status.admin_unavailable or "Admin mode unavailable: Auth0 login is not configured." }}
+      </div>
       <div id="admin-controls" class="controls admin-only hidden">
         <button id="btn-analyze" class="secondary">
           {{ web_ui_text.buttons.analyze or "Analyze & caption" }}
@@ -858,29 +861,6 @@
     </div>
   </main>
 
-  <div id="admin-modal" class="modal hidden">
-    <div class="modal-dialog">
-      <h2>{{ web_ui_text.admin_dialog.title or "Admin Login" }}</h2>
-      <div style="margin: 1rem 0;">
-        <p style="font-size: 0.9rem; color: #9ca3af; margin-bottom: 1rem;">
-            {{ web_ui_text.admin_dialog.description or "Enter the admin password to enable analysis and publishing." }}
-        </p>
-        <label style="display: block; margin-bottom: 0.5rem;">Password</label>
-        <input
-            type="password"
-            id="admin-password"
-            placeholder="{{ web_ui_text.admin_dialog.password_placeholder or 'Admin password' }}"
-            style="width: 100%; padding: 0.5rem; border-radius: 0.5rem; border: 1px solid #374151; background: #1f2937; color: white;"
-        />
-        <div id="login-error" style="color: #ef4444; font-size: 0.9rem; margin-top: 0.5rem; min-height: 1.2rem;"></div>
-      </div>
-      <div class="modal-footer">
-        <button id="btn-cancel-login" class="secondary">Cancel</button>
-        <button id="btn-submit-login">Login</button>
-      </div>
-    </div>
-  </div>
-
   <script nonce="{{ csp_nonce }}">
     // i18n text injected from static config (YAML → Jinja → JS)
     const TEXT = {{ web_ui_text | tojson }};
@@ -940,15 +920,10 @@
     const panelActivity = document.getElementById("panel-activity");
     const toastContainer = document.getElementById("toast-container");
 
-    const modal = document.getElementById("admin-modal");
-    const passwordInput = document.getElementById("admin-password");
-    const btnSubmitLogin = document.getElementById("btn-submit-login");
-    const btnCancelLogin = document.getElementById("btn-cancel-login");
-    const loginError = document.getElementById("login-error");
-
     const btnPrev = document.getElementById("btn-prev");
     const btnBackToGrid = document.getElementById("btn-back-to-grid");
     const btnLoginCta = document.getElementById("btn-login-cta");
+    const adminUnavailable = document.getElementById("admin-unavailable");
 
     const imageContainer = document.querySelector(".image-container");
     const controlsEl = document.querySelector(".controls");
@@ -1135,7 +1110,7 @@
 
     async function apiGetRandom() {
       if (!isAdmin && !featureConfig.auto_view_enabled) {
-        const adminReq = TEXT.status?.admin_required || "Admin mode required to view images.";
+        const adminReq = adminRequiredText();
         setActivity(adminReq);
         setDetails("");
         showImagePlaceholder(adminReq);
@@ -1336,6 +1311,14 @@
       if (regenEl) regenEl.classList.toggle("hidden", !isCached);
     }
 
+    // #137: without Auth0 there is no login to ask for; say admin is unavailable instead.
+    function adminRequiredText() {
+      if (featureConfig.auth_mode !== "auth0") {
+        return TEXT.status?.admin_unavailable || "Admin mode unavailable: Auth0 login is not configured.";
+      }
+      return TEXT.status?.admin_required || "Admin mode required to view images.";
+    }
+
     function showImagePlaceholder(message) {
       if (imgEl) {
         imgEl.src = "";
@@ -1475,7 +1458,8 @@
         envIndicator.classList.add("hidden");
       }
 
-      const authConfigured = featureConfig.auth_mode === "auth0" || featureConfig.auth_mode === "password";
+      // #137: Auth0 is the only admin login.
+      const authConfigured = featureConfig.auth_mode === "auth0";
 
       // Handle Admin Button Visibility & Type
       if (isAdmin) {
@@ -1486,6 +1470,7 @@
         btnAdmin.classList.add("hidden");
         btnAdminLogout.classList.remove("hidden");
         btnLoginCta.classList.add("hidden");
+        adminUnavailable.classList.add("hidden");
       } else {
         adminControls.classList.add("hidden");
         panelActivity.classList.add("hidden");
@@ -1498,17 +1483,13 @@
         if (authConfigured) {
             btnAdmin.classList.remove("hidden");
             btnLoginCta.classList.remove("hidden");
-            // Set up link for Auth0, or remove it for password (JS handles click)
-            if (featureConfig.auth_mode === "auth0") {
-                btnAdmin.href = "/auth/login";
-            } else {
-                btnAdmin.removeAttribute("href");
-                btnAdmin.style.cursor = "pointer";
-            }
+            btnAdmin.href = "/auth/login";
         } else {
             btnAdmin.classList.add("hidden");
             btnLoginCta.classList.add("hidden");
         }
+        // #137: no Auth0 means no admin login at all; say so where logged-out users look.
+        adminUnavailable.classList.toggle("hidden", authConfigured);
       }
       if (btnAnalyze) {
         const shouldShowAnalyze = featureConfig.analyze_caption_enabled;
@@ -1538,7 +1519,7 @@
       // When AUTO_VIEW is disabled and user is not admin, replace the image
       // area with a clear login-required message instead of a broken image.
       if (!isAdmin && !featureConfig.auto_view_enabled) {
-        showImagePlaceholder(TEXT.status?.admin_required || "Admin mode required to view images.");
+        showImagePlaceholder(adminRequiredText());
       }
       // Ensure Next button reflects current admin + AUTO_VIEW state when not globally disabled.
       disableButtons(false);
@@ -2718,58 +2699,6 @@
       }
     }
 
-    async function handleAdminLogin() {
-      const password = passwordInput.value;
-      if (!password) {
-        loginError.textContent = "Please enter a password.";
-        return;
-      }
-      loginError.textContent = "";
-      btnSubmitLogin.disabled = true;
-
-      try {
-        const res = await fetch("/api/admin/login", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ password }),
-        });
-
-        if (!res.ok) {
-           throw new Error("Invalid password");
-        }
-
-        // Success
-        isAdmin = true;
-        modal.classList.add("hidden");
-        passwordInput.value = "";
-        updateAdminUI();
-        showToast("Logged in successfully.");
-        setViewState("detail");
-        if (currentMode === "curate") {
-          reviewList = [];
-          await ensureReviewList();
-          if (reviewList.length > 0) {
-            reviewIndex = 0;
-            await loadImageDetail(reviewList[0]);
-          }
-        } else {
-          await apiGetRandom();
-        }
-      } catch (e) {
-        loginError.textContent = "Invalid password.";
-        btnSubmitLogin.disabled = false;
-      }
-    }
-
-    function toggleAdminModal() {
-      modal.classList.toggle("hidden");
-      if (!modal.classList.contains("hidden")) {
-        passwordInput.focus();
-        loginError.textContent = "";
-        btnSubmitLogin.disabled = false;
-      }
-    }
-
     function initAdminControls() {
       // Check for auth error in URL
       const urlParams = new URLSearchParams(window.location.search);
@@ -2780,32 +2709,18 @@
         window.history.replaceState({}, document.title, "/");
       }
 
-      // Handle legacy password login events
-      btnSubmitLogin.addEventListener("click", handleAdminLogin);
-      btnCancelLogin.addEventListener("click", () => modal.classList.add("hidden"));
-      passwordInput.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") handleAdminLogin();
-        if (e.key === "Escape") modal.classList.add("hidden");
-      });
-
-      // Admin button behavior is dynamic based on auth_mode.
-      // Default href is "#" — only Auth0 mode navigates via href.
+      // #137: Auth0 is the only admin login; both buttons start the Auth0 flow.
       btnAdmin.addEventListener("click", (e) => {
+          e.preventDefault();
           if (featureConfig.auth_mode === "auth0") {
               window.location.href = "/auth/login";
-          } else if (featureConfig.auth_mode === "password") {
-              e.preventDefault();
-              toggleAdminModal();
           }
-          e.preventDefault();
       });
 
       // Prominent login CTA button (shown when logged out)
       btnLoginCta.addEventListener("click", () => {
           if (featureConfig.auth_mode === "auth0") {
               window.location.href = "/auth/login";
-          } else if (featureConfig.auth_mode === "password") {
-              toggleAdminModal();
           }
       });
     }
@@ -3061,9 +2976,9 @@
             await apiGetRandom();
           }
         } else {
-          setActivity("Ready. Admin mode required to view images.");
+          setActivity("Ready. " + adminRequiredText());
           setDetails("");
-          showImagePlaceholder("Admin mode required to view images.");
+          showImagePlaceholder(adminRequiredText());
         }
       });
     }

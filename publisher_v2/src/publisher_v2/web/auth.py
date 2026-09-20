@@ -49,7 +49,7 @@ async def require_auth(request: Request) -> None:
       - Bearer token via WEB_AUTH_TOKEN, or
       - HTTP Basic auth via WEB_AUTH_USER / WEB_AUTH_PASS, or
       - An active admin cookie (signed) — for same-origin browser admins
-        who already authenticated via /api/admin/login or /auth/callback.
+        who already authenticated via /auth/callback (Auth0, the only admin login).
 
     Fail-closed: when no auth backend is configured AND admin mode is not
     configured AND WEB_ALLOW_UNAUTHENTICATED is not set, refuses the request.
@@ -87,7 +87,11 @@ async def require_auth(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="No auth backend configured. Set WEB_AUTH_TOKEN, WEB_AUTH_USER/WEB_AUTH_PASS, web_admin_pw, or AUTH0_DOMAIN/AUTH0_CLIENT_ID.",
+        detail=(
+            "No auth backend configured. Set AUTH0_DOMAIN/AUTH0_CLIENT_ID for admin actions "
+            "(#137: analyze, publish, keep, remove and delete accept nothing else), or "
+            "WEB_AUTH_TOKEN / WEB_AUTH_USER+WEB_AUTH_PASS for read-only machine access."
+        ),
     )
 
 
@@ -165,49 +169,14 @@ def revoke_admin_request(request: Request) -> None:
 
 
 _ADMIN_COOKIE_SALT = "publisher_v2.admin_cookie.v1"
-
-
-def get_admin_password() -> str | None:
-    """
-    Read the admin password from environment (web_admin_pw).
-
-    Returns None when not configured or empty, which disables admin mode.
-    """
-    # Intentionally lower-case to match .env naming in the change request.
-    return _get_env("web_admin_pw")
+_ADMIN_COOKIE_MODE = "auth0"
 
 
 def is_admin_configured() -> bool:
     """
-    Check if admin mode is available via either legacy password or Auth0.
+    Check if admin mode is available. Auth0 is the only admin login (#137).
     """
-    if get_admin_password() is not None:
-        return True
     return bool(_get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"))
-
-
-def get_auth_mode() -> str:
-    """
-    Determine the active authentication mode.
-    Returns: 'auth0', 'password', or 'none'.
-    """
-    if _get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"):
-        return "auth0"
-    if get_admin_password() is not None:
-        return "password"
-    return "none"
-
-
-def verify_admin_password(candidate: str, actual: str) -> bool:
-    """
-    Constant-time comparison helper for admin passwords.
-    """
-    if not candidate or not actual:
-        return False
-    try:
-        return hmac.compare_digest(candidate, actual)
-    except (TypeError, ValueError):
-        return False
 
 
 def _admin_cookie_ttl_seconds() -> int:
@@ -253,7 +222,7 @@ def mint_admin_cookie_value(
     *,
     tenant: str | None = None,
     host: str | None = None,
-    mode: str = "password",
+    mode: str = "auth0",
     email: str | None = None,
 ) -> str:
     """
@@ -261,8 +230,11 @@ def mint_admin_cookie_value(
 
     Payload: {"sid", "tenant", "host", "mode", "email"?}. Signature and
     timestamp are embedded by URLSafeTimedSerializer. Exposed so tests can
-    construct valid cookies.
+    construct valid cookies. Only ``mode="auth0"`` exists (#137); any other
+    mode raises ``ValueError``.
     """
+    if mode != _ADMIN_COOKIE_MODE:
+        raise ValueError(f"unsupported admin cookie mode: {mode!r}")
     payload: dict[str, str | None] = {
         "sid": secrets.token_urlsafe(16),
         "tenant": tenant,
@@ -296,6 +268,9 @@ def _load_admin_cookie(token: str | None) -> dict | None:
         return None
     if not all(key in data for key in ("sid", "tenant", "host", "mode")):
         return None
+    # #137: only Auth0-minted cookies are admin; old password cookies die at once.
+    if data.get("mode") != _ADMIN_COOKIE_MODE:
+        return None
     # #91 (SEC-10): epoch mismatch (rotated kill switch) and revoked sids fail.
     if str(data.get("epoch") or "") != _cookie_epoch():
         return None
@@ -323,7 +298,7 @@ def set_admin_cookie(
     *,
     tenant: str | None = None,
     host: str | None = None,
-    mode: str = "password",
+    mode: str = "auth0",
     email: str | None = None,
 ) -> None:
     """
@@ -366,14 +341,13 @@ def _tenant_admin_available(request: Request) -> bool | None:
     Per-tenant admin auth policy from the orchestrator runtime config.
 
     Returns None in standalone mode (no request.state.config); otherwise True
-    when the resolved tenant allows some admin login (Auth0 enabled via a
-    non-None auth0 config, or a password login configured on this instance).
+    only when the resolved tenant has Auth0 (a non-None auth0 config), the one
+    admin login (#137).
     """
     cfg = getattr(request.state, "config", None)
     if cfg is None:
         return None
-    auth0_enabled = getattr(cfg, "auth0", None) is not None
-    return auth0_enabled or get_admin_password() is not None
+    return getattr(cfg, "auth0", None) is not None
 
 
 def require_admin(request: Request) -> None:

@@ -20,7 +20,7 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
     Create a TestClient with a minimal in-memory config and controllable AUTO_VIEW/admin settings.
     """
 
-    def _make(auto_view: bool, admin_password: str | None) -> TestClient:
+    def _make(auto_view: bool, admin_configured: bool) -> TestClient:
         cfg = ApplicationConfig(
             dropbox=DropboxConfig(
                 app_key="k",
@@ -54,15 +54,13 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
             lambda config_path, env_path: cfg,
         )
 
-        # Configure or clear admin password for this client.
-        if admin_password is not None:
-            monkeypatch.setenv("web_admin_pw", admin_password)
+        # #137: Auth0 is the only admin login; configure it (or not) for this client.
+        if admin_configured:
+            monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+            monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         else:
-            monkeypatch.delenv("web_admin_pw", raising=False)
-
-        # Ensure Auth0 is also disabled so is_admin_configured() returns False
-        monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
-        monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
+            monkeypatch.delenv("AUTH0_DOMAIN", raising=False)
+            monkeypatch.delenv("AUTH0_CLIENT_ID", raising=False)
 
         # Disable secure cookies for test client (HTTP, not HTTPS)
         monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
@@ -79,7 +77,7 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
 def test_random_requires_admin_when_auto_view_disabled_and_admin_configured(
     make_client,
 ) -> None:
-    client = make_client(auto_view=False, admin_password="secret-admin")
+    client = make_client(auto_view=False, admin_configured=True)
 
     # Without admin cookie, AUTO_VIEW disabled → should be rejected up front.
     res = client.get("/api/images/random")
@@ -91,7 +89,7 @@ def test_random_unavailable_when_auto_view_disabled_and_admin_unconfigured(make_
     monkeypatch.setattr("publisher_v2.web.auth.is_admin_configured", lambda: False)
     monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
 
-    client = make_client(auto_view=False, admin_password=None)
+    client = make_client(auto_view=False, admin_configured=False)
 
     # With AUTO_VIEW disabled and no admin configured, fail closed with 503.
     res = client.get("/api/images/random")
@@ -100,13 +98,13 @@ def test_random_unavailable_when_auto_view_disabled_and_admin_unconfigured(make_
 
 def test_random_allows_admin_when_auto_view_disabled(make_client, monkeypatch) -> None:
     from publisher_v2.web.app import get_service
+    from publisher_v2.web.auth import mint_admin_cookie_value
     from publisher_v2.web.models import ImageResponse
 
-    client = make_client(auto_view=False, admin_password="secret-admin")
+    client = make_client(auto_view=False, admin_configured=True)
 
-    # Login to become admin.
-    res = client.post("/api/admin/login", json={"password": "secret-admin"})
-    assert res.status_code == 200
+    # Become admin (#137: Auth0 callback stand-in).
+    client.cookies.set("pv2_admin", mint_admin_cookie_value(host="testserver", mode="auth0"))
 
     # Stub get_random_image to avoid real Dropbox calls.
     svc = get_service()
@@ -134,7 +132,7 @@ def test_random_open_when_auto_view_enabled(make_client, monkeypatch) -> None:
     from publisher_v2.web.app import get_service
     from publisher_v2.web.models import ImageResponse
 
-    client = make_client(auto_view=True, admin_password=None)
+    client = make_client(auto_view=True, admin_configured=False)
 
     # Stub get_random_image so we don't hit Dropbox.
     svc = get_service()

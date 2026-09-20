@@ -23,7 +23,7 @@ The Auth0 Login Migration feature introduces OIDC-based authentication for the W
 ## 1. Intent & Scope Check
 
 ### What the Feature Achieves
-The feature replaces the shared `web_admin_pw` password mechanism with Auth0 OIDC login, providing:
+The feature replaces the shared `[removed #137: admin-password env var]` password mechanism with Auth0 OIDC login, providing:
 - External identity provider integration via Auth0
 - SSO (Single Sign-On) capability across related applications
 - Email-based allowlist authorization (`ADMIN_LOGIN_EMAILS`)

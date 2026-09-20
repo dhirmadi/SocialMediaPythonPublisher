@@ -32,7 +32,7 @@
   - Dropbox + sidecars remain the source of truth; no change to underlying workflow or sidecar format.
   - Must remain backward-compatible with CLI (`publisher_v2.app`) and existing web API contracts.
 - **Assumptions:**
-  - Admin protection for web-initiated mutating actions is a **two-layer model**: (1) HTTP auth headers (`require_auth`) using `WEB_AUTH_TOKEN` or Basic auth, and (2) an admin-mode cookie (`require_admin`) driven by `web_admin_pw` and managed in `publisher_v2.web.auth`.
+  - Admin protection for web-initiated mutating actions is a **two-layer model**: (1) HTTP auth headers (`require_auth`) using `WEB_AUTH_TOKEN` or Basic auth, and (2) an admin-mode cookie (`require_admin`) driven by `[removed #137: admin-password env var]` and managed in `publisher_v2.web.auth`.
   - Server-side admin sessions are already short-lived and enforced via the admin cookie `max_age` (default 3600 seconds, configurable but clamped to ≤3600 via `WEB_ADMIN_COOKIE_TTL_SECONDS`); the browser enforces this expiry without extra client-side timers.
   - The frontend may still keep a lightweight `isAdmin` state for UI toggling, but it must treat server responses (`/api/admin/status`, 401/403 from admin-only endpoints) as the source of truth for whether admin mode is active or expired.
   - The existing HTML template can be updated without introducing a separate build step (keep inline CSS/JS model per MVP).
@@ -105,11 +105,11 @@
   - Uses `WEB_AUTH_TOKEN` (Bearer) or `WEB_AUTH_USER`/`WEB_AUTH_PASS` (Basic) to ensure only authenticated callers can hit mutating APIs such as analyze/publish.
   - Applies to all mutating endpoints regardless of whether they are called from the web UI or another client.
 - **Admin mode for web UI (`require_admin` + admin cookie):**
-  - Uses `web_admin_pw` and the `pv2_admin` cookie, configured and enforced by `publisher_v2.web.auth`, to gate *web-triggered* mutating actions behind an explicit admin login step.
+  - Uses `[removed #137: admin-password env var]` and the `pv2_admin` cookie, configured and enforced by `publisher_v2.web.auth`, to gate *web-triggered* mutating actions behind an explicit admin login step.
   - Only when both layers succeed (HTTP auth and admin cookie) are analyze/publish operations allowed from the web UI.
   - The admin login flow must never bypass or weaken `require_auth`; it is an additional guard on top of existing HTTP auth, not a replacement.
 - **Frontend behavior:**
-  - The admin login modal talks to `/api/admin/login`, which on success sets the admin cookie.
+  - The admin login modal talks to `[removed #137: password-login route]`, which on success sets the admin cookie.
   - The UI calls `/api/admin/status` to discover whether the current browser session is in admin mode and to update `isAdmin` and visual state.
   - On 401/403 responses from admin-only endpoints, the UI must reset its admin state, hide admin sections, and prompt for login again.
 

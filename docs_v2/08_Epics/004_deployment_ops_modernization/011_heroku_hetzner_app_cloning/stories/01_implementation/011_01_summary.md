@@ -53,7 +53,7 @@ Instead, they can run a single command that performs all of these steps with cle
       - Subdomain `<name>.shibari.photo`.
       - CNAME record name in Hetzner.
     - `--folder` (required for `create` non-dry-run): injected into `FETLIFE_INI` as `[Dropbox].image_folder`.
-    - `--password` (required for `create` non-dry-run): sets `web_admin_pw` in the new app’s config, used by the web admin auth.
+    - `--password` (required for `create` non-dry-run): sets `[removed #137: admin-password env var]` in the new app’s config, used by the web admin auth.
     - `--heroku-source-app` (optional, default `fetlife-prod`): source app for config vars and `FETLIFE_INI`.
     - `--heroku-staging-app` (optional, default `fetlife`): staging app whose slug is promoted via pipelines.
     - `--pipeline` / `--pipeline-stage` (optional, default `fetlife` / `production`): target pipeline and stage for the new app.
@@ -61,7 +61,7 @@ Instead, they can run a single command that performs all of these steps with cle
     - `--dry-run` (optional: plan-only mode without API calls or file writes).
   - Heroku integration (`HerokuClient`):
     - `POST /apps` to create a new blank app (no direct fork endpoint is used).
-    - `GET /apps/{app}/config-vars` and `PATCH /apps/{app}/config-vars` to clone and update config vars (`FETLIFE_INI`, feature flags, `AUTO_VIEW`, `web_admin_pw`, etc.).
+    - `GET /apps/{app}/config-vars` and `PATCH /apps/{app}/config-vars` to clone and update config vars (`FETLIFE_INI`, feature flags, `AUTO_VIEW`, `[removed #137: admin-password env var]`, etc.).
     - `POST /apps/{app}/acm` to enable Automated Certificate Management (ACM).
     - `POST /apps/{app}/domains` with `{"hostname": "<name>.shibari.photo", "sni_endpoint": null}` to create the custom domain and capture the DNS target.
     - `GET /pipelines` and `POST /pipeline-couplings` to add the new app to the `fetlife` pipeline.
@@ -115,7 +115,7 @@ Errors from Heroku or Hetzner APIs are wrapped in small custom exceptions (`Hero
     - `FEATURE_ANALYZE_CAPTION=false`
     - `FEATURE_PUBLISH=false`
     - `AUTO_VIEW=false`
-    - `web_admin_pw=<--password value>`
+    - `[removed #137: admin-password env var]=<--password value>`
 
 - **Dry-run mode**
   - With `--dry-run`, the script:

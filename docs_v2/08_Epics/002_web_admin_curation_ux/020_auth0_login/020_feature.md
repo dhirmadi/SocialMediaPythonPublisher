@@ -10,10 +10,10 @@
 Migrate the Web UI admin authentication from a simple password-based mechanism to Auth0 OIDC login. This enhances security by leveraging a managed identity provider and allows for granular access control via an allowlist of email addresses.
 
 ## Problem Statement
-The current admin authentication relies on a shared password (`web_admin_pw`) or basic auth credentials. This is difficult to manage, lacks auditability, and does not support individual user identity. We need a more robust solution that authenticates users via Auth0 and authorizes them based on their email address.
+The current admin authentication relies on a shared password (`[removed #137: admin-password env var]`) or basic auth credentials. This is difficult to manage, lacks auditability, and does not support individual user identity. We need a more robust solution that authenticates users via Auth0 and authorizes them based on their email address.
 
 ## Goals
-- Replace the existing `web_admin_pw` password check with an Auth0 OIDC flow.
+- Replace the existing `[removed #137: admin-password env var]` password check with an Auth0 OIDC flow.
 - Secure the "Admin Mode" of the Web UI behind Auth0 login.
 - Authorize users by checking their authenticated email against a configured allowlist (`ADMIN_LOGIN_EMAILS`).
 - Maintain the existing `pv2_admin` cookie mechanism for session management after successful login.

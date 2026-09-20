@@ -61,7 +61,8 @@ class TestHsts:
 
 class TestPostLogout:
     def test_post_api_auth_logout_clears_admin(self, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
-        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         from publisher_v2.web.auth import mint_admin_cookie_value
 
         client.cookies.set("pv2_admin", mint_admin_cookie_value(host="testserver"))
@@ -96,7 +97,8 @@ class TestCookieRevocation:
     """SEC-10 (#91 C): logout revokes the sid; epoch rotates all cookies."""
 
     def test_logout_revokes_the_presented_cookie(self, monkeypatch: pytest.MonkeyPatch, client: TestClient) -> None:
-        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         from publisher_v2.web.auth import mint_admin_cookie_value
 
         cookie = mint_admin_cookie_value(host="testserver")
@@ -246,7 +248,8 @@ class TestHeaderAuthWithCookie:
     def test_default_cookie_alone_passes(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
         monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
-        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         monkeypatch.delenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", raising=False)
         client = self._app()
         client.cookies.set("pv2_admin", self._cookie())
@@ -255,7 +258,8 @@ class TestHeaderAuthWithCookie:
     def test_strict_mode_rejects_cookie_alone(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
         monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
-        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         monkeypatch.setenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", "1")
         client = self._app()
         client.cookies.set("pv2_admin", self._cookie())
@@ -264,7 +268,8 @@ class TestHeaderAuthWithCookie:
     def test_strict_mode_accepts_header_plus_cookie(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
         monkeypatch.setenv("WEB_AUTH_TOKEN", "token-1")
-        monkeypatch.setenv("web_admin_pw", "secret")
+        monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+        monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
         monkeypatch.setenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", "1")
         client = self._app()
         client.cookies.set("pv2_admin", self._cookie())

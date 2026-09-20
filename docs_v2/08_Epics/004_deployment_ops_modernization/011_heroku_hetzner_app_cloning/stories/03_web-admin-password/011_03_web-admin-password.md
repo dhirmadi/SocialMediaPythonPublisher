@@ -15,7 +15,7 @@
 ## Summary
 
 This story extends the `heroku_hetzner_clone.py` provisioning script so that each newly created Heroku app has an explicit web admin password configured at creation time.
-It introduces a required CLI parameter `--password` and uses that value to set (or overwrite) the `web_admin_pw` config var on the new app, aligning with the existing web admin auth design that reads `web_admin_pw` from the environment.
+It introduces a required CLI parameter `--password` and uses that value to set (or overwrite) the `[removed #137: admin-password env var]` config var on the new app, aligning with the existing web admin auth design that reads `[removed #137: admin-password env var]` from the environment.
 
 ---
 
@@ -33,11 +33,11 @@ It introduces a required CLI parameter `--password` and uses that value to set (
   parser.add_argument(
       "--password",
       required=True,
-      help="Web admin password for the new app; sets the web_admin_pw config var.",
+      help="Web admin password for the new app; sets the [removed #137: admin-password env var] config var.",
   )
   ```
 
-- The help text clarifies that this password will be used to configure `web_admin_pw` on the new Heroku app.
+- The help text clarifies that this password will be used to configure `[removed #137: admin-password env var]` on the new Heroku app.
 - The existing `--dry-run` behavior is unchanged; operators still need to pass `--password` syntactically, but no config vars are written in dry-run mode.
 
 ### Config Vars Update
@@ -53,9 +53,9 @@ It introduces a required CLI parameter `--password` and uses that value to set (
   new_cfg["FEATURE_KEEP_CURATE"] = "true"
   new_cfg["FEATURE_REMOVE_CURATE"] = "true"
 
-  # Always set/overwrite web_admin_pw from the CLI password
-  admin_pw_existed = "web_admin_pw" in new_cfg
-  new_cfg["web_admin_pw"] = args.password
+  # Always set/overwrite [removed #137: admin-password env var] from the CLI password
+  admin_pw_existed = "[removed #137: admin-password env var]" in new_cfg
+  new_cfg["[removed #137: admin-password env var]"] = args.password
 
   heroku.set_config_vars(new_app_name, new_cfg)
   ```
@@ -64,12 +64,12 @@ It introduces a required CLI parameter `--password` and uses that value to set (
 
   ```python
   admin_action = "Set" if not admin_pw_existed else "Overwritten"
-  _print(f"  -> {admin_action} web_admin_pw from --password")
+  _print(f"  -> {admin_action} [removed #137: admin-password env var] from --password")
   ```
 
 - Result:
-  - If the source app did **not** have `web_admin_pw`, the new app’s `web_admin_pw` is **set** from `--password`.
-  - If the source app did have `web_admin_pw`, the new app’s value is **overwritten** with `--password`, ensuring the operator-selected password is always applied.
+  - If the source app did **not** have `[removed #137: admin-password env var]`, the new app’s `[removed #137: admin-password env var]` is **set** from `--password`.
+  - If the source app did have `[removed #137: admin-password env var]`, the new app’s value is **overwritten** with `--password`, ensuring the operator-selected password is always applied.
 
 ---
 
@@ -88,24 +88,24 @@ It introduces a required CLI parameter `--password` and uses that value to set (
 
     now:
     - Creates/couples the new app, updates config vars, sets feature flags, enables ACM, creates the custom domain, configures Hetzner DNS, and promotes from staging as before.
-    - Ensures the new app has `web_admin_pw = "s3cret"` in its config vars.
+    - Ensures the new app has `[removed #137: admin-password env var] = "s3cret"` in its config vars.
 
 - **Dry-run**
-  - With `--dry-run`, the script returns early before any Heroku API calls, including `set_config_vars`; no `web_admin_pw` changes are made.
+  - With `--dry-run`, the script returns early before any Heroku API calls, including `set_config_vars`; no `[removed #137: admin-password env var]` changes are made.
   - `--password` is still syntactically required by argparse, but its value is never used against Heroku.
 
 ---
 
 ## Alignment with Web Auth
 
-- `publisher_v2/src/publisher_v2/web/auth.py` expects `web_admin_pw` in the environment to enable admin mode:
+- `publisher_v2/src/publisher_v2/web/auth.py` expects `[removed #137: admin-password env var]` in the environment to enable admin mode:
 
   ```python
   def get_admin_password() -> Optional[str]:
-      return _get_env("web_admin_pw")
+      return _get_env("[removed #137: admin-password env var]")
   ```
 
-- By setting `web_admin_pw` during provisioning, each new instance created via the script is immediately capable of supporting web admin mode (subject to operators knowing the chosen password).
+- By setting `[removed #137: admin-password env var]` during provisioning, each new instance created via the script is immediately capable of supporting web admin mode (subject to operators knowing the chosen password).
 
 ---
 
@@ -113,7 +113,7 @@ It introduces a required CLI parameter `--password` and uses that value to set (
 
 - Existing automated tests for `heroku_hetzner_clone.py` (focused on `update_image_folder`) continue to pass.
 - Manual validation is recommended:
-  - After running the script with a test password, verify in the Heroku dashboard that the new app’s config vars include `web_admin_pw` with the expected value.
+  - After running the script with a test password, verify in the Heroku dashboard that the new app’s config vars include `[removed #137: admin-password env var]` with the expected value.
 
 ---
 

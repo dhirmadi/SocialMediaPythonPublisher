@@ -229,7 +229,7 @@ see §12):
 | GET | `/` | HTML admin UI |
 | GET | `/health`, `/health/live`, `/health/ready` | Liveness/readiness (readiness may check orchestrator connectivity) |
 | GET | `/api/admin/status` | Admin session status |
-| POST | `/api/admin/login` / `/api/admin/logout` | Legacy Bearer/Basic admin session (cookie-based) |
+| POST | `/api/admin/logout` | Clear the admin session cookie (deprecated alias of `/api/auth/logout`) |
 | GET | `/auth/login`, `/auth/callback`, `/auth/logout` | Auth0 OIDC login flow (PUB-020) |
 | GET | `/api/images/list` | Paginated/sortable/filterable image list (PUB-032, PUB-033) |
 | GET | `/api/images/random` | Random image + metadata (`thumbnail_url` included) |
@@ -298,16 +298,22 @@ metering calls are made.
 ## 12. Security
 - Secrets only in `.env` / orchestrator-resolved credentials; never logged (regex-pattern
   redaction for `sk-`, `r8_`, tokens, bearer headers).
-- **Web auth**: mutating endpoints require either HTTP auth (`WEB_AUTH_TOKEN` Bearer, or
+- **Web auth**: `require_auth` accepts either HTTP auth (`WEB_AUTH_TOKEN` Bearer, or
   `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) or the signed, tenant/host-bound admin session cookie —
   a valid cookie alone is sufficient by default (#91 SEC-3 decision b), and
   `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` additionally requires header auth for cookie sessions.
-  Admin-gated actions require that cookie — the image routes call `require_admin` only when admin
-  mode is configured (`is_admin_configured()`), so an instance with no admin login set up does not
-  gate them — which a browser obtains through Auth0 OIDC login
-  (PUB-020) gated by an email allowlist (`ADMIN_LOGIN_EMAILS`); its TTL is clamped
-  (`WEB_ADMIN_COOKIE_TTL_SECONDS`, 60–3600s, default 3600). `FEATURE_AUTO_VIEW=true` permits anonymous
-  viewing of random images only — never mutation.
+- **Admin actions are Auth0-only, and that is a breaking API change (#137).** Analyze, publish,
+  keep, remove and delete call `require_admin` **unconditionally** — the image routes no longer
+  skip it when no admin login is configured. HTTP auth satisfies `require_auth` but never
+  `require_admin`, so **Bearer/Basic-only automation can no longer drive those endpoints**: with
+  no Auth0 configured they answer `503`, and with Auth0 but no admin cookie `403`.
+  `WEB_ALLOW_UNAUTHENTICATED=1` does not open them either. The cookie is minted **solely** by the
+  Auth0 OIDC callback (PUB-020), gated by an email allowlist (`ADMIN_LOGIN_EMAILS`), with its TTL
+  clamped (`WEB_ADMIN_COOKIE_TTL_SECONDS`, 60–3600s, default 3600). There is no password login:
+  `web_admin_pw`, `POST /api/admin/login`, `verify_admin_password` and
+  `WEB_LOGIN_BACKOFF_CAP_SECONDS` are gone, and cookies minted by the old password route are
+  rejected. `FEATURE_AUTO_VIEW=true` permits anonymous viewing of random images only — never
+  mutation.
 - **Prompt-injection hardening**: vision-extracted free text is sanitized
   (`_sanitize_analysis_field`) before being re-interpolated into caption prompts; the SD
   condense pass (PUB-046) uses a fixed, non-tenant-controllable system prompt with explicit

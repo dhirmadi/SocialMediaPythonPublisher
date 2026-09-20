@@ -261,7 +261,7 @@ async def api_get_web_ui_text() -> dict:
 - `OPENAI_API_KEY`
 - `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHANNEL_ID`
 - `INSTA_PASSWORD`, `EMAIL_PASSWORD`
-- `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `web_admin_pw`
+- `WEB_AUTH_TOKEN`, `WEB_AUTH_USER`, `WEB_AUTH_PASS`, `[removed #137: admin-password env var]`
 
 **Status:** ✅ No changes. All remain env-only.
 
