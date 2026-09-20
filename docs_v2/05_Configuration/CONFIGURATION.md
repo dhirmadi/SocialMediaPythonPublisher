@@ -134,6 +134,7 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `PUBLISH_TIMEOUT_<PLATFORM>_SECONDS` | Per-platform publish timeout override (e.g. `PUBLISH_TIMEOUT_TELEGRAM_SECONDS`) | (default timeout) |
 | `AI_STAGE_TIMEOUT_SECONDS` | Hard deadline for the combined vision+caption stage (min 0.1s) | 150 |
 | `WEB_IMAGE_CACHE_TTL_SECONDS` | Override web image-listing cache TTL | (from static config) |
+| `WEB_THUMBNAIL_CACHE_TTL_SECONDS` | Managed-storage thumbnail cache TTL. A hit inside the TTL costs zero storage ops; past it the object's ETag is re-checked (#140). The cache is **per process** and is invalidated by writes made through that same process — run a single web worker, or lower the TTL, if you scale out | 900 |
 | `PV2_CAPTION_HISTORY_RETENTION_DAYS` | Caption history retention window | 90 |
 | `TENANT_SERVICE_CACHE_MAX_SIZE` | Max cached tenant services (orchestrator mode) | 1000 |
 | `TENANT_SERVICE_TTL_SECONDS` | Tenant service cache TTL | 600 |
