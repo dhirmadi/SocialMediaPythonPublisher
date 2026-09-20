@@ -146,7 +146,7 @@ async def update_sidecar_with_caption(
 
         if existing_data:
             text = existing_data.decode("utf-8", errors="replace")
-            sd_caption, parsed_meta = parse_sidecar_text(text)
+            sd_caption, parsed_meta = parse_sidecar_text(text, source=filename)
             if parsed_meta:
                 meta = dict(parsed_meta)
 

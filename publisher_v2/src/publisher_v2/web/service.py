@@ -433,7 +433,7 @@ class WebImageService:
 
         if sidecar_result:
             text = sidecar_result.decode("utf-8", errors="ignore")
-            view = rehydrate_sidecar_view(text)
+            view = rehydrate_sidecar_view(text, source=filename)
             sd_caption = view.get("sd_caption")
             caption = view.get("caption")
             metadata = view.get("metadata")
@@ -588,7 +588,7 @@ class WebImageService:
             blob = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
             if blob:
                 text = blob.decode("utf-8", errors="ignore")
-                view = rehydrate_sidecar_view(text)
+                view = rehydrate_sidecar_view(text, source=filename)
                 cached_caption = self._select_cached_social_caption(view)
                 if cached_caption:
                     log_json(
