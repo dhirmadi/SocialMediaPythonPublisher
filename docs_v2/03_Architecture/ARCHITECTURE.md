@@ -136,8 +136,11 @@ Migration CLI (PUB-031, standalone tool):
   `content_hash` is a block SHA256, so the two could never compare equal and the
   hash arm never fired. The tool reaches storage only through
   `ObjectStorageProtocol` (`exists`/`head_object`/`put_object`), so every call is
-  metered; a `head_object` that fails for any reason other than absence logs
-  `head_object_failed` rather than reading as "missing".
+  metered. A `head_object` that fails for any reason other than absence — a 403,
+  a throttle — still *reports* absent, so the object is re-copied (overwriting,
+  never losing data); what changed is that the fault is no longer silent:
+  `head_object_failed` is logged, and `migration_presence_unknown` when the
+  presence check itself raises.
 
 ## 4. Execution Model
 - Async entrypoint; wrap blocking SDK methods with `asyncio.to_thread`.
