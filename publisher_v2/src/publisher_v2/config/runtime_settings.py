@@ -22,8 +22,10 @@ clamps (publish timeout >= 5s, AI stage timeout >= 0.1s) are preserved.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
+from types import MappingProxyType
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def _float_env(name: str, default: float | None) -> float | None:
@@ -36,9 +38,18 @@ def _float_env(name: str, default: float | None) -> float | None:
         return default
 
 
-def _bool_env(name: str, default: str, truthy: tuple[str, ...]) -> bool:
-    """Truthy-string parsing. ``truthy`` differs per var — the old call sites did not agree."""
-    return (os.environ.get(name) or default).lower() in truthy
+def _bool_env(name: str, default: str, truthy: tuple[str, ...], *, strip: bool = False) -> bool:
+    """Truthy-string parsing. ``truthy`` and ``strip`` differ per var — the old call sites did not agree.
+
+    ``strip`` reproduces ``web/auth.py::_get_env``, which stripped the value and
+    treated a whitespace-only one as unset. The call sites that used a bare
+    ``os.environ.get`` must keep ``strip=False``, or a padded value would change
+    meaning relative to the behaviour they had before #143.
+    """
+    raw = os.environ.get(name) or ""
+    if strip:
+        raw = raw.strip()
+    return (raw or default).lower() in truthy
 
 
 def _int_env(name: str, default: int | None) -> int | None:
@@ -57,6 +68,10 @@ class RuntimeSettings(BaseModel):
     Frozen: one instance is shared by every request in the process (#143), so a
     component must not be able to mutate the snapshot its neighbours read. Use
     ``model_copy(update=...)`` for a variant.
+
+    Not hashable, despite what ``frozen=True`` usually implies: the override
+    mapping is a ``MappingProxyType``, which is itself unhashable. Do not key a
+    cache on a settings instance without giving this field a hashable form.
     """
 
     model_config = ConfigDict(frozen=True)
@@ -71,7 +86,7 @@ class RuntimeSettings(BaseModel):
     tenant_service_ttl_seconds: int = 600
     library_max_upload_mb: int = 20
     library_scan_budget: int = 5000
-    publish_timeout_overrides: dict[str, float] = {}
+    publish_timeout_overrides: Mapping[str, float] = Field(default_factory=dict)
     # #143: web/service-layer tunables that used to be ad-hoc os.environ reads.
     thumbnail_cache_ttl_seconds: float = 900.0
     thumbnail_cache_max_bytes: int = 50 * 1024 * 1024
@@ -80,6 +95,16 @@ class RuntimeSettings(BaseModel):
     login_backoff_cap_seconds: float = 5.0
     config_source: str = ""
     orchestrator_base_url: str = ""
+
+    @field_validator("publish_timeout_overrides", mode="after")
+    @classmethod
+    def _freeze_overrides(cls, value: Mapping[str, float]) -> Mapping[str, float]:
+        """``frozen=True`` stops attribute assignment but not ``settings.overrides[k] = v``.
+
+        One snapshot is shared by every tenant in the process, so a write through
+        this dict would change a publish timeout fleet-wide.
+        """
+        return MappingProxyType(dict(value))
 
     @property
     def is_standalone(self) -> bool:
@@ -156,7 +181,10 @@ def load_runtime_settings() -> RuntimeSettings:
         thumbnail_cache_max_bytes=defaults.thumbnail_cache_max_bytes if thumb_max is None else thumb_max,
         # WEB_TRUST_FORWARDED_FOR historically did not accept "on"; keep it that way.
         trust_forwarded_for=_bool_env("WEB_TRUST_FORWARDED_FOR", "", ("1", "true", "yes")),
-        secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on")),
+        # set_admin_cookie read this through web/auth.py::_get_env, which stripped:
+        # "true " (a padded Heroku config var) has always meant on, and must keep
+        # meaning on — otherwise the admin cookie silently loses its Secure flag.
+        secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on"), strip=True),
         login_backoff_cap_seconds=login_backoff_cap,
         config_source=(os.environ.get("CONFIG_SOURCE") or "").strip().lower(),
         orchestrator_base_url=os.environ.get("ORCHESTRATOR_BASE_URL") or "",

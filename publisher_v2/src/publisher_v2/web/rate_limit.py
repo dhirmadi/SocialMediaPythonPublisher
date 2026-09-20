@@ -102,8 +102,14 @@ def trust_forwarded_headers(request: Request) -> bool:
     """True when WEB_TRUST_FORWARDED_FOR says the app sits behind a trusted proxy (Heroku router).
 
     #143: read from the request's RuntimeSettings snapshot, not the environment —
-    this was the last env read on the request path in this module, and it used a
-    narrower truthy set than the snapshot does.
+    this was the last env read on the request path in this module.
+
+    The truthy set is unchanged and deliberately narrow: ``("1", "true", "yes")``,
+    so ``WEB_TRUST_FORWARDED_FOR=on`` does **not** trust the proxy. Do not "unify"
+    it with the one ``WEB_SECURE_COOKIES`` uses — that one was widened to match a
+    reader that already accepted ``"on"``, whereas widening this flag would extend
+    proxy trust, and with it the CSRF same-origin decision and the per-IP rate-limit
+    key, to a spelling that never granted it.
     """
     return get_runtime_settings(request).trust_forwarded_for
 

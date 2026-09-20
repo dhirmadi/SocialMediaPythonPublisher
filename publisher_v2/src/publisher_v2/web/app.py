@@ -152,10 +152,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     # Shutdown: flush remaining storage ops metrics for all cached tenants.
     # Use the *existing* factory: never build one just to close it.
-    from publisher_v2.web.middleware import _existing_tenant_service_factory
+    from publisher_v2.web.middleware import reset_tenant_service_factory
 
     try:
-        factory = _existing_tenant_service_factory()
+        # Dropped as well as shut down: the factory carries this app's settings
+        # snapshot (its cache size and TTL came from it), so leaving the global
+        # in place would hand the next app built in this process a dead factory
+        # holding the previous app's settings — the same leak the
+        # ``app.state.runtime_settings`` reset below prevents.
+        factory = reset_tenant_service_factory()
         if factory is not None:
             await factory.shutdown()
     except Exception:

@@ -40,9 +40,10 @@ def _existing_tenant_service_factory() -> TenantServiceFactory | None:
 def reset_tenant_service_factory() -> TenantServiceFactory | None:
     """Drop the process-wide factory and return it, so the caller can shut it down.
 
-    Test hook only. Dropping a factory that still holds live services leaks their
-    storage/HTTP clients and their un-flushed storage-ops metrics — the caller is
-    responsible for ``await factory.shutdown()`` on the returned value.
+    Used by the lifespan shutdown and by tests. Dropping a factory that still
+    holds live services leaks their storage/HTTP clients and their un-flushed
+    storage-ops metrics — the caller is responsible for ``await
+    factory.shutdown()`` on the returned value.
     """
     global _FACTORY
     factory, _FACTORY = _FACTORY, None

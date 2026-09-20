@@ -23,13 +23,18 @@ from publisher_v2.utils.logging import log_json
 logger = logging.getLogger("publisher_v2.web.settings")
 
 
-def get_runtime_settings(request: Request | None = None) -> RuntimeSettings:
+def get_runtime_settings(request: Request | None) -> RuntimeSettings:
     """Settings for this request: the instance built at startup, else a fresh parse.
 
     The fresh-parse fallback is a CLI/test path only — it is not a supported
     production path. In the web process the lifespan always populates
     ``app.state.runtime_settings``, and hitting the fallback there would mean
     re-parsing the environment on a request.
+
+    ``request`` is required rather than defaulted to ``None``: a caller with no
+    request must say so, since ``get_runtime_settings()`` would otherwise be a
+    service locator that re-parses the environment — the thing #143 removed —
+    and would read as an ordinary snapshot lookup at the call site.
     """
     if request is not None:
         # Starlette raises KeyError for ``request.app`` when the ASGI scope has

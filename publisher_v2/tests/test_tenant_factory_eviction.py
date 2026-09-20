@@ -129,6 +129,15 @@ class TestProcessFactorySingleton:
                 live = mw._existing_tenant_service_factory()
                 assert live is not None
                 assert list(live._data) == ["t1"]
+                first_service = live._data["t1"].service
+
+                # A second request must reach the *same* factory. Without this
+                # the test cannot tell a singleton from a fresh object per call:
+                # one request looks identical either way.
+                self._request_as_tenant(client)
+                again = mw._existing_tenant_service_factory()
+                assert again is live, "a second request built a second factory"
+                assert again._data["t1"].service is first_service, "the cached tenant service was not reused"
         finally:
             mw.reset_tenant_service_factory()
 
@@ -137,6 +146,45 @@ class TestProcessFactorySingleton:
 
         mw.reset_tenant_service_factory()
         assert mw._existing_tenant_service_factory() is None
+
+    async def test_a_second_lifespan_does_not_reuse_the_shut_down_factory(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Security audit of #143: the factory outlived the app that built it.
+
+        ``app.state.runtime_settings`` is cleared on shutdown precisely so one
+        app's snapshot cannot leak into the next app built in the same process.
+        The factory holds that same snapshot (its cache size and TTL come from
+        it) *and* its services are already closed, so leaving it in place hands
+        the next app a dead factory carrying the previous app's settings.
+        """
+        from fastapi.testclient import TestClient
+
+        from publisher_v2.web import middleware as mw
+        from publisher_v2.web.app import app as real_app
+
+        monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orchestrator.example")
+        monkeypatch.setenv("CONFIG_SOURCE", "orchestrator")
+        self._stub_tenant_source(monkeypatch)
+        mw.reset_tenant_service_factory()
+        try:
+            with TestClient(real_app) as client:
+                self._request_as_tenant(client)
+                first = mw._existing_tenant_service_factory()
+                assert first is not None
+                first_service = first._data["t1"].service
+            assert first_service.closed is True  # the first app's lifespan closed it
+
+            with TestClient(real_app) as client:
+                self._request_as_tenant(client)
+                second = mw._existing_tenant_service_factory()
+                assert second is not None
+                second_service = second._data["t1"].service
+            assert second is not first, "the second app reused the factory the first app shut down"
+            assert second_service is not first_service
+            assert second_service.closed is True
+        finally:
+            mw.reset_tenant_service_factory()
 
     async def test_lifespan_shutdown_closes_middleware_registered_services(
         self, monkeypatch: pytest.MonkeyPatch

@@ -39,8 +39,23 @@ ALLOWED_LOAD_SITES = {
 }
 
 
+def _is_env_reparse(call: ast.Call) -> bool:
+    """A call that parses the environment instead of reading an injected snapshot.
+
+    Three shapes, not one: the bare name, the attribute form
+    (``runtime_settings.load_runtime_settings()``), and ``get_runtime_settings()``
+    with no request — the accessor's documented fallback *is* a fresh parse, so a
+    no-argument call is a service locator wearing the accessor's name.
+    """
+    func = call.func
+    name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else None
+    if name == "load_runtime_settings":
+        return True
+    return name == "get_runtime_settings" and not call.args and not call.keywords
+
+
 def _load_calls_outside_constructors(path: Path) -> list[str]:
-    """Every ``load_runtime_settings()`` call that is not part of building an object."""
+    """Every environment re-parse that is not part of building an object."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     hits: list[str] = []
     for node in ast.walk(tree):
@@ -49,11 +64,7 @@ def _load_calls_outside_constructors(path: Path) -> list[str]:
         if node.name == "__init__":
             continue
         for inner in ast.walk(node):
-            if (
-                isinstance(inner, ast.Call)
-                and isinstance(inner.func, ast.Name)
-                and inner.func.id == "load_runtime_settings"
-            ):
+            if isinstance(inner, ast.Call) and _is_env_reparse(inner):
                 hits.append(f"{node.name}:{inner.lineno}")
     return hits
 
@@ -234,7 +245,7 @@ class TestTheCookieFlagComesFromTheSnapshot:
                 with TestClient(app) as client:
                     return client.get("/auth/callback?code=1&state=x", follow_redirects=False)
             finally:
-                app.dependency_overrides = {}
+                app.dependency_overrides.clear()
 
     def test_secure_cookies_on_marks_the_admin_cookie_secure(self, monkeypatch: pytest.MonkeyPatch) -> None:
         response = self._callback_response(monkeypatch, "on")
@@ -243,6 +254,12 @@ class TestTheCookieFlagComesFromTheSnapshot:
         assert "Secure" in set_cookie, (
             f"WEB_SECURE_COOKIES=on is truthy for RuntimeSettings but the cookie is not Secure: {set_cookie}"
         )
+
+    def test_a_padded_value_still_marks_the_cookie_secure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The whole point of the parity rule, asserted on the header the browser sees."""
+        set_cookie = self._callback_response(monkeypatch, "true ").headers["set-cookie"]
+        assert "pv2_admin=" in set_cookie
+        assert "Secure" in set_cookie, set_cookie
 
     def test_secure_cookies_false_still_omits_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The falsy path is unchanged — local http development keeps working."""
@@ -264,3 +281,73 @@ class TestTheCookieFlagComesFromTheSnapshot:
             if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id == "_get_env"
         ]
         assert env_reads == [], f"set_admin_cookie still reads the environment at lines {env_reads}"
+
+
+class TestPaddedValuesKeepTheirOldMeaning:
+    """Security audit of #143: the two historical parsers did not agree on whitespace.
+
+    ``set_admin_cookie`` read ``WEB_SECURE_COOKIES`` through ``web/auth.py::_get_env``,
+    which strips and treats a whitespace-only value as unset, so ``"true "`` — a
+    trailing space in a Heroku config var or a ``.env`` line — meant **on**.
+    ``RuntimeSettings`` does not strip, so moving the read would have turned that
+    same value **off** and minted the admin cookie without ``Secure``.
+
+    ``WEB_TRUST_FORWARDED_FOR`` is the opposite case: it was never read through
+    ``_get_env`` (``rate_limit.py`` used a bare ``os.environ.get``), so a padded
+    value has always been falsy there, and it must stay falsy — that direction
+    errs toward not trusting proxy-supplied headers.
+    """
+
+    @pytest.mark.parametrize("raw", ["true ", " true", "  TRUE  ", "on "])
+    def test_padded_secure_cookies_is_still_on(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
+        assert load_runtime_settings().secure_cookies is True
+
+    @pytest.mark.parametrize("raw", ["   ", "\t"])
+    def test_whitespace_only_secure_cookies_falls_back_to_the_default(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    ) -> None:
+        """``_get_env`` treated whitespace-only as unset, and the default is on."""
+        monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
+        assert load_runtime_settings().secure_cookies is True
+
+    @pytest.mark.parametrize("raw", ["false ", " false", "  0  "])
+    def test_padded_falsy_secure_cookies_is_still_off(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
+        assert load_runtime_settings().secure_cookies is False
+
+    @pytest.mark.parametrize("raw", ["true ", " true"])
+    def test_padded_trust_forwarded_for_stays_off(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+        """Unchanged from main: a padded value never trusted the proxy headers."""
+        monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", raw)
+        assert load_runtime_settings().trust_forwarded_for is False
+
+
+class TestTheSharedSnapshotCannotBeMutated:
+    """Security audit of #143: ``frozen=True`` blocks attribute assignment only.
+
+    The snapshot is process-wide — every tenant's ``WebImageService`` holds the
+    same instance — so a mutable field on it is a cross-tenant channel:
+    ``settings.publish_timeout_overrides["telegram"] = 9999`` would change the
+    publish timeout for every tenant in the process.
+    """
+
+    def test_attribute_assignment_is_refused(self) -> None:
+        from pydantic import ValidationError
+
+        settings = load_runtime_settings()
+        with pytest.raises(ValidationError):
+            settings.secure_cookies = False  # type: ignore[misc]
+
+    def test_publish_timeout_overrides_cannot_be_written_through(self) -> None:
+        settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
+        with pytest.raises(TypeError):
+            settings.publish_timeout_overrides["telegram"] = 9999.0  # type: ignore[index]
+        assert settings.publish_timeout_for("telegram") == 30.0
+
+    def test_the_override_mapping_still_reads_normally(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("PUBLISH_TIMEOUT_TELEGRAM_SECONDS", "30")
+        settings = load_runtime_settings()
+        assert settings.publish_timeout_for("telegram") == 30.0
+        assert settings.publish_timeout_for("email") == settings.publish_timeout_seconds
+        assert dict(settings.publish_timeout_overrides) == {"telegram": 30.0}

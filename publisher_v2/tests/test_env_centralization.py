@@ -10,6 +10,15 @@ reads. Pinning only the module names let a ratified module grow new ad-hoc
 reads silently, and a test that compared the allow-list against a second copy
 of itself in the same file could not fail at all — editing one constant and not
 the other is not a mistake anyone makes.
+
+Names alone are not enough either, because a name can only be extracted from
+the forms the scan knows (``os.environ[...]``, ``.get(...)``, ``os.getenv``).
+``"X" in os.environ``, ``os.environ.pop(...)`` and ``os.environ.setdefault(...)``
+read the environment while recording no name, so a pinned module could grow one
+of those and still match its name set. Every pinned module therefore also has a
+pinned **node count**: how many times ``os.environ``/``os.getenv`` is mentioned
+at all. That count is form-independent — any new access changes it, whatever
+shape it takes.
 """
 
 from __future__ import annotations
@@ -71,13 +80,26 @@ EXPECTED_ENV_READS: dict[str, frozenset[str]] = {
     ),
 }
 
-# Reads whose variable name is not a literal, so the scan cannot resolve it.
-# Both are accessors over a name supplied by the caller or a module constant,
-# not additional variables: web/auth.py's ``_get_env(name)`` body and
-# migrate_storage's loop over ``REQUIRED_ENV_VARS``.
-EXPECTED_DYNAMIC_READS: dict[str, int] = {
-    "web/auth.py": 1,
-    "tools/migrate_storage.py": 1,
+# How many times each pinned module mentions ``os.environ``/``os.getenv`` at
+# all, in any form. Pinned separately from the names because this count is what
+# catches an access the name scan cannot see — ``in os.environ``, ``.pop()``,
+# ``.setdefault()``, or a name computed at runtime. It does not correspond to
+# the number of names: one mention can serve many variables (a wrapper over a
+# caller-supplied name) and one variable can take several mentions.
+EXPECTED_ENV_NODES: dict[str, int] = {
+    # Lower than the number of pinned names above, because most of this module's
+    # reads go through its own ``_get_env`` wrapper (one ``os.environ`` mention,
+    # many variables). The two pins are complementary: the name set catches a new
+    # ``_get_env("NEW_VAR")`` call, this count catches a raw-form read that
+    # records no name.
+    "web/auth.py": 6,
+    "web/app.py": 5,
+    "web/service.py": 2,
+    "db/__init__.py": 2,
+    "utils/state.py": 1,
+    "services/instagram_session.py": 3,
+    # 8 pinned names + the loop over ``REQUIRED_ENV_VARS`` in the missing-var check.
+    "tools/migrate_storage.py": 9,
 }
 
 
@@ -124,12 +146,18 @@ def _is_os(node: ast.expr) -> bool:
     return isinstance(node, ast.Name) and node.id == "os"
 
 
-def _touches_environ(path: Path) -> bool:
+def _env_nodes(path: Path) -> int:
+    """How many times this module mentions ``os.environ``/``os.getenv``, in any form."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
-    return any(
-        isinstance(node, ast.Attribute) and node.attr in ("environ", "getenv") and _is_os(node.value)
+    return sum(
+        1
         for node in ast.walk(tree)
+        if isinstance(node, ast.Attribute) and node.attr in ("environ", "getenv") and _is_os(node.value)
     )
+
+
+def _touches_environ(path: Path) -> bool:
+    return _env_nodes(path) > 0
 
 
 def _module_paths() -> list[str]:
@@ -157,14 +185,29 @@ def test_allowed_modules_read_exactly_the_pinned_variables() -> None:
     assert not drift, f"Env reads drifted from the pinned set: {drift}"
 
 
-def test_computed_env_reads_do_not_multiply() -> None:
-    """A read whose name is computed hides from the pinned set, so its count is pinned too."""
-    actual = {rel: _env_reads(SRC / rel)[1] for rel in EXPECTED_ENV_READS}
-    expected = {rel: EXPECTED_DYNAMIC_READS.get(rel, 0) for rel in EXPECTED_ENV_READS}
-    assert actual == expected
+def test_pinned_modules_touch_the_environment_exactly_as_often_as_expected() -> None:
+    """Form-independent backstop: catches an access the name scan cannot see.
+
+    ``"X" in os.environ``, ``os.environ.pop("X")`` and
+    ``os.environ.setdefault("X", …)`` all read the environment while recording
+    no name, so the name sets above would still match. The node count does not
+    care what shape the access takes.
+    """
+    actual = {rel: _env_nodes(SRC / rel) for rel in EXPECTED_ENV_READS}
+    drift = {
+        rel: f"pinned {EXPECTED_ENV_NODES[rel]}, found {count}"
+        for rel, count in actual.items()
+        if count != EXPECTED_ENV_NODES[rel]
+    }
+    assert not drift, f"os.environ is touched a different number of times than pinned: {drift}"
 
 
 def test_every_pinned_module_still_exists() -> None:
-    """The pinned list may only shrink by deleting the read, not by renaming the file."""
+    """Names the stale entry instead of letting the scans die on FileNotFoundError.
+
+    Not a gate in its own right — a renamed module fails the two scans above
+    anyway. This one just says *which* pinned path went missing, because their
+    traceback does not.
+    """
     missing = [rel for rel in EXPECTED_ENV_READS if not (SRC / rel).exists()]
     assert not missing, f"Pinned modules no longer exist: {missing}"
