@@ -146,6 +146,10 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 ### Removed
 
 - 2026-09-19 (#137): the password admin login is removed: the `web_admin_pw` env var, `POST /api/admin/login`, `verify_admin_password` and `WEB_LOGIN_BACKOFF_CAP_SECONDS` no longer exist. Auth0 is the only admin login; admin cookies minted by the old password route are rejected. Analyze, publish, keep, remove and delete now always require the Auth0 admin cookie: a `WEB_AUTH_TOKEN`/Basic header alone gets 503 (no Auth0 configured) or 403 (no admin cookie), and a tenant without Auth0 gets 403. `WEB_ALLOW_UNAUTHENTICATED` no longer opens these routes either.
+  **Operator step on rollout:** nothing reads `web_admin_pw` any more, but a value left on an existing
+  instance is a live-looking credential that `scripts/heroku_hetzner_clone.py` will copy into every
+  clone. Run `heroku config:unset web_admin_pw` (or the equivalent) on each instance once this is
+  deployed.
 
 ### 2.3 INI Schema (REMOVED — historical reference only)
 

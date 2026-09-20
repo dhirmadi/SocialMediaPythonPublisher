@@ -128,8 +128,6 @@ def reset_web_rate_limiters() -> None:
         for limiter in vars(module).values():
             if isinstance(limiter, SlidingWindowLimiter):
                 limiter.reset()
-    if hasattr(app_module, "_consecutive_login_failures"):
-        app_module._consecutive_login_failures = 0  # login backoff delay counter
 
 
 _shared_http_client_reset_count = 0

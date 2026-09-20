@@ -104,9 +104,10 @@ Publishers (async):
 
 Web API (FastAPI):
 
-**Breaking change (#137): admin actions are Auth0-only.** `POST .../analyze`, `.../publish`,
-`.../keep`, `.../remove` and `DELETE .../objects/{filename}` call `require_admin`
-**unconditionally** — the image routes used to skip it when no admin login was configured.
+**Breaking change (#137): admin actions are Auth0-only.** The four image actions
+(`POST /api/images/{filename}/analyze`, `.../publish`, `.../keep`, `.../remove`) call
+`require_admin` **unconditionally** — they used to skip it when no admin login was configured. The
+library routes, including `DELETE /api/library/objects/{filename}`, already called it and still do.
 `WEB_AUTH_TOKEN` Bearer and `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic satisfy `require_auth` but never
 `require_admin`, so **machine clients can no longer call those endpoints**: `503` when Auth0 is not
 configured, `403` when it is but no admin cookie is presented. `WEB_ALLOW_UNAUTHENTICATED=1` does

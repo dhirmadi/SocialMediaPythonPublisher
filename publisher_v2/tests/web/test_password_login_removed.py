@@ -187,10 +187,12 @@ def test_index_has_no_password_prompt_and_says_when_auth0_missing(monkeypatch: p
         assert "admin-only" not in classes and "hidden" not in classes, attrs
         assert attrs.get("id") not in ("panel-activity", "details"), attrs
     assert parser.text.strip() == "Admin mode unavailable: Auth0 login is not configured."
-    # The served auth_mode and the DOM above already prove the behaviour. Asserting
-    # the JavaScript's source text as well pins the implementation, not the
-    # contract: any rename inside updateAdminUI would fail a passing UI.
-    assert '"auth_mode": "none"' in html or "'auth_mode': 'none'" in html or "auth_mode" in html
+    # The DOM above plus the served auth_mode prove the behaviour without pinning
+    # the JavaScript's source text (a rename inside updateAdminUI would fail a
+    # working UI). auth_mode comes from the features endpoint, not the page, and
+    # the VALUE is what matters: asserting the mere word "auth_mode" appears
+    # would be an assertion that cannot fail.
+    assert client.get("/api/config/features").json()["auth_mode"] == "none"
 
 
 _MUTATING = ["analyze", "publish", "keep", "remove", "delete"]
