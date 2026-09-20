@@ -731,6 +731,7 @@ class WorkflowOrchestrator:
                             published_caption=caption,
                             caption_edited=True,
                             correlation_id=correlation_id,
+                            published_platform_captions=platform_captions or None,
                         )
                     )
 

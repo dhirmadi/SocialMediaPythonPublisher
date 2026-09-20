@@ -220,11 +220,32 @@ def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, An
                     source=source,
                 )
             caption_generated = None
+    # #147: what each platform actually received, when a publish recorded it.
+    # Additive and separate from caption_generated (the AI's own output), so an
+    # operator's per-platform edits survive and are what the UI shows back.
+    caption_published: dict[str, Any] | None = None
+    if isinstance(metadata, dict):
+        raw_published = metadata.get("caption_published")
+        if isinstance(raw_published, dict):
+            caption_published = raw_published
+        elif raw_published is not None and not (isinstance(raw_published, str) and not raw_published.strip()):
+            parser_already_warned = isinstance(raw_published, str) and (
+                _looks_like_json(raw_published) or raw_published.startswith(ENCODED_STRING_MARKER)
+            )
+            if not parser_already_warned:
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "sidecar_metadata_json_invalid",
+                    key="caption_published",
+                    source=source,
+                )
     has_sidecar = bool(sd_caption or metadata)
     return {
         "sd_caption": sd_caption,
         "caption": caption,
         "caption_generated": caption_generated,
+        "caption_published": caption_published,
         "metadata": metadata,
         "has_sidecar": has_sidecar,
     }

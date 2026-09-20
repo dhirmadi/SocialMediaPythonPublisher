@@ -26,6 +26,7 @@ from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import (  # noqa: E402
     AlreadyPublishedError,
+    CaptionCoverageError,
     CredentialResolutionError,
     OrchestratorUnavailableError,
     PublishInProgressError,
@@ -54,13 +55,23 @@ from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 
 
-def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
-    """#147: the sidecar's ``caption_generated`` per-platform dict (non-empty strings only)."""
-    generated = view.get("caption_generated")
-    if not isinstance(generated, dict):
+def _platform_caption_dict(view: dict[str, Any], key: str) -> dict[str, str] | None:
+    """One of the sidecar's per-platform caption dicts (non-empty strings only)."""
+    value = view.get(key)
+    if not isinstance(value, dict):
         return None
-    out = {str(k): v for k, v in generated.items() if isinstance(v, str) and v.strip()}
+    out = {str(k): v for k, v in value.items() if isinstance(v, str) and v.strip()}
     return out or None
+
+
+def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
+    """#147: what the editors should show — what was published, else what the AI wrote.
+
+    ``caption_published`` wins: after a publish with operator edits, showing the
+    AI's original text back would hide the edits and, on a retry of a failed
+    platform, silently re-publish the text the operator had replaced.
+    """
+    return _platform_caption_dict(view, "caption_published") or _platform_caption_dict(view, "caption_generated")
 
 
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
@@ -888,6 +899,19 @@ class WebImageService:
         (#147) does the same per platform and wins over ``caption_override``.
         """
         await self.ensure_known_image(filename)
+        if caption_overrides:
+            # #147: validated here, not only in the route — every caller of this
+            # method (route, scripts, future callers) must get the same refusal,
+            # or a partial dict lets one platform receive another's text.
+            from publisher_v2.core.models import CaptionSpec
+
+            enabled = set(CaptionSpec.for_platforms(self.config))
+            missing = sorted(enabled - set(caption_overrides))
+            unknown = sorted(set(caption_overrides) - enabled)
+            if missing or unknown:
+                raise CaptionCoverageError(
+                    f"captions must cover every enabled platform; missing={missing} unknown={unknown}"
+                )
         if not self.config.features.publish_enabled:
             log_json(
                 self.logger,

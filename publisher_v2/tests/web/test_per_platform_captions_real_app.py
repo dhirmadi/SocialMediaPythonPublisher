@@ -41,8 +41,11 @@ def _jpeg() -> bytes:
 class _FakeDropbox:
     """In-memory stand-in for ``dropbox.Dropbox`` (the SDK client)."""
 
+    last: _FakeDropbox | None = None
+
     def __init__(self, *_args: Any, **_kwargs: Any) -> None:
         self.files: dict[str, bytes] = {f"{IMAGE_FOLDER}/img.jpg": _jpeg()}
+        _FakeDropbox.last = self
 
     def _not_found(self) -> ApiError:
         err = dropbox.files.DownloadError.path(dropbox.files.LookupError.not_found)
@@ -311,3 +314,57 @@ async def test_unknown_platform_in_captions_rejected(client: httpx.AsyncClient) 
     )
     assert res.status_code == 400, res.text
     assert _FakeBot.sent == [] and _FakeSMTP.subjects == []
+
+
+@pytest.fixture
+def no_archive(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Keep the image in place after publishing, as an operator retrying a platform would."""
+    monkeypatch.setenv("CONTENT_SETTINGS", json.dumps({"hashtag_string": "", "archive": False, "debug": False}))
+
+
+async def test_edited_captions_survive_the_publish_and_come_back(no_archive: None, client: httpx.AsyncClient) -> None:
+    """#147: the operator's edits must be what the UI shows afterwards.
+
+    Collapsing the override dict to one string meant the sidecar kept the AI's
+    text, so every editor refilled with the pre-edit caption and the operator's
+    Telegram edit was shown nowhere — and on a retry of a failed platform, the
+    replaced text would have been published again.
+    """
+    await client.post("/api/images/img.jpg/analyze")
+    tg = "OPERATOR EDITED the telegram line, knots and patience."
+    em = "OPERATOR EDITED the email line."
+
+    published = await client.post("/api/images/img.jpg/publish", json={"captions": {"telegram": tg, "email": em}})
+    assert published.status_code == 200, published.text
+
+    sidecar = (_FakeDropbox.last.files[f"{IMAGE_FOLDER}/img.txt"]).decode()
+    assert "caption_published" in sidecar, sidecar
+    assert tg in sidecar and em in sidecar
+
+    details = await client.get("/api/images/img.jpg")
+    assert details.status_code == 200, details.text
+    assert details.json()["caption_generated"] == {"telegram": tg, "email": em}
+
+    cached = await client.post("/api/images/img.jpg/analyze")
+    assert cached.status_code == 200, cached.text
+    assert cached.json()["platform_captions"] == {"telegram": tg, "email": em}
+    assert cached.json()["caption"] == em, "the email editor must not refill with the AI text"
+
+
+async def test_the_service_rejects_a_partial_dict_even_without_the_route(no_archive: None, real_app: None) -> None:
+    """#147: the route's guard is an early exit, not the only one.
+
+    ``publish_image`` is reachable from scripts and future callers; a partial
+    dict one level below the route used to let email receive 240 characters of
+    the Telegram text — the exact bug this issue exists to close.
+    """
+    from publisher_v2.core.exceptions import CaptionCoverageError
+    from publisher_v2.web.app import get_service
+
+    service = get_service()
+
+    with pytest.raises(CaptionCoverageError, match="missing="):
+        await service.publish_image("img.jpg", None, caption_overrides={"telegram": "T" * 700})
+
+    assert _FakeSMTP.subjects == [], "email received something from a rejected publish"
+    assert _FakeBot.sent == []

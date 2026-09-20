@@ -19,6 +19,7 @@ from publisher_v2.config.source import get_config_source
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import (
     AlreadyPublishedError,
+    CaptionCoverageError,
     OrchestratorUnavailableError,
     PublishInProgressError,
 )
@@ -258,6 +259,9 @@ def raise_for_service_error(
     if isinstance(exc, AlreadyPublishedError):
         # #139: no-DB installs refuse to publish the same image twice.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Image already published")
+    if isinstance(exc, CaptionCoverageError):
+        # #147: a per-platform caption dict that does not cover the enabled set.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     msg = str(exc)
     if "not found" in msg.lower() or "path/not_found" in msg.lower():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")

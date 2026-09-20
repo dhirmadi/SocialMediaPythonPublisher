@@ -116,6 +116,7 @@ async def update_sidecar_with_caption(
     published_caption: str,
     caption_edited: bool = True,
     correlation_id: str | None = None,
+    published_platform_captions: dict[str, str] | None = None,
 ) -> float:
     """
     Update an existing sidecar with the published caption.
@@ -151,6 +152,12 @@ async def update_sidecar_with_caption(
                 meta = dict(parsed_meta)
 
         meta["caption"] = published_caption
+        # #147: what each platform actually received, under its own additive key.
+        # ``caption`` can only hold one text and ``caption_generated`` is the AI's
+        # output — overwriting either would lose the operator's per-platform
+        # edits, which is what the web UI reads back after a publish.
+        if published_platform_captions:
+            meta["caption_published"] = dict(published_platform_captions)
         meta["caption_edited"] = str(caption_edited)
         meta["caption_updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
