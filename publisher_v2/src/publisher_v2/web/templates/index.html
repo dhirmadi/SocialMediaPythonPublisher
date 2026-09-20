@@ -1246,12 +1246,17 @@
       for (const platform of platforms) {
         // A legacy sidecar has one caption for all platforms; show it in each
         // editor so the operator sees where it is over a platform's limit.
+        const fromLegacy = !byPlatform[platform] && !!legacyCaption;
         const text = byPlatform[platform] || legacyCaption || "";
         originalCaptions[platform] = text;
 
         const block = document.createElement("div");
         block.className = "caption-editor";
         block.dataset.platform = platform;
+        // #147: filled from the single legacy caption, not from a per-platform
+        // one. Left untouched, publishing it back would rewrite the sidecar
+        // with the same text under every platform.
+        if (fromLegacy) block.dataset.fromLegacy = "1";
         const label = document.createElement("label");
         label.textContent = PLATFORM_LABELS[platform] || platform;
         label.htmlFor = `caption-text-${platform}`;
@@ -2520,7 +2525,16 @@
       }
 
       const captions = collectCaptions();
-      const isPlaceholder = Object.keys(captions).length === 0;
+      // #147: every editor still showing the legacy single caption, unedited —
+      // send the legacy shape rather than a per-platform dict of identical text.
+      const allLegacyUnedited =
+        Object.keys(captions).length > 0 &&
+        [...captionEditorsEl.querySelectorAll(".caption-editor")].every(
+          (block) =>
+            block.dataset.fromLegacy === "1" &&
+            block.querySelector("textarea").value === originalCaptions[block.dataset.platform]
+        );
+      const isPlaceholder = Object.keys(captions).length === 0 || allLegacyUnedited;
       const missing = isPlaceholder ? [] : missingCaptionPlatforms(captions);
       if (missing.length) {
         // #147: never publish one platform's text to another; fill every caption or none.
@@ -2541,7 +2555,13 @@
         const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/publish`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(isPlaceholder ? { caption: null } : { captions })
+          body: JSON.stringify(
+            allLegacyUnedited
+              ? { caption: Object.values(captions)[0] }
+              : isPlaceholder
+                ? { caption: null }
+                : { captions }
+          )
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

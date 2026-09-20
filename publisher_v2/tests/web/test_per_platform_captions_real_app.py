@@ -291,8 +291,11 @@ async def test_served_ui_has_per_platform_editors_and_no_fixed_240(client: httpx
     assert 'id="caption-text"' not in html  # the single shared editor is gone
     assert "const maxLen = 240" not in html
     assert "const maxLen = platformLimits[platform];" in html
-    # Publish sends the per-platform dict, not one caption for everyone.
-    assert "JSON.stringify(isPlaceholder ? { caption: null } : { captions })" in html
+    # Publish sends the per-platform dict, not one caption for everyone — except
+    # when every editor still holds the untouched legacy caption, which goes back
+    # in the legacy shape rather than as N copies of the same text.
+    assert "{ captions }" in html
+    assert "allLegacyUnedited" in html
     # A partly filled set is stopped in the UI too (the server answers 400).
     assert "missingCaptionPlatforms(captions)" in html
 
