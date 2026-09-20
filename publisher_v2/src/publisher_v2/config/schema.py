@@ -431,6 +431,11 @@ class ApplicationConfig(BaseModel):
             and "voice_matching_enabled" not in self.features.model_fields_set
         ):
             self.features.voice_matching_enabled = True
+            # Assignment marks the field in model_fields_set, which would make
+            # this derived value indistinguishable from one an operator set —
+            # and the web endpoint that re-derives on a profile change reads
+            # exactly that. Keep "derived" spelled as "unset" everywhere.
+            self.features.model_fields_set.discard("voice_matching_enabled")
         return self
 
     @model_validator(mode="after")

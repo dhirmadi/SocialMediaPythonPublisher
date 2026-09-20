@@ -112,10 +112,15 @@ def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPa
     monkeypatch.delenv("CONFIG_SOURCE", raising=False)
 
     def _tenant_config() -> SimpleNamespace:
+        # Real config models, not stand-ins: the endpoints this replay drives
+        # are typed against ApplicationConfig, and a SimpleNamespace filler
+        # turned one of them into a 500 rather than the 403 under test.
+        from publisher_v2.config.schema import ContentConfig, FeaturesConfig
+
         return SimpleNamespace(
             auth0=SimpleNamespace(domain="t.auth0.com"),
-            content=SimpleNamespace(voice_profile=None),
-            features=SimpleNamespace(voice_matching_enabled=False),
+            content=ContentConfig(),
+            features=FeaturesConfig(),
         )
 
     class _FakeOrchestratorSource:
