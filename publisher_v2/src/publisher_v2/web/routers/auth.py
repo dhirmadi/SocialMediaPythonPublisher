@@ -7,6 +7,7 @@ from fastapi.responses import RedirectResponse
 from publisher_v2.utils.logging import log_json
 from publisher_v2.web.auth import request_binding, set_admin_cookie
 from publisher_v2.web.dependencies import get_request_service
+from publisher_v2.web.rate_limit import request_scheme
 from publisher_v2.web.service import WebImageService
 
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -50,15 +51,15 @@ def get_auth0_callback_url(request: Request) -> str | None:
     """
     Derive the Auth0 callback URL from the incoming request.
 
-    With ``--proxy-headers`` enabled on uvicorn, ``request.url.scheme`` reflects
-    the real client-facing scheme (via ``X-Forwarded-Proto``). The Host header
-    on platforms like Heroku is set by the router and is trustworthy. Auth0
-    itself also validates the callback URL against its configured allowlist,
-    so a spoofed Host that doesn't match the Auth0 app config is rejected by
-    the IdP before any code grant is issued.
+    The scheme comes from ``request_scheme`` (#129): the ``X-Forwarded-Proto``
+    value when ``WEB_TRUST_FORWARDED_FOR`` is set AND every value that header
+    carries agrees, else ``request.url.scheme``. The Host header on platforms like Heroku is set by
+    the router and is trustworthy. Auth0 itself also validates the callback URL
+    against its configured allowlist, so a spoofed Host that doesn't match the
+    Auth0 app config is rejected by the IdP before any code grant is issued.
 
     For localhost/127.0.0.1 the port is preserved for local dev convenience.
-    For non-local hosts HTTPS is forced as a defence-in-depth measure.
+    Non-local hosts never get an http callback, whatever the derived scheme.
     """
     hostname = request.url.hostname or ""
     if not hostname:
@@ -66,9 +67,9 @@ def get_auth0_callback_url(request: Request) -> str | None:
 
     port = request.url.port
     is_local = hostname in ("localhost", "127.0.0.1")
+    scheme = request_scheme(request)
 
     if is_local:
-        scheme = request.url.scheme or "http"
         netloc = hostname
         if port and ((scheme == "http" and port != 80) or (scheme == "https" and port != 443)):
             netloc = f"{hostname}:{port}"

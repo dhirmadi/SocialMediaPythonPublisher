@@ -49,7 +49,7 @@ from publisher_v2.web.models import (
     VoiceProfileResponse,
     VoiceProfileUpdateRequest,
 )
-from publisher_v2.web.rate_limit import SlidingWindowLimiter, remote_ip
+from publisher_v2.web.rate_limit import SlidingWindowLimiter, remote_ip, trust_forwarded_headers
 from publisher_v2.web.routers import auth as auth_router
 from publisher_v2.web.routers import library as library_router
 from publisher_v2.web.service import WebImageService
@@ -103,6 +103,22 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     _logger = logging.getLogger("publisher_v2.web")
     log_json(_logger, logging.INFO, "web_server_start")
+
+    # #129: on Heroku the router is not loopback, so uvicorn never rewrites
+    # request.url.scheme and every cookie-bearing POST under /api fails the CSRF
+    # same-origin check. Deriving the scheme ourselves only happens when the
+    # trust flag is set, so a dyno provisioned without it reproduces the outage
+    # silently. Say it once, at startup, where an operator will see it.
+    if os.environ.get("DYNO") and not trust_forwarded_headers():
+        log_json(
+            _logger,
+            logging.WARNING,
+            "forwarded_headers_untrusted_on_heroku",
+            detail=(
+                "DYNO is set but WEB_TRUST_FORWARDED_FOR is not enabled; the Heroku router's "
+                "X-Forwarded-Proto will be ignored and browser POSTs under /api will return 403"
+            ),
+        )
 
     # Auth0 is configured lazily on first auth route call.
     # Avoid forcing a full ApplicationConfig load here because orchestrator mode
