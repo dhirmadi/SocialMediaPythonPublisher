@@ -51,9 +51,9 @@ def get_auth0_callback_url(request: Request) -> str | None:
     """
     Derive the Auth0 callback URL from the incoming request.
 
-    The scheme comes from ``request_scheme`` (#129): the first
-    ``X-Forwarded-Proto`` value when ``WEB_TRUST_FORWARDED_FOR`` is set, else
-    ``request.url.scheme``. The Host header on platforms like Heroku is set by
+    The scheme comes from ``request_scheme`` (#129): the ``X-Forwarded-Proto``
+    value when ``WEB_TRUST_FORWARDED_FOR`` is set AND every value that header
+    carries agrees, else ``request.url.scheme``. The Host header on platforms like Heroku is set by
     the router and is trustworthy. Auth0 itself also validates the callback URL
     against its configured allowlist, so a spoofed Host that doesn't match the
     Auth0 app config is rejected by the IdP before any code grant is issued.
@@ -67,7 +67,7 @@ def get_auth0_callback_url(request: Request) -> str | None:
 
     port = request.url.port
     is_local = hostname in ("localhost", "127.0.0.1")
-    scheme = request_scheme(request) or "http"
+    scheme = request_scheme(request)
 
     if is_local:
         netloc = hostname

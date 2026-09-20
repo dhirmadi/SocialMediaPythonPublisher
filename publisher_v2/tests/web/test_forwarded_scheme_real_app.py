@@ -351,3 +351,12 @@ def _duplicated_proto_request(*values: str) -> Request:
             "server": ("testserver", 80),
         }
     )
+
+
+def test_request_scheme_always_returns_a_scheme(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`request_scheme(request) or "http"` in the Auth0 callback was dead code."""
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+
+    assert request_scheme(_real_request({"x-forwarded-proto": "ftp"})) == "http"
+    assert request_scheme(_real_request({})) == "http"
+    assert request_scheme(_real_request({"x-forwarded-proto": ""})) == "http"
