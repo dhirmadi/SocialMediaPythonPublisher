@@ -180,10 +180,9 @@ def _check_library_available(service: WebImageService) -> None:
         )
 
 
-def _get_max_upload_bytes(settings: RuntimeSettings | None = None) -> int:
+def _get_max_upload_bytes(settings: RuntimeSettings) -> int:
     """Max upload size in bytes (LIBRARY_MAX_UPLOAD_MB, default 20 MB; #143: injected)."""
-    resolved = settings if settings is not None else get_runtime_settings()
-    return resolved.library_max_upload_mb * 1024 * 1024
+    return settings.library_max_upload_mb * 1024 * 1024
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -271,10 +270,9 @@ def _sanitize_filter(q: str | None) -> str | None:
     return cleaned or None
 
 
-def _get_scan_budget(settings: RuntimeSettings | None = None) -> int:
+def _get_scan_budget(settings: RuntimeSettings) -> int:
     """Listing scan budget (LIBRARY_SCAN_BUDGET, default 5000; #143: injected)."""
-    resolved = settings if settings is not None else get_runtime_settings()
-    return resolved.library_scan_budget
+    return settings.library_scan_budget
 
 
 _SORT_KEYS = {

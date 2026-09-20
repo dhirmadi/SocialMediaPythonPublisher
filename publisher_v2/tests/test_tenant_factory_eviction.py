@@ -90,9 +90,8 @@ class TestProcessFactorySingleton:
     """
 
     @staticmethod
-    async def _run_middleware(monkeypatch: pytest.MonkeyPatch, app) -> None:
-        from starlette.requests import Request
-
+    def _stub_tenant_source(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Only the orchestrator (an external service) and the service class are faked."""
         from publisher_v2.web import middleware as mw
 
         class _Source:
@@ -102,32 +101,34 @@ class TestProcessFactorySingleton:
         monkeypatch.setattr(mw, "get_config_source", lambda: _Source())
         monkeypatch.setattr("publisher_v2.web.tenant_factory.WebImageService", _FakeService)
 
-        request = Request(
-            {
-                "type": "http",
-                "method": "GET",
-                "path": "/api/images",
-                "headers": [(b"host", b"t1.example.test")],
-                "query_string": b"",
-                "app": app,
-            }
-        )
+    @staticmethod
+    def _request_as_tenant(client) -> None:
+        """Drive one real request through the installed middleware stack.
 
-        async def _call_next(_req):
-            return "ok"
-
-        await mw.tenant_middleware(request, _call_next)
+        The path is deliberately unrouted: ``tenant_middleware`` is registered
+        with ``app.middleware("http")``, so it runs before routing and registers
+        the tenant service whatever the request resolves to. Asking for a real
+        route instead would only add the route's own dependencies to the test.
+        """
+        response = client.get("/api/no-such-route", headers={"Host": "t1.example.test"})
+        assert response.status_code == 404
 
     async def test_middleware_and_shutdown_share_one_instance(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from publisher_v2.web import middleware as mw
+        from fastapi.testclient import TestClient
 
+        from publisher_v2.web import middleware as mw
+        from publisher_v2.web.app import app as real_app
+
+        monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orchestrator.example")
+        monkeypatch.setenv("CONFIG_SOURCE", "orchestrator")
+        self._stub_tenant_source(monkeypatch)
         mw.reset_tenant_service_factory()
         try:
-            app = SimpleNamespace(state=SimpleNamespace(runtime_settings=_orchestrator_settings()))
-            await self._run_middleware(monkeypatch, app)
-            live = mw._existing_tenant_service_factory()
-            assert live is not None
-            assert list(live._data) == ["t1"]
+            with TestClient(real_app) as client:
+                self._request_as_tenant(client)
+                live = mw._existing_tenant_service_factory()
+                assert live is not None
+                assert list(live._data) == ["t1"]
         finally:
             mw.reset_tenant_service_factory()
 
@@ -140,20 +141,24 @@ class TestProcessFactorySingleton:
     async def test_lifespan_shutdown_closes_middleware_registered_services(
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        """The real lifespan, entered and exited by TestClient, must close what a real request built."""
+        from fastapi.testclient import TestClient
+
         from publisher_v2.web import middleware as mw
         from publisher_v2.web.app import app as real_app
-        from publisher_v2.web.app import lifespan
 
         monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orchestrator.example")
         monkeypatch.setenv("CONFIG_SOURCE", "orchestrator")
+        self._stub_tenant_source(monkeypatch)
         mw.reset_tenant_service_factory()
         try:
-            async with lifespan(real_app):
-                await self._run_middleware(monkeypatch, real_app)
+            with TestClient(real_app) as client:
+                self._request_as_tenant(client)
                 factory = mw._existing_tenant_service_factory()
                 assert factory is not None
                 service = factory._data["t1"].service
                 assert service.closed is False
+            # Leaving the context exits the lifespan — the shutdown under test.
             assert service.closed is True, "lifespan shutdown did not close the live tenant services"
         finally:
             mw.reset_tenant_service_factory()

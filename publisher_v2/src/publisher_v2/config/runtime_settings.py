@@ -1,10 +1,18 @@
 """Centralized runtime tunables read from the environment (#97 stage 2).
 
 Every ad-hoc ``os.environ`` tunable that used to live in services, core, and
-web modules is parsed here. Call sites invoke :func:`load_runtime_settings`
-at the moment they previously read the env var, so per-process overrides via
-the environment (and tests using ``monkeypatch.setenv``) keep working —
-values are parsed fresh on each call, never cached.
+web modules is parsed here.
+
+:func:`load_runtime_settings` itself always parses the environment fresh — it
+holds no cache, so a CLI run or a test using ``monkeypatch.setenv`` sees the
+current environment. What changed in #143 is *who calls it and how often*: the
+web process parses once in the FastAPI lifespan and stores the result on
+``app.state.runtime_settings``, and components take a :class:`RuntimeSettings`
+at construction time and keep it. A request therefore reads a snapshot taken at
+process start rather than re-parsing the environment per call, and changing an
+env var in a running web process no longer takes effect mid-process. Tests that
+need a different value either set the env before building the component or pass
+``settings=`` explicitly.
 
 Parsing is deliberately lenient, matching the old call sites: an invalid
 value falls back to the default instead of raising, and the historical
@@ -15,7 +23,7 @@ from __future__ import annotations
 
 import os
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 
 def _float_env(name: str, default: float | None) -> float | None:
@@ -44,7 +52,14 @@ def _int_env(name: str, default: int | None) -> int | None:
 
 
 class RuntimeSettings(BaseModel):
-    """Runtime tunables. Optional fields fall back to static config at the call site."""
+    """Runtime tunables. Optional fields fall back to static config at the call site.
+
+    Frozen: one instance is shared by every request in the process (#143), so a
+    component must not be able to mutate the snapshot its neighbours read. Use
+    ``model_copy(update=...)`` for a variant.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     ai_rate_per_minute: int | None = None
     publish_timeout_seconds: float = 120.0

@@ -9,6 +9,7 @@ from publisher_v2.web.auth import request_binding, set_admin_cookie
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.rate_limit import request_scheme
 from publisher_v2.web.service import WebImageService
+from publisher_v2.web.settings import get_runtime_settings
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 logger = logging.getLogger("publisher_v2.web.auth0")
@@ -166,7 +167,14 @@ async def callback(request: Request, service: WebImageService = Depends(get_requ
         log_json(logger, logging.INFO, "auth_login_success", email=email)
         response = RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
         bind_tenant, bind_host = request_binding(request)
-        set_admin_cookie(response, tenant=bind_tenant, host=bind_host, mode="auth0", email=email)
+        set_admin_cookie(
+            response,
+            secure=get_runtime_settings(request).secure_cookies,
+            tenant=bind_tenant,
+            host=bind_host,
+            mode="auth0",
+            email=email,
+        )
         request.session.clear()  # OIDC state no longer needed
         return response
 

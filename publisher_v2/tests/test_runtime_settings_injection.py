@@ -186,3 +186,81 @@ class TestCacheMissDoesNotReparseTheEnvironment:
         settings = RuntimeSettings(thumbnail_cache_max_bytes=7)
         storage = create_storage(self._runtime_config().config, settings=settings)
         assert storage._settings is settings  # type: ignore[attr-defined]
+
+
+class TestTheCookieFlagComesFromTheSnapshot:
+    """#143 review: ``set_admin_cookie`` was the last env read left on an auth path.
+
+    It parsed ``WEB_SECURE_COOKIES`` itself with a narrower truthy set than
+    ``RuntimeSettings`` uses — ``("1", "true", "yes")`` against the snapshot's
+    ``("1", "true", "yes", "on")``. An operator who wrote ``WEB_SECURE_COOKIES=on``
+    got HSTS (which reads the snapshot) but an admin cookie **without** ``Secure``,
+    so the session cookie could be sent over plain http.
+    """
+
+    @staticmethod
+    def _callback_response(monkeypatch: pytest.MonkeyPatch, raw_value: str):
+        from unittest.mock import AsyncMock, patch
+
+        from fastapi.testclient import TestClient
+
+        from publisher_v2.config.schema import Auth0Config
+        from publisher_v2.web.app import app
+        from publisher_v2.web.dependencies import get_request_service
+
+        monkeypatch.setenv("WEB_SECURE_COOKIES", raw_value)
+        monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret-value-long-enough")
+
+        service = type("_Svc", (), {})()
+        service.config = type("_Cfg", (), {})()
+        service.config.auth0 = Auth0Config(
+            domain="test.auth0.com",
+            client_id="cid",
+            client_secret="sec",
+            callback_url="http://testserver/auth/callback",
+            admin_emails="admin@example.com",
+        )
+
+        with patch("publisher_v2.web.routers.auth.oauth") as oauth:
+            oauth._registry = {"auth0": True}
+            oauth.auth0 = AsyncMock()
+            oauth.auth0.authorize_access_token.return_value = {
+                "userinfo": {"email": "admin@example.com", "email_verified": True}
+            }
+            app.dependency_overrides[get_request_service] = lambda request=None: service
+            try:
+                # The context manager runs the lifespan, which is what builds the
+                # snapshot this test is about.
+                with TestClient(app) as client:
+                    return client.get("/auth/callback?code=1&state=x", follow_redirects=False)
+            finally:
+                app.dependency_overrides = {}
+
+    def test_secure_cookies_on_marks_the_admin_cookie_secure(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        response = self._callback_response(monkeypatch, "on")
+        set_cookie = response.headers["set-cookie"]
+        assert "pv2_admin=" in set_cookie
+        assert "Secure" in set_cookie, (
+            f"WEB_SECURE_COOKIES=on is truthy for RuntimeSettings but the cookie is not Secure: {set_cookie}"
+        )
+
+    def test_secure_cookies_false_still_omits_the_flag(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The falsy path is unchanged — local http development keeps working."""
+        response = self._callback_response(monkeypatch, "false")
+        set_cookie = response.headers["set-cookie"]
+        assert "pv2_admin=" in set_cookie
+        assert "Secure" not in set_cookie
+
+    def test_set_admin_cookie_no_longer_reads_the_environment(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The caller decides; the function must not consult the env itself."""
+        source = (SRC / "web" / "auth.py").read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        fn = next(
+            node for node in ast.walk(tree) if isinstance(node, ast.FunctionDef) and node.name == "set_admin_cookie"
+        )
+        env_reads = [
+            inner.lineno
+            for inner in ast.walk(fn)
+            if isinstance(inner, ast.Call) and isinstance(inner.func, ast.Name) and inner.func.id == "_get_env"
+        ]
+        assert env_reads == [], f"set_admin_cookie still reads the environment at lines {env_reads}"
