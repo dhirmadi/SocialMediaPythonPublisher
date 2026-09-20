@@ -301,7 +301,9 @@ metering calls are made.
   `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) or the signed, tenant/host-bound admin session cookie —
   a valid cookie alone is sufficient by default (#91 SEC-3 decision b), and
   `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` additionally requires header auth for cookie sessions.
-  Admin-gated actions require that cookie, which a browser obtains through Auth0 OIDC login
+  Admin-gated actions require that cookie — the image routes call `require_admin` only when admin
+  mode is configured (`is_admin_configured()`), so an instance with no admin login set up does not
+  gate them — which a browser obtains through Auth0 OIDC login
   (PUB-020) gated by an email allowlist (`ADMIN_LOGIN_EMAILS`); its TTL is clamped
   (`WEB_ADMIN_COOKIE_TTL_SECONDS`, 60–3600s, default 3600). `FEATURE_AUTO_VIEW=true` permits anonymous
   viewing of random images only — never mutation.
