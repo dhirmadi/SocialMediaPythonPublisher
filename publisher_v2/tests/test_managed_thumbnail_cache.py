@@ -279,10 +279,8 @@ class TestConcurrentMissesShareOneDownload:
         import asyncio
 
         storage = _storage("bucket-sf", _png("blue"))
-        started = asyncio.Event()
 
         async def _slow_download(*_args, **_kwargs) -> bytes:
-            started.set()
             await asyncio.sleep(0.05)
             return _png("blue")
 
@@ -299,6 +297,8 @@ class TestConcurrentMissesShareOneDownload:
         import asyncio
 
         storage = _storage("bucket-sf2", _png("blue"))
+        # Note this kills a single global lock, not the absence of a lock — its
+        # companion above does that. Both are needed; neither is redundant.
         in_flight, peak = {"n": 0}, {"n": 0}
 
         async def _download(_folder: str, filename: str) -> bytes:
@@ -338,6 +338,25 @@ class TestTheGenerationCounterIsBounded:
 
 class TestAFailedHeadStillLabelsTheEntry:
     """#140 NIT: an entry stored without an ETag can never be revalidated."""
+
+    async def test_the_real_download_records_the_unquoted_etag(self, counting_storage) -> None:
+        """Through the real GET path: boto returns a quoted ETag, the entry must carry it unquoted.
+
+        The other test in this class stubs ``download_image``, so it exercises
+        only the consumer. This one covers the producer, including the strip
+        that lets the stored value compare equal to ``FileMetadata.revision``.
+        """
+        from unittest.mock import AsyncMock
+
+        storage, _client = counting_storage("900")
+        storage.get_file_metadata = AsyncMock(side_effect=RuntimeError("HEAD blew up"))  # type: ignore[method-assign]
+
+        await storage.get_thumbnail("/Photos", "img.jpg")
+
+        cache_key = ("https://example.r2.local", "bucket-a", "Photos/img.jpg", "w960h640")
+        _data, _stored_at, etag = storage._thumb_cache[cache_key]
+        assert etag == "etag-1", "a quoted or missing ETag never matches the HEAD revision"
+        assert storage._last_get_etags == {}, "the recorded entry must be drained, not accumulated"
 
     async def test_the_etag_comes_from_the_download_when_the_head_fails(self) -> None:
         storage = _storage("bucket-etag", _png("red"))

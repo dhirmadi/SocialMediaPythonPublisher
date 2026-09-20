@@ -586,15 +586,15 @@ class WebImageService:
     async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
-        # #140: the presigned link is a billed storage op, and since #93 vision
-        # reads bytes — only the legacy vision_max_dimension == 0 path still needs
-        # it. Existence is checked against the (cached) listing instead, keeping
-        # the 404 semantics of the old "get a temp link to prove it exists" call.
+        # #140: since #93 vision reads bytes, so only the legacy
+        # vision_max_dimension == 0 path still needs a link. Fetching one anyway
+        # was a real API call on Dropbox and dead weight on R2 (where presigning
+        # is local signing, not a billed op).
         # Existence is already enforced by the analyze_and_caption wrapper's
-        # ensure_known_image() call, so nothing here needs to prove it. That
-        # check reads the cached listing, so on Dropbox an image deleted since
-        # the last listing now fails in the download instead of the (dropped)
-        # temp-link call — same request, different exception, until the TTL.
+        # ensure_known_image(), which reads the cached listing — so on Dropbox an
+        # image deleted since the last listing now fails in the download rather
+        # than in the (dropped) temp-link call: same request, different
+        # exception, until the TTL lapses.
         temp_link = ""
         if self.config.openai.vision_max_dimension <= 0:
             temp_link = await self.storage.get_temporary_link(self.config.storage_paths.image_folder, filename)
