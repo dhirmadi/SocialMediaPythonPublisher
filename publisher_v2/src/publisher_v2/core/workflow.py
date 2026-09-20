@@ -305,9 +305,11 @@ class WorkflowOrchestrator:
         dry_publish: bool = False,
         preview_mode: bool = False,
         caption_override: str | None = None,
+        caption_overrides: dict[str, str] | None = None,
     ) -> WorkflowResult:
         correlation_id = str(uuid.uuid4())
         caption = ""
+        overrides: dict[str, str] = {}
         tmp_path = ""
         variant_paths: dict[str, str] = {}
         publish_results: dict[str, PublishResult] = {}
@@ -473,7 +475,21 @@ class WorkflowOrchestrator:
             caption = ""
             sd_caption = None
             platform_captions: dict[str, str] = {}
-            if caption_override and caption_override.strip():
+            # #147: per-platform operator captions win over the legacy single override.
+            overrides = {p: c for p, c in (caption_overrides or {}).items() if c and c.strip()}
+            if overrides:
+                platform_captions = dict(overrides)
+                caption = overrides.get("email") or next(iter(overrides.values()))
+                sd_caption = None
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "caption_overrides_used",
+                    override_lengths={p: len(c) for p, c in overrides.items()},
+                    ai_skipped=True,
+                    correlation_id=correlation_id,
+                )
+            elif caption_override and caption_override.strip():
                 caption = caption_override
                 sd_caption = None
                 log_json(
@@ -698,7 +714,7 @@ class WorkflowOrchestrator:
             # PUB-035: Update sidecar with published caption when caption_override was used
             if (
                 any_success
-                and caption_override
+                and (caption_override or overrides)
                 and not sd_caption
                 and not self.config.content.debug
                 and not dry_publish
@@ -715,6 +731,7 @@ class WorkflowOrchestrator:
                             published_caption=caption,
                             caption_edited=True,
                             correlation_id=correlation_id,
+                            published_platform_captions=platform_captions or None,
                         )
                     )
 
@@ -730,7 +747,7 @@ class WorkflowOrchestrator:
                 and not preview_mode
             ):
                 try:
-                    source = "manual_override" if caption_override else "ai_generated"
+                    source = "manual_override" if (caption_override or overrides) else "ai_generated"
                     # Build the actual published text per platform (after format_caption)
                     # and track truncation info for GH #73 monitoring.
                     published_captions: dict[str, str] = {}

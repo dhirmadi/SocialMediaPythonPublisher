@@ -19,6 +19,7 @@ from publisher_v2.config.source import get_config_source
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import (
     AlreadyPublishedError,
+    CaptionCoverageError,
     OrchestratorUnavailableError,
     PublishInProgressError,
 )
@@ -258,6 +259,9 @@ def raise_for_service_error(
     if isinstance(exc, AlreadyPublishedError):
         # #139: no-DB installs refuse to publish the same image twice.
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Image already published")
+    if isinstance(exc, CaptionCoverageError):
+        # #147: a per-platform caption dict that does not cover the enabled set.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc))
     msg = str(exc)
     if "not found" in msg.lower() or "path/not_found" in msg.lower():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
@@ -636,8 +640,20 @@ async def api_publish_image(
     platforms = body.platforms if body else None
     raw_caption = body.caption if body else None
     caption_override = raw_caption.strip() if raw_caption and raw_caption.strip() else None
+    # #147: per-platform captions from the UI editors; blank entries are dropped.
+    raw_captions = body.captions if body else None
+    caption_overrides = {p: c.strip() for p, c in (raw_captions or {}).items() if c and c.strip()} or None
+    # #147: the "must cover exactly the enabled platforms" check lives in
+    # WebImageService.publish_image, so every caller gets it; its
+    # CaptionCoverageError is mapped to 400 below. Duplicating it here would
+    # leave that mapping untested while looking covered.
     try:
-        resp = await service.publish_image(filename, platforms, caption_override=caption_override)
+        if caption_overrides:
+            resp = await service.publish_image(
+                filename, platforms, caption_override=caption_override, caption_overrides=caption_overrides
+            )
+        else:
+            resp = await service.publish_image(filename, platforms, caption_override=caption_override)
         await endpoint_telemetry(
             "web_publish",
             response,

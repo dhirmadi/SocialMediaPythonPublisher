@@ -26,11 +26,13 @@ from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import (  # noqa: E402
     AlreadyPublishedError,
+    CaptionCoverageError,
     CredentialResolutionError,
     OrchestratorUnavailableError,
     PublishInProgressError,
     TenantNotFoundError,
 )
+from publisher_v2.core.models import CaptionSpec  # noqa: E402
 from publisher_v2.core.workflow import ALREADY_PUBLISHED_ERROR, WorkflowOrchestrator  # noqa: E402
 from publisher_v2.db import get_session_factory  # noqa: E402
 from publisher_v2.db.caption_store import CaptionStore  # noqa: E402
@@ -52,6 +54,53 @@ from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSiz
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
+
+
+def _platform_caption_dict(view: dict[str, Any], key: str) -> dict[str, str] | None:
+    """One of the sidecar's per-platform caption dicts (non-empty strings only)."""
+    value = view.get(key)
+    if not isinstance(value, dict):
+        return None
+    out = {str(k): v for k, v in value.items() if isinstance(v, str) and v.strip()}
+    return out or None
+
+
+def _edited_scalar_caption(view: dict[str, Any]) -> str | None:
+    """A pre-#147 sidecar's operator edit: the scalar ``caption`` with ``caption_edited``.
+
+    Sidecars written before this change recorded an edit only in the scalar, so
+    preferring the AI dict for them would show the original text back for every
+    image published before the upgrade — the same symptom the per-platform key
+    fixes for new ones.
+    """
+    metadata = view.get("metadata")
+    if not isinstance(metadata, dict):
+        return None
+    if str(metadata.get("caption_edited", "")).strip().lower() not in ("true", "1", "yes"):
+        return None
+    caption = view.get("caption")
+    return str(caption) if isinstance(caption, str) and caption.strip() else None
+
+
+def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
+    """#147: what the editors should show — what was submitted, else what the AI wrote.
+
+    ``caption_submitted`` wins: after a publish with operator edits, showing the
+    AI's original text back would hide the edits and, on a retry of a failed
+    platform, silently re-publish the text the operator had replaced. A legacy
+    sidecar carries that edit in the scalar instead, so it is spread across the
+    platforms the AI dict knows about rather than being lost to it.
+    """
+    submitted = _platform_caption_dict(view, "caption_submitted")
+    if submitted:
+        return submitted
+    generated = _platform_caption_dict(view, "caption_generated")
+    edited = _edited_scalar_caption(view)
+    if edited and generated:
+        return dict.fromkeys(generated, edited)
+    # No AI dict to spread the edit across: the scalar is served on its own by
+    # _select_cached_social_caption, and the UI fills each editor from it.
+    return generated
 
 
 def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
@@ -478,6 +527,7 @@ class WebImageService:
         sd_caption = None
         metadata: dict[str, Any] | None = None
         has_sidecar = False
+        caption_generated: dict[str, str] | None = None
 
         if sidecar_result:
             text = sidecar_result.decode("utf-8", errors="ignore")
@@ -486,6 +536,7 @@ class WebImageService:
             caption = view.get("caption")
             metadata = view.get("metadata")
             has_sidecar = bool(view.get("has_sidecar"))
+            caption_generated = _generated_captions(view)
 
         thumbnail_url = f"/api/images/{urllib.parse.quote(filename, safe='')}/thumbnail"
 
@@ -498,6 +549,8 @@ class WebImageService:
             sd_caption=sd_caption,
             metadata=metadata,
             has_sidecar=has_sidecar,
+            caption_generated=caption_generated,
+            platform_limits=self._platform_limits(),
         )
 
     async def get_random_image(self) -> ImageResponse:
@@ -598,28 +651,48 @@ class WebImageService:
                 await meter.flush()
 
     def _select_cached_social_caption(self, view: dict[str, Any]) -> str | None:
-        """Pick the social caption to serve from a sidecar cache view (#80).
+        """Pick the legacy single ``caption`` to serve from a sidecar cache view (#80, #147).
 
-        Preference: the published/edited `caption`, then the `caption_generated`
-        entry for the first enabled platform, then the `email` entry, then any
-        generated entry. Never the SD prompt.
+        Email-first among what would be *submitted* — the per-platform email
+        entry when email is enabled — then the published/edited ``caption``,
+        then the entry for the first enabled platform, then any entry. Never the
+        SD prompt. The full per-platform dict is returned separately as
+        ``platform_captions``.
         """
+        generated = _generated_captions(view) or {}
+        if self.config.platforms.email_enabled and generated.get("email"):
+            return generated["email"]
         cached = view.get("caption")
         if cached:
             return str(cached)
-        generated = view.get("caption_generated")
-        if not isinstance(generated, dict) or not generated:
+        if not generated:
             return None
+        return self._primary_caption(generated) or next(iter(generated.values()), None)
+
+    def _primary_caption(self, captions: dict[str, str] | None) -> str:
+        """#147: the legacy ``caption`` field: email when enabled, else the first enabled platform."""
+        if not captions:
+            return ""
         from publisher_v2.core.models import CaptionSpec
 
+        if self.config.platforms.email_enabled and captions.get("email"):
+            return captions["email"]
         for platform in CaptionSpec.for_platforms(self.config):
-            value = generated.get(platform)
-            if isinstance(value, str) and value.strip():
-                return value
-        email_value = generated.get("email")
-        if isinstance(email_value, str) and email_value.strip():
-            return email_value
-        return next((str(v) for v in generated.values() if isinstance(v, str) and v.strip()), None)
+            if captions.get(platform):
+                return captions[platform]
+        return ""
+
+    def _platform_limits(self) -> dict[str, int]:
+        """#147: caption length limit for each enabled platform, from platform_limits.yaml."""
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.core.models import CaptionSpec
+
+        limits = get_static_config().platform_limits
+        out: dict[str, int] = {}
+        for platform in CaptionSpec.for_platforms(self.config):
+            entry = getattr(limits, platform, None) or limits.generic
+            out[platform] = int(entry.max_caption_length or limits.generic.max_caption_length or 0)
+        return out
 
     async def _analyze_and_caption_impl(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
@@ -666,6 +739,8 @@ class WebImageService:
                         sd_caption=view.get("sd_caption"),
                         sidecar_written=False,
                         cached=True,
+                        platform_captions=_generated_captions(view),
+                        platform_limits=self._platform_limits(),
                     )
 
         if not self.config.features.analyze_caption_enabled:
@@ -767,7 +842,7 @@ class WebImageService:
                     ),
                     timeout=caption_budget,
                 )
-                caption = next(iter((platform_captions_dict or {}).values()), "")
+                caption = self._primary_caption(platform_captions_dict)
             else:
                 caption, sd_caption, caption_usages = await asyncio.wait_for(
                     ai.create_caption_pair_from_analysis(analysis, spec), timeout=caption_budget
@@ -833,6 +908,7 @@ class WebImageService:
             alt_text=analysis.alt_text if self.config.features.alt_text_enabled else None,
             sidecar_written=sidecar_written,
             platform_captions=platform_captions_dict,
+            platform_limits=self._platform_limits(),
         )
 
     async def publish_image(
@@ -840,6 +916,7 @@ class WebImageService:
         filename: str,
         platforms: list[str] | None = None,
         caption_override: str | None = None,
+        caption_overrides: dict[str, str] | None = None,
     ) -> PublishResponse:
         """
         Publish a specific image by delegating to the existing WorkflowOrchestrator.
@@ -848,8 +925,22 @@ class WebImageService:
         enabled flags from config and still reuse the orchestrator behaviour.
 
         When caption_override is provided, the orchestrator skips AI caption
-        generation and uses the caller-supplied text instead.
+        generation and uses the caller-supplied text instead. ``caption_overrides``
+        (#147) does the same per platform and wins over ``caption_override``.
         """
+        if caption_overrides:
+            # #147: validated here, not only in the route — every caller of this
+            # method (route, scripts, future callers) must get the same refusal,
+            # or a partial dict lets one platform receive another's text.
+            enabled = set(CaptionSpec.for_platforms(self.config))
+            missing = sorted(enabled - set(caption_overrides))
+            unknown = sorted(set(caption_overrides) - enabled)
+            if missing or unknown:
+                raise CaptionCoverageError(
+                    f"captions must cover every enabled platform; missing={missing} unknown={unknown}"
+                )
+        # After the caption check: a malformed dict is a 400 whatever the
+        # filename, which is what the route answered before the check moved here.
         await self.ensure_known_image(filename)
         if not self.config.features.publish_enabled:
             log_json(
@@ -860,7 +951,15 @@ class WebImageService:
             )
             raise PermissionError("Publish feature is disabled via FEATURE_PUBLISH toggle")
 
-        if caption_override:
+        if caption_overrides:
+            log_json(
+                self.logger,
+                logging.INFO,
+                "web_publish_caption_overrides",
+                image=filename,
+                override_lengths={p: len(c) for p, c in caption_overrides.items()},
+            )
+        elif caption_override:
             log_json(
                 self.logger,
                 logging.INFO,
@@ -873,6 +972,9 @@ class WebImageService:
         await self._ensure_publishers()
 
         orchestrator = await self._ensure_orchestrator()
+        execute_kwargs: dict[str, Any] = {"caption_override": caption_override}
+        if caption_overrides:
+            execute_kwargs["caption_overrides"] = caption_overrides
         lock = _publish_lock(self._tenant, filename)
         if lock.locked():
             # Fail fast instead of queueing behind a publish that can run for
@@ -885,7 +987,7 @@ class WebImageService:
                 select_filename=filename,
                 dry_publish=False,
                 preview_mode=False,
-                caption_override=caption_override,
+                **execute_kwargs,
             )
         if result.error and result.error.startswith(ALREADY_PUBLISHED_ERROR):
             # #139: no publish store, and this image is already in the posted set.

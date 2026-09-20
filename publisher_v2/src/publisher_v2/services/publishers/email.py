@@ -67,6 +67,13 @@ class EmailPublisher(Publisher):
 
             def _build_message(to_addrs: str | list[str], subject: str, body: str) -> MIMEMultipart:
                 msg = MIMEMultipart()
+                # A header cannot hold a line break: since #147 the caption comes
+                # from a free-form per-platform editor, so a multi-line one reached
+                # here and the send died with HeaderWriteError. Only the line breaks
+                # are folded — splitting on all whitespace would also collapse
+                # runs of spaces and rewrite tabs, U+00A0 and the CJK ideographic
+                # space in subjects that were going out verbatim before.
+                subject = " ".join(subject.splitlines())
                 # Use Header for RFC 2047 encoding of non-ASCII chars (emojis, etc.)
                 msg["Subject"] = str(Header(subject, "utf-8"))
                 msg["From"] = config.sender

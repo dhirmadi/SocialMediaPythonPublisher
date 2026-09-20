@@ -637,7 +637,16 @@
       color: #9ca3af;
       min-width: 5rem;
     }
-    #caption-text {
+    .caption-editor + .caption-editor {
+      margin-top: 0.75rem;
+    }
+    .caption-editor label {
+      display: block;
+      font-size: 0.8rem;
+      color: #9ca3af;
+      margin-bottom: 0.25rem;
+    }
+    .caption-text {
       width: 100%;
       background: #111827;
       color: #e5e7eb;
@@ -649,13 +658,9 @@
       resize: vertical;
       min-height: 4rem;
     }
-    #caption-text:focus {
+    .caption-text:focus {
       outline: none;
       border-color: #cc0000;
-    }
-    #caption-text[readonly] {
-      opacity: 0.6;
-      cursor: default;
     }
     .caption-meta {
       display: flex;
@@ -754,16 +759,13 @@
 
     <div class="panel admin-only hidden" id="panel-caption">
       <h2>{{ web_ui_text.panels.caption_title or "Caption" }}</h2>
-      <textarea id="caption-text" rows="4"
-        placeholder="{{ web_ui_text.placeholders.caption_empty or 'No caption yet.' }}"
-        readonly></textarea>
+      <!-- #147: one editor per enabled platform, each with its own limit counter. -->
+      <div id="caption-editors"></div>
       <div class="caption-meta">
-        <span id="caption-edited" class="edited-badge hidden">(edited)</span>
         <span id="caption-cached" class="cached-badge hidden">{{ web_ui_text.get("badges", {}).get("cached") or "cached" }}</span>
         <button id="btn-regenerate" class="regen-btn hidden" type="button">
           {{ web_ui_text.buttons.regenerate or "Regenerate" }}
         </button>
-        <span id="caption-char-count" class="char-count"></span>
       </div>
     </div>
 
@@ -924,7 +926,7 @@
     const statusEl = document.getElementById("status");
     const detailsEl = document.getElementById("details");
     const envIndicator = document.getElementById("env-indicator");
-    const captionEl = document.getElementById("caption-text");
+    const captionEditorsEl = document.getElementById("caption-editors");
     const btnNext = document.getElementById("btn-next");
     const btnFullSize = document.getElementById("btn-fullsize");
     const btnAnalyze = document.getElementById("btn-analyze");
@@ -1066,7 +1068,7 @@
         );
         // #80: never surface the SD prompt as the caption — sd_caption is a
         // Stable Diffusion prompt, not a social caption.
-        setCaption(data.caption || "No caption yet.");
+        setCaptions(data.caption_generated, data.platform_limits, data.caption);
         setCachedState(false);
         const meta = data.metadata ? JSON.stringify(data.metadata, null, 2) : "None";
         setDetails(`<div><strong>File:</strong> ${escapeHtml(data.filename)}</div><pre><code>${escapeHtml(meta)}</code></pre>`);
@@ -1153,7 +1155,7 @@
         console.error(e);
         currentFilename = null;
         showImagePlaceholder("Error loading image.");
-        setCaption(null);
+        setCaptions(null, null, null);
         setDetails("");
         setActivity(e.message || "Error loading image.");
       } finally {
@@ -1225,14 +1227,104 @@
       detailsEl.innerHTML = html || "";
     }
 
-    let originalCaption = "";
+    // #147: per-platform caption editors. Each platform gets its own textarea
+    // and a counter bound to that platform's limit (platform_limits.yaml).
+    const PLATFORM_LABELS = { telegram: "Telegram", instagram: "Instagram", email: "FetLife (email)" };
+    let platformLimits = {};
+    let originalCaptions = {};
 
-    function setCaption(text) {
-      const fallback = TEXT.placeholders?.caption_empty || "No caption yet.";
-      captionEl.value = text || fallback;
-      captionEl.readOnly = !text;
-      originalCaption = text || "";
-      updateCaptionMeta();
+    function setCaptions(captions, limits, legacyCaption) {
+      if (limits && Object.keys(limits).length) {
+        platformLimits = limits;
+      }
+      const byPlatform = captions || {};
+      const platforms = Object.keys(platformLimits).length
+        ? Object.keys(platformLimits)
+        : Object.keys(byPlatform);
+      captionEditorsEl.innerHTML = "";
+      originalCaptions = {};
+      for (const platform of platforms) {
+        // A legacy sidecar has one caption for all platforms; show it in each
+        // editor so the operator sees where it is over a platform's limit. It
+        // arrives either as the scalar (no per-platform data at all) or already
+        // spread across the platforms by the server (#147: an edit stored only
+        // in `caption`), so the test is "same text as the scalar", not "came
+        // from the scalar" — otherwise the spread shape publishes N identical
+        // copies and rewrites the sidecar with them.
+        const text = byPlatform[platform] || legacyCaption || "";
+        const fromLegacy = !!legacyCaption && text === legacyCaption;
+        originalCaptions[platform] = text;
+
+        const block = document.createElement("div");
+        block.className = "caption-editor";
+        block.dataset.platform = platform;
+        // #147: filled from the single legacy caption, not from a per-platform
+        // one. Left untouched, publishing it back would rewrite the sidecar
+        // with the same text under every platform.
+        if (fromLegacy) block.dataset.fromLegacy = "1";
+        const label = document.createElement("label");
+        label.textContent = PLATFORM_LABELS[platform] || platform;
+        label.htmlFor = `caption-text-${platform}`;
+        const area = document.createElement("textarea");
+        area.className = "caption-text";
+        area.id = `caption-text-${platform}`;
+        area.rows = platform === "email" ? 2 : 4;
+        area.placeholder = TEXT.placeholders?.caption_empty || "No caption yet.";
+        area.value = text;
+        const meta = document.createElement("div");
+        meta.className = "caption-meta";
+        const edited = document.createElement("span");
+        edited.className = "edited-badge hidden";
+        edited.textContent = "(edited)";
+        const count = document.createElement("span");
+        count.className = "char-count";
+        meta.appendChild(edited);
+        meta.appendChild(count);
+        block.appendChild(label);
+        block.appendChild(area);
+        block.appendChild(meta);
+        captionEditorsEl.appendChild(block);
+        area.addEventListener("input", () => updateCaptionMeta(block));
+        updateCaptionMeta(block);
+      }
+    }
+
+    function updateCaptionMeta(block) {
+      const platform = block.dataset.platform;
+      const area = block.querySelector("textarea");
+      const countEl = block.querySelector(".char-count");
+      const editedEl = block.querySelector(".edited-badge");
+      const original = originalCaptions[platform] || "";
+      const maxLen = platformLimits[platform];
+      const len = area.value.trim().length;
+      if (!original && !area.value.trim()) {
+        countEl.textContent = "";
+        countEl.classList.remove("over-limit");
+      } else if (maxLen) {
+        countEl.textContent = `${len} / ${maxLen}`;
+        countEl.classList.toggle("over-limit", len > maxLen);
+      } else {
+        countEl.textContent = `${len}`;
+        countEl.classList.remove("over-limit");
+      }
+      editedEl.classList.toggle("hidden", !(original !== "" && area.value !== original));
+    }
+
+    // Captions the operator reviewed: platform -> text. Empty editors are skipped;
+    // the server rejects a set that misses an enabled platform (#147).
+    function collectCaptions() {
+      const out = {};
+      for (const block of captionEditorsEl.querySelectorAll(".caption-editor")) {
+        const text = block.querySelector("textarea").value.trim();
+        if (text) out[block.dataset.platform] = text;
+      }
+      return out;
+    }
+
+    function missingCaptionPlatforms(captions) {
+      return [...captionEditorsEl.querySelectorAll(".caption-editor")]
+        .map((block) => block.dataset.platform)
+        .filter((platform) => !captions[platform]);
     }
 
     // #80: "cached" badge + Regenerate action when the caption came from the
@@ -1243,28 +1335,6 @@
       if (cachedEl) cachedEl.classList.toggle("hidden", !isCached);
       if (regenEl) regenEl.classList.toggle("hidden", !isCached);
     }
-
-    function updateCaptionMeta() {
-      const len = captionEl.value.trim().length;
-      const maxLen = 240;
-      const countEl = document.getElementById("caption-char-count");
-      const editedEl = document.getElementById("caption-edited");
-      if (countEl) {
-        if (!originalCaption) {
-          countEl.textContent = "";
-          countEl.classList.remove("over-limit");
-        } else {
-          countEl.textContent = `${len} / ${maxLen}`;
-          countEl.classList.toggle("over-limit", len > maxLen);
-        }
-      }
-      if (editedEl) {
-        const isEdited = captionEl.value !== originalCaption && originalCaption !== "";
-        editedEl.classList.toggle("hidden", !isEdited);
-      }
-    }
-
-    captionEl.addEventListener("input", updateCaptionMeta);
 
     function showImagePlaceholder(message) {
       if (imgEl) {
@@ -1543,7 +1613,7 @@
         }
         const data = await res.json();
         // #80: never fall back to sd_caption — it's an SD prompt, not a caption.
-        setCaption(data.caption || "No caption generated.");
+        setCaptions(data.platform_captions, data.platform_limits, data.caption);
         setCachedState(Boolean(data.cached));
         const meta = {
           description: data.description,
@@ -2394,7 +2464,7 @@
       gridTruncated = false;
     }
 
-    function showPublishConfirm(caption, isPlaceholder) {
+    function showPublishConfirm(captions, isPlaceholder) {
       return new Promise((resolve) => {
         const overlay = document.createElement("div");
         overlay.className = "modal";
@@ -2404,7 +2474,7 @@
         const heading = document.createElement("h2");
         heading.textContent = isPlaceholder
           ? "Publish without a reviewed caption?"
-          : "Publish with this caption?";
+          : "Publish with these captions?";
 
         const preview = document.createElement("p");
         if (isPlaceholder) {
@@ -2413,11 +2483,17 @@
         } else {
           preview.style.whiteSpace = "pre-wrap";
           preview.style.wordBreak = "break-word";
-          preview.style.maxHeight = "8rem";
+          preview.style.maxHeight = "12rem";
           preview.style.overflowY = "auto";
-          preview.textContent = caption.length > 300
-            ? caption.substring(0, 300) + "..."
-            : caption;
+          // #147: show exactly what each platform will get, with its length/limit.
+          preview.textContent = Object.entries(captions)
+            .map(([platform, text]) => {
+              const limit = platformLimits[platform];
+              const head = `${PLATFORM_LABELS[platform] || platform} (${text.length}${limit ? " / " + limit : ""})`;
+              const body = text.length > 300 ? text.substring(0, 300) + "..." : text;
+              return `${head}\n${body}`;
+            })
+            .join("\n\n");
         }
 
         const footer = document.createElement("div");
@@ -2453,10 +2529,26 @@
         return;
       }
 
-      const caption = captionEl.value.trim();
-      const isPlaceholder = captionEl.readOnly || !caption;
+      const captions = collectCaptions();
+      // #147: every editor still showing the legacy single caption, unedited —
+      // send the legacy shape rather than a per-platform dict of identical text.
+      const allLegacyUnedited =
+        Object.keys(captions).length > 0 &&
+        [...captionEditorsEl.querySelectorAll(".caption-editor")].every(
+          (block) =>
+            block.dataset.fromLegacy === "1" &&
+            block.querySelector("textarea").value === originalCaptions[block.dataset.platform]
+        );
+      const isPlaceholder = Object.keys(captions).length === 0 || allLegacyUnedited;
+      const missing = isPlaceholder ? [] : missingCaptionPlatforms(captions);
+      if (missing.length) {
+        // #147: never publish one platform's text to another; fill every caption or none.
+        const names = missing.map((platform) => PLATFORM_LABELS[platform] || platform).join(", ");
+        setActivity(`Write a caption for ${names}, or clear all captions to let AI write them.`);
+        return;
+      }
 
-      const confirmed = await showPublishConfirm(caption, isPlaceholder);
+      const confirmed = await showPublishConfirm(captions, isPlaceholder);
       if (!confirmed) {
         setActivity("Publish cancelled.");
         return;
@@ -2468,7 +2560,13 @@
         const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/publish`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ caption: isPlaceholder ? null : caption })
+          body: JSON.stringify(
+            allLegacyUnedited
+              ? { caption: Object.values(captions)[0] }
+              : isPlaceholder
+                ? { caption: null }
+                : { captions }
+          )
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));

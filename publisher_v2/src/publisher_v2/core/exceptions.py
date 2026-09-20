@@ -46,6 +46,14 @@ class AlreadyPublishedError(PublishingError):
     """This image was already published and will not be published again (#139)."""
 
 
+class CaptionCoverageError(PublishingError):
+    """A per-platform caption dict does not cover exactly the enabled platforms (#147).
+
+    Anything less lets a platform fall back to another platform's text — the
+    truncated-copy-to-email bug #147 exists to close.
+    """
+
+
 class UsageMeteringError(SocialMediaPublisherError):
     """Usage metering ingest call failed (non-retryable)."""
 

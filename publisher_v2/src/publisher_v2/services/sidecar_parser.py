@@ -167,6 +167,9 @@ def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, An
       - caption: Optional[str] (published/edited caption from metadata; None when
         absent — NEVER the sd_caption, which is a Stable Diffusion prompt, not a
         social caption; see #80)
+      - caption_submitted: Optional[dict[str, str]] (#147: the per-platform text
+        the last publish run submitted, including platforms whose publish failed,
+        so a retry shows the operator their own text rather than the AI's)
       - caption_generated: Optional[dict[str, str]] (per-platform generated
         captions; None when the stored value could not be read as a mapping,
         which is always reported — by `parse_sidecar_text` when the value
@@ -220,11 +223,32 @@ def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, An
                     source=source,
                 )
             caption_generated = None
+    # #147: what each platform actually received, when a publish recorded it.
+    # Additive and separate from caption_generated (the AI's own output), so an
+    # operator's per-platform edits survive and are what the UI shows back.
+    caption_submitted: dict[str, Any] | None = None
+    if isinstance(metadata, dict):
+        raw_published = metadata.get("caption_submitted")
+        if isinstance(raw_published, dict):
+            caption_submitted = raw_published
+        elif raw_published is not None and not (isinstance(raw_published, str) and not raw_published.strip()):
+            parser_already_warned = isinstance(raw_published, str) and (
+                _looks_like_json(raw_published) or raw_published.startswith(ENCODED_STRING_MARKER)
+            )
+            if not parser_already_warned:
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "sidecar_metadata_json_invalid",
+                    key="caption_submitted",
+                    source=source,
+                )
     has_sidecar = bool(sd_caption or metadata)
     return {
         "sd_caption": sd_caption,
         "caption": caption,
         "caption_generated": caption_generated,
+        "caption_submitted": caption_submitted,
         "metadata": metadata,
         "has_sidecar": has_sidecar,
     }
