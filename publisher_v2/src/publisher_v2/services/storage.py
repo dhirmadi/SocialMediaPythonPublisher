@@ -66,21 +66,31 @@ def _is_retryable_dropbox_error(exc: BaseException) -> bool:
 
 
 _EXPONENTIAL_WAIT = wait_exponential(multiplier=1, min=1, max=8)
+# #132: cap on a server-sent RateLimitError.backoff. Sidecar downloads sit on the
+# web request path; a Retry-After of minutes must not hold an admin request open.
+MAX_RATE_LIMIT_BACKOFF_SECONDS = 30
 
 
 def _dropbox_wait(retry_state) -> float:  # type: ignore[no-untyped-def]
-    """Honour RateLimitError.backoff when present, else exponential (#88)."""
+    """Honour RateLimitError.backoff (capped) when present, else exponential (#88, #132)."""
     exc = retry_state.outcome.exception() if retry_state.outcome else None
     cause = getattr(exc, "__cause__", None) or exc
     backoff = getattr(cause, "backoff", None)
     if backoff:
-        return float(backoff)
+        return min(float(backoff), float(MAX_RATE_LIMIT_BACKOFF_SECONDS))
     return float(_EXPONENTIAL_WAIT(retry_state))
 
 
-# One retry layer (#88): the SDK's own retries are disabled below, so the
-# bounded worst case per operation is 3 attempts x 30s timeout + waits — about
-# two minutes, instead of 100s SDK timeout x 4 SDK retries x 3 tenacity tries.
+# One retry layer (#88, #132): the SDK's own retries are disabled below for both
+# 5xx (max_retries_on_error=0) and 429 (max_retries_on_rate_limit=0), so every
+# transient error reaches this decorator (before #132 a 429 retried inside the
+# SDK with no bound at all). Bound per decorated call: 3 attempts and 2 waits.
+# Each wait is the server backoff capped at MAX_RATE_LIMIT_BACKOFF_SECONDS, or
+# exponential: 1s then 2s. At 3 attempts only two waits are ever computed, so
+# the 8s ceiling below is unreachable. Each attempt is one or more HTTP calls
+# (pagination, sidecar moves, and at most one token-refresh resend inside the
+# SDK), each bounded by the 30s connect/read timeout — not a total deadline, so
+# a slow but steady download stream can run longer.
 _dropbox_retry = retry(
     reraise=True,
     stop=stop_after_attempt(3),
@@ -116,6 +126,8 @@ class DropboxStorage:
             # #88: bounded HTTP timeout; tenacity is the single retry layer.
             timeout=30,
             max_retries_on_error=0,
+            # #132: SDK 12 retries 429s forever when this is None (its default).
+            max_retries_on_rate_limit=0,
         )
 
     @_dropbox_retry
@@ -159,14 +171,10 @@ class DropboxStorage:
                 return True
         return False
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(
-            lambda exc: isinstance(exc, ApiError) and not DropboxStorage._is_sidecar_not_found_error(exc)
-        ),  # type: ignore[arg-type]
-    )
+    # #132: the shared predicate unwraps the StorageError this method raises; the
+    # old ``isinstance(exc, ApiError)`` predicate never matched, so it never retried.
+    # "Not found" returns None before raising, so it is never retried.
+    @_dropbox_retry
     async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
         """
         Download the .txt sidecar for the given image if it exists.

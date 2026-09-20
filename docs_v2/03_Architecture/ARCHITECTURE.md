@@ -41,6 +41,49 @@ External Services (Dropbox, OpenAI, IG API, Telegram, SMTP)
 ### Utilities
 - Image ops, logging, rate limiting, retries, ID generation, caption formatting
 
+### Dropbox retries and rate limits (#88, #132)
+
+The Dropbox SDK's own retry loops are disabled (`max_retries_on_error=0`,
+`max_retries_on_rate_limit=0`) so there is exactly one retry layer, in
+`services/storage.py`. Before #132 a 429 retried **inside** the SDK with no
+bound at all, so a throttled account could hang a request indefinitely.
+
+Per decorated call: at most 3 attempts and 2 waits. A wait is the server's
+`Retry-After` (`RateLimitError.backoff`) when present, otherwise exponential —
+in practice **1s then 2s**, because at 3 attempts only two waits are ever
+computed and the 8s ceiling is unreachable. **The server's value is capped at
+30 seconds** (`MAX_RATE_LIMIT_BACKOFF_SECONDS`), so the worst case is 2 × 30s.
+
+Those bounds are **per decorated call, not per request**. A single
+`POST /api/images/{f}/analyze` makes several — `list_images` (30s-cached),
+`get_temporary_link`, `download_sidecar_if_exists` — each with its own three
+attempts, so a sustained 429 can cost a multiple of the per-call figure.
+(`list_images` is cached for 30s by default, overridable via
+`web_image_cache_ttl_seconds`.)
+
+That cap is a deliberate deviation with a cost, and worth knowing when
+debugging repeated 429s. Dropbox may legitimately ask for minutes; waiting
+that long would tie up a dyno worker on a request nobody is still waiting for.
+What the cap buys is bounded dyno-side work, **not** a response to the user:
+Heroku's router already cuts the client off at 30s, so a single capped wait
+spends the whole router budget and the client gets Heroku's H12 error
+(**HTTP 503**, not 504) either way while the dyno keeps working.
+
+The two retries that happen inside a window Dropbox asked us to sit out do
+consume calls against an account that is already throttled. The trade favours
+bounded work over minimal call volume; a batch or CLI context would reasonably
+choose the opposite — `tools/migrate_storage.py` makes at least two decorated
+calls per file (the image, then the sidecar), each spending three attempts and
+up to 60s of waits under a sustained 429, with no global circuit breaker.
+
+Each attempt is one or more HTTP calls, each bounded by the 30s connect/read
+timeout — not a total deadline, so a slow but steady download can run longer.
+Sidecar reads on the analyze path (`download_sidecar_if_exists`) are inside
+this layer too, so a transient network error there now costs 3s of backoff
+(1s + 2s) plus two more attempts, each bounded by the 30s HTTP timeout, rather
+than failing immediately. A not-found sidecar still short-circuits before any
+raise, so a missing sidecar is never retried.
+
 ## 3. Interfaces (summaries)
 Storage:
 - list_images(folder) -> list[str]
