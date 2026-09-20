@@ -18,7 +18,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
-from publisher_v2.config.runtime_settings import load_runtime_settings
+from publisher_v2.config.runtime_settings import RuntimeSettings
 from publisher_v2.config.schema import StoragePathConfig
 from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json
@@ -26,6 +26,7 @@ from publisher_v2.utils.memory_io import reader_over
 from publisher_v2.web.auth import require_admin, require_auth
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.service import WebImageService
+from publisher_v2.web.settings import get_runtime_settings
 
 logger = logging.getLogger("publisher_v2.web.library")
 
@@ -179,9 +180,9 @@ def _check_library_available(service: WebImageService) -> None:
         )
 
 
-def _get_max_upload_bytes() -> int:
-    """Max upload size in bytes (LIBRARY_MAX_UPLOAD_MB, default 20 MB; #97: centralized)."""
-    return load_runtime_settings().library_max_upload_mb * 1024 * 1024
+def _get_max_upload_bytes(settings: RuntimeSettings) -> int:
+    """Max upload size in bytes (LIBRARY_MAX_UPLOAD_MB, default 20 MB; #143: injected)."""
+    return settings.library_max_upload_mb * 1024 * 1024
 
 
 def _sanitize_filename(filename: str) -> str:
@@ -269,9 +270,9 @@ def _sanitize_filter(q: str | None) -> str | None:
     return cleaned or None
 
 
-def _get_scan_budget() -> int:
-    """Listing scan budget (LIBRARY_SCAN_BUDGET, default 5000; #97: centralized)."""
-    return load_runtime_settings().library_scan_budget
+def _get_scan_budget(settings: RuntimeSettings) -> int:
+    """Listing scan budget (LIBRARY_SCAN_BUDGET, default 5000; #143: injected)."""
+    return settings.library_scan_budget
 
 
 _SORT_KEYS = {
@@ -548,7 +549,7 @@ async def list_objects(
         result["total_in_window"] = 0
         result["truncated"] = False
     else:
-        scan_budget = _get_scan_budget()
+        scan_budget = _get_scan_budget(get_runtime_settings(request))
         result = await _list_objects_buffered(
             service, storage_prefix, q, sort, order, offset, limit, scan_budget, anchor_key=anchor_key
         )
@@ -735,7 +736,7 @@ async def upload_file(
     # #90 (SEC-6): rate limit BEFORE reading any body bytes.
     _check_rate_limit(request)
 
-    max_bytes = _get_max_upload_bytes()
+    max_bytes = _get_max_upload_bytes(get_runtime_settings(request))
     max_mb = max_bytes // (1024 * 1024)
 
     # Reject on the declared Content-Length before touching the body.

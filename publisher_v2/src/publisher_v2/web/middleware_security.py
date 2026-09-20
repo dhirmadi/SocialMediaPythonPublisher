@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
 import re
 import secrets
 from functools import lru_cache
@@ -32,6 +31,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from publisher_v2.utils.logging import log_json
+from publisher_v2.web.settings import get_runtime_settings
 
 logger = logging.getLogger("publisher_v2.web")
 
@@ -175,6 +175,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "same-origin")
-        if (os.environ.get("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes", "on"):
+        if get_runtime_settings(request).secure_cookies:
             response.headers.setdefault("Strict-Transport-Security", _HSTS_VALUE)
         return response

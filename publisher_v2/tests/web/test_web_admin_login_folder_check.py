@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from publisher_v2.config.runtime_settings import RuntimeSettings
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
@@ -49,6 +50,8 @@ def service(mock_storage):
 
     # Create service without calling __init__ to avoid config loading
     svc = object.__new__(WebImageService)
+    # #143: __init__ is skipped here, so inject the settings the service would have read.
+    svc._settings = RuntimeSettings()
     svc.config = config
     svc.storage = mock_storage
     # Suppress normal logging

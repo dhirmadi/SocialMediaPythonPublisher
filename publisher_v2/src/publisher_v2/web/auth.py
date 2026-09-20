@@ -296,6 +296,7 @@ def set_admin_cookie(
     response: Response,
     expires_in_seconds: int | None = None,
     *,
+    secure: bool,
     tenant: str | None = None,
     host: str | None = None,
     mode: str = "auth0",
@@ -303,9 +304,15 @@ def set_admin_cookie(
 ) -> None:
     """
     Set the signed admin-mode cookie on the response, bound to tenant/host.
+
+    ``secure`` comes from the caller's :class:`RuntimeSettings` snapshot (#143).
+    It used to be parsed here from ``WEB_SECURE_COOKIES`` with a truthy set that
+    did not include ``"on"``, while the snapshot — and therefore HSTS — accepted
+    it: ``WEB_SECURE_COOKIES=on`` sent HSTS but an admin cookie without
+    ``Secure``. The parameter is keyword-only and has no default so that a new
+    call site has to state which setting it means.
     """
     ttl = expires_in_seconds if expires_in_seconds is not None else _admin_cookie_ttl_seconds()
-    secure = (_get_env("WEB_SECURE_COOKIES") or "true").lower() in ("1", "true", "yes")
     response.set_cookie(
         key=ADMIN_COOKIE_NAME,
         value=mint_admin_cookie_value(tenant=tenant, host=host, mode=mode, email=email),

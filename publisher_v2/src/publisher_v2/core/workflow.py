@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from publisher_v2.db.caption_store import CaptionStore
     from publisher_v2.db.publish_store import PublishStore
 
-from publisher_v2.config.runtime_settings import load_runtime_settings
+from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.exceptions import AIServiceError, StorageError
@@ -41,37 +41,6 @@ from publisher_v2.utils.state import (
 )
 
 
-def _publish_timeout_seconds() -> float:
-    """Default per-publisher timeout. Configurable via env for ops (#97: centralized)."""
-    return load_runtime_settings().publish_timeout_seconds
-
-
-# #139: prefix of the WorkflowResult.error a run returns when the file-based
-# posted state (no publish store) refuses a re-publish. The web layer maps it to
-# a 409 so the operator sees the reason instead of an empty result set.
-ALREADY_PUBLISHED_ERROR = "Already published: "
-
-
-def _publish_lease_ttl_seconds() -> float:
-    """Lease TTL (#139): after this, another run may reclaim the lease."""
-    return load_runtime_settings().publish_lease_ttl_seconds
-
-
-def _ai_stage_timeout_seconds() -> float:
-    """Hard deadline for the combined vision+caption stage (#84).
-
-    Bounds the worst case (hung upstream, stacked fallbacks) so a run fails
-    fast instead of holding a dyno for minutes. Env: AI_STAGE_TIMEOUT_SECONDS.
-    """
-    return load_runtime_settings().ai_stage_timeout_seconds
-
-
-def _publish_timeout_for(platform: str, default: float) -> float:
-    """Per-platform override, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
-    settings = load_runtime_settings()
-    return settings.publish_timeout_overrides.get(platform.lower(), default)
-
-
 @dataclasses.dataclass(slots=True)
 class _ImageSelection:
     """Bundle returned by _select_image to keep execute() focused on workflow steps."""
@@ -83,6 +52,12 @@ class _ImageSelection:
     dropbox_list_ms: int | None
     selection_ms: int | None
     error: str | None = None
+
+
+# #139: prefix of the WorkflowResult.error a run returns when the file-based
+# posted state (no publish store) refuses a re-publish. The web layer maps it to
+# a 409 so the operator sees the reason instead of an empty result set.
+ALREADY_PUBLISHED_ERROR = "Already published: "
 
 
 class WorkflowOrchestrator:
@@ -97,6 +72,7 @@ class WorkflowOrchestrator:
         tenant: str = "default",
         caption_store: CaptionStore | None = None,
         publish_store: PublishStore | None = None,
+        settings: RuntimeSettings | None = None,
     ):
         self.config = config
         self.storage = storage
@@ -109,6 +85,8 @@ class WorkflowOrchestrator:
         self._publish_store = publish_store
         # #139: platform -> the leased_at this run stamped, used to fence marks.
         self._lease_tokens: dict[str, datetime] = {}
+        # #143: tunables are read once, when the orchestrator is built.
+        self._settings = settings if settings is not None else load_runtime_settings()
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     def _already_posted(
@@ -321,7 +299,7 @@ class WorkflowOrchestrator:
         skip_ai_stage = False
         temp_link = ""
         # #84: re-anchored just before vision runs; initialized here for scope.
-        ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
+        ai_stage_deadline = now_monotonic() + self._settings.ai_stage_timeout_seconds
         analysis = None
         spec = None
         dropbox_list_images_ms: int | None = None
@@ -436,7 +414,7 @@ class WorkflowOrchestrator:
                     )
                 analysis_start = now_monotonic()
                 # #84: one shared deadline covers vision AND caption generation.
-                ai_stage_deadline = now_monotonic() + _ai_stage_timeout_seconds()
+                ai_stage_deadline = now_monotonic() + self._settings.ai_stage_timeout_seconds
                 try:
                     analysis, vision_usage = await asyncio.wait_for(
                         self.ai_service.analyzer.analyze(analysis_source),
@@ -633,7 +611,6 @@ class WorkflowOrchestrator:
                 if enabled_publishers and not self.config.content.debug and not dry_publish and not preview_mode:
                     publish_start = now_monotonic()
                     context = self._build_publisher_context(analysis)
-                    timeout = _publish_timeout_seconds()
                     # #85/#139: the per-platform lease was already claimed above,
                     # before the AI stage, so a partial publish never double-posts
                     # and a web double-click publishes once.
@@ -657,7 +634,7 @@ class WorkflowOrchestrator:
                                     ),
                                     context=context,
                                 ),
-                                timeout=_publish_timeout_for(p.platform_name, timeout),
+                                timeout=self._settings.publish_timeout_for(p.platform_name),
                             )
                             for p in publish_targets
                         ],
@@ -896,7 +873,7 @@ class WorkflowOrchestrator:
             # the block and shielded: a cancellation delivered at this await must
             # neither skip the temp-file cleanup above nor drop the release.
             held_for = now_monotonic() - lease_claimed_at if lease_claimed_at else 0.0
-            if pending_leases and held_for >= _publish_lease_ttl_seconds():
+            if pending_leases and held_for >= self._settings.publish_lease_ttl_seconds:
                 # #139: this run held the lease past the TTL, so another run may
                 # have reclaimed it and be publishing right now. Marking it failed
                 # would make it re-leasable mid-publish. Leave it to the TTL.

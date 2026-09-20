@@ -136,7 +136,7 @@ def test_orchestrator_tenant_without_auth0_gets_403_with_valid_cookie(monkeypatc
             return SimpleNamespace(config=tenant_config)
 
     monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
-    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda: _FakeFactory())
+    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _FakeFactory())
 
     client = TestClient(client.app, base_url=f"http://{host}")
     client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(tenant="tenant-a", host=host, mode="auth0"))
@@ -237,7 +237,7 @@ def test_mutating_route_403_for_tenant_without_auth0_on_dyno_without_auth0(
             return SimpleNamespace(config=tenant_config)
 
     monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
-    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda: _FakeFactory())
+    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _FakeFactory())
     client = TestClient(client.app, base_url=f"http://{host}")
     res = client.post(f"/api/images/a.jpg/{action}", headers={"Authorization": "Bearer tok"})
     assert res.status_code == 403, res.text
@@ -264,7 +264,7 @@ def test_features_auth_mode_none_for_tenant_without_auth0_on_auth0_dyno(monkeypa
             return SimpleNamespace(config=tenant_config)
 
     monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
-    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda: _FakeFactory())
+    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _FakeFactory())
     res = TestClient(client.app, base_url=f"http://{host}").get("/api/config/features")
     assert res.status_code == 200, res.text
     assert res.json()["auth_mode"] == "none"

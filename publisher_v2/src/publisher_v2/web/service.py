@@ -20,7 +20,7 @@ load_dotenv()
 
 from publisher_v2.config.credentials import OpenAICredentials, SMTPCredentials, TelegramCredentials  # noqa: E402
 from publisher_v2.config.loader import load_application_config  # noqa: E402
-from publisher_v2.config.runtime_settings import load_runtime_settings  # noqa: E402
+from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings  # noqa: E402
 from publisher_v2.config.schema import ApplicationConfig  # noqa: E402
 from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
@@ -164,8 +164,11 @@ class WebImageService:
         self,
         runtime: RuntimeConfig | None = None,
         config_source: ConfigSource | None = None,
+        settings: RuntimeSettings | None = None,
     ) -> None:
         self.logger = logging.getLogger("publisher_v2.web")
+        # #143: runtime tunables are read once, when the service is built.
+        self._settings = settings if settings is not None else load_runtime_settings()
 
         self._runtime = runtime
         self._config_source = config_source
@@ -183,14 +186,14 @@ class WebImageService:
             # runtime config object cached inside the orchestrator source.
             cfg = runtime.config.model_copy(deep=True)
 
-        storage: StorageProtocol = create_storage(cfg)
+        storage: StorageProtocol = create_storage(cfg, settings=self._settings)
 
         # AI may be resolved lazily in orchestrator mode (cfg.openai.api_key may be None)
         ai_service: AIService | None = None
         if getattr(cfg.openai, "api_key", None):
             analyzer = VisionAnalyzerOpenAI(cfg.openai)
             generator = CaptionGeneratorOpenAI(cfg.openai)
-            ai_service = AIService(analyzer, generator)
+            ai_service = AIService(analyzer, generator, settings=self._settings)
 
         publishers: list[Publisher] = build_publishers(cfg)
 
@@ -215,8 +218,8 @@ class WebImageService:
         self._publish_store: PublishStore | None = None
         sf = get_session_factory()
         if sf is not None:
-            self._caption_store = CaptionStore(sf)
-            self._publish_store = PublishStore(sf, lease_ttl_seconds=load_runtime_settings().publish_lease_ttl_seconds)
+            self._caption_store = CaptionStore(sf, settings=self._settings)
+            self._publish_store = PublishStore(sf, lease_ttl_seconds=self._settings.publish_lease_ttl_seconds)
 
         self._tenant = runtime.tenant if runtime is not None else "default"
 
@@ -226,7 +229,7 @@ class WebImageService:
             if ai_service is None:
                 analyzer = VisionAnalyzerOpenAI(cfg.openai)
                 generator = CaptionGeneratorOpenAI(cfg.openai)
-                ai_service = AIService(analyzer, generator)
+                ai_service = AIService(analyzer, generator, settings=self._settings)
                 self.ai_service = ai_service
             self.orchestrator: WorkflowOrchestrator | None = WorkflowOrchestrator(
                 cfg,
@@ -236,6 +239,7 @@ class WebImageService:
                 tenant=self._tenant,
                 caption_store=self._caption_store,
                 publish_store=self._publish_store,
+                settings=self._settings,
             )
         else:
             self.orchestrator = None
@@ -245,7 +249,7 @@ class WebImageService:
         self._image_cache_expiry: float | None = None
         limits = get_static_config().service_limits
         # #97 stage 2: env override parsed centrally; None -> static-config default.
-        env_ttl = load_runtime_settings().web_image_cache_ttl_seconds
+        env_ttl = self._settings.web_image_cache_ttl_seconds
         self._image_cache_ttl_seconds: float = env_ttl if env_ttl is not None else limits.web.image_cache_ttl_seconds
         # #86: bounded — was an unbounded list.
         self._recently_shown: deque[str] = deque(maxlen=50)
@@ -363,7 +367,7 @@ class WebImageService:
             self.config = self.config.model_copy(update={"openai": new_openai})
             analyzer = VisionAnalyzerOpenAI(new_openai)
             generator = CaptionGeneratorOpenAI(new_openai)
-            self.ai_service = AIService(analyzer, generator)
+            self.ai_service = AIService(analyzer, generator, settings=self._settings)
             self._ai_unavailable_until = None
             return self.ai_service
         except (CredentialResolutionError, OrchestratorUnavailableError):
@@ -470,6 +474,7 @@ class WebImageService:
             tenant=self._tenant,
             caption_store=self._caption_store,
             publish_store=self._publish_store,
+            settings=self._settings,
         )
         return self.orchestrator
 
@@ -794,9 +799,8 @@ class WebImageService:
         # #84: same hard AI-stage deadline as the workflow — a hung upstream
         # must fail the request, not hold the dyno past Heroku's H12 window.
         from publisher_v2.core.exceptions import AIServiceError
-        from publisher_v2.core.workflow import _ai_stage_timeout_seconds
 
-        ai_stage_deadline = time.monotonic() + _ai_stage_timeout_seconds()
+        ai_stage_deadline = time.monotonic() + self._settings.ai_stage_timeout_seconds
         # #93 (PERF-2): pass bytes so vision never re-downloads the image; the
         # legacy presigned-URL path remains for vision_max_dimension == 0.
         analysis_source: str | bytes = temp_link

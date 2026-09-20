@@ -1,10 +1,18 @@
 """Centralized runtime tunables read from the environment (#97 stage 2).
 
 Every ad-hoc ``os.environ`` tunable that used to live in services, core, and
-web modules is parsed here. Call sites invoke :func:`load_runtime_settings`
-at the moment they previously read the env var, so per-process overrides via
-the environment (and tests using ``monkeypatch.setenv``) keep working —
-values are parsed fresh on each call, never cached.
+web modules is parsed here.
+
+:func:`load_runtime_settings` itself always parses the environment fresh — it
+holds no cache, so a CLI run or a test using ``monkeypatch.setenv`` sees the
+current environment. What changed in #143 is *who calls it and how often*: the
+web process parses once in the FastAPI lifespan and stores the result on
+``app.state.runtime_settings``, and components take a :class:`RuntimeSettings`
+at construction time and keep it. A request therefore reads a snapshot taken at
+process start rather than re-parsing the environment per call, and changing an
+env var in a running web process no longer takes effect mid-process. Tests that
+need a different value either set the env before building the component or pass
+``settings=`` explicitly.
 
 Parsing is deliberately lenient, matching the old call sites: an invalid
 value falls back to the default instead of raising, and the historical
@@ -14,8 +22,9 @@ clamps (publish timeout >= 5s, AI stage timeout >= 0.1s) are preserved.
 from __future__ import annotations
 
 import os
+from collections.abc import Mapping
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 def _float_env(name: str, default: float | None) -> float | None:
@@ -26,6 +35,20 @@ def _float_env(name: str, default: float | None) -> float | None:
         return float(raw)
     except ValueError:
         return default
+
+
+def _bool_env(name: str, default: str, truthy: tuple[str, ...], *, strip: bool = False) -> bool:
+    """Truthy-string parsing. ``truthy`` and ``strip`` differ per var — the old call sites did not agree.
+
+    ``strip`` reproduces ``web/auth.py::_get_env``, which stripped the value and
+    treated a whitespace-only one as unset. The call sites that used a bare
+    ``os.environ.get`` must keep ``strip=False``, or a padded value would change
+    meaning relative to the behaviour they had before #143.
+    """
+    raw = os.environ.get(name) or ""
+    if strip:
+        raw = raw.strip()
+    return (raw or default).lower() in truthy
 
 
 def _int_env(name: str, default: int | None) -> int | None:
@@ -39,7 +62,19 @@ def _int_env(name: str, default: int | None) -> int | None:
 
 
 class RuntimeSettings(BaseModel):
-    """Runtime tunables. Optional fields fall back to static config at the call site."""
+    """Runtime tunables. Optional fields fall back to static config at the call site.
+
+    Frozen: one instance is shared by every request in the process (#143), so a
+    component must not be able to mutate the snapshot its neighbours read.
+
+    Build a variant with ``model_copy(update=...)``, bearing in mind that it
+    does **not** re-run validation: a plain dict passed for
+    ``publish_timeout_overrides`` is stored as-is, mutable and of the declared
+    type's opposite shape. ``publish_timeout_for`` tolerates that, but the
+    result is no longer immutable — construct a new instance when that matters.
+    """
+
+    model_config = ConfigDict(frozen=True)
 
     ai_rate_per_minute: int | None = None
     publish_timeout_seconds: float = 120.0
@@ -51,11 +86,47 @@ class RuntimeSettings(BaseModel):
     tenant_service_ttl_seconds: int = 600
     library_max_upload_mb: int = 20
     library_scan_budget: int = 5000
-    publish_timeout_overrides: dict[str, float] = {}
+    # A tuple of pairs, not a dict: the snapshot is shared process-wide, and a
+    # dict field stays writable through its items even under ``frozen=True``.
+    # A MappingProxyType would also be immutable but is neither picklable,
+    # deep-copyable nor JSON-serialisable, which would make an ordinary
+    # ``model_dump_json()`` or ``model_copy(deep=True)`` raise. Construct it
+    # from a plain mapping; the validator below converts.
+    publish_timeout_overrides: tuple[tuple[str, float], ...] = ()
+    # #143: web/service-layer tunables that used to be ad-hoc os.environ reads.
+    thumbnail_cache_ttl_seconds: float = 900.0
+    thumbnail_cache_max_bytes: int = 50 * 1024 * 1024
+    trust_forwarded_for: bool = False
+    secure_cookies: bool = True
+    config_source: str = ""
+    orchestrator_base_url: str = ""
+
+    @field_validator("publish_timeout_overrides", mode="before")
+    @classmethod
+    def _as_pairs(cls, value: object) -> object:
+        """Accept the natural ``{"telegram": 30.0}`` form and store it immutably."""
+        if isinstance(value, Mapping):
+            return tuple(value.items())
+        return value
+
+    @property
+    def is_standalone(self) -> bool:
+        """Env-first mode: explicitly selected, or no orchestrator configured."""
+        return self.config_source == "env" or not self.orchestrator_base_url
 
     def publish_timeout_for(self, platform: str) -> float:
         """Per-platform publish timeout, e.g. ``PUBLISH_TIMEOUT_TELEGRAM_SECONDS=30``."""
-        return self.publish_timeout_overrides.get(platform.lower(), self.publish_timeout_seconds)
+        wanted = platform.lower()
+        # ``model_copy(update=...)`` and ``model_construct`` skip validation, so
+        # this field can hold the plain mapping they were handed. Iterating that
+        # would unpack its *keys* — raising, or worse, silently matching nothing
+        # when a platform name happens to be two characters long.
+        overrides = self.publish_timeout_overrides
+        pairs = overrides.items() if isinstance(overrides, Mapping) else overrides
+        for name, timeout in pairs:
+            if name == wanted:
+                return timeout
+        return self.publish_timeout_seconds
 
 
 def load_runtime_settings() -> RuntimeSettings:
@@ -75,6 +146,10 @@ def load_runtime_settings() -> RuntimeSettings:
     ttl = _float_env("WEB_IMAGE_CACHE_TTL_SECONDS", None)
     if ttl is not None and ttl <= 0:
         ttl = None
+
+    # 0 is a meaningful value for both (disable cache / unlimited), so no ``or`` fallback.
+    thumb_ttl = _float_env("WEB_THUMBNAIL_CACHE_TTL_SECONDS", defaults.thumbnail_cache_ttl_seconds)
+    thumb_max = _int_env("WEB_THUMBNAIL_CACHE_MAX_BYTES", defaults.thumbnail_cache_max_bytes)
 
     overrides: dict[str, float] = {}
     prefix, suffix = "PUBLISH_TIMEOUT_", "_SECONDS"
@@ -110,5 +185,15 @@ def load_runtime_settings() -> RuntimeSettings:
         tenant_service_ttl_seconds=_int_env("TENANT_SERVICE_TTL_SECONDS", None) or defaults.tenant_service_ttl_seconds,
         library_max_upload_mb=_int_env("LIBRARY_MAX_UPLOAD_MB", None) or defaults.library_max_upload_mb,
         library_scan_budget=_int_env("LIBRARY_SCAN_BUDGET", None) or defaults.library_scan_budget,
-        publish_timeout_overrides=overrides,
+        publish_timeout_overrides=tuple(overrides.items()),
+        thumbnail_cache_ttl_seconds=defaults.thumbnail_cache_ttl_seconds if thumb_ttl is None else thumb_ttl,
+        thumbnail_cache_max_bytes=defaults.thumbnail_cache_max_bytes if thumb_max is None else thumb_max,
+        # WEB_TRUST_FORWARDED_FOR historically did not accept "on"; keep it that way.
+        trust_forwarded_for=_bool_env("WEB_TRUST_FORWARDED_FOR", "", ("1", "true", "yes")),
+        # set_admin_cookie read this through web/auth.py::_get_env, which stripped:
+        # "true " (a padded Heroku config var) has always meant on, and must keep
+        # meaning on — otherwise the admin cookie silently loses its Secure flag.
+        secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on"), strip=True),
+        config_source=(os.environ.get("CONFIG_SOURCE") or "").strip().lower(),
+        orchestrator_base_url=os.environ.get("ORCHESTRATOR_BASE_URL") or "",
     )

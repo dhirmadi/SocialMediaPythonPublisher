@@ -71,6 +71,7 @@ def _build_web_service(
     managed: bool = True,
 ):
     """Build a WebImageService bypassing __init__ to avoid full config plumbing."""
+    from publisher_v2.config.runtime_settings import RuntimeSettings
     from publisher_v2.config.schema import (
         ApplicationConfig,
         ContentConfig,
@@ -105,6 +106,8 @@ def _build_web_service(
     _ = ManagedStorageConfig
 
     svc = WebImageService.__new__(WebImageService)
+    # #143: __init__ is skipped here, so inject the settings the service would have read.
+    svc._settings = RuntimeSettings()
     import logging as _logging
 
     svc.logger = _logging.getLogger("publisher_v2.web.test")

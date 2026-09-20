@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from publisher_v2.config.runtime_settings import RuntimeSettings
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.models import ImageAnalysis
 from publisher_v2.services.ai import VisionAnalyzerOpenAI
@@ -139,6 +140,8 @@ def test_analysis_response_model_has_alt_text_field() -> None:
 async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
     # Avoid invoking WebImageService.__init__ (which loads env/config). Build a minimal instance.
     svc = WebImageService.__new__(WebImageService)
+    # #143: __init__ is skipped here, so inject the settings the service would have read.
+    svc._settings = RuntimeSettings()
     svc.logger = logging.getLogger("test")
     svc._usage_meter = None
     svc._caption_store = None

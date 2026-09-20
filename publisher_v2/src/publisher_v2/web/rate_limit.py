@@ -24,6 +24,8 @@ from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request, status
 
+from publisher_v2.web.settings import get_runtime_settings
+
 
 class SlidingWindowLimiter:
     def __init__(self, *, window_seconds: float, max_events: int, label: str = "rate_limited") -> None:
@@ -89,18 +91,27 @@ def remote_ip(request: Request) -> str:
     of the header, so every entry to its left is attacker-supplied. Taking the
     leftmost entry would let a client mint a fresh rate-limit key per request.
     """
-    if trust_forwarded_headers():
+    if get_runtime_settings(request).trust_forwarded_for:
         fwd = request.headers.get("x-forwarded-for", "")
         if fwd:
             return fwd.rsplit(",", 1)[-1].strip() or "unknown"
     return request.client.host if request.client else "unknown"
 
 
-def trust_forwarded_headers() -> bool:
-    """True when WEB_TRUST_FORWARDED_FOR says the app sits behind a trusted proxy (Heroku router)."""
-    import os
+def trust_forwarded_headers(request: Request) -> bool:
+    """True when WEB_TRUST_FORWARDED_FOR says the app sits behind a trusted proxy (Heroku router).
 
-    return os.environ.get("WEB_TRUST_FORWARDED_FOR", "").lower() in ("1", "true", "yes")
+    #143: read from the request's RuntimeSettings snapshot, not the environment —
+    this was the last env read on the request path in this module.
+
+    The truthy set is unchanged and deliberately narrow: ``("1", "true", "yes")``,
+    so ``WEB_TRUST_FORWARDED_FOR=on`` does **not** trust the proxy. Do not "unify"
+    it with the one ``WEB_SECURE_COOKIES`` uses — that one was widened to match a
+    reader that already accepted ``"on"``, whereas widening this flag would extend
+    proxy trust, and with it the CSRF same-origin decision and the per-IP rate-limit
+    key, to a spelling that never granted it.
+    """
+    return get_runtime_settings(request).trust_forwarded_for
 
 
 def forwarded_proto_values(request: Request) -> list[str]:
@@ -143,7 +154,7 @@ def request_scheme(request: Request) -> str:
     signal. uvicorn's ProxyHeadersMiddleware is stricter still and drops any
     multi-valued header outright.
     """
-    if trust_forwarded_headers():
+    if trust_forwarded_headers(request):
         values = forwarded_proto_values(request)
         if values and all(value == values[0] for value in values) and values[0] in ("http", "https"):
             return values[0]

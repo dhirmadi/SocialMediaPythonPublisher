@@ -9,6 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from fastapi.testclient import TestClient
 
+from publisher_v2.config.runtime_settings import load_runtime_settings
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -910,23 +912,27 @@ class TestSanitizeFilter:
 
 
 class TestGetScanBudget:
+    """#143: the budget is read off the request's settings snapshot, which the
+    environment feeds at process start — so these still pin the env parsing, via
+    ``load_runtime_settings()`` rather than a per-call lookup inside the helper."""
+
     def test_default_budget(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from publisher_v2.web.routers.library import _get_scan_budget
 
         monkeypatch.delenv("LIBRARY_SCAN_BUDGET", raising=False)
-        assert _get_scan_budget() == 5000
+        assert _get_scan_budget(load_runtime_settings()) == 5000
 
     def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from publisher_v2.web.routers.library import _get_scan_budget
 
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "1000")
-        assert _get_scan_budget() == 1000
+        assert _get_scan_budget(load_runtime_settings()) == 1000
 
     def test_invalid_env_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
         from publisher_v2.web.routers.library import _get_scan_budget
 
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "abc")
-        assert _get_scan_budget() == 5000
+        assert _get_scan_budget(load_runtime_settings()) == 5000
 
 
 # ---------------------------------------------------------------------------

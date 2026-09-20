@@ -23,6 +23,7 @@ from botocore.exceptions import ConnectionError as BotoConnectionError
 from PIL import Image
 from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponential
 
+from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from publisher_v2.config.schema import ManagedStorageConfig
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage_protocol import FileMetadata, ThumbnailFormat, ThumbnailSize
@@ -71,8 +72,10 @@ _ThumbEntry = tuple[bytes, float, str]
 class ManagedStorage:
     """S3-compatible storage backend implementing StorageProtocol."""
 
-    def __init__(self, config: ManagedStorageConfig) -> None:
+    def __init__(self, config: ManagedStorageConfig, settings: RuntimeSettings | None = None) -> None:
         self.config = config
+        # #143: thumbnail cache tunables are read once here, not per request.
+        self._settings = settings if settings is not None else load_runtime_settings()
         boto_config = BotoConfig(
             connect_timeout=30,
             read_timeout=60,
@@ -629,7 +632,7 @@ class ManagedStorage:
         entry = self._thumb_cache.get(cache_key)
         if entry is not None:
             data, stored_at, etag = entry
-            if now - stored_at <= _thumb_cache_ttl_seconds():
+            if now - stored_at <= self._settings.thumbnail_cache_ttl_seconds:
                 # #140: a fresh entry costs nothing — no head_object, no download.
                 self._thumb_cache.move_to_end(cache_key)
                 return data
@@ -709,7 +712,7 @@ class ManagedStorage:
             self._thumb_cache_bytes -= len(entry[0])
 
     def _store_thumb(self, cache_key: _ThumbKey, data: bytes, now: float, etag: str) -> None:
-        budget = _thumb_cache_max_bytes()
+        budget = self._settings.thumbnail_cache_max_bytes
         if len(data) > budget:
             return
         while self._thumb_cache and self._thumb_cache_bytes + len(data) > budget:
@@ -727,20 +730,6 @@ class ManagedStorage:
         self._last_get_etags.clear()
         with contextlib.suppress(Exception):
             await asyncio.to_thread(self.client.close)
-
-
-def _thumb_cache_ttl_seconds() -> float:
-    try:
-        return float(os.environ.get("WEB_THUMBNAIL_CACHE_TTL_SECONDS", "900"))
-    except ValueError:
-        return 900.0
-
-
-def _thumb_cache_max_bytes() -> int:
-    try:
-        return int(os.environ.get("WEB_THUMBNAIL_CACHE_MAX_BYTES", str(50 * 1024 * 1024)))
-    except ValueError:
-        return 50 * 1024 * 1024
 
 
 def _generate_thumbnail(image_bytes: bytes, size_str: str, fmt_str: str) -> bytes:
