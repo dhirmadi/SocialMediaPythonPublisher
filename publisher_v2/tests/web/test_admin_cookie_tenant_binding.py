@@ -96,6 +96,10 @@ def test_require_admin_403_when_tenant_auth_disabled(monkeypatch: pytest.MonkeyP
 def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPatch) -> None:
     """Real app, real chain (Session -> CSRF -> tenant_middleware -> require_admin).
 
+    The replay is exercised as both a GET and a mutating POST: only the POST
+    passes through the CSRF middleware, and the matching-tenant POST at the end
+    proves the cross-tenant 403 comes from the tenant binding, not from CSRF.
+
     #135: previously a fake FastAPI app with a fake tenant middleware. Now only the
     orchestrator config source (external service) and the tenant service factory
     are stubbed; the real tenant_middleware sets request.state.tenant/host from the
@@ -136,3 +140,21 @@ def test_cross_tenant_replay_returns_403_end_to_end(monkeypatch: pytest.MonkeyPa
     res = client_b.get("/api/config/voice-profile")
     assert res.status_code == 403
     assert res.json()["detail"] == "Admin privileges required"
+
+    # A read never reaches the CSRF middleware, so replay a mutating request too:
+    # this is the request shape an attacker would actually want, and it has to be
+    # refused by the tenant binding, not merely by CSRF.
+    csrf_headers = {"X-Requested-With": "XMLHttpRequest", "Origin": "http://b.example.test"}
+    res = client_b.post("/api/config/voice-profile", json={"voice_profile": ["stolen"]}, headers=csrf_headers)
+    assert res.status_code == 403
+    assert res.json()["detail"] == "Admin privileges required"
+
+    # ...and the same mutation from the tenant the cookie was minted for succeeds,
+    # which proves the 403 above is the tenant binding and not the CSRF gate.
+    client_a.cookies.set(ADMIN_COOKIE_NAME, cookie)
+    res = client_a.post(
+        "/api/config/voice-profile",
+        json={"voice_profile": ["mine"]},
+        headers={"X-Requested-With": "XMLHttpRequest", "Origin": "http://a.example.test"},
+    )
+    assert res.status_code == 200, res.text
