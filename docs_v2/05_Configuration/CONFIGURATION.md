@@ -94,12 +94,20 @@ Environment variables provide coarse-grained feature switches without editing IN
 | `FEATURE_AUTO_VIEW` | `false` | When `true`, allows non-admin users to view random images in web UI. (`AUTO_VIEW` still works as a deprecated alias and logs a warning; `FEATURE_AUTO_VIEW` wins when both are set.) |
 | `FEATURE_ALT_TEXT` | `true` | When `false`, AI alt text is not attached to published images. |
 | `FEATURE_SMART_HASHTAGS` | `true` | When `false`, disables smart hashtag generation. |
-| `FEATURE_VOICE_MATCHING` | `false` | When `true`, enables brand-voice caption matching (requires a voice profile). |
+| `FEATURE_VOICE_MATCHING` | unset → on when `CONTENT_SETTINGS.voice_profile` is set, else off | Brand-voice caption matching. Unset: derived from the voice profile (#131). Set `true`/`false` to force it; an explicit value always wins. |
 | `FEATURE_STORAGE_OPS_METERING` | `false` | When `true`, meters managed-storage operations to the orchestrator (orchestrator mode only). |
 | `FEATURE_LIBRARY` | auto | Overrides the library UI flag. Unset: auto-enabled when managed storage is configured, off for Dropbox-only. |
 
 **Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).
 **Invalid values:** Raise `ConfigurationError` at startup.
+
+> **Deploy order for `FEATURE_VOICE_MATCHING` (#131).** In orchestrator mode
+> this flag became `bool | null`. Publisher must ship that handling before the
+> orchestrator sends `null` or omits the field, and must not be rolled back
+> past it afterwards. An older build treats `null` as a parse failure: it
+> fails for any tenant without a warm cache entry — cold start, a new dyno, a
+> first request — and serves stale config for the rest. An outage, not a
+> degraded default, and one that looks fine for a few minutes on a warm dyno.
 
 **Note:** Storage/Dropbox integration is always enabled (base feature, cannot be disabled).
 

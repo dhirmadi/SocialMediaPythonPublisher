@@ -363,8 +363,20 @@ here because they directly gate the caption/analysis behavior described above):
 |------|------|----------|---------|------|
 | `alt_text_enabled` | bool \| null | ❌ | `true` | Enables AI-generated screen-reader `alt_text` (PUB-026) |
 | `smart_hashtags_enabled` | bool \| null | ❌ | `true` | AI generates hashtags from analysis instead of only using `content.hashtag_string` (PUB-028) |
-| `voice_matching_enabled` | bool \| null | ❌ | `false` | Injects `content.voice_profile` examples into caption prompts (PUB-029) |
+| `voice_matching_enabled` | bool \| null | ❌ | `null` (unset) | Injects `content.voice_profile` examples into caption prompts (PUB-029). `null`/absent = tenant never set it: Publisher enables it when `content.voice_profile` is non-empty. An explicit bool always wins (#131) |
 | `storage_ops_metering_enabled` | bool \| null | ❌ | `false` | Emits `storage_ops_requests` usage events for managed-storage instances (PUB-045) |
+
+> **Deploy order for `voice_matching_enabled` (#131).** Publisher must ship the
+> `bool | null` handling **before** the orchestrator starts sending `null` or
+> omitting the field. A Publisher that predates it treats `null` as a parse
+> failure: the runtime config request fails for any tenant without a warm cache
+> entry — cold start, a new dyno, a first request — and serves stale config for
+> the rest. An outage, not a degraded default, and one that looks fine for a
+> few minutes on a warm dyno. For the same reason, **rolling Publisher back** to a build
+> without this handling after the orchestrator has switched is an outage;
+> revert the orchestrator first. A Publisher with the handling reads an
+> orchestrator still sending an explicit `false` exactly as before, so the
+> forward order is safe.
 
 ### 4.6 `config.captionfile`
 

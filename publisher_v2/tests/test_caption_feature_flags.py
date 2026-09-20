@@ -18,6 +18,7 @@ from unittest.mock import patch
 import pytest
 from pydantic import ValidationError
 
+from publisher_v2.config.orchestrator_models import feature_kwargs
 from publisher_v2.config.schema import ContentConfig, FeaturesConfig
 
 # ---------------------------------------------------------------------------
@@ -103,7 +104,10 @@ class TestOrchestratorFeatures:
         f = OrchestratorFeatures.model_validate({"publish_enabled": True})
         assert f.alt_text_enabled is True
         assert f.smart_hashtags_enabled is True
-        assert f.voice_matching_enabled is False
+        # #131: unset stays None (not False) so it never counts as an explicit "off";
+        # the resolved ApplicationConfig is still off without a voice profile
+        # (test_null_voice_flag_without_profile_stays_off).
+        assert f.voice_matching_enabled is None
 
 
 class TestOrchestratorContent:
@@ -142,15 +146,23 @@ class TestBuildAppConfigV2:
         assert result.voice_matching_enabled is True
 
     def test_v2_missing_new_fields_defaults(self) -> None:
-        """AC-07: v2 payload missing new fields → defaults applied."""
+        """AC-07: v2 payload missing new fields → defaults applied.
+
+        Calls the real mapping `_build_app_config_v2` uses, rather than
+        restating it. Re-implementing it made this test pass even when the
+        builder regressed, which is the opposite of its job.
+        """
         from publisher_v2.config.orchestrator_models import OrchestratorFeatures
 
         features = OrchestratorFeatures.model_validate({"publish_enabled": True})
-        features_dict = features.model_dump()
-        result = FeaturesConfig(**features_dict)
+        result = FeaturesConfig(**feature_kwargs(features))
+
         assert result.alt_text_enabled is True
         assert result.smart_hashtags_enabled is True
         assert result.voice_matching_enabled is False
+        assert "voice_matching_enabled" not in result.model_fields_set, (
+            "an absent flag must stay unset so the profile-derived default can fire"
+        )
 
 
 class TestBuildAppConfigV1:
@@ -162,8 +174,7 @@ class TestBuildAppConfigV1:
 
         # v1 only sends a minimal features payload
         features = OrchestratorFeatures.model_validate({"publish_enabled": False})
-        features_dict = features.model_dump()
-        result = FeaturesConfig(**features_dict)
+        result = FeaturesConfig(**feature_kwargs(features))
         assert result.alt_text_enabled is True
         assert result.smart_hashtags_enabled is True
         assert result.voice_matching_enabled is False

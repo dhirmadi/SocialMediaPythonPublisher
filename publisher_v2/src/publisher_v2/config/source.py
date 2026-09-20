@@ -20,6 +20,7 @@ from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_p
 from publisher_v2.config.orchestrator_models import (
     OrchestratorConfigV2,
     OrchestratorRuntimeResponse,
+    feature_kwargs,
 )
 from publisher_v2.config.runtime_cache import RuntimeConfigCache
 from publisher_v2.config.schema import (
@@ -400,7 +401,7 @@ class OrchestratorConfigSource:
         """
         Schema v2: parse additional blocks and maintain forward-compatibility.
         """
-        features = FeaturesConfig(**cfg.features.model_dump())
+        features = FeaturesConfig(**feature_kwargs(cfg.features))
 
         storage = cfg.storage
         if storage.provider not in ("dropbox", "managed"):

@@ -880,6 +880,24 @@ async def api_set_voice_profile(
 
     # Mutate in place. ContentConfig is a Pydantic model; assignment works.
     service.config.content.voice_profile = new_value
+
+    # #131: matching defaults on when a tenant has a profile, and that default
+    # is derived at load time. A profile added here would otherwise leave
+    # matching off until the process restarted — the response would report a
+    # stored profile alongside `enabled: false`. Only the derived default is
+    # re-evaluated: an explicit flag, either way, still wins.
+    # `model_fields_set` distinguishes a flag an operator set from one derived
+    # at load time; the loader and the ApplicationConfig validator both leave a
+    # derived value unset, so this branch fires only when nobody chose.
+    features = service.config.features
+    if "voice_matching_enabled" not in features.model_fields_set:
+        features.voice_matching_enabled = bool(new_value)
+        # Assigning marks the field as explicitly set, which would make the
+        # NEXT profile change look operator-configured and skip this branch.
+        # Keeping it derived means clearing the profile turns matching off
+        # again, just as adding one turned it on.
+        features.model_fields_set.discard("voice_matching_enabled")
+
     return VoiceProfileResponse(
         voice_profile=service.config.content.voice_profile,
         enabled=service.config.features.voice_matching_enabled,
