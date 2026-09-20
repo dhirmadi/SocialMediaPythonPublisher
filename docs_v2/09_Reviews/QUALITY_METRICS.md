@@ -44,7 +44,7 @@ This document defines the quality metrics, targets, and measurement methods for 
 
 ```bash
 # Full coverage report
-uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
+uv run pytest --cov --cov-report=term-missing
 
 # HTML report for detailed analysis
 uv run pytest --cov --cov-report=html
@@ -189,7 +189,7 @@ Examples:
 | Check | Command | Threshold |
 |-------|---------|-----------|
 | Tests Pass | `uv run pytest` | 100% |
-| Coverage | `--cov` | ≥80% overall |
+| Coverage | `--cov` | ≥85% overall (enforced: `fail_under = 85`) |
 | Lint | `uv run ruff check .` | 0 violations |
 | Type Check | `uv run mypy` | 0 errors |
 | Formatting | `uv run ruff format --check .` | Clean |
@@ -278,7 +278,7 @@ echo "=== Test Pass Rate ==="
 uv run pytest -q
 
 echo "=== Coverage Summary ==="
-uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term -q 2>&1 | tail -5
+uv run pytest --cov --cov-report=term -q 2>&1 | tail -5
 
 echo "=== DRY Check (Dummy Classes) ==="
 grep -r "class Dummy" publisher_v2/tests/ | wc -l

@@ -100,7 +100,7 @@ uv run pytest -v
 
 ### Run With Coverage
 ```bash
-uv run pytest --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing
+uv run pytest --cov --cov-report=term-missing
 ```
 
 **Expected:** 92% coverage (196 lines missing)
