@@ -132,6 +132,36 @@ def reset_web_rate_limiters() -> None:
         app_module._consecutive_login_failures = 0  # login backoff delay counter
 
 
+_shared_http_client_reset_count = 0
+
+
+def reset_shared_http_client() -> None:
+    """Drop the process-wide httpx client so a test never inherits another's.
+
+    `services/_http.py` caches one `AsyncClient` in a module global. Nothing
+    leaks today, but the global outlives every test and only one test resets it
+    by hand; doing it here makes that independent of who ran first.
+
+    The client is dropped, not closed: no test opens a real connection (the one
+    test that reaches `get_shared_client` fakes `httpx.AsyncClient`), and httpx's
+    client defines no `__del__`, so dropping it is silent. If a test ever lets a
+    real connection open, this needs `aclose_shared_client()` run on a loop.
+    """
+    global _shared_http_client_reset_count
+
+    from publisher_v2.services import _http
+
+    _http._client = None
+    _shared_http_client_reset_count += 1
+
+
+@pytest.fixture(autouse=True)
+def _reset_shared_http_client() -> Generator[None, None, None]:
+    reset_shared_http_client()
+    yield
+    reset_shared_http_client()
+
+
 @pytest.fixture(autouse=True)
 def _reset_web_rate_limiters() -> Generator[None, None, None]:
     """#135: reset the process-wide limiters in publisher_v2.web.app around every test.

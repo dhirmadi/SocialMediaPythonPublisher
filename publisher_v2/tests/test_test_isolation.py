@@ -82,3 +82,21 @@ def test_every_web_rate_limiter_is_reset_not_just_the_listed_ones() -> None:
     for limiter in limiters:
         assert not limiter._events, f"{limiter._label} was not reset"
     assert app_module._consecutive_login_failures == 0
+
+
+def test_the_shared_http_client_is_reset_around_every_test() -> None:
+    """`services/_http.py` caches one AsyncClient in a module global.
+
+    Asserting `_client is None` on entry would be self-fulfilling — the autouse
+    fixture just set it. What needs proving is that the reset is wired up at
+    all, so check the fixture's own marker and that the reset really clears a
+    populated global.
+    """
+    from publisher_v2.services import _http
+
+    assert tests_conftest._shared_http_client_reset_count > 0, "the autouse reset fixture never ran"
+
+    _http._client = object()  # type: ignore[assignment]
+    tests_conftest.reset_shared_http_client()
+
+    assert _http._client is None
