@@ -8,10 +8,13 @@ error that looked like a broken type checker.
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 AGENTS = REPO_ROOT / "AGENTS.md"
@@ -36,6 +39,16 @@ def _gate_commands(path: Path) -> dict[str, list[str]]:
     return commands
 
 
+EXPECTED_GATES = {"format", "lint", "type check", "tests", "coverage"}
+
+
+def test_every_expected_gate_row_is_still_matched() -> None:
+    """_GATE_ROW keys on the first column; a renamed row would silently stop being compared."""
+    for path in (AGENTS, CLAUDE):
+        missing = sorted(EXPECTED_GATES - _gate_commands(path).keys())
+        assert not missing, f"{path.name} no longer has a parseable row for: {missing}"
+
+
 def test_type_check_command_is_identical_everywhere_it_appears() -> None:
     agents, claude = _gate_commands(AGENTS), _gate_commands(CLAUDE)
 
@@ -53,6 +66,11 @@ def test_test_command_is_identical_everywhere_it_appears() -> None:
     assert len(documented) == 1, f"the pytest command differs between/within the files: {sorted(documented)}"
 
 
+@pytest.mark.slow
+@pytest.mark.skipif(
+    os.environ.get("RUN_SLOW_DOC_CHECKS") != "1",
+    reason="full mypy pass; CI runs the same command as its own job. Set RUN_SLOW_DOC_CHECKS=1 to run it here.",
+)
 def test_the_documented_type_check_command_exits_zero() -> None:
     command = _gate_commands(CLAUDE)["type check"][0]
     assert command.startswith("uv run mypy"), command
@@ -246,3 +264,16 @@ def test_contributor_docs_do_not_reference_deleted_v1_scripts() -> None:
             offenders[name] = dead
 
     assert not offenders, f"docs reference scripts that no longer exist: {offenders}"
+
+
+def test_ci_enables_the_slow_documented_command_check() -> None:
+    """Failure mode (d): the exits-0 criterion is enforced only in CI, so the flag itself needs a guard."""
+    workflow = (REPO_ROOT / ".github" / "workflows" / "code-quality.yml").read_text()
+
+    assert 'RUN_SLOW_DOC_CHECKS: "1"' in workflow, (
+        "nothing would run the documented mypy command end to end if CI stops setting this"
+    )
+    # ...and it has to be on the step that runs pytest, not just present somewhere in the file.
+    step = workflow[workflow.index("- name: Run tests with coverage") :]
+    step = step[: step.index("\n    - name:", 1)]
+    assert 'RUN_SLOW_DOC_CHECKS: "1"' in step, step
