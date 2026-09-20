@@ -103,21 +103,48 @@ def trust_forwarded_headers() -> bool:
     return os.environ.get("WEB_TRUST_FORWARDED_FOR", "").lower() in ("1", "true", "yes")
 
 
+def forwarded_proto_values(request: Request) -> list[str]:
+    """Every ``X-Forwarded-Proto`` value, normalised, across duplicate header lines.
+
+    Starlette keeps duplicate header lines separately (``getlist``) while
+    ``get`` returns only the first, so the comma form and the repeated-header
+    form are the same input in two spellings and both have to be read.
+    """
+    return [
+        value.strip().lower()
+        for line in request.headers.getlist("x-forwarded-proto")
+        for value in line.split(",")
+        if value.strip()
+    ]
+
+
 def request_scheme(request: Request) -> str:
     """Client-facing scheme of ``request``.
 
-    When WEB_TRUST_FORWARDED_FOR is set, the first ``X-Forwarded-Proto`` value
-    (lowercased, ``http``/``https`` only) wins. Heroku's router is not loopback,
-    so uvicorn's own proxy-header handling (``FORWARDED_ALLOW_IPS``, default
-    127.0.0.1) never rewrites ``request.url.scheme`` there (#129).
+    Heroku's router is not loopback, so uvicorn's own proxy-header handling
+    (``FORWARDED_ALLOW_IPS``, default 127.0.0.1) never rewrites
+    ``request.url.scheme`` there (#129). When WEB_TRUST_FORWARDED_FOR is set we
+    read ``X-Forwarded-Proto`` ourselves.
 
-    First value, unlike ``remote_ip``'s rightmost X-Forwarded-For entry: the
-    Heroku router overwrites X-Forwarded-Proto rather than appending, and the
-    outermost proxy's value is the client-facing scheme. A spoofed value can
-    only flip the scheme half of a same-host comparison.
+    A header carrying values that DISAGREE is not trusted, and the scheme falls
+    back to the connection's own. The leftmost value is not usable on its own:
+    if a client sends ``X-Forwarded-Proto: https`` and a proxy appends its own
+    ``http``, the leftmost entry is the client's forgery. Values that all agree
+    are accepted, whether they arrived as one value, as ``https, https`` or as
+    repeated header lines — that is the shape a chain of TLS-terminating
+    proxies produces (Cloudflare in Full mode in front of Heroku), and refusing
+    it would bring the 403 back in a deployment we actively recommend.
+
+    Deliberately not symmetric with ``remote_ip``, which takes the RIGHTMOST
+    X-Forwarded-For entry. X-Forwarded-For is appended to by contract, so its
+    rightmost entry is the one the trusted proxy wrote. X-Forwarded-Proto
+    describes the client-facing hop rather than a chain of hops, so no position
+    in a disagreeing list is trustworthy and agreement is the only usable
+    signal. uvicorn's ProxyHeadersMiddleware is stricter still and drops any
+    multi-valued header outright.
     """
     if trust_forwarded_headers():
-        proto = request.headers.get("x-forwarded-proto", "").split(",", 1)[0].strip().lower()
-        if proto in ("http", "https"):
-            return proto
+        values = forwarded_proto_values(request)
+        if values and all(value == values[0] for value in values) and values[0] in ("http", "https"):
+            return values[0]
     return request.url.scheme

@@ -15,12 +15,14 @@ from unittest.mock import AsyncMock, patch
 
 import httpx
 import pytest
+from starlette.requests import Request
 from starlette.responses import RedirectResponse
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from publisher_v2.config.schema import Auth0Config
 from publisher_v2.web.app import app
 from publisher_v2.web.dependencies import get_request_service
+from publisher_v2.web.rate_limit import request_scheme
 
 HEROKU_ROUTER_PEER = ("10.1.2.3", 40000)
 
@@ -75,9 +77,32 @@ async def test_garbage_forwarded_proto_falls_back_to_request_scheme(monkeypatch:
 
 
 @pytest.mark.asyncio
-async def test_forwarded_proto_uses_first_value_lowercased(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_forwarded_proto_is_lowercased(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    assert (await _logout(proto="HTTPS, http")).status_code == 200
+    assert (await _logout(proto="HTTPS")).status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_disagreeing_forwarded_proto_values_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A client's forged `https` plus a proxy's appended `http` must not be honoured.
+
+    The issue asked for "the first value"; taking it would let a client assert
+    `https` on a plain-http hop behind any appending proxy. Deviation recorded
+    in the PR body.
+    """
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+    assert (await _logout(proto="https, http")).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_agreeing_forwarded_proto_values_are_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Cloudflare in Full mode in front of Heroku produces `https, https`.
+
+    Refusing every multi-valued header would bring the 403 back in exactly the
+    deployment CONFIGURATION.md §10.2 tells operators to move to.
+    """
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+    assert (await _logout(proto="https, https")).status_code == 200
 
 
 @pytest.fixture
@@ -147,3 +172,59 @@ async def test_auth0_callback_public_host_without_trust_flag_stays_https(
     monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
     uri = await _login_redirect_uri(auth0_service, "tenant.example.com", "https")
     assert uri == "https://tenant.example.com/auth/callback"
+
+
+# --- review follow-up: the flag nobody sets ----------------------------------
+
+
+def _real_request(headers: dict[str, str]) -> Request:
+    """A real Starlette Request, built from a scope — not a stand-in object."""
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "scheme": "http",
+            "query_string": b"",
+            "headers": [(k.lower().encode(), v.encode()) for k, v in headers.items()],
+            "client": HEROKU_ROUTER_PEER,
+            "server": ("testserver", 80),
+        }
+    )
+
+
+# --- review follow-up: first-vs-last X-Forwarded-Proto -----------------------
+
+
+def test_forwarded_proto_is_trusted_only_when_its_values_agree(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Agreement is the only usable signal in a multi-hop chain.
+
+    My first attempt claimed the leftmost entry was safe either way. It is not:
+    a client's `https` plus an appending proxy's `http` puts the forgery first.
+    My second attempt refused every multi-valued header, which would have
+    broken Cloudflare Full mode (`https, https`) — the configuration the docs
+    recommend. Values that agree are trustworthy; values that disagree are not.
+    """
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+
+    assert request_scheme(_real_request({"x-forwarded-proto": "https"})) == "https"
+    assert request_scheme(_real_request({"x-forwarded-proto": "https, https"})) == "https"
+    # Comma form and duplicate header lines are the same input in two spellings.
+    assert request_scheme(_real_request({"x-forwarded-proto": "https, http"})) == "http"
+    assert request_scheme(_duplicated_proto_request("https", "http")) == "http"
+    assert request_scheme(_duplicated_proto_request("https", "https")) == "https"
+
+
+def _duplicated_proto_request(*values: str) -> Request:
+    return Request(
+        {
+            "type": "http",
+            "method": "GET",
+            "path": "/",
+            "scheme": "http",
+            "query_string": b"",
+            "headers": [(b"x-forwarded-proto", value.encode()) for value in values],
+            "client": HEROKU_ROUTER_PEER,
+            "server": ("testserver", 80),
+        }
+    )
