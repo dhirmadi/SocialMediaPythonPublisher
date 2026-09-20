@@ -35,7 +35,7 @@ uv run ruff format --check .
 uv run ruff check .
 
 # Gate 3: Type check
-uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env
+uv run mypy publisher_v2/src --ignore-missing-imports
 
 # Gate 4: Tests
 uv run pytest -v --tb=short

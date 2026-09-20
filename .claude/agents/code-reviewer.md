@@ -24,7 +24,7 @@ fix them in one pass.
    ```bash
    uv run ruff format --check .
    uv run ruff check .
-   uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env
+   uv run mypy publisher_v2/src --ignore-missing-imports
    uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing --tb=short
    ```
 4. Check spec-to-test traceability: do the actual test function names match the handoff doc's

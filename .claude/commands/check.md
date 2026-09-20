@@ -8,7 +8,7 @@ Run the full quality pipeline. Execute each step sequentially and report results
 1. Format: `uv run ruff format .`
 2. Lint fix: `uv run ruff check --fix .`
 3. Lint (verify clean): `uv run ruff check .`
-4. Type check: `uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env`
+4. Type check: `uv run mypy publisher_v2/src --ignore-missing-imports`
 5. Tests: `uv run pytest -v --tb=short`
 
 If any step fails, stop and report the issue with actionable fix suggestions. Summarize results at the end.

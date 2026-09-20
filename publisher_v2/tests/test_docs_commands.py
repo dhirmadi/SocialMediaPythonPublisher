@@ -67,3 +67,49 @@ def test_the_documented_type_check_command_exits_zero() -> None:
     )
 
     assert result.returncode == 0, result.stdout[-2000:] + result.stderr[-2000:]
+
+
+# --- #145 review follow-up: the files that actually run the gates -------------
+
+CLAUDE_DIR = REPO_ROOT / ".claude"
+CANONICAL_MYPY = "uv run mypy publisher_v2/src --ignore-missing-imports"
+
+_MYPY_INVOCATION = re.compile(r"uv run mypy[^\n`]*")
+
+
+# One list, used by every doc guard below: two lists drifted apart once already
+# (the mypy guard did not cover the very files the dead-script finding was about).
+_CONTRIBUTOR_DOCS = ("README.md", "AGENTS.md", "CLAUDE.md", "CONTRIBUTING.md", ".github/DEVELOPMENT.md", "Makefile")
+
+
+def _repo_docs() -> list[Path]:
+    """Every doc a contributor or subagent copies a gate command out of."""
+    return [
+        *(REPO_ROOT / name for name in _CONTRIBUTOR_DOCS),
+        *sorted(CLAUDE_DIR.glob("agents/*.md")),
+        *sorted(CLAUDE_DIR.glob("commands/*.md")),
+    ]
+
+
+def test_every_documented_mypy_invocation_is_the_working_one() -> None:
+    """The broken `mypy .` form exits 2 on the duplicate conftest, wherever it lives."""
+    offenders: dict[str, list[str]] = {}
+    for path in _repo_docs():
+        found = [m.group(0).strip().rstrip("`") for m in _MYPY_INVOCATION.finditer(path.read_text())]
+        wrong = [command for command in found if command != CANONICAL_MYPY]
+        if wrong:
+            offenders[path.relative_to(REPO_ROOT).as_posix()] = wrong
+
+    assert not offenders, f"these docs run a mypy command that exits 2: {offenders}"
+
+    # Rejecting wrong forms is not enough: the guard must notice the command vanishing.
+    for path in (AGENTS, CLAUDE, REPO_ROOT / "Makefile"):
+        assert _MYPY_INVOCATION.search(path.read_text()), f"{path.name} no longer documents the type-check command"
+
+
+def test_the_preview_command_does_not_pass_the_ignored_config_flag() -> None:
+    """`--config` is accepted and ignored since #97 stage 4; the command must not teach it."""
+    preview = (CLAUDE_DIR / "commands" / "preview.md").read_text()
+
+    assert "--config" not in preview, preview
+    assert ".ini" not in preview, preview
