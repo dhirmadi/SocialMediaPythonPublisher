@@ -58,23 +58,50 @@ class TestStyleExamples:
 
 
 class TestExamplesInPrompt:
-    """AC2: When examples is non-empty, the prompt includes a Voice examples block."""
+    """AC2, as amended by #138: the examples appear once, in the hardened block.
 
-    def test_prompt_includes_examples_block(self) -> None:
+    They used to be repeated inside every platform block as well, so with four
+    platforms one example stood in front of the model four times over — which is
+    how a "reference, do not copy" turns into a template.
+    """
+
+    _SPEC = CaptionSpec(
+        platform="telegram",
+        style="conversational",
+        hashtags="#art",
+        max_length=4096,
+        examples=("The way light catches jute", "New work. Three hours of tying"),
+        guidance="",
+    )
+
+    def test_the_platform_block_no_longer_repeats_them(self) -> None:
         from publisher_v2.services.ai import build_platform_block
 
-        spec = CaptionSpec(
-            platform="telegram",
-            style="conversational",
-            hashtags="#art",
-            max_length=4096,
-            examples=("The way light catches jute", "New work. Three hours of tying"),
-            guidance="",
+        block = build_platform_block(1, "telegram", self._SPEC)
+
+        assert "Voice examples" not in block
+        assert "The way light catches jute" not in block
+
+    def test_the_assembled_prompt_carries_each_example_once(self) -> None:
+        import dataclasses
+
+        from publisher_v2.core.models import ImageAnalysis
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = {
+            "telegram": self._SPEC,
+            "email": dataclasses.replace(self._SPEC, platform="email"),
+        }
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+            voice_examples=list(self._SPEC.examples),
         )
-        block = build_platform_block(1, "telegram", spec)
-        assert "Voice examples" in block
-        assert "The way light catches jute" in block
-        assert "New work. Three hours of tying" in block
+
+        assert prompt.count("The way light catches jute") == 1, prompt
+        assert "STYLE REFERENCES" in prompt
 
     def test_prompt_omits_examples_when_empty(self) -> None:
         from publisher_v2.services.ai import build_platform_block
@@ -166,7 +193,7 @@ class TestCaptionHistoryPrompt:
         ]
         block = build_history_block(captions)
         assert "openings to avoid" in block.lower()
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
         for full in captions:
             assert full not in block
 
@@ -404,7 +431,7 @@ class TestHistoryAsConstraints:
         ]
         block = build_platform_block(1, "email", spec, platform_history=history)
         assert "openings to avoid" in block.lower()
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
         for full in history:
             assert full not in block
         # First six words of each opening are present as the avoid-list.
@@ -473,7 +500,7 @@ class TestEmailPromptConsistency:
         spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
         assert spec.closing == "any"
         block = build_platform_block(1, "email", spec, platform_history=["Was it the knot?"])
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
 
 
 class _Msg:
@@ -694,3 +721,36 @@ class TestAStaleStaticConfigDirDoesNotStopTheApp:
             assert format_caption("email", "a caption") == "a caption"
         finally:
             get_static_config.cache_clear()
+
+
+class TestTheClosingAvoidListLeavesAnOption:
+    """#138: there are three closing patterns in all (question, statement, fragment).
+
+    Listing every closing seen in the history left the model one option with two
+    entries and none with three — an instruction it cannot satisfy, sitting next
+    to a structure directive telling it to open with a statement.
+    """
+
+    @staticmethod
+    def _spec() -> CaptionSpec:
+        return CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
+
+    def test_only_the_most_recent_closing_is_named(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        history = ["A statement ending.", "Was it the knot?", "a trailing fragment"]
+
+        block = build_platform_block(1, "email", self._spec(), platform_history=history)
+
+        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
+        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
+        assert named == ["fragment"], line
+
+    def test_the_flat_history_block_caps_it_too(self) -> None:
+        from publisher_v2.services.ai import build_history_block
+
+        block = build_history_block(["A statement ending.", "Was it the knot?", "a trailing fragment"])
+
+        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
+        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
+        assert named == ["fragment"], line

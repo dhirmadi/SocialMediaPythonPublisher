@@ -709,10 +709,10 @@ def build_platform_block(
         ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
     lines = [f"{index}. {name}: {spec.style}. {ht}"]
 
-    if spec.examples:
-        lines.append("   Voice examples (match this tone, DO NOT copy):")
-        for ex in spec.examples:
-            lines.append(f'     - "{ex}"')
+    # #138: the voice examples are rendered once, in the hardened STYLE
+    # REFERENCES block at the top of the prompt. Repeating them inside every
+    # platform block put one example in front of the model four times over,
+    # which is how a "reference" turns into a template to copy.
 
     if spec.guidance:
         lines.append(f"   Guidance: {spec.guidance}")
@@ -725,12 +725,16 @@ def build_platform_block(
     # few-shot examples of the model's own output anchor its style.
     if platform_history:
         openings = [caption_opening(c) for c in platform_history if c.strip()]
-        closings = sorted({caption_closing_pattern(c) for c in platform_history if c.strip()})
+        recent = [c for c in platform_history if c.strip()]
         if openings:
             lines.append("   Recent openings to avoid: " + "; ".join(f'"{o}"' for o in openings))
-        # #138: a mandated closing cannot also be a closing to avoid.
-        if closings and not mandated_closing:
-            lines.append("   Recent closing patterns to avoid: " + ", ".join(closings))
+        # #138: a mandated closing cannot also be a closing to avoid. Only the
+        # most recent closing is listed: there are three patterns in all
+        # (question, statement, fragment), so two entries leave one option and
+        # three leave none — an instruction the model cannot satisfy, next to a
+        # structure directive telling it to open with a statement.
+        if recent and not mandated_closing:
+            lines.append("   Recent closing pattern to avoid: " + caption_closing_pattern(recent[-1]))
         lines.append(f"   {_ANTI_REPETITION_SUFFIX}")
     if platform_history or directive:
         chosen = directive or pick_structure_directive(list(platform_history or []), excluded_directives(spec))
@@ -747,13 +751,16 @@ def build_history_block(captions: list[str]) -> str:
     """
     if not captions:
         return ""
-    openings = [caption_opening(c) for c in captions if c.strip()]
-    closings = sorted({caption_closing_pattern(c) for c in captions if c.strip()})
+    recent = [c for c in captions if c.strip()]
+    openings = [caption_opening(c) for c in recent]
     lines = []
     if openings:
         lines.append("Recent openings to avoid: " + "; ".join(f'"{o}"' for o in openings))
-    if closings:
-        lines.append("Recent closing patterns to avoid: " + ", ".join(closings))
+    # #138: only the most recent closing, as in the per-platform block — there
+    # are three patterns in all, so listing two leaves one option and three
+    # leave none.
+    if recent:
+        lines.append("Recent closing pattern to avoid: " + caption_closing_pattern(recent[-1]))
     lines.append("")
     lines.append(f"Now write a NEW caption that maintains voice consistency. {_ANTI_REPETITION_SUFFIX}")
     return "\n".join(lines)
@@ -1085,7 +1092,19 @@ class CaptionGeneratorOpenAI:
         keys_list = ", ".join(f'"{k}"' for k in specs)
         # Legacy flat history block (only when no per-platform history was provided)
         history_block = build_history_block(flat_history) if flat_history and not history_dict else ""
-        voice_block = build_voice_examples_block(voice_examples or [])
+        # #138: examples are rendered once, at the top. They used to be repeated
+        # inside every platform block, so one example stood in front of the model
+        # four times over. When the caller passes none, the specs' own examples
+        # (PUB-039) are promoted here rather than dropped — deduped, order kept.
+        block_examples: list[str] = list(voice_examples or [])
+        if not block_examples:
+            seen: set[str] = set()
+            for spec in specs.values():
+                for example in spec.examples:
+                    if example not in seen:
+                        seen.add(example)
+                        block_examples.append(example)
+        voice_block = build_voice_examples_block(block_examples)
 
         prompt = (
             f"{role_prompt}\n\n"
