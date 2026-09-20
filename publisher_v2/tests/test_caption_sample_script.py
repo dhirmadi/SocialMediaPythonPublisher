@@ -63,7 +63,8 @@ def test_the_table_pairs_each_platform_and_scores_similarity() -> None:
 
     table = mod._render([row], "5c086e6", ["telegram", "email"])
 
-    assert "Baseline prompt configuration: `5c086e6`" in table
+    assert "Baseline: `5c086e6`" in table
+    assert "One asymmetry" in table, "the vision-payload difference must be disclosed"
     assert "| `img.jpg` | telegram | Rope marks on warm skin | Rope marks on warm skin | 1.00 |" in table.replace(
         " | — | — |", " |"
     )
@@ -118,11 +119,16 @@ def test_a_half_that_succeeded_is_still_reported() -> None:
 
 def test_a_failed_image_is_reported_not_dropped() -> None:
     mod = _module()
-    row = mod.Row(image="broken.jpg", error="RuntimeError: vision exploded")
+    # A real row.error is a line of subprocess stderr, which can carry both.
+    row = mod.Row(image="broken.jpg", error="RuntimeError: vision | exploded\nat line 2")
 
     table = mod._render([row], "5c086e6", ["telegram"])
 
-    assert "_RuntimeError: vision exploded_" in table
+    assert "_RuntimeError: vision \\| exploded<br>at line 2_" in table, table
+    error_row = next(line for line in table.splitlines() if "broken.jpg" in line)
+    # Eight cell separators; the error's own pipe is escaped, so it is not one.
+    assert error_row.count("|") - error_row.count("\\|") == 8, f"the error broke the table: {error_row}"
+    assert "\n" not in error_row.strip()
 
 
 def test_pipe_characters_in_a_caption_do_not_break_the_table() -> None:
@@ -235,6 +241,7 @@ def test_the_baseline_half_runs_the_baseline_commits_own_code(tmp_path: Path, mo
                 {
                     "captions": {"telegram": "baseline text"},
                     "cost": {"calls": 2, "prompt_tokens": 10, "completion_tokens": 3},
+                    "history_used": True,
                 }
             ),
             stderr="",
@@ -274,6 +281,19 @@ def test_it_refuses_to_start_without_a_key(monkeypatch) -> None:
         mod._fill_unused_env()
 
 
+def _baseline_available() -> bool:
+    return (
+        subprocess.run(  # noqa: S603
+            ["git", "cat-file", "-e", "5c086e6^{commit}"],  # noqa: S607
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+@pytest.mark.skipif(not _baseline_available(), reason="baseline commit not in this clone")
 def test_the_baseline_commits_yaml_still_loads(tmp_path: Path) -> None:
     """Refutes the cross-PR MAJOR: #152 no longer rejects the 5c086e6 config.
 
@@ -357,20 +377,8 @@ def test_run_sends_the_baseline_to_the_baseline_code_and_feeds_each_side_its_own
     assert "baseline a.jpg" in report and "current b.jpg" in report
 
 
-def _baseline_available() -> bool:
-    return (
-        subprocess.run(  # noqa: S603
-            ["git", "cat-file", "-e", "5c086e6^{commit}"],  # noqa: S607
-            cwd=REPO_ROOT,
-            check=False,
-            capture_output=True,
-        ).returncode
-        == 0
-    )
-
-
 @pytest.mark.skipif(not _baseline_available(), reason="baseline commit not in this clone")
-def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path) -> None:
+def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path, monkeypatch) -> None:
     """#146: the baseline half must work at the commit the artefact names.
 
     The worker was written against today's API and died twice at 5c086e6 before
@@ -379,10 +387,12 @@ def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path) -> Non
     failures were raised inside the subprocess, so every row came back an error
     string — after paying for the whole current-side run.
 
-    This drives the real worker against a real extraction of that commit. It
-    stops at the OpenAI call, which is the first thing that needs a key: getting
-    that far means the imports, the config, the analyzer entry point and the
-    teardown all match the baseline's own API.
+    This drives the real worker against a real extraction of that commit, with
+    the API pointed at a closed port: the run must fail at the *network*, which
+    means the imports, the config, the analyzer entry point and the teardown all
+    matched the baseline's own API. Pointing at the real endpoint would bill
+    whoever has a working key in their environment — the operator of this very
+    script — on every pytest run.
     """
     mod = _module()
     tree = tmp_path / "baseline"
@@ -400,71 +410,50 @@ def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path) -> Non
 
     assert mod._baseline_analyze_wants_url(tree) is True, "this baseline predates byte input"
 
-    os.environ.setdefault("OPENAI_API_KEY", "sk-not-a-real-key")
-    mod._fill_unused_env()
+    # Nothing may reach OpenAI, and nothing may leak into the rest of the session.
+    monkeypatch.setenv("OPENAI_BASE_URL", "http://127.0.0.1:9/v1")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-not-a-real-key")
+    for name, value in mod._UNUSED_ENV_PLACEHOLDERS.items():
+        monkeypatch.setenv(name, value)
+
     with pytest.raises(RuntimeError) as excinfo:
         mod._caption_once_at_baseline(image, tree, static, {"telegram": ["older"]})
 
     message = str(excinfo.value)
-    # The failure must be the missing key, not a mismatch with the baseline API.
-    assert "Incorrect API key" in message or "api_key" in message.lower(), message
+    # Reaching the network means every earlier step matched the baseline's API.
+    assert "Connection error" in message or "OpenAI analysis failed" in message, message
     for regression in ("aclose", "Byte input not supported", "UnsupportedProtocol"):
         assert regression not in message, f"worker does not match the baseline API: {message}"
 
 
-def test_a_failing_worker_reports_only_its_last_line(monkeypatch, tmp_path: Path) -> None:
-    """The failure path that fires on every image when the baseline is wrong.
+def test_a_baseline_that_ignored_the_history_is_refused(tmp_path: Path, monkeypatch) -> None:
+    """A history-free baseline writes a MORE repetitive "before", flattering #82.
 
-    It was untested, and without the returncode check the next line raises
-    IndexError on empty stdout instead of showing what went wrong. The message
-    carries one line, not the traceback: row.error is written into a Markdown
-    file bound for docs_v2, and a traceback from a process whose environment
-    holds the API key is not a redaction boundary.
+    The worker reports whether it actually used the history it was given; that
+    signal used to be discarded, so such a run would have been reported as a
+    clean comparison.
     """
     mod = _module()
-    secret_ish = "Traceback (most recent call last):\n  File x, line 1\nValueError: boom | with a pipe"
 
-    monkeypatch.setattr(
-        mod.subprocess,
-        "run",
-        lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr=secret_ish),
-    )
+    def _fake_run(argv, **kwargs):
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(
+                {
+                    "captions": {"telegram": "baseline text"},
+                    "cost": {"calls": 2, "prompt_tokens": 10, "completion_tokens": 3},
+                    "history_used": False,
+                }
+            ),
+            stderr="",
+        )
 
-    with pytest.raises(RuntimeError) as excinfo:
-        mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, None)
+    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
 
-    message = str(excinfo.value)
-    assert "ValueError: boom" in message
-    assert "Traceback" not in message, "the whole traceback must not reach the report"
-    assert "\n" not in message
+    with pytest.raises(RuntimeError, match="without history"):
+        mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, {"telegram": ["older"]})
 
-
-def test_a_dead_baseline_stops_the_run_instead_of_billing_every_image(tmp_path: Path, monkeypatch) -> None:
-    """#146: with the baseline half broken there is nothing to compare against."""
-    mod = _module()
-    images = tmp_path / "images"
-    images.mkdir()
-    for name in ("a.jpg", "b.jpg", "c.jpg"):
-        (images / name).write_bytes(b"\xff\xd8\xff")
-    current_calls: list[str] = []
-
-    async def _fake_current(image, static_dir, history=None):
-        current_calls.append(image.name)
-        return {"telegram": "current"}, mod.Cost(calls=1)
-
-    def _boom(*_args, **_kwargs):
-        raise RuntimeError("baseline worker failed: AttributeError: no aclose")
-
-    monkeypatch.setattr(mod, "_checkout_baseline_static", lambda commit, into: into)
-    monkeypatch.setattr(mod, "_caption_once_at_baseline", _boom)
-    monkeypatch.setattr(mod, "_caption_once", _fake_current)
-    monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
-    monkeypatch.setattr(mod, "_fill_unused_env", lambda: None)
-    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
-
-    with pytest.raises(SystemExit, match="baseline half failed"):
-        mod.run(SimpleNamespace(images=str(images), limit=10, baseline="5c086e6", out=str(tmp_path / "r.md")))
-
-    # The baseline half runs first, so the abort lands before the current side is
-    # called at all: zero paid calls, not one per remaining image.
-    assert current_calls == [], "images were paid for with nothing to compare them to"
+    # With no history asked for, there is nothing to ignore.
+    captions, _cost = mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, None)
+    assert captions == {"telegram": "baseline text"}

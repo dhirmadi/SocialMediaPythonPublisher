@@ -257,9 +257,11 @@ def _caption_once_at_baseline(
     env["PV2_STATIC_CONFIG_DIR"] = str(static_dir)
     if payload["analyze_wants_url"]:
         # A pre-#93 baseline downloads the URL unless vision_max_dimension is 0,
-        # and a data: URL cannot be downloaded. 0 is that baseline's own
-        # pass-through path, so the image reaches OpenAI exactly as today's
-        # byte path sends it: full size, no resize.
+        # and a data: URL cannot be downloaded, so 0 is the only way in. That is
+        # an asymmetry, not a match: today's byte path defaults to 1024 and
+        # resizes, so the baseline sees the full-size original while the current
+        # side sees a 1024px re-encode, and only the baseline has the quality
+        # fallback disabled. Disclosed in the report header rather than hidden.
         settings = json.loads(env.get("OPENAI_SETTINGS") or "{}")
         settings["vision_max_dimension"] = 0
         # The quality-escalation fallback retries with a dimension above 0, which
@@ -284,6 +286,13 @@ def _caption_once_at_baseline(
         last = tail.splitlines()[-1] if tail else "no output"
         raise RuntimeError(f"baseline worker failed: {last[:200]}")
     result = json.loads(proc.stdout.strip().splitlines()[-1])
+    if history and not result.get("history_used"):
+        # A baseline that ran without history produces a MORE repetitive "before",
+        # which biases the artefact in #82's favour. Refuse rather than report it.
+        raise RuntimeError(
+            "baseline ran without history: its create_multi_caption_pair_from_analysis "
+            "takes no history parameter, so the comparison would flatter the current side"
+        )
     cost = Cost(
         calls=result["cost"]["calls"],
         prompt_tokens=result["cost"]["prompt_tokens"],
@@ -326,7 +335,8 @@ async def _main():
         if payload["analyze_wants_url"]:
             # Such a baseline only passes a URL through untouched when
             # vision_max_dimension == 0; above that it tries to DOWNLOAD the URL,
-            # and httpx rejects a data: one. The caller forces 0 for this run.
+            # and httpx rejects a data: one. The caller forces 0 for this run,
+            # which means this side is NOT resized the way the current side is.
             mime = mimetypes.guess_type(payload["image"])[0] or "image/jpeg"
             subject = "data:" + mime + ";base64," + base64.b64encode(image_bytes).decode("ascii")
         analysis, vision_usage = await ai.analyzer.analyze(subject)
@@ -399,7 +409,16 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
     lines = [
         "# Caption sample: baseline vs current (#146)",
         "",
-        f"Baseline prompt configuration: `{baseline}`. Current: working tree.",
+        f"Baseline: `{baseline}` — that commit's own code and prompts, run in a subprocess.",
+        "Current: the working tree.",
+        "",
+        "**One asymmetry, deliberate and unavoidable:** a pre-#93 baseline cannot take",
+        "image bytes, so its half is given a `data:` URL, which that code only accepts",
+        "with `vision_max_dimension = 0` (above 0 it downloads the URL) and with the",
+        "quality-escalation fallback off (it retries by downloading). So the baseline",
+        "sees the full-size original where the current side sees a 1024px re-encode.",
+        'With the default `vision_detail="low"` the practical difference is small, but',
+        "it is not nothing.",
         "",
         "- **Delta** is the trigram Jaccard between this image's two captions: how far the prompt",
         "  change moved the wording. 1.00 means it changed nothing.",
@@ -525,7 +544,6 @@ def run(args: argparse.Namespace) -> int:
                         # The baseline half has never worked in this run, so it
                         # will not start working on image 2. Stopping here costs
                         # one current-side call instead of twenty.
-                        rows.append(row)
                         raise SystemExit(
                             f"baseline half failed on the first image and produced nothing: {row.error}\n"
                             "Nothing to compare against — fix the baseline before paying for the rest."
