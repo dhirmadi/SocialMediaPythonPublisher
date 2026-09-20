@@ -129,6 +129,15 @@ Admin Library API (PUB-031, managed storage only):
 Migration CLI (PUB-031, standalone tool):
 - `uv run python -m publisher_v2.tools.migrate_storage --source-folder <path> --target-prefix <prefix>`
 - Flags: `--dry-run`, `--limit N`, `--no-resume`, `--archive-folder`
+- Resume is **presence-based** (#142): a target key that already exists is skipped,
+  whatever its content. `--no-resume` forces a re-copy of everything. This retires
+  PUB-031 AC5's "re-copy when the Dropbox `content_hash` differs from the target
+  `ETag`" clause, which was never implementable: R2's ETag is an MD5 and Dropbox's
+  `content_hash` is a block SHA256, so the two could never compare equal and the
+  hash arm never fired. The tool reaches storage only through
+  `ObjectStorageProtocol` (`exists`/`head_object`/`put_object`), so every call is
+  metered; a `head_object` that fails for any reason other than absence logs
+  `head_object_failed` rather than reading as "missing".
 
 ## 4. Execution Model
 - Async entrypoint; wrap blocking SDK methods with `asyncio.to_thread`.
