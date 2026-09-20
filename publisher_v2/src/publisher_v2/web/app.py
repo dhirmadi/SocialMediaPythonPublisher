@@ -140,10 +140,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # client, DB wiring), so keep it off the event loop.
         service = await asyncio.to_thread(get_service)
         app.state.csp_storage_origins = storage_origins_for_config(service.config)
-    except Exception:
-        # Orchestrated instances have no standalone config; the CSP then falls
-        # back to 'self', which is correct but worth saying out loud.
-        _logger.info("csp_storage_origin_unresolved", exc_info=True)
+    except Exception as exc:
+        # Orchestrated instances have no standalone config, so this fails on
+        # EVERY boot there by design and the CSP correctly falls back to
+        # 'self'. DEBUG without a traceback: at INFO this reads as a fault in
+        # the deployment where it is the expected path.
+        _logger.debug("csp_storage_origin_unresolved: %s", type(exc).__name__)
 
     yield
 

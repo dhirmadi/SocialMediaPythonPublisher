@@ -649,8 +649,11 @@ async def move_object(
         )
 
     # #144: the raw path parameter used to be interpolated straight into the
-    # source and destination keys. Sanitize it and require it to be in the
-    # listing, as the delete endpoint does.
+    # source and destination keys. Sanitize it, and require it to be in the
+    # listing — a move writes a new key as well as removing one, so a name that
+    # sanitizes cleanly but does not exist would create an empty destination.
+    # Note this is STRICTER than delete, which sanitizes without a listing
+    # check; see #128 for whether delete should match.
     safe_name = _sanitize_filename(filename)
     try:
         await service.ensure_known_image(safe_name)

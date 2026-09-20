@@ -49,7 +49,11 @@ _DROPBOX_CONTENT_ORIGINS = ("https://*.dropboxusercontent.com",)
 # orchestrated mode, tenant-supplied: an unvalidated netloc containing a space
 # or a ";" would smuggle an extra source — or a whole extra directive, which
 # browsers honour in FIRST-occurrence order, overriding the nonce script-src.
-_SAFE_NETLOC_RE = re.compile(r"(?:\[[0-9A-Fa-f:]+\]|[A-Za-z0-9.\-]+)(?::[0-9]{1,5})?")
+#
+# Bracketed IPv6 is deliberately NOT accepted: CSP's host-source grammar has no
+# IPv6 production, so a browser drops the whole source. Emitting one is worse
+# than emitting nothing — it looks configured while behaving as 'self'.
+_SAFE_NETLOC_RE = re.compile(r"[A-Za-z0-9.\-]+(?::[0-9]{1,5})?")
 
 
 def storage_origins_for_config(config: Any) -> list[str]:

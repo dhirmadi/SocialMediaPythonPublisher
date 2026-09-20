@@ -201,10 +201,19 @@ def test_malformed_endpoint_does_not_break_the_request(monkeypatch: pytest.Monke
     assert not _has_blanket_https(csp), csp
 
 
-def test_ipv6_endpoint_is_allowed(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+def test_ipv6_endpoint_is_not_emitted(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    """CSP's host-source grammar has no IPv6 production.
+
+    This previously asserted the bracketed literal appears in the policy. A
+    browser drops that source entirely, so the policy behaved as `'self'` while
+    reading as though the endpoint were allowed — the test pinned output that
+    could not work. Falling back to `'self'` is the same effective behaviour,
+    stated honestly.
+    """
     csp = _csp_for_endpoint(monkeypatch, tmp_path, "https://[2001:db8::1]:9000")
 
-    assert "https://[2001:db8::1]:9000" in csp, csp
+    assert "2001:db8" not in csp, csp
+    assert "connect-src 'self'" in csp, csp
 
 
 def test_policy_keeps_its_other_directives(managed_app: None) -> None:
