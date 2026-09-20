@@ -41,20 +41,39 @@ class _FakeS3:
     def __init__(self) -> None:
         self.puts: list[dict] = []
 
+    # Above this, the body is recorded by size only: keeping a copy would add to
+    # the peak-memory assertions (#136). Every test that inspects bytes uploads
+    # far less than this.
+    _KEEP_BODY_UNDER = 256 * 1024
+
     def put_object(self, **kwargs):  # type: ignore[no-untyped-def]
-        self.puts.append(kwargs)  # Body kept as sent (bytes or a zero-copy file object)
+        # Consume a file-like Body inside the call, the way botocore does: the
+        # caller is entitled to close it on return, and a fake that read it
+        # afterwards would fail against correct code.
+        body = kwargs["Body"]
+        if hasattr(body, "read"):
+            body.seek(0)
+            head = body.read(self._KEEP_BODY_UNDER)
+            size = len(head)
+            oversized = False
+            while chunk := body.read(64 * 1024):
+                size += len(chunk)
+                oversized = True
+            data = b"" if oversized else head
+        else:
+            data = bytes(body)
+            size = len(data)
+            if size > self._KEEP_BODY_UNDER:
+                data = b""
+        self.puts.append({**kwargs, "Body": data, "Size": size})
         return {}
 
     def body(self, index: int = 0) -> bytes:
-        """The bytes of put number ``index`` (reads a file-like Body the way botocore would)."""
-        body = self.puts[index]["Body"]
-        if hasattr(body, "read"):
-            body.seek(0)
-            return body.read()
-        return bytes(body)
+        """The bytes of put number ``index`` (empty for a body kept by size only)."""
+        return bytes(self.puts[index]["Body"])
 
     def head_object(self, **kwargs):  # type: ignore[no-untyped-def]
-        return {"ContentLength": len(self.body(-1)) if self.puts else 0}
+        return {"ContentLength": self.puts[-1]["Size"] if self.puts else 0}
 
 
 class CountingUploadBody:

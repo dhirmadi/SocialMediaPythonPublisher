@@ -75,3 +75,19 @@ async def test_put_object_sends_the_exact_bytes() -> None:
     await storage.put_object("k/x.png", data, "image/png")
     # botocore may frame the body (aws-chunked + trailing checksum); the payload must be intact inside it.
     assert len(captured) == 1 and bytes(data) in captured[0]
+
+
+async def test_put_object_leaves_the_callers_buffer_resizable() -> None:
+    """The zero-copy body exports a memoryview; an un-released one pins the caller's buffer.
+
+    A pinned bytearray raises BufferError on the next ``extend()`` — far from
+    the put that caused it — so the reader is closed when the call returns.
+    """
+    storage, sent = _storage_with_capture()
+    data = bytearray(b"\x89PNG" + os.urandom(1000))
+
+    await storage.put_object("k/x.png", data, "image/png")
+
+    assert len(sent) == 1
+    data.extend(b"tail")  # BufferError here means the reader was left open
+    assert bytes(data).endswith(b"tail")
