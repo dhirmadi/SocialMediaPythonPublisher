@@ -101,8 +101,9 @@ async def test_oversized_part_header_rejected_fast(library_upload) -> None:
     head = f'--{UPLOAD_BOUNDARY}\r\nContent-Disposition: form-data; name="file"; filename="a.png"\r\n'.encode()
     body.data = head + huge + b"\r\n" + library_upload.png(4, 4) + f"\r\n--{UPLOAD_BOUNDARY}--\r\n".encode()
     res = await library_upload.post(body)
-    # 400: python-multipart rejects the oversized part header before the file
-    # part is reached, so the 413 cap is never consulted.
+    # 400 from our own _MAX_PART_HEADER_BYTES guard (not python-multipart): the
+    # part header blows the 8 KiB budget before any file data is seen, so the
+    # 413 file cap is never consulted.
     assert res.status_code == 400, res.text
     assert body.pulled < len(body.data)
 
@@ -272,3 +273,38 @@ async def test_an_rfc2231_encoded_traversal_filename_is_sanitized_too(library_up
 
     assert res.status_code == 200, res.text
     assert res.json()["key"] == "tenant/instance/evil.png"
+
+
+async def test_a_body_cut_before_the_terminator_is_rejected(library_upload) -> None:
+    """The file part closes cleanly, but the body stops before `--boundary--`.
+
+    This is the half of the completeness check that `file_part_ended` alone
+    does not cover: the part ended, the body did not.
+    """
+    from .conftest import UPLOAD_BOUNDARY
+
+    payload = library_upload.png(16, 16)
+    body = library_upload.body(payload)
+    terminator = f"--{UPLOAD_BOUNDARY}--\r\n".encode()
+    assert body.data.endswith(terminator)
+    # The file part's closing boundary is kept (so on_part_end fires); only the
+    # trailing "--" that ends the body is missing.
+    body.data = body.data[: -len(terminator)] + f"--{UPLOAD_BOUNDARY}\r\n".encode()
+
+    res = await library_upload.post(body)
+
+    assert res.status_code == 400, res.text
+    assert "Incomplete" in res.text
+    assert library_upload.s3.puts == []
+
+
+def test_the_upload_endpoint_still_documents_its_multipart_body() -> None:
+    """Dropping the UploadFile parameter is what stops FastAPI parsing the body — and
+    it also drops the requestBody from the schema unless it is declared by hand."""
+    from publisher_v2.web.app import app
+
+    operation = app.openapi()["paths"]["/api/library/upload"]["post"]
+
+    schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
+    assert schema["properties"]["file"] == {"type": "string", "format": "binary"}
+    assert schema["required"] == ["file"]

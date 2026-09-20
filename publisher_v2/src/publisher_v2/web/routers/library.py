@@ -669,8 +669,11 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
                     raise too_large
                 parser.write(chunk)
                 # Everything that is not file data (part headers, other fields,
-                # whitespace, junk parts) shares the envelope allowance, so no
-                # body can spend the whole cap on per-byte parsing work.
+                # whitespace, junk parts) shares the envelope allowance. The
+                # allowance is relative to the current chunk, so a single huge
+                # ASGI chunk is bounded by the body limit above rather than by
+                # this check; junk is counted, never buffered, so the cost is
+                # parsing CPU, not memory.
                 if received - len(file_buf) > _MULTIPART_OVERHEAD_BYTES + len(chunk):
                     raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Multipart envelope too large")
         parser.finalize()
@@ -693,7 +696,27 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
     return file_buf, state["filename"]
 
 
-@router.post("/upload", response_model=LibraryUploadResponse)
+# Dropping the UploadFile parameter is what keeps FastAPI from parsing the body
+# (#136) — but it also dropped this endpoint's requestBody from the schema, so
+# /docs showed no file field and generated clients lost the multipart body.
+# Declared by hand instead.
+_UPLOAD_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"file": {"type": "string", "format": "binary"}},
+                    "required": ["file"],
+                }
+            }
+        },
+    }
+}
+
+
+@router.post("/upload", response_model=LibraryUploadResponse, openapi_extra=_UPLOAD_REQUEST_BODY)
 async def upload_file(
     request: Request,
     service: WebImageService = Depends(get_request_service),
