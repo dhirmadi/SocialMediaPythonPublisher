@@ -27,6 +27,7 @@ from publisher_v2.config.schema import ManagedStorageConfig
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage_protocol import FileMetadata, ThumbnailFormat, ThumbnailSize
 from publisher_v2.utils.logging import log_json
+from publisher_v2.utils.memory_io import reader_over
 
 logger = logging.getLogger("publisher_v2.services.managed_storage")
 
@@ -450,10 +451,22 @@ class ManagedStorage:
         except ClientError as exc:
             raise StorageError(f"Failed to list objects under {prefix}: {exc}") from exc
 
-    async def put_object(self, key: str, data: bytes, content_type: str) -> None:
+    async def put_object(self, key: str, data: bytes | bytearray | memoryview, content_type: str) -> None:
         def _put() -> None:
             self._count_ops()
-            self.client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+            # #136: botocore copies a bytearray Body (io.BytesIO for checksums);
+            # hand it a zero-copy file instead. It must stay seekable: botocore
+            # rewinds the body with seek(0) before each retry attempt.
+            if isinstance(data, bytes):
+                self.client.put_object(Bucket=self._bucket, Key=key, Body=data, ContentType=content_type)
+                return
+            reader = reader_over(data)
+            try:
+                self.client.put_object(Bucket=self._bucket, Key=key, Body=reader, ContentType=content_type)
+            finally:
+                # Release the memoryview rather than leaving the caller's buffer
+                # un-resizable until the reader is collected.
+                reader.close()
 
         try:
             await asyncio.to_thread(_put)

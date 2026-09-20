@@ -15,13 +15,14 @@ import unicodedata
 from pathlib import PurePosixPath
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel
 
 from publisher_v2.config.runtime_settings import load_runtime_settings
 from publisher_v2.config.schema import StoragePathConfig
 from publisher_v2.services.storage_protocol import ObjectStorageProtocol
 from publisher_v2.utils.logging import log_json
+from publisher_v2.utils.memory_io import reader_over
 from publisher_v2.web.auth import require_admin, require_auth
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.service import WebImageService
@@ -69,18 +70,15 @@ _PILLOW_FORMAT_TO_MIME: dict[str, str] = {
 
 
 _MAX_IMAGE_DIMENSION_PX = 12_000
-_UPLOAD_CHUNK_BYTES = 1024 * 1024
 
 
-def _verify_image_bytes(data: bytes) -> str:
+def _verify_image_bytes(data: bytes | bytearray | memoryview) -> str:
     """Validate ``data`` via magic-byte parsing and return the trustworthy MIME.
 
     Raises HTTPException(415) when the bytes do not parse as an allowed image,
     matching the contract of ``ALLOWED_MIME_TYPES``.
     """
     # Imported lazily — Pillow is heavy and only needed on upload.
-    from io import BytesIO
-
     from PIL import Image, UnidentifiedImageError
 
     # Make sure the global bomb ceiling from utils.images is applied even if
@@ -88,11 +86,12 @@ def _verify_image_bytes(data: bytes) -> str:
     import publisher_v2.utils.images  # noqa: F401
 
     try:
-        with Image.open(BytesIO(data)) as img:
+        # #136: read the buffer in place — no BytesIO copy of the upload.
+        with Image.open(reader_over(data)) as img:
             img.verify()
             fmt = (img.format or "").upper()
         # verify() invalidates the parser — reopen for dimensions (#90).
-        with Image.open(BytesIO(data)) as img2:
+        with Image.open(reader_over(data)) as img2:
             width, height = img2.size
     except Image.DecompressionBombError:
         raise HTTPException(
@@ -428,7 +427,9 @@ def _invalidate_listing(service: WebImageService) -> None:
     service.invalidate_image_listing()
 
 
-async def _upload_to_storage(service: WebImageService, filename: str, data: bytes, content_type: str) -> dict[str, Any]:
+async def _upload_to_storage(
+    service: WebImageService, filename: str, data: bytes | bytearray, content_type: str
+) -> dict[str, Any]:
     """Upload file to managed storage (protocol-only, #96; metering inside)."""
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
@@ -555,13 +556,178 @@ async def list_objects(
     return LibraryListResponse(**result)
 
 
-@router.post("/upload", response_model=LibraryUploadResponse)
+# Room for the multipart envelope (boundary lines, part headers) on top of the file cap.
+_MULTIPART_OVERHEAD_BYTES = 16 * 1024
+# #136: one part's headers may not exceed this (python-multipart does not bound them).
+_MAX_PART_HEADER_BYTES = 8 * 1024
+# #136: a whole upload must arrive within this many seconds (slow-body hold-open).
+_UPLOAD_READ_TIMEOUT_SECONDS = 300.0
+
+
+async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[bytearray, str | None]:
+    """Stream the multipart body and keep only the ``file`` part (#136).
+
+    Chunks from ``request.stream()`` are fed to python-multipart's streaming
+    parser as they arrive; only the file part's bytes are kept. Reading stops
+    with 413 as soon as the file passes ``max_bytes`` or the raw body passes
+    ``max_bytes`` plus the envelope allowance, so the rest of an oversized
+    stream is never consumed and peak memory is the file plus one chunk.
+    """
+    from python_multipart.exceptions import MultipartParseError
+    from python_multipart.multipart import MultipartParser, parse_options_header
+    from starlette.requests import ClientDisconnect
+
+    max_mb = max_bytes // (1024 * 1024)
+    too_large = HTTPException(
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
+        detail=f"File too large (> {max_bytes} bytes). Maximum: {max_mb} MB",
+    )
+    ctype, params = parse_options_header(request.headers.get("content-type", ""))
+    boundary = params.get(b"boundary")
+    if ctype.lower() != b"multipart/form-data" or not boundary:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Expected multipart/form-data")
+
+    file_buf = bytearray()
+    header_too_large = HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Multipart part headers too large")
+    field, value = bytearray(), bytearray()
+    state: dict[str, Any] = {
+        "headers": {},
+        "header_bytes": 0,
+        "capture": False,
+        "filename": None,
+        "file_part_ended": False,
+        "body_ended": False,
+    }
+    seen_file = False
+
+    def _count_header(n: int) -> None:
+        state["header_bytes"] += n
+        if state["header_bytes"] > _MAX_PART_HEADER_BYTES:
+            raise header_too_large
+
+    def on_part_begin() -> None:
+        state["headers"] = {}
+        state["header_bytes"] = 0
+        state["capture"] = False
+
+    def on_header_field(data: bytes, start: int, end: int) -> None:
+        _count_header(end - start)
+        field.extend(data[start:end])
+
+    def on_header_value(data: bytes, start: int, end: int) -> None:
+        _count_header(end - start)
+        value.extend(data[start:end])
+
+    def on_header_end() -> None:
+        state["headers"][bytes(field).lower()] = bytes(value)
+        field.clear()
+        value.clear()
+
+    def on_headers_finished() -> None:
+        nonlocal seen_file
+        _disp, disp_params = parse_options_header(state["headers"].get(b"content-disposition", b""))
+        if disp_params.get(b"name") == b"file" and not seen_file:
+            seen_file = True
+            state["capture"] = True
+            raw_name = disp_params.get(b"filename")
+            state["filename"] = raw_name.decode("utf-8", "replace") if raw_name is not None else None
+
+    def on_part_data(data: bytes, start: int, end: int) -> None:
+        if state["capture"]:
+            file_buf.extend(data[start:end])
+            if len(file_buf) > max_bytes:
+                raise too_large
+
+    def on_part_end() -> None:
+        state["capture"] = False
+        if seen_file and state["file_part_ended"] is False:
+            state["file_part_ended"] = True
+
+    def on_end() -> None:
+        state["body_ended"] = True
+
+    parser = MultipartParser(
+        boundary,
+        {
+            "on_part_begin": on_part_begin,
+            "on_header_field": on_header_field,
+            "on_header_value": on_header_value,
+            "on_header_end": on_header_end,
+            "on_headers_finished": on_headers_finished,
+            "on_part_data": on_part_data,
+            "on_part_end": on_part_end,
+            "on_end": on_end,
+        },
+    )
+    body_limit = max_bytes + _MULTIPART_OVERHEAD_BYTES
+    received = 0
+    try:
+        async with asyncio.timeout(_UPLOAD_READ_TIMEOUT_SECONDS):
+            async for chunk in request.stream():
+                received += len(chunk)
+                if received > body_limit:
+                    raise too_large
+                parser.write(chunk)
+                # Everything that is not file data (part headers, other fields,
+                # whitespace, junk parts) shares the envelope allowance. The
+                # allowance is relative to the current chunk, so a single huge
+                # ASGI chunk is bounded by the body limit above rather than by
+                # this check; junk is counted, never buffered, so the cost is
+                # parsing CPU, not memory.
+                if received - len(file_buf) > _MULTIPART_OVERHEAD_BYTES + len(chunk):
+                    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Multipart envelope too large")
+        parser.finalize()
+    except TimeoutError:
+        raise HTTPException(status_code=status.HTTP_408_REQUEST_TIMEOUT, detail="Upload took too long") from None
+    except MultipartParseError:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Malformed multipart body") from None
+    except ClientDisconnect:
+        # The client went away mid-upload (e.g. cancelled): nothing to store, no 500.
+        log_json(logger, logging.INFO, "library_upload_client_disconnect", received=received)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload interrupted") from None
+    if not seen_file:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing 'file' part")
+    if not state["file_part_ended"] or not state["body_ended"]:
+        # python-multipart's finalize() is a documented no-op, so a body that
+        # stops mid-part — a client that died, or one that lies about
+        # Content-Length — otherwise parses as a complete upload and stores a
+        # truncated object. JPEG verify() does not decode, so Pillow passes it.
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Incomplete multipart body")
+    return file_buf, state["filename"]
+
+
+# Dropping the UploadFile parameter is what keeps FastAPI from parsing the body
+# (#136) — but it also dropped this endpoint's requestBody from the schema, so
+# /docs showed no file field and generated clients lost the multipart body.
+# Declared by hand instead.
+_UPLOAD_REQUEST_BODY = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {"file": {"type": "string", "format": "binary"}},
+                    "required": ["file"],
+                }
+            }
+        },
+    }
+}
+
+
+@router.post("/upload", response_model=LibraryUploadResponse, openapi_extra=_UPLOAD_REQUEST_BODY)
 async def upload_file(
     request: Request,
-    file: UploadFile,
     service: WebImageService = Depends(get_request_service),
 ) -> LibraryUploadResponse:
-    """Upload image to managed storage."""
+    """Upload image to managed storage.
+
+    #136: the route takes no ``UploadFile`` — FastAPI would otherwise parse (and
+    spool) the whole multipart body before any of the checks below ran. Auth,
+    admin, rate limit and the declared Content-Length are all checked before the
+    first body byte is read.
+    """
     await require_auth(request)
     require_admin(request)
     _check_library_available(service)
@@ -576,35 +742,28 @@ async def upload_file(
     declared = request.headers.get("content-length")
     if declared:
         try:
-            if int(declared) > max_bytes:
+            if int(declared) > max_bytes + _MULTIPART_OVERHEAD_BYTES:
                 raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     detail=f"File too large (Content-Length {declared}). Maximum: {max_mb} MB",
                 )
         except ValueError:
             pass
 
-    # Read in bounded chunks — abort as soon as the running total passes the
-    # cap, so peak memory is max_bytes plus one chunk, never the whole body.
-    buffer = bytearray()
-    while True:
-        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
-        if not chunk:
-            break
-        buffer.extend(chunk)
-        if len(buffer) > max_bytes:
-            raise HTTPException(
-                status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
-                detail=f"File too large (> {max_bytes} bytes). Maximum: {max_mb} MB",
-            )
-    data = bytes(buffer)
+    data, raw_filename = await _read_single_file_part(request, max_bytes)
 
     # Validate content via magic bytes (do NOT trust client-supplied
     # Content-Type). Pillow parsing is CPU-bound — off the event loop (#90).
+    # The bytearray is passed as-is: no second copy of the upload (#136).
+    #
+    # Do NOT append to `data` past this point. Both calls below take a
+    # memoryview over this bytearray (utils/memory_io.reader_over), and a
+    # bytearray cannot be resized while an exported buffer is live — an
+    # `extend()` here raises BufferError at runtime, not at import.
     content_type = await asyncio.to_thread(_verify_image_bytes, data)
 
     # Sanitize filename
-    filename = _sanitize_filename(file.filename or "upload.jpg")
+    filename = _sanitize_filename(raw_filename or "upload.jpg")
 
     result = await _upload_to_storage(service, filename, data, content_type)
     log_json(logger, logging.INFO, "library_upload", filename=filename, size=len(data))

@@ -392,7 +392,7 @@ class DropboxStorage:
     async def list_objects(self, prefix: str, cursor: str | None = None, limit: int = 1000) -> dict:
         raise StorageNotSupportedError("DropboxStorage does not support object-level listing")
 
-    async def put_object(self, key: str, data: bytes, content_type: str) -> None:
+    async def put_object(self, key: str, data: bytes | bytearray | memoryview, content_type: str) -> None:
         raise StorageNotSupportedError("DropboxStorage does not support object-level put")
 
     async def head_object(self, key: str) -> dict | None:
