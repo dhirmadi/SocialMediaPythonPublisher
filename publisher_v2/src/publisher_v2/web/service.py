@@ -6,8 +6,9 @@ import os
 import random
 import time
 import urllib.parse
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any
+from weakref import WeakKeyDictionary
 
 from dotenv import load_dotenv
 from pydantic import ValidationError
@@ -24,11 +25,13 @@ from publisher_v2.config.schema import ApplicationConfig  # noqa: E402
 from publisher_v2.config.source import ConfigSource, RuntimeConfig  # noqa: E402
 from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import (  # noqa: E402
+    AlreadyPublishedError,
     CredentialResolutionError,
     OrchestratorUnavailableError,
+    PublishInProgressError,
     TenantNotFoundError,
 )
-from publisher_v2.core.workflow import WorkflowOrchestrator  # noqa: E402
+from publisher_v2.core.workflow import ALREADY_PUBLISHED_ERROR, WorkflowOrchestrator  # noqa: E402
 from publisher_v2.db import get_session_factory  # noqa: E402
 from publisher_v2.db.caption_store import CaptionStore  # noqa: E402
 from publisher_v2.db.publish_store import PublishStore  # noqa: E402
@@ -63,6 +66,41 @@ def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
     if not profile:
         return None
     return truncate_voice_profile_to_budget(profile)
+
+
+# #139: without a publish store there is no DB lease, so serialize per-image
+# publishes in-process — two concurrent clicks must not both get past the
+# file-based "already posted" check. Kept process-wide rather than on the
+# service: ``get_service`` is lru_cached, so a second instance needs only a
+# first-call race, and a lock held on an instance that loses that race would
+# protect nothing.
+_PUBLISH_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, OrderedDict[tuple[str, str], asyncio.Lock]] = (
+    WeakKeyDictionary()
+)
+# One lock per (tenant, image) ever published would grow for the life of the
+# process, so old idle ones are dropped; a held lock is never evicted, since the
+# next arrival would then build a fresh one and the serialization would be lost.
+_PUBLISH_LOCK_MAX_KEYS = 1024
+
+
+def _publish_lock(tenant: str, filename: str) -> asyncio.Lock:
+    """Per-(tenant, image) publish lock, scoped to the running event loop."""
+    loop = asyncio.get_running_loop()
+    per_loop = _PUBLISH_LOCKS.get(loop)
+    if per_loop is None:
+        per_loop = OrderedDict()
+        _PUBLISH_LOCKS[loop] = per_loop
+    key = (tenant, filename)
+    lock = per_loop.get(key)
+    if lock is None:
+        lock = asyncio.Lock()
+    per_loop[key] = lock
+    per_loop.move_to_end(key)
+    for stale in [k for k in per_loop if len(per_loop) > _PUBLISH_LOCK_MAX_KEYS]:
+        if stale == key or per_loop[stale].locked():
+            continue
+        del per_loop[stale]
+    return lock
 
 
 class WebImageService:
@@ -129,7 +167,7 @@ class WebImageService:
         sf = get_session_factory()
         if sf is not None:
             self._caption_store = CaptionStore(sf)
-            self._publish_store = PublishStore(sf)
+            self._publish_store = PublishStore(sf, lease_ttl_seconds=load_runtime_settings().publish_lease_ttl_seconds)
 
         self._tenant = runtime.tenant if runtime is not None else "default"
 
@@ -835,12 +873,24 @@ class WebImageService:
         await self._ensure_publishers()
 
         orchestrator = await self._ensure_orchestrator()
-        result = await orchestrator.execute(
-            select_filename=filename,
-            dry_publish=False,
-            preview_mode=False,
-            caption_override=caption_override,
-        )
+        lock = _publish_lock(self._tenant, filename)
+        if lock.locked():
+            # Fail fast instead of queueing behind a publish that can run for
+            # minutes — the caller would otherwise hit a proxy timeout while the
+            # first publish is still working.
+            log_json(self.logger, logging.INFO, "web_publish_already_in_progress", image=filename)
+            raise PublishInProgressError(f"A publish for {filename} is already in progress")
+        async with lock:
+            result = await orchestrator.execute(
+                select_filename=filename,
+                dry_publish=False,
+                preview_mode=False,
+                caption_override=caption_override,
+            )
+        if result.error and result.error.startswith(ALREADY_PUBLISHED_ERROR):
+            # #139: no publish store, and this image is already in the posted set.
+            log_json(self.logger, logging.INFO, "web_publish_already_published", image=filename)
+            raise AlreadyPublishedError(result.error)
         # Convert results to simple dict form
         results: dict[str, dict[str, Any]] = {}
         for name, pr in result.publish_results.items():

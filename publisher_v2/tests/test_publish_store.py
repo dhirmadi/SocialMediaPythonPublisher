@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from publisher_v2.db.models import Base
@@ -33,23 +34,23 @@ async def store(db_session_factory):
 class TestAcquireLease:
     async def test_lease_acquired_once(self, store: PublishStore) -> None:
         owned = await store.acquire_lease("t1", "hash1", ["telegram", "email"])
-        assert owned == {"telegram", "email"}
+        assert set(owned) == {"telegram", "email"}
 
     async def test_second_acquire_returns_empty(self, store: PublishStore) -> None:
         await store.acquire_lease("t1", "hash1", ["telegram", "email"])
         again = await store.acquire_lease("t1", "hash1", ["telegram", "email"])
-        assert again == set()
+        assert set(again) == set()
 
     async def test_lease_is_tenant_scoped(self, store: PublishStore) -> None:
         await store.acquire_lease("t1", "hash1", ["telegram"])
         other_tenant = await store.acquire_lease("t2", "hash1", ["telegram"])
-        assert other_tenant == {"telegram"}
+        assert set(other_tenant) == {"telegram"}
 
     async def test_failed_platform_can_be_re_leased(self, store: PublishStore) -> None:
         await store.acquire_lease("t1", "hash1", ["instagram"])
         await store.mark("t1", "hash1", "instagram", "failed", error="RuntimeError: boom")
         again = await store.acquire_lease("t1", "hash1", ["instagram"])
-        assert again == {"instagram"}
+        assert set(again) == {"instagram"}
 
     async def test_concurrent_re_lease_of_failed_row_is_exclusive(self, store: PublishStore) -> None:
         """Two runs racing to re-lease the same failed platform must not both win.
@@ -68,7 +69,7 @@ class TestAcquireLease:
             store.acquire_lease("t1", "hash1", ["instagram"]),
         )
 
-        owned_union = results[0] | results[1]
+        owned_union = set(results[0]) | set(results[1])
         assert owned_union == {"instagram"}, "exactly one concurrent re-lease attempt must win"
         assert not (results[0] and results[1]), "both callers must not simultaneously own the same lease"
 
@@ -76,7 +77,7 @@ class TestAcquireLease:
         await store.acquire_lease("t1", "hash1", ["instagram"])
         await store.mark("t1", "hash1", "instagram", "unknown", error="publish timeout")
         again = await store.acquire_lease("t1", "hash1", ["instagram"])
-        assert again == set()
+        assert set(again) == set()
 
 
 class TestMarkAndPostedPlatforms:
@@ -101,3 +102,173 @@ class TestMarkAndPostedPlatforms:
         assert row.status == "published"
         assert row.post_id == "msg-9"
         assert row.finished_at is not None
+
+
+class TestStaleLeaseExpiry:
+    """#139: a lease whose holder crashed must not wedge the image forever."""
+
+    @staticmethod
+    async def _age_lease(db_session_factory, seconds: float) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import update as sa_update
+
+        from publisher_v2.db.models import PublishRecord
+
+        async with db_session_factory() as session:
+            await session.execute(
+                sa_update(PublishRecord).values(leased_at=datetime.now(UTC) - timedelta(seconds=seconds))
+            )
+            await session.commit()
+
+    async def test_lease_older_than_ttl_is_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == {"telegram"}
+        await self._age_lease(db_session_factory, 601)
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == {"telegram"}
+
+    async def test_row_stamped_by_the_column_server_default_is_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Production-shaped orphan: leased_at comes from the column server default.
+
+        SQLite's CURRENT_TIMESTAMP has second precision, so the row is aged here
+        with raw SQL in that same stored format — an equality-based reclaim would
+        silently match nothing.
+        """
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == {"telegram"}
+        async with db_session_factory() as session:
+            await session.execute(text("UPDATE pv2_publish_record SET leased_at = datetime('now', '-3600 seconds')"))
+            await session.commit()
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == {"telegram"}
+
+    async def test_fresh_lease_is_not_reclaimed(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 599)
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == set()
+
+    async def test_published_row_is_never_reclaimed_however_old(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await store.mark("t1", "hash1", "telegram", "published", post_id="1")
+        await self._age_lease(db_session_factory, 86400)
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == set()
+
+    async def test_ttl_is_read_from_the_environment(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "1")
+        monkeypatch.setenv("PUBLISH_TIMEOUT_SECONDS", "5")
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "70")  # floor is 1 + 5 + 60 = 66
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 90)
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == {"telegram"}
+
+    async def test_ttl_below_a_full_run_duration_is_floored(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A too-small TTL must not let a second run reclaim a lease mid-publish."""
+        monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "150")
+        monkeypatch.setenv("PUBLISH_TIMEOUT_SECONDS", "120")
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "1")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 200)  # still inside 150 + 120 + 60
+
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == set()
+
+    async def test_only_one_of_two_concurrent_runs_reclaims_a_stale_lease(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 3600)
+
+        first, second = await asyncio.gather(
+            store.acquire_lease("t1", "hash1", ["telegram"]),
+            store.acquire_lease("t1", "hash1", ["telegram"]),
+        )
+
+        assert sorted([len(first), len(second)]) == [0, 1]
+
+
+class TestTheLeaseTokenFencesLaterMarks:
+    """#139: a reclaimed run could still write the status of the run that took over.
+
+    The stale-lease reclaim means two runs can hold the same row in sequence.
+    Without a fence, run A — whose lease lapsed while it stalled — marks the row
+    ``failed`` on its way out, which makes it re-leasable while run B is still
+    publishing, so a third run can post the same image again.
+    """
+
+    async def _age_lease(self, db_session_factory, seconds: int) -> None:
+        from datetime import UTC, datetime, timedelta
+
+        from sqlalchemy import update as sa_update
+
+        from publisher_v2.db.models import PublishRecord
+
+        async with db_session_factory() as session:
+            await session.execute(
+                sa_update(PublishRecord).values(leased_at=datetime.now(UTC) - timedelta(seconds=seconds))
+            )
+            await session.commit()
+
+    async def test_a_reclaimed_run_cannot_mark_the_row_that_moved_on(
+        self, store: PublishStore, db_session_factory, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        run_a = await store.acquire_lease("t1", "hash1", ["telegram"])
+        await self._age_lease(db_session_factory, 601)
+        run_b = await store.acquire_lease("t1", "hash1", ["telegram"])
+        assert set(run_b) == {"telegram"}, "the stale lease must be reclaimable"
+
+        landed = await store.mark("t1", "hash1", "telegram", "failed", error="boom", lease_token=run_a["telegram"])
+
+        assert landed is False, "the stalled run overwrote a lease it no longer held"
+        # Still leased by run B, so nothing else can claim it and post again.
+        assert set(await store.acquire_lease("t1", "hash1", ["telegram"])) == set()
+
+    async def test_the_run_that_holds_the_lease_still_marks_it(
+        self, store: PublishStore, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PUBLISH_LEASE_TTL_SECONDS", "600")
+        owned = await store.acquire_lease("t1", "hash1", ["telegram"])
+
+        landed = await store.mark("t1", "hash1", "telegram", "published", post_id="42", lease_token=owned["telegram"])
+
+        assert landed is True
+        assert await store.posted_platforms("t1", "hash1") == {"telegram"}
+
+    async def test_an_unfenced_mark_still_works_for_callers_without_a_token(self, store: PublishStore) -> None:
+        """Marks outside a lease (pre-existing rows, failure paths with no token) keep working."""
+        await store.acquire_lease("t1", "hash1", ["telegram"])
+
+        landed = await store.mark("t1", "hash1", "telegram", "published", post_id="7")
+
+        assert landed is True
+        assert await store.posted_platforms("t1", "hash1") == {"telegram"}
+
+
+class TestStalenessMatchesTheSqlGuard:
+    """#139: the Python predicate and the SQL WHERE must agree, or a caller is told
+    it owns a lease the UPDATE could never take."""
+
+    def test_a_null_timestamp_is_not_reported_stale(self) -> None:
+        from publisher_v2.db.publish_store import _is_stale
+
+        # `leased_at < cutoff` is NULL — never true — for a NULL timestamp, so
+        # answering True here would claim an ownership the reclaim cannot win.
+        assert _is_stale(None, 600) is False

@@ -38,6 +38,14 @@ class PublishingError(SocialMediaPublisherError):
     """Error publishing to platform."""
 
 
+class PublishInProgressError(PublishingError):
+    """A publish for this image is already running (#139)."""
+
+
+class AlreadyPublishedError(PublishingError):
+    """This image was already published and will not be published again (#139)."""
+
+
 class UsageMeteringError(SocialMediaPublisherError):
     """Usage metering ingest call failed (non-retryable)."""
 

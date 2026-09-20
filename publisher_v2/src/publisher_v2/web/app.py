@@ -17,7 +17,11 @@ from starlette.middleware.sessions import SessionMiddleware
 
 from publisher_v2.config.source import get_config_source
 from publisher_v2.config.static_loader import get_static_config
-from publisher_v2.core.exceptions import OrchestratorUnavailableError
+from publisher_v2.core.exceptions import (
+    AlreadyPublishedError,
+    OrchestratorUnavailableError,
+    PublishInProgressError,
+)
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic, setup_logging
 from publisher_v2.web.auth import (
     clear_admin_cookie,
@@ -248,6 +252,12 @@ def raise_for_service_error(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
     if isinstance(exc, PermissionError):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Forbidden")
+    if isinstance(exc, PublishInProgressError):
+        # #139: a second click while the first publish is still running.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Publish already in progress")
+    if isinstance(exc, AlreadyPublishedError):
+        # #139: no-DB installs refuse to publish the same image twice.
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Image already published")
     msg = str(exc)
     if "not found" in msg.lower() or "path/not_found" in msg.lower():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Image not found")
@@ -605,7 +615,11 @@ async def api_analyze_image(
 @app.post(
     "/api/images/{filename}/publish",
     response_model=PublishResponse,
-    responses={404: {"model": ErrorResponse}, 401: {"model": ErrorResponse}},
+    responses={
+        404: {"model": ErrorResponse},
+        401: {"model": ErrorResponse},
+        409: {"model": ErrorResponse},
+    },
 )
 async def api_publish_image(
     filename: str,
