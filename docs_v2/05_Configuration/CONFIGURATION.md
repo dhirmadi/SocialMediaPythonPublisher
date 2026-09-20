@@ -119,7 +119,7 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `WEB_ADMIN_COOKIE_EPOCH` | Cookie kill switch (#91 SEC-10): rotate the value to invalidate every outstanding admin cookie without changing `WEB_SESSION_SECRET` | (empty) |
 | `WEB_SECURE_COOKIES` | Require HTTPS for cookies | `true` |
 | `WEB_ADMIN_COOKIE_TTL_SECONDS` | Admin session TTL (60-3600) | 3600 |
-| `WEB_TRUST_FORWARDED_FOR` | Trust the proxy's forwarded headers. Set to `true` **only behind a proxy that appends the real client IP as the rightmost `X-Forwarded-For` entry and sets `X-Forwarded-Proto`** (Heroku router contract). Rate limits key on the rightmost `X-Forwarded-For` entry (everything left of it is client-supplied); the CSRF same-origin check and the Auth0 callback URL take the scheme from the first `X-Forwarded-Proto` value (`http`/`https` only). **Required on Heroku**: without it every browser `POST` under `/api` returns 403 "CSRF check failed" (#129). | `false` |
+| `WEB_TRUST_FORWARDED_FOR` | Trust the proxy's forwarded headers. Set to `true` **only behind a proxy that appends the real client IP as the rightmost `X-Forwarded-For` entry and sets `X-Forwarded-Proto`** (Heroku router contract). Rate limits key on the rightmost `X-Forwarded-For` entry (everything left of it is client-supplied); the CSRF same-origin check and the Auth0 callback URL take the scheme from `X-Forwarded-Proto` (`http`/`https` only), and only when every value it carries agrees — a header whose values disagree is not trusted and the scheme falls back to the connection's own. **Required on Heroku**: without it every browser `POST` under `/api` returns 403 "CSRF check failed" (#129). | `false` |
 | `WEB_LOGIN_BACKOFF_CAP_SECONDS` | Cap for the exponential delay applied after consecutive failed admin logins (`0` disables the delay) | 5 |
 | `DATABASE_URL` | Postgres URL. Enables caption history **and** the per-platform publish records/lease (`pv2_publish_record`, #85). **Absent:** both degrade to the legacy file-based posted-state (`~/.cache/publisher_v2/posted.json`) — no per-platform retry granularity: a partial publish records the image as posted (any-success semantics) and failed platforms are not retried automatically. | (unset) |
 | `PUBLISH_TIMEOUT_SECONDS` | Default per-publisher timeout (min 5s) | 120 |
@@ -557,6 +557,39 @@ In multi-tenant mode, the web UI still needs a consistent security posture per `
 ```bash
 heroku config:set WEB_TRUST_FORWARDED_FOR=true -a YOUR_APP
 ```
+
+**Do not set this flag unless a proxy really is in front of the app.** With it
+set on a directly exposed instance there is no proxy value to disagree with,
+so whatever the client sends is the only value present and is trusted — the
+scheme becomes "whatever the caller claims". That is the flag's documented
+contract rather than a defect in the parsing, and no parsing rule can detect
+it; the blast radius is the scheme half of the CSRF same-origin comparison
+(the host half is still the real `Host` header) and the localhost branch of
+the Auth0 callback.
+
+If the flag is missing on a dyno the app now says so once at startup
+(`forwarded_headers_untrusted_on_heroku`), and a CSRF rejection caused by it
+carries a `hint` naming the flag — the plain "cross-origin Origin" reason on
+its own points at the browser rather than at the proxy.
+
+**Double proxy (Cloudflare in front of Heroku).** `X-Forwarded-Proto` is
+honoured only when every value it carries agrees. No position in a disagreeing
+list is trustworthy: if a client sends `X-Forwarded-Proto: https` and a proxy
+appends its own `http`, the leftmost entry is the client's forgery, so the app
+falls back to the connection's scheme instead of guessing.
+
+With Cloudflare's SSL mode set to **Flexible**, Cloudflare terminates TLS and
+connects to Heroku over plain HTTP. The forwarded values then genuinely
+disagree (`https` from Cloudflare, `http` for the hop Heroku saw), the scheme
+falls back to `http`, and the 403 returns while the browser's `Origin` is
+`https://…`. `WEB_TRUST_FORWARDED_FOR` does not fix it, because the header is
+telling the truth about a downgraded hop. Use **Full** or **Full (strict)**,
+where both hops are HTTPS, the values agree, and the scheme resolves to
+`https`. Where the chain appends its value, that 403 is logged with a `hint`
+naming the disagreement rather than the generic cross-origin reason. Where the
+nearest proxy overwrites instead, the header simply agrees on `http`, the
+scheme resolves to `http` and the 403 carries no hint — the app cannot tell
+that case apart from a genuinely plain-HTTP deployment.
 
 ### 10.3 Orchestrator-delivered runtime config (non-secret)
 
