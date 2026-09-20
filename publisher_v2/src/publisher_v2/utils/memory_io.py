@@ -27,9 +27,24 @@ class MemoryReader(io.RawIOBase):
         return self._pos
 
     def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
-        base = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: len(self._mv)}[whence]
-        self._pos = max(0, base + offset)
+        bases = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: len(self._mv)}
+        if whence not in bases:
+            # What every other file object raises; a KeyError here would read as
+            # a bug in the caller's dict handling rather than a bad argument.
+            raise ValueError(f"invalid whence ({whence}, should be 0, 1 or 2)")
+        self._pos = max(0, bases[whence] + offset)
         return self._pos
+
+    def close(self) -> None:
+        """Release the exported buffer, then close.
+
+        Without this the memoryview outlives the reader and keeps the caller's
+        bytearray un-resizable until the garbage collector gets to it — a
+        BufferError far from the code that caused it.
+        """
+        mv, self._mv = self._mv, memoryview(b"")
+        mv.release()
+        super().close()
 
     def readinto(self, buffer: Any) -> int:
         n = max(0, min(len(buffer), len(self._mv) - self._pos))

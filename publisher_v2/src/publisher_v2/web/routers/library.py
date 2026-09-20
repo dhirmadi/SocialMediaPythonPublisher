@@ -579,7 +579,7 @@ async def _read_single_file_part(request: Request, max_bytes: int) -> tuple[byte
 
     max_mb = max_bytes // (1024 * 1024)
     too_large = HTTPException(
-        status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+        status_code=status.HTTP_413_CONTENT_TOO_LARGE,
         detail=f"File too large (> {max_bytes} bytes). Maximum: {max_mb} MB",
     )
     ctype, params = parse_options_header(request.headers.get("content-type", ""))
@@ -702,7 +702,7 @@ async def upload_file(
         try:
             if int(declared) > max_bytes + _MULTIPART_OVERHEAD_BYTES:
                 raise HTTPException(
-                    status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+                    status_code=status.HTTP_413_CONTENT_TOO_LARGE,
                     detail=f"File too large (Content-Length {declared}). Maximum: {max_mb} MB",
                 )
         except ValueError:
@@ -713,6 +713,11 @@ async def upload_file(
     # Validate content via magic bytes (do NOT trust client-supplied
     # Content-Type). Pillow parsing is CPU-bound — off the event loop (#90).
     # The bytearray is passed as-is: no second copy of the upload (#136).
+    #
+    # Do NOT append to `data` past this point. Both calls below take a
+    # memoryview over this bytearray (utils/memory_io.reader_over), and a
+    # bytearray cannot be resized while an exported buffer is live — an
+    # `extend()` here raises BufferError at runtime, not at import.
     content_type = await asyncio.to_thread(_verify_image_bytes, data)
 
     # Sanitize filename
