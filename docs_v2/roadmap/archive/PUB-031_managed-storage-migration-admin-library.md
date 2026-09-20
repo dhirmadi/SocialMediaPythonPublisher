@@ -147,7 +147,7 @@ Extend the existing single-page admin template with a library panel. Only visibl
 - **AC2**: `--dry-run` lists files with sizes that would be copied, outputs summary `{total_files, total_bytes}`, writes nothing to R2.
 - **AC3**: Normal run copies each image from Dropbox to R2 target prefix preserving filename. For each image, if a `.txt` sidecar exists in Dropbox, it is also copied.
 - **AC4**: Subfolder structure is preserved: images in `archive/`, `keep/`, `remove/` under the Dropbox source folder are copied to matching subprefixes under the R2 target prefix.
-- **AC5**: Idempotency: re-running the tool skips files where the target key already exists. When Dropbox `content_hash` is available and target `ETag` differs, the file is re-copied (overwritten).
+- **AC5**: Idempotency: re-running the tool skips files where the target key already exists. ~~When Dropbox `content_hash` is available and target `ETag` differs, the file is re-copied (overwritten).~~ **Retired by #142:** R2's ETag is an MD5 and Dropbox's `content_hash` is a block SHA256, so they can never compare equal and the re-copy arm never fired. Resume is presence-based; `--no-resume` forces a re-copy. See `docs_v2/03_Architecture/ARCHITECTURE.md` (Migration CLI).
 - **AC6**: `--limit N` copies at most N images (excludes sidecars from the count).
 - **AC7**: Per-file errors (download/upload failure) are logged and counted; the tool continues and prints a summary with `{copied, skipped, errors}` at exit. Exit code 0 if no errors, 1 if any errors.
 - **AC8**: No secrets (`refresh_token`, `access_key_id`, `secret_access_key`) appear in log output. `SanitizingFilter` covers migration log keys.

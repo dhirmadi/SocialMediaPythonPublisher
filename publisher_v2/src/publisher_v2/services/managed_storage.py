@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import io
+import logging
 import os
 import threading
 import time
@@ -25,6 +26,9 @@ from tenacity import retry, retry_if_exception, stop_after_attempt, wait_exponen
 from publisher_v2.config.schema import ManagedStorageConfig
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.services.storage_protocol import FileMetadata, ThumbnailFormat, ThumbnailSize
+from publisher_v2.utils.logging import log_json
+
+logger = logging.getLogger("publisher_v2.services.managed_storage")
 
 # Map protocol ThumbnailSize values to (width, height) for Pillow resize
 _SIZE_MAP: dict[str, tuple[int, int]] = {
@@ -461,7 +465,20 @@ class ManagedStorage:
             self._count_ops()
             try:
                 resp = self.client.head_object(Bucket=self._bucket, Key=key)
-            except ClientError:
+            except ClientError as exc:
+                # #142: presence is now the migration tool's only resume gate, so a
+                # 403 or a throttle read as "missing" would silently re-copy the
+                # whole library. Absence is expected and stays quiet; anything else
+                # is a fault worth a line.
+                code = str((exc.response or {}).get("Error", {}).get("Code", ""))
+                if code not in ("404", "NoSuchKey", "NotFound"):
+                    log_json(
+                        logger,
+                        logging.WARNING,
+                        "head_object_failed",
+                        code=code or "unknown",
+                        key_length=len(key),
+                    )
                 return None
             return {
                 "size": resp.get("ContentLength"),
@@ -470,6 +487,10 @@ class ManagedStorage:
             }
 
         return await asyncio.to_thread(_head)
+
+    async def exists(self, key: str) -> bool:
+        """True when the object is present (#142). One head_object, counted."""
+        return await self.head_object(key) is not None
 
     async def delete_object(self, key: str) -> None:
         def _delete() -> None:

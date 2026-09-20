@@ -511,3 +511,39 @@ class TestStorageOpsCounter:
         assert result == b"ok"
         # 3 attempts -> 3 operations
         assert storage.drain_ops_count() == 3
+
+
+class TestHeadObjectFailureIsVisible:
+    """#142: presence is the migration tool's only resume gate, so a head that
+    fails for a reason other than absence must not pass silently as "missing"."""
+
+    @staticmethod
+    def _client_error(code: str):
+        from botocore.exceptions import ClientError
+
+        return ClientError({"Error": {"Code": code, "Message": "m"}}, "HeadObject")
+
+    async def test_a_denied_head_is_logged(self, storage, mock_s3_client, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.services.managed_storage")
+        mock_s3_client.head_object.side_effect = self._client_error("403")
+
+        assert await storage.head_object("folder/a.jpg") is None
+        assert await storage.exists("folder/a.jpg") is False
+
+        events = [r.getMessage() for r in caplog.records if "head_object_failed" in r.getMessage()]
+        assert events, caplog.text
+        assert '"code": "403"' in events[0]
+        # The key can carry tenant folder names; log its shape, not its value.
+        assert "folder/a.jpg" not in events[0]
+
+    async def test_a_missing_object_stays_quiet(self, storage, mock_s3_client, caplog) -> None:
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.services.managed_storage")
+        mock_s3_client.head_object.side_effect = self._client_error("404")
+
+        assert await storage.head_object("folder/a.jpg") is None
+
+        assert not [r for r in caplog.records if "head_object_failed" in r.getMessage()], caplog.text

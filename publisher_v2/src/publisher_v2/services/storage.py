@@ -398,6 +398,9 @@ class DropboxStorage:
     async def head_object(self, key: str) -> dict | None:
         raise StorageNotSupportedError("DropboxStorage does not support object-level head")
 
+    async def exists(self, key: str) -> bool:
+        raise StorageNotSupportedError("DropboxStorage does not support object-level existence checks")
+
     async def delete_object(self, key: str) -> None:
         raise StorageNotSupportedError("DropboxStorage does not support object-level delete")
 
