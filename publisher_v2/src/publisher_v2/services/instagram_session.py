@@ -31,7 +31,15 @@ from publisher_v2.utils.logging import log_json
 
 logger = logging.getLogger("publisher_v2.instagram_session")
 
+# Instagram refused the login itself — a challenge, 2FA, or bad credentials.
+# Retrying soon just re-triggers it, so sit out a day.
 CHALLENGE_BACKOFF_HOURS = 24
+
+# The login never reached a verdict: a network error, throttling, or the
+# publish timeout cancelling the task. A failed password login must still not
+# repeat on every publish, but a day is a large blast radius for a scheduled
+# publisher when the cause may already be gone.
+TRANSIENT_BACKOFF_HOURS = 1
 
 
 class SessionStore(Protocol):
@@ -50,8 +58,27 @@ class SessionStore(Protocol):
         ...
 
 
+def _is_regular_file(path: Path) -> bool:
+    """True only for a real file, never for a symlink.
+
+    The legacy session path is relative to the process working directory, so
+    anything able to write there could point it at another file, and reading a
+    followed link would treat arbitrary JSON as a session. `Path.is_file()`
+    follows links, so it is not enough on its own.
+
+    The unlink side needs no such protection — `os.unlink` removes the
+    directory entry and never follows a link — so the guard there is only
+    politeness about not deleting someone else's link.
+    """
+    return path.is_file() and not path.is_symlink()
+
+
 def challenge_backoff_until() -> datetime:
     return datetime.now(UTC) + timedelta(hours=CHALLENGE_BACKOFF_HOURS)
+
+
+def transient_backoff_until() -> datetime:
+    return datetime.now(UTC) + timedelta(hours=TRANSIENT_BACKOFF_HOURS)
 
 
 class FileSessionStore:
@@ -69,7 +96,12 @@ class FileSessionStore:
         if not path:
             base = os.environ.get("XDG_CACHE_HOME") or os.path.join(Path.home(), ".cache")
             path = os.path.join(base, "publisher_v2", "instagram_session.json")
-            self._legacy_path = Path(self.LEGACY_DEFAULT_PATH)
+            # Pinned to the working directory at construction: a bare relative
+            # path would otherwise be re-resolved against whatever the CWD
+            # happens to be at call time. abspath, not resolve: resolve()
+            # follows symlinks, which would bake the *target* of a planted link
+            # into the path and defeat the symlink check at the point of use.
+            self._legacy_path = Path(os.path.abspath(self.LEGACY_DEFAULT_PATH))
         self._path = Path(path)
 
     def _blocked_path(self) -> Path:
@@ -79,7 +111,9 @@ class FileSessionStore:
         """Write ``text`` 0600 atomically: temp file in the same directory, fsync, replace."""
         target.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
         tmp = target.with_name(f".{target.name}.{os.getpid()}.{secrets.token_hex(4)}.tmp")
-        fd = os.open(tmp, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, 0o600)
+        # O_EXCL: the name is random, but refusing to reuse an existing path
+        # is free and removes the symlink/clobber case entirely.
+        fd = os.open(tmp, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
         try:
             with os.fdopen(fd, "w") as fh:
                 fh.write(text)
@@ -101,7 +135,7 @@ class FileSessionStore:
         # #133: carry over a session stored at the old relative default once, so
         # the move to $XDG_CACHE_HOME does not force a fresh password login. The
         # plaintext legacy file is removed once the copy is written.
-        if self._legacy_path is not None and self._legacy_path.is_file():
+        if self._legacy_path is not None and _is_regular_file(self._legacy_path):
             try:
                 legacy = json.loads(self._legacy_path.read_text())
             except (OSError, json.JSONDecodeError):
@@ -130,8 +164,9 @@ class FileSessionStore:
 
     def _clear_sync(self) -> None:
         self._path.unlink(missing_ok=True)
-        # Never resurrect an expired session from the pre-#133 location.
-        if self._legacy_path is not None:
+        # Never resurrect an expired session from the pre-#133 location — but
+        # only ever unlink a real file there. See _is_regular_file.
+        if self._legacy_path is not None and _is_regular_file(self._legacy_path):
             self._legacy_path.unlink(missing_ok=True)
 
     async def clear(self, tenant: str) -> None:

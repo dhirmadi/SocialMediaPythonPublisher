@@ -1,21 +1,47 @@
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any
 
 from instagrapi import Client
-from instagrapi.exceptions import ChallengeError, ChallengeRequired, LoginRequired, TwoFactorRequired
+from instagrapi.exceptions import (
+    ChallengeError,
+    ChallengeRequired,
+    ClientConnectionError,
+    ClientIncompleteReadError,
+    ClientRequestTimeout,
+    LoginRequired,
+    TwoFactorRequired,
+)
 
 from publisher_v2.config.schema import InstagramConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.instagram_session import (
+    TRANSIENT_BACKOFF_HOURS,
     SessionStore,
     build_session_store,
     challenge_backoff_until,
+    transient_backoff_until,
 )
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.utils.logging import log_json, log_publisher_publish, now_monotonic
+
+# A failed-login backoff write must not outlive the publish deadline it is
+# already past; the pre-written 24h block is the safe fallback.
+_BACKOFF_WRITE_TIMEOUT_SECONDS = 5.0
+
+# A login that never got an answer. Everything NOT listed here is treated as a
+# verdict from Instagram and keeps the full backoff — see _password_login.
+_TRANSIENT_LOGIN_ERRORS = (
+    ClientConnectionError,
+    ClientRequestTimeout,
+    # Unreachable from the private-request login path (it is raised by
+    # public_request), kept as defence in depth.
+    ClientIncompleteReadError,
+    asyncio.CancelledError,
+)
 
 logger = logging.getLogger("publisher_v2.publishers.instagram")
 
@@ -42,6 +68,29 @@ def _has_session_identity(settings: dict[str, Any]) -> bool:
     )
 
 
+# The parts of a stored session that identify the *device*, not the login.
+# Instagram challenges a familiar account arriving from an unfamiliar device,
+# so these have to outlive the dead credentials they were stored beside.
+_DEVICE_KEYS = (
+    "uuids",
+    "device_settings",
+    "user_agent",
+    # Sent as X-MID and the locale/country/timezone headers. Leaving these to
+    # instagrapi's US/en_US defaults while carrying a UA whose locale segment
+    # says otherwise is the device discontinuity this is meant to prevent.
+    "mid",
+    "country",
+    "country_code",
+    "locale",
+    "timezone_offset",
+)
+
+
+def _device_fingerprint(stale: dict[str, Any]) -> dict[str, Any]:
+    # `is not None`, not truthiness: timezone_offset 0 is UTC, a real value.
+    return {key: stale[key] for key in _DEVICE_KEYS if stale.get(key) is not None and stale[key] != ""}
+
+
 def _carry_device(client: Client, stale: dict[str, Any]) -> None:
     """Carry the device fingerprint (not the dead cookies) onto a fresh Client (#133).
 
@@ -50,8 +99,34 @@ def _carry_device(client: Client, stale: dict[str, Any]) -> None:
     """
     if stale.get("uuids"):
         client.set_uuids(stale["uuids"])
+    # Request context before the UA: set_locale rebuilds the UA from the
+    # device, so applying it afterwards would discard the stored string.
+    # Country AFTER locale: set_locale ends by calling set_country with the
+    # locale's own region, which would otherwise overwrite a stored country
+    # that disagrees with it.
+    if stale.get("locale"):
+        client.set_locale(stale["locale"])
+    if stale.get("country"):
+        client.set_country(stale["country"])
+    if stale.get("country_code"):
+        client.set_country_code(stale["country_code"])
+    if stale.get("timezone_offset") is not None:
+        client.set_timezone_offset(stale["timezone_offset"])
+    if stale.get("mid"):
+        client.mid = stale["mid"]
     if stale.get("device_settings"):
         client.set_device(stale["device_settings"])
+    # Unconditionally, and after set_device: `""` makes instagrapi derive the UA
+    # from the device just carried, so a fingerprint with device settings but no
+    # stored UA still gets a UA describing THAT device. Skipping the call would
+    # leave the UA derived at construction from the default device — a UA and a
+    # device that describe different phones, which is worse than either alone.
+    #
+    # Suppressed: deriving renders a template over device_settings, so a stored
+    # session with a truncated device dict raises KeyError. That would surface
+    # as a login verdict and cost a 24h block without ever attempting the
+    # login, on every publish. A default UA is survivable; that loop is not.
+    with contextlib.suppress(KeyError):
         client.set_user_agent(stale.get("user_agent") or "")
 
 
@@ -105,6 +180,16 @@ class InstagramPublisher(Publisher):
             self._client.challenge_code_handler = _no_interactive_challenge_code
         return self._client
 
+    def _drop_client(self) -> None:
+        """Stop using the Client a failed login touched.
+
+        `asyncio.to_thread` cannot be cancelled: after a publish timeout the
+        worker keeps running `login()` against this object, so the next publish
+        must not share its `requests.Session`.
+        """
+        self._client = None
+        self._logged_in = False
+
     async def _password_login(self, login_fn: Callable[[], dict[str, Any]]) -> dict[str, Any]:
         """Run one password login with the 24h backoff written FIRST (#133).
 
@@ -117,21 +202,76 @@ class InstagramPublisher(Publisher):
             # Fail closed: without a stored backoff a failed login could repeat on
             # every publish, so do not risk the password login at all.
             raise RuntimeError("instagram backoff could not be stored; skipping password login")
-        settings = await asyncio.to_thread(login_fn)
+        try:
+            settings = await asyncio.to_thread(login_fn)
+        except _TRANSIENT_LOGIN_ERRORS as exc:
+            # The login never reached a verdict: the network failed, or our own
+            # publish timeout cancelled the task. Still blocked, so a failure
+            # cannot repeat on every publish, but not for a day.
+            self._drop_client()
+            with contextlib.suppress(Exception):
+                # Bounded: under cancellation the deadline has already passed
+                # and no further cancel will arrive, so a hung store would
+                # otherwise hold the task open indefinitely. The 24h block
+                # written before the login stands if this cannot be shortened.
+                await asyncio.wait_for(
+                    self._store.set_blocked_until(self._tenant, transient_backoff_until()),
+                    timeout=_BACKOFF_WRITE_TIMEOUT_SECONDS,
+                )
+            log_json(
+                logger,
+                logging.WARNING,
+                "instagram_password_login_transient_failure",
+                error_type=type(exc).__name__,
+                backoff_hours=TRANSIENT_BACKOFF_HOURS,
+            )
+            raise
+        except BaseException:
+            # Anything else is Instagram giving a verdict — a challenge, 2FA,
+            # bad credentials, throttling, an action block. Retrying within the
+            # hour is what escalates to a challenge, so the full block stands.
+            #
+            # Deliberately an allow-list of transient errors rather than a list
+            # of verdicts: the verdict list would have to be exhaustive to be
+            # safe, and an instagrapi upgrade adding a new refusal would
+            # silently reopen the hourly-retry hole. HTTP 429 is exactly that
+            # case — ClientThrottledError is a direct ClientError, so no tuple
+            # built from the throttling types catches it.
+            #
+            # BaseException, so KeyboardInterrupt and SystemExit pass through
+            # here too. That is deliberate: the bare `raise` below re-raises
+            # them untouched with the pre-written 24h block intact, and they
+            # still get _drop_client(), which matters because the to_thread
+            # worker may still be logging in against that Client.
+            self._drop_client()
+            raise
         await self._store.set_blocked_until(self._tenant, None)
         return settings
 
     async def _relogin(self, config: Any) -> dict[str, Any]:
         """#133: the stored session expired — clear it and log in once on a fresh Client.
 
-        The device fingerprint (uuids, device settings) is carried over; only the
-        dead cookies/authorization go. A brand-new device is what triggers challenges.
+        The device fingerprint (uuids, device settings, user agent) is carried
+        over and re-persisted before the login is attempted; only the dead
+        cookies/authorization go. A brand-new device is what triggers
+        challenges, so the fingerprint has to survive a *failed* relogin too.
         """
         log_json(logger, logging.INFO, "instagram_session_expired_relogin")
         stale = await self._store.load(self._tenant) or {}
-        await self._store.clear(self._tenant)
-        self._client = None
-        self._logged_in = False
+
+        # One atomic write, not clear-then-save. `save` replaces the file (or
+        # the row) in a single step, so the device cannot be lost to a crash
+        # between the two, nor to a `save` that swallows its own failure after
+        # `clear` has already committed. If the relogin below fails, the device
+        # is already safe and the next publish after the block reuses it
+        # instead of logging in from a brand-new one.
+        fingerprint = _device_fingerprint(stale)
+        if fingerprint:
+            await self._store.save(self._tenant, fingerprint)
+        else:
+            await self._store.clear(self._tenant)
+
+        self._drop_client()
 
         def _do() -> dict[str, Any]:
             client = self._get_client()
@@ -146,9 +286,18 @@ class InstagramPublisher(Publisher):
     async def _back_off(self, exc: BaseException, start: float) -> PublishResult:
         """Never loop password logins into a challenge — record a 24h backoff."""
         until = challenge_backoff_until()
-        await self._store.set_blocked_until(self._tenant, until)
-        self._logged_in = False
-        self._client = None
+        if not await self._store.set_blocked_until(self._tenant, until):
+            # Fail-closed everywhere else; here the publish has already failed,
+            # so the only thing lost is the record. Say so loudly: without it
+            # the next publish retries immediately, which is a narrower version
+            # of the loop this issue removes.
+            log_json(
+                logger,
+                logging.ERROR,
+                "instagram_backoff_not_stored",
+                detail="the challenge backoff could not be written; the next publish will retry immediately",
+            )
+        self._drop_client()
         error = f"instagram challenge/auth required ({type(exc).__name__}); backing off until {until.isoformat()}"
         log_json(
             logger,

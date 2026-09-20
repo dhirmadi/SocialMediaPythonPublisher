@@ -7,11 +7,20 @@ from types import SimpleNamespace
 
 import pytest
 from instagrapi.exceptions import (
+    BadCredentials,
     BadPassword,
+    CaptchaChallengeRequired,
     ChallengeRequired,
     ChallengeUnknownStep,
+    ClientConnectionError,
+    ClientThrottledError,
+    FeedbackRequired,
     LoginRequired,
     PhotoNotUpload,
+    PleaseWaitFewMinutes,
+    ProxyAddressIsBlocked,
+    RateLimitError,
+    SentryBlock,
     TwoFactorRequired,
 )
 from PIL import Image
@@ -842,3 +851,291 @@ def test_carried_device_recomputes_user_agent_on_a_real_client() -> None:
     assert fresh.get_settings()["uuids"] == stale["uuids"]
     assert fresh.user_agent == stale["user_agent"]
     assert "Pixel 7" in fresh.user_agent
+
+
+async def test_a_failed_relogin_keeps_the_device_fingerprint(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#133 review: clearing before the relogin loses the device when the relogin fails.
+
+    `_relogin` cleared the store, then attempted a password login. A transient
+    failure there — a connection error, throttling, or the publish timeout
+    cancelling the task — left nothing stored. After the 24h block the next
+    publish logs in from a brand-new device, which is precisely what triggers
+    the challenge this issue exists to avoid.
+    """
+    world, store, publisher, image = _expired_session_setup(
+        monkeypatch, tmp_path, login_raises=ClientConnectionError("network blip")
+    )
+    stale = {
+        "user_id": "42",
+        "session": "expired",
+        "uuids": {"phone_id": "p-1", "uuid": "u-1"},
+        "device_settings": {"model": "pixel"},
+        "user_agent": "Instagram 1.2.3 Android",
+    }
+    await store.save("default", stale)
+
+    result = await publisher.publish(str(image), "caption")
+
+    assert result.success is False
+    surviving = await store.load("default") or {}
+    assert surviving.get("uuids") == stale["uuids"], "device uuids were lost with the dead session"
+    assert surviving.get("device_settings") == stale["device_settings"], "device settings were lost"
+    assert surviving.get("user_agent") == stale["user_agent"]
+    # The dead credentials must NOT survive — that is what clearing is for.
+    assert "session" not in surviving
+    assert surviving.get("user_id") in (None, ""), "the dead session identity was kept"
+
+
+@pytest.mark.parametrize(
+    ("exc", "expect_long_block"),
+    [
+        (ChallengeRequired("challenge"), True),
+        (TwoFactorRequired("2fa"), True),
+        (BadPassword("wrong"), True),
+        (ClientConnectionError("network blip"), False),
+    ],
+)
+async def test_only_a_real_instagram_refusal_costs_a_full_day(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exc: Exception, expect_long_block: bool
+) -> None:
+    """#133 review: a 24h lockout for a network error is a large blast radius.
+
+    The issue asked for a back-off on Challenge/2FA. A failed password login
+    must still never repeat on every publish, so a transient failure is still
+    blocked — just for long enough to stop a loop, not for a day.
+    """
+    from datetime import UTC, datetime
+
+    from publisher_v2.services.instagram_session import CHALLENGE_BACKOFF_HOURS, TRANSIENT_BACKOFF_HOURS
+
+    world, store, publisher, image = _expired_session_setup(monkeypatch, tmp_path, login_raises=exc)
+    await store.save("default", {"user_id": "42", "session": "expired"})
+
+    result = await publisher.publish(str(image), "caption")
+    assert result.success is False
+
+    blocked_until = await store.get_blocked_until("default")
+    assert blocked_until is not None, "a failed password login must always leave a block"
+    hours = (blocked_until - datetime.now(UTC)).total_seconds() / 3600
+    expected = CHALLENGE_BACKOFF_HOURS if expect_long_block else TRANSIENT_BACKOFF_HOURS
+    assert expected - 0.5 <= hours <= expected + 0.5, f"{type(exc).__name__} blocked for {hours:.1f}h"
+
+
+async def test_carried_device_keeps_the_full_request_context_on_a_real_client() -> None:
+    """#133 review: uuids and device settings alone are not the whole fingerprint.
+
+    `country`, `country_code`, `locale`, `timezone_offset` and `mid` are sent as
+    `X-IG-App-Startup-Country`, the three locale headers, `X-IG-Timezone-Offset`
+    and `X-MID`. Resetting them to instagrapi's US/en_US defaults while carrying
+    a UA whose locale segment says otherwise is device discontinuity — exactly
+    what carrying the device is meant to prevent.
+    """
+    from instagrapi import Client
+
+    from publisher_v2.services.publishers.instagram import _carry_device, _device_fingerprint
+
+    original = Client(settings={})
+    # Deliberately divergent: set_locale ends by calling set_country with the
+    # locale's own region, so a consistent pair (DE + de_DE) would pass even if
+    # set_country were dropped from _carry_device entirely.
+    original.set_locale("en_US")
+    original.set_country("DE")
+    original.set_country_code(49)
+    original.set_timezone_offset(0)  # UTC: falsy, and was silently dropped
+    original.mid = "mid-token"
+    stale = dict(original.get_settings())
+    stale["mid"] = "mid-token"
+
+    fresh = Client(settings={})
+    _carry_device(fresh, _device_fingerprint(stale))
+
+    assert fresh.country == "DE", "set_locale's implicit set_country overwrote the stored country"
+    assert fresh.country_code == 49
+    assert fresh.locale == "en_US"
+    assert fresh.timezone_offset == 0, "a UTC offset was dropped as falsy"
+    assert fresh.mid == "mid-token"
+    assert fresh.get_settings()["uuids"] == stale["uuids"]
+    assert fresh.get_settings()["device_settings"] == stale["device_settings"]
+    assert fresh.get_settings()["user_agent"] == stale["user_agent"]
+
+
+@pytest.mark.parametrize(
+    "exc",
+    [
+        PleaseWaitFewMinutes("slow down"),
+        RateLimitError("rate limited"),
+        # HTTP 429. A direct ClientError, not a PrivateError, so no tuple built
+        # from the message-driven throttling types can catch it — and it is the
+        # likeliest throttling signal, since it fires on the status code.
+        ClientThrottledError("429"),
+        FeedbackRequired("action blocked"),
+        SentryBlock("anti-automation block"),
+        ProxyAddressIsBlocked("ip blacklisted"),
+        CaptchaChallengeRequired("captcha"),
+        BadCredentials("bad credentials"),
+    ],
+    ids=[
+        "please_wait",
+        "rate_limited",
+        "http_429",
+        "feedback_required",
+        "sentry_block",
+        "proxy_blocked",
+        "captcha",
+        "bad_credentials",
+    ],
+)
+async def test_only_a_failure_with_no_verdict_gets_the_short_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, exc: Exception
+) -> None:
+    """#133 review: a 1h block on throttling means ~24 password logins a day.
+
+    Password logins against an already-throttled or blocked account are what
+    escalates to a challenge, so classifying any of these as transient could
+    manufacture the failure this issue exists to prevent. The classification is
+    therefore an allow-list of transient errors, not a list of verdicts: an
+    exception nobody has classified costs a day, not 24 logins.
+    """
+    from datetime import UTC, datetime
+
+    from publisher_v2.services.instagram_session import CHALLENGE_BACKOFF_HOURS
+
+    world, store, publisher, image = _expired_session_setup(monkeypatch, tmp_path, login_raises=exc)
+    await store.save("default", {"user_id": "42", "session": "expired"})
+
+    assert (await publisher.publish(str(image), "caption")).success is False
+
+    blocked_until = await store.get_blocked_until("default")
+    assert blocked_until is not None
+    hours = (blocked_until - datetime.now(UTC)).total_seconds() / 3600
+    assert hours >= CHALLENGE_BACKOFF_HOURS - 0.5, f"{type(exc).__name__} only blocked for {hours:.1f}h"
+
+
+async def test_a_failed_login_drops_the_client_it_was_using(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """#133 review: `asyncio.to_thread` cannot be cancelled.
+
+    After a publish timeout the worker keeps running `client.login(...)` on the
+    object `self._client` still points at, so the next publish would touch the
+    same `requests.Session` the orphan may still be writing.
+    """
+    world, store, publisher, image = _expired_session_setup(
+        monkeypatch, tmp_path, login_raises=ClientConnectionError("network blip")
+    )
+    await store.save("default", {"user_id": "42", "session": "expired"})
+
+    assert (await publisher.publish(str(image), "caption")).success is False
+
+    assert publisher._client is None, "the client used by a failed login was kept"
+    assert publisher._logged_in is False
+
+
+async def test_a_symlinked_legacy_session_file_is_never_read_as_a_session(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """#133 security review: `.resolve()` follows symlinks.
+
+    Anything able to write the process working directory could point
+    `./instasession.json` at another file and have the migration read it as a
+    session, then copy it into the XDG store.
+
+    Only the read needs guarding: `os.unlink` removes the directory entry and
+    never follows a link, so `clear()` was never an arbitrary-file-delete. The
+    assertion below that the target survives would pass with or without the
+    guard, so it is kept only as a statement of that fact, not as proof.
+    """
+    import json as _json
+
+    from publisher_v2.services.instagram_session import FileSessionStore
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    victim = tmp_path / "victim.json"
+    victim.write_text(_json.dumps({"user_id": "stolen"}))
+    (tmp_path / "instasession.json").symlink_to(victim)
+
+    store = FileSessionStore(None)
+
+    assert await store.load("default") is None, "a symlinked legacy file was read as a session"
+    await store.clear("default")
+    assert victim.exists(), "clear() followed the symlink and deleted the target"
+
+
+async def test_a_backoff_that_cannot_be_written_is_escalated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, caplog
+) -> None:
+    """#133 security review: `_back_off` ignored the fail-closed signal.
+
+    `set_blocked_until` returns False when the block could not be stored.
+    `_password_login` checks it and refuses to log in, but the session-reuse
+    path reaches `_back_off` without a password login — there the publish
+    failed and nothing was recorded, so the next publish retries immediately:
+    a narrower version of the loop #133 removes.
+    """
+    import logging as _logging
+
+    # A live session whose upload is challenged: no password login happens, so
+    # the fail-closed check in _password_login is never consulted.
+    world, store, publisher, image = _expired_session_setup(
+        monkeypatch, tmp_path, upload_raises_after_relogin=ChallengeRequired("challenge")
+    )
+    await store.save("default", {"user_id": "42", "session": "fresh"})
+    world["session"] = "fresh"
+
+    async def _refuse(tenant, until):
+        return False
+
+    monkeypatch.setattr(store, "set_blocked_until", _refuse)
+
+    with caplog.at_level(_logging.ERROR, logger="publisher_v2.publishers.instagram"):
+        assert (await publisher.publish(str(image), "caption")).success is False
+
+    assert world["password_logins"] == [], "this path must not attempt a password login"
+    assert "instagram_backoff_not_stored" in caplog.text
+
+
+async def test_a_fingerprint_without_a_stored_user_agent_derives_one_from_its_device() -> None:
+    """#133 review: hoisting `set_user_agent` out of the device branch dropped this.
+
+    A fingerprint can hold device settings but no UA. Skipping the call leaves
+    the UA instagrapi derived at construction from its DEFAULT device, so the
+    UA and the device settings describe different phones — worse than either
+    consistently. Passing `""` makes instagrapi derive it from the device just
+    carried.
+    """
+    from instagrapi import Client
+
+    from publisher_v2.services.publishers.instagram import _carry_device
+
+    donor = Client(settings={})
+    # Start from the real default shape so every key the UA template needs is
+    # present, then change the phone it describes.
+    device = dict(donor.device_settings)
+    device.update({"manufacturer": "Google", "model": "Pixel 7"})
+    donor.set_device(device)
+    fingerprint = {"device_settings": device, "uuids": donor.get_settings()["uuids"]}
+    assert "user_agent" not in fingerprint
+
+    fresh = Client(settings={})
+    _carry_device(fresh, fingerprint)
+
+    assert "Pixel 7" in fresh.user_agent, fresh.user_agent
+    assert "Google" in fresh.user_agent, fresh.user_agent
+
+
+async def test_a_truncated_device_settings_does_not_cost_a_day() -> None:
+    """#133 review: `set_user_agent("")` renders a template from device_settings.
+
+    A stored session with an incomplete device dict cannot fill that template,
+    and the resulting KeyError lands in the verdict arm of `_password_login` —
+    so a malformed store would block for 24h and never even attempt the login,
+    repeating on every publish. A mismatched UA is survivable; this is not.
+    """
+    from instagrapi import Client
+
+    from publisher_v2.services.publishers.instagram import _carry_device
+
+    fresh = Client(settings={})
+
+    _carry_device(fresh, {"device_settings": {"model": "pixel"}})
+
+    assert fresh.device_settings["model"] == "pixel"
