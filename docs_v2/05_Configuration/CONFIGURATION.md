@@ -101,6 +101,14 @@ Environment variables provide coarse-grained feature switches without editing IN
 **Accepted values:** `true/false`, `1/0`, `yes/no`, `on/off` (case-insensitive).
 **Invalid values:** Raise `ConfigurationError` at startup.
 
+> **Deploy order for `FEATURE_VOICE_MATCHING` (#131).** In orchestrator mode
+> this flag became `bool | null`. Publisher must ship that handling before the
+> orchestrator sends `null` or omits the field, and must not be rolled back
+> past it afterwards. An older build treats `null` as a parse failure: it
+> fails for any tenant without a warm cache entry — cold start, a new dyno, a
+> first request — and serves stale config for the rest. An outage, not a
+> degraded default, and one that looks fine for a few minutes on a warm dyno.
+
 **Note:** Storage/Dropbox integration is always enabled (base feature, cannot be disabled).
 
 ### 2.2 Advanced Environment Overrides

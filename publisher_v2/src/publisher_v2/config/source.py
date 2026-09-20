@@ -20,6 +20,7 @@ from publisher_v2.config.orchestrator_client import OrchestratorClient, prefer_p
 from publisher_v2.config.orchestrator_models import (
     OrchestratorConfigV2,
     OrchestratorRuntimeResponse,
+    feature_kwargs,
 )
 from publisher_v2.config.runtime_cache import RuntimeConfigCache
 from publisher_v2.config.schema import (
@@ -400,14 +401,7 @@ class OrchestratorConfigSource:
         """
         Schema v2: parse additional blocks and maintain forward-compatibility.
         """
-        # #131: voice_matching_enabled counts as explicit only when the orchestrator sent a
-        # bool; absent or null lets the ApplicationConfig validator derive it from
-        # content.voice_profile.
-        # (Other flags keep the orchestrator model's defaults, so exclude_unset is not used.)
-        feature_values = cfg.features.model_dump()
-        if cfg.features.voice_matching_enabled is None:
-            feature_values.pop("voice_matching_enabled", None)
-        features = FeaturesConfig(**feature_values)
+        features = FeaturesConfig(**feature_kwargs(cfg.features))
 
         storage = cfg.storage
         if storage.provider not in ("dropbox", "managed"):
