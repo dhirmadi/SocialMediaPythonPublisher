@@ -195,7 +195,10 @@ class TelegramConfig(BaseModel):
 class InstagramConfig(BaseModel):
     username: str = Field(..., description="Instagram username")
     password: str = Field(..., description="Instagram password (instagrapi, optional in V2)")
-    session_file: str = Field(default="instasession.json", description="Session file path")
+    session_file: str | None = Field(
+        default=None,
+        description="Session file path; None uses $XDG_CACHE_HOME/publisher_v2/instagram_session.json (#133)",
+    )
 
 
 class EmailConfig(BaseModel):

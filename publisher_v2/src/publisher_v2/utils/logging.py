@@ -22,6 +22,15 @@ SENSITIVE_PATTERNS = [
     (re.compile(r"(?:secret_access_key[\"':\s=]+)[A-Za-z0-9+/=]{20,}"), "[S3_SECRET_KEY_REDACTED]"),
     # R2/S3 endpoint URLs (may contain account IDs)
     (re.compile(r"https://[a-f0-9]{32}\.r2\.cloudflarestorage\.com"), "[R2_ENDPOINT_REDACTED]"),
+    # #133: Instagram session material. instagrapi logs request/response bodies
+    # at DEBUG and ERROR, and WEB_DEBUG=1 is enough to reach DEBUG in production.
+    # Both the cookie form (sessionid=...) and the JSON/dict form
+    # ("sessionid": "..."), which is the shape of Client.get_settings() and of
+    # instagrapi's own `last_json` debug line.
+    (re.compile(r"(sessionid)[\"']?\s*[=:]\s*[\"']?[^;,\s\"'}]+"), r"\1=[REDACTED]"),
+    (re.compile(r"(csrftoken)[\"']?\s*[=:]\s*[\"']?[^;,\s\"'}]+"), r"\1=[REDACTED]"),
+    (re.compile(r"(ds_user_id)[\"']?\s*[=:]\s*[\"']?[^;,\s\"'}]+"), r"\1=[REDACTED]"),
+    (re.compile(r"IGT:2:[A-Za-z0-9+/=_-]+"), "[INSTAGRAM_BEARER_REDACTED]"),
 ]
 
 
@@ -87,6 +96,16 @@ def setup_logging(level: int = logging.INFO) -> None:
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
     logging.getLogger("telegram").setLevel(logging.WARNING)
+    # #133: instagrapi logs the username at INFO and full response bodies /
+    # last_json at DEBUG. Nothing at INFO carries a password or session token,
+    # but neither belongs in production logs. Left alone at DEBUG, which is
+    # exactly when an operator is diagnosing a login failure and wants them.
+    if level > logging.DEBUG:
+        # CRITICAL, not WARNING: instagrapi dumps the full response body at
+        # ERROR when a private response will not parse as JSON, which WARNING
+        # does not suppress. Its own failures still reach us as exceptions.
+        for _noisy in ("instagrapi", "private_request", "public_request"):
+            logging.getLogger(_noisy).setLevel(logging.CRITICAL)
 
 
 def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) -> None:
