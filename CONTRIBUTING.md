@@ -140,8 +140,7 @@ pip install -r requirements-dev.txt  # If available
 
 ```bash
 # Copy example files
-cp dotenv.example .env
-cp configfiles/SociaMediaConfig.ini.example configfiles/SocialMediaConfig.ini
+cp dotenv.v2.example .env
 
 # Edit with test credentials (never use production credentials!)
 ```

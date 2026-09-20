@@ -46,8 +46,7 @@ pip install -r requirements-dev.txt
 pre-commit install
 
 # 6. Copy example configuration files
-cp dotenv.example .env
-cp configfiles/SociaMediaConfig.ini.example configfiles/SocialMediaConfig.ini
+cp dotenv.v2.example .env
 
 # 7. Edit .env with your development credentials
 # NEVER commit this file!
@@ -101,7 +100,7 @@ SocialMediaPythonPublisher/
 │   └── REVIEW_SUMMARY.md
 │
 ├── configfiles/                # Configuration examples
-│   └── SociaMediaConfig.ini.example
+│   └── (INI config removed in #97 stage 4; see dotenv.v2.example)
 │
 ├── tests/                      # Test suite (to be created)
 │   ├── __init__.py

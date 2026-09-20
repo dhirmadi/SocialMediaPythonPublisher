@@ -114,11 +114,11 @@ All roles must:
 
 ## Security rules (non-negotiable)
 
-- **Never hard-code secrets.** Secrets come from `.env` and INI config files.
+- **Never hard-code secrets.** Secrets come from the environment (`.env` locally, config vars in deployment) or, in orchestrated mode, from the orchestrator's credential API — INI config was removed in #97 stage 4.
 - **Never log or echo** tokens, passwords, API keys.
 - **Preview mode is side-effect free**: must never publish, archive, or mutate cache/state.
 - **Web auth is mandatory**: all mutating endpoints require auth via `publisher_v2.web.auth`.
-- Admin requires HTTP auth (`WEB_AUTH_TOKEN` Bearer or `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) + server-enforced admin cookie (`pv2_admin`).
+- Admin mode for a browser session is the signed, tenant/host-bound admin cookie (`pv2_admin`); a valid cookie alone satisfies `require_auth` by default (#91 SEC-3 decision b). Machine clients use HTTP auth (`WEB_AUTH_TOKEN` Bearer or `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic), which satisfies `require_auth` but NOT `require_admin`. The library routes call `require_admin` unconditionally; the image routes in `web/app.py` call it only when admin mode is configured, so a header-only client can still mutate on an instance with no admin login set up. Set `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` to require header auth alongside a cookie session. See `.claude/rules/web-security.md`, which is the source of truth for this model.
 
 ## Backward compatibility
 
@@ -159,7 +159,7 @@ Before considering any roadmap item complete, all gates must pass:
 ## Git hygiene
 
 - Commit messages: imperative mood, concise, focused on *why*.
-- Never commit `.env`, `*.ini` (except `*.ini.example`), `*session.json`, `*.key`, `*.pem`.
+- Never commit `.env`, `configfiles/*.ini` (leftovers from the removed INI path may still hold credentials), `*session.json`, `*.key`, `*.pem`. `publisher_v2/alembic.ini` is tooling config and carries no secrets.
 - Run `make format` before committing to keep formatting consistent.
 
 ## Parent project: Platform Orchestrator

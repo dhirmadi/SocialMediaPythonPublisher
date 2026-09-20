@@ -153,7 +153,7 @@ CONTENT_SETTINGS={"hashtag_string": "#photo #art", "archive": true, "debug": fal
 # FEATURE_REMOVE_CURATE=true
 
 # Enable/disable auto-view mode (default: false)
-# AUTO_VIEW=false
+# FEATURE_AUTO_VIEW=false
 
 # =============================================================================
 # WEB UI CONFIGURATION (optional)

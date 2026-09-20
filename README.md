@@ -49,7 +49,7 @@ uv sync
 
 #### Run (Preview)
 ```bash
-make preview-v2 CONFIG=configfiles/fetlife.ini
+make preview-v2
 ```
 
 #### Run (Live)
@@ -67,7 +67,7 @@ make run-v2
 
 ### 🧭 CLI Flags
 
-- `--config <file.ini>` (required)
+- configuration is env-first: `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` plus secrets (`--config` is still accepted for compatibility but the file is ignored — INI support was removed in #97 stage 4)
 - `--select <filename>` select an exact image in Dropbox folder
 - `--dry-publish` run end‑to‑end but skip platform publishing + archiving
 - `--preview` human‑readable output; no platform calls, no archive, no cache updates
@@ -163,13 +163,13 @@ An optional minimal web interface is available, built on FastAPI:
 - Shows a random image from the configured Dropbox folder.
 - Lets you trigger AI analysis & caption generation (admin‑only).
 - Lets you publish using the existing publishers (admin‑only).
-- Uses HTTP auth plus a short‑lived admin session cookie to protect mutating actions.
+- HTTP auth (`WEB_AUTH_TOKEN` Bearer or `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) satisfies the transport-level check on mutating endpoints. Admin-gated actions additionally require the signed, short‑lived, host‑bound `pv2_admin` cookie a browser obtains by logging in: the library routes enforce that unconditionally, and the image routes enforce it whenever admin mode is configured. A valid cookie alone satisfies the transport check by default; set `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` to require header auth alongside it.
 - Mobile‑first, single‑page UI with admin‑only controls hidden for non‑admin users.
 
 To run locally:
 
 ```bash
-export CONFIG_PATH=configfiles/fetlife.ini
+# Configure via environment (see dotenv.v2.example); no INI file is used.
 uv run uvicorn publisher_v2.web.app:app --reload
 ```
 
