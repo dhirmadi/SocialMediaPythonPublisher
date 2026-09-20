@@ -455,3 +455,18 @@ class TestRejectedEndpointIsVisibleToOperators:
         storage_origins_for_config(other)
 
         assert len(self._warnings(caplog)) == 2, "a different endpoint is a different signal"
+
+    def test_a_long_hostile_scheme_is_truncated(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The scheme is tenant-controlled and unbounded: urlparse returns whatever precedes "://"."""
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.web")
+        config = TestPerTenantOrigins._config("a" * 100 + "x://host")
+
+        assert storage_origins_for_config(config) == []
+
+        events = self._warnings(caplog)
+        assert events, caplog.text
+        assert "a" * 100 not in events[0]
+        logged = json.loads(events[0])["scheme"]
+        assert len(logged) == 16, logged
