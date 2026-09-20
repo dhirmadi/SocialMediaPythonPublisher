@@ -30,7 +30,12 @@ def _is_stale(leased_at: datetime | None, ttl_seconds: float) -> bool:
     Naive timestamps (SQLite) are read as UTC, matching how they are written.
     """
     if leased_at is None:
-        return True
+        # Unreachable while the column is non-nullable, and deliberately NOT a
+        # reclaim signal if that ever changes: the SQL guard below tests
+        # ``leased_at < cutoff``, which is NULL — never true — for a NULL
+        # timestamp, so answering True here would report an ownership the
+        # UPDATE could not take.
+        return False
     if leased_at.tzinfo is None:
         leased_at = leased_at.replace(tzinfo=UTC)
     return (datetime.now(UTC) - leased_at).total_seconds() > ttl_seconds
@@ -39,11 +44,20 @@ def _is_stale(leased_at: datetime | None, ttl_seconds: float) -> bool:
 class PublishStore:
     """Async repository for the publish lease and per-platform publish state."""
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self, session_factory: async_sessionmaker[AsyncSession], lease_ttl_seconds: float | None = None
+    ) -> None:
         self._session_factory = session_factory
+        # #139/#162: the TTL is a caller-supplied setting, not something the DB
+        # layer reads from the environment on every acquire_lease.
+        self._lease_ttl_seconds = lease_ttl_seconds
 
-    async def acquire_lease(self, tenant: str, content_hash: str, platforms: list[str]) -> set[str]:
-        """Claim platforms for this run. Returns the set this run owns.
+    async def acquire_lease(self, tenant: str, content_hash: str, platforms: list[str]) -> dict[str, datetime]:
+        """Claim platforms for this run. Returns ``{platform: lease token}`` for the ones it owns.
+
+        The token is the exact ``leased_at`` this run stamped. Passing it back to
+        ``mark`` fences the write: a run whose lease was reclaimed after its TTL
+        lapsed can no longer overwrite the status of the run that took it over.
 
         - No row → insert a ``leased`` row and own the platform.
         - ``failed`` row → re-lease (retry allowed) and own it.
@@ -63,8 +77,12 @@ class PublishStore:
           and affects zero rows, instead of a stale in-memory read letting
           both callers believe they won the lease.
         """
-        ttl_seconds = load_runtime_settings().publish_lease_ttl_seconds
-        owned: set[str] = set()
+        ttl_seconds = (
+            self._lease_ttl_seconds
+            if self._lease_ttl_seconds is not None
+            else load_runtime_settings().publish_lease_ttl_seconds
+        )
+        owned: dict[str, datetime] = {}
         for platform in platforms:
             async with self._session_factory() as session:
                 existing = (
@@ -77,16 +95,27 @@ class PublishStore:
                     )
                 ).scalar_one_or_none()
                 if existing is None:
+                    # Stamped here rather than by the column's server default, so
+                    # the value handed back as the token is exactly the one in
+                    # the row (the default has second precision).
+                    token = datetime.now(UTC)
                     session.add(
-                        PublishRecord(tenant=tenant, content_hash=content_hash, platform=platform, status="leased")
+                        PublishRecord(
+                            tenant=tenant,
+                            content_hash=content_hash,
+                            platform=platform,
+                            status="leased",
+                            leased_at=token,
+                        )
                     )
                     try:
                         await session.commit()
-                        owned.add(platform)
+                        owned[platform] = token
                     except IntegrityError:
                         # Lost the race to a concurrent run — it owns the lease.
                         await session.rollback()
                 elif existing.status == "failed":
+                    token = datetime.now(UTC)
                     result = await session.execute(
                         sa_update(PublishRecord)
                         .where(
@@ -97,7 +126,7 @@ class PublishStore:
                         )
                         .values(
                             status="leased",
-                            leased_at=datetime.now(UTC),
+                            leased_at=token,
                             error=None,
                             finished_at=None,
                         )
@@ -106,7 +135,7 @@ class PublishStore:
                     await session.commit()
                     if getattr(result, "rowcount", 0) == 1:
                         # Lost the race to a concurrent re-lease attempt otherwise.
-                        owned.add(platform)
+                        owned[platform] = token
                 elif existing.status == "leased" and _is_stale(existing.leased_at, ttl_seconds):
                     # #139: the run holding this lease crashed between the lease
                     # and the mark. Reclaim with a single conditional UPDATE that
@@ -118,6 +147,7 @@ class PublishStore:
                     # rows stamped by the column's server default have
                     # second-precision timestamps that an equality test misses.
                     cutoff = datetime.now(UTC) - timedelta(seconds=ttl_seconds)
+                    token = datetime.now(UTC)
                     result = await session.execute(
                         sa_update(PublishRecord)
                         .where(
@@ -127,12 +157,12 @@ class PublishStore:
                             PublishRecord.status == "leased",
                             PublishRecord.leased_at < cutoff,
                         )
-                        .values(status="leased", leased_at=datetime.now(UTC), error=None, finished_at=None)
+                        .values(status="leased", leased_at=token, error=None, finished_at=None)
                         .execution_options(synchronize_session=False)
                     )
                     await session.commit()
                     if getattr(result, "rowcount", 0) == 1:
-                        owned.add(platform)
+                        owned[platform] = token
                         log_json(
                             logger,
                             logging.WARNING,
@@ -151,9 +181,41 @@ class PublishStore:
         status: str,
         post_id: str | None = None,
         error: str | None = None,
-    ) -> None:
-        """Record the outcome for one platform."""
+        lease_token: datetime | None = None,
+    ) -> bool:
+        """Record the outcome for one platform. Returns whether the write landed.
+
+        With ``lease_token`` the write is fenced: it only lands while the row
+        still carries the ``leased_at`` this run stamped. Without the fence, a
+        run whose lease had already been reclaimed past the TTL could mark the
+        row ``failed`` — making it re-leasable — while the run that took it over
+        was still publishing, so a third run could post the same image again.
+        """
         async with self._session_factory() as session:
+            if lease_token is not None:
+                result = await session.execute(
+                    sa_update(PublishRecord)
+                    .where(
+                        PublishRecord.tenant == tenant,
+                        PublishRecord.content_hash == content_hash,
+                        PublishRecord.platform == platform,
+                        PublishRecord.leased_at == lease_token,
+                    )
+                    .values(status=status, post_id=post_id, error=error, finished_at=datetime.now(UTC))
+                    .execution_options(synchronize_session=False)
+                )
+                await session.commit()
+                if getattr(result, "rowcount", 0) == 1:
+                    return True
+                log_json(
+                    logger,
+                    logging.WARNING,
+                    "publish_mark_lease_lost",
+                    tenant=tenant,
+                    platform=platform,
+                    status=status,
+                )
+                return False
             row = (
                 await session.execute(
                     select(PublishRecord).where(
@@ -171,6 +233,7 @@ class PublishStore:
             row.error = error
             row.finished_at = datetime.now(UTC)
             await session.commit()
+            return True
 
     async def posted_platforms(self, tenant: str, content_hash: str) -> set[str]:
         """Platforms already ``published`` for this tenant + content hash."""

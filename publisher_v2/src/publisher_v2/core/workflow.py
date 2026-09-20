@@ -9,6 +9,7 @@ import os
 import random
 import tempfile
 import uuid
+from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -106,6 +107,8 @@ class WorkflowOrchestrator:
         self._tenant = tenant
         self._caption_store = caption_store
         self._publish_store = publish_store
+        # #139: platform -> the leased_at this run stamped, used to fence marks.
+        self._lease_tokens: dict[str, datetime] = {}
         self.logger = logging.getLogger("publisher_v2.workflow")
 
     def _already_posted(
@@ -896,8 +899,14 @@ class WorkflowOrchestrator:
                         for platform in sorted(pending_leases)
                     ]
                 )
-                with contextlib.suppress(asyncio.CancelledError):
+                try:
                     await asyncio.shield(release)
+                except asyncio.CancelledError:
+                    # Let the release finish (it is shielded), then re-raise:
+                    # swallowing the cancellation here turned an aborted run into
+                    # a normal WorkflowResult and lost an outer asyncio.timeout.
+                    await release
+                    raise
 
     async def _claim_publish_targets(
         self,
@@ -920,7 +929,7 @@ class WorkflowOrchestrator:
         try:
             already_published = await store.posted_platforms(self._tenant, lease_hash)
             to_claim = [p.platform_name for p in enabled_publishers if p.platform_name not in already_published]
-            owned = await store.acquire_lease(self._tenant, lease_hash, to_claim)
+            owned_tokens = await store.acquire_lease(self._tenant, lease_hash, to_claim)
         except Exception:
             log_json(
                 self.logger,
@@ -930,6 +939,10 @@ class WorkflowOrchestrator:
                 exc_info=True,
             )
             return list(enabled_publishers)
+        # #139: the token each lease was stamped with, so a later mark can be
+        # fenced against a lease this run no longer holds.
+        self._lease_tokens.update(owned_tokens)
+        owned = set(owned_tokens)
         blocked = set(to_claim) - owned
         for name in already_published:
             publish_results[name] = PublishResult(success=True, platform=name)
@@ -963,7 +976,15 @@ class WorkflowOrchestrator:
         if self._publish_store is None or not lease_hash:
             return
         try:
-            await self._publish_store.mark(self._tenant, lease_hash, platform, status, post_id=post_id, error=error)
+            await self._publish_store.mark(
+                self._tenant,
+                lease_hash,
+                platform,
+                status,
+                post_id=post_id,
+                error=error,
+                lease_token=self._lease_tokens.get(platform),
+            )
         except Exception:
             log_json(self.logger, logging.WARNING, "publish_record_mark_failed", platform=platform, exc_info=True)
 

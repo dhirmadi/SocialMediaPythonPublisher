@@ -372,7 +372,7 @@ class _LeaseProbingAnalyzer(_CountingAnalyzer):
     def __init__(self, store: PublishStore, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._store = store
-        self.probe: set[str] | None = None
+        self.probe: dict[str, object] | None = None
 
     async def analyze(self, url_or_bytes: str | bytes) -> Any:
         self.probe = await self._store.acquire_lease("t2", IMAGE_SHA256, ["telegram"])
@@ -391,7 +391,7 @@ async def test_lease_is_already_held_while_the_ai_stage_runs(publish_store: Publ
 
     await orchestrator.execute(select_filename="test.jpg")
 
-    assert analyzer.probe == set()
+    assert analyzer.probe == {}
 
 
 async def test_ai_stage_failure_leaves_no_leased_row_behind(publish_store: PublishStore) -> None:
@@ -407,7 +407,7 @@ async def test_ai_stage_failure_leaves_no_leased_row_behind(publish_store: Publi
     with pytest.raises(RuntimeError):
         await orchestrator.execute(select_filename="test.jpg")
 
-    assert analyzer.probe == set()  # the lease was held when the AI stage ran
+    assert analyzer.probe == {}, "the lease was held when the AI stage ran"
     rows = await _lease_rows(publish_store)
     assert [r.status for r in rows if r.status == "leased"] == []
     assert calls == {}
@@ -521,6 +521,49 @@ async def test_cancelled_run_still_releases_its_lease(publish_store: PublishStor
     assert calls == {}
 
 
+async def test_a_cancelled_run_stays_cancelled(publish_store: PublishStore) -> None:
+    """#139: the release is shielded, the cancellation is not swallowed.
+
+    The window is narrow on purpose: the second cancel lands while the shielded
+    release is in flight, which is exactly when the old
+    ``contextlib.suppress(CancelledError)`` turned an aborted run into an
+    ordinary WorkflowResult — so an outer ``asyncio.timeout`` around
+    ``execute()`` would never fire.
+    """
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], {})]
+    orchestrator = WorkflowOrchestrator(
+        _config(),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        _CountingAI(_CountingAnalyzer(delay=5.0)),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
+    )
+
+    releasing = asyncio.Event()
+    original_mark = publish_store.mark
+
+    async def _slow_mark(*args: Any, **kwargs: Any) -> bool:
+        releasing.set()
+        await asyncio.sleep(0.2)
+        return await original_mark(*args, **kwargs)
+
+    publish_store.mark = _slow_mark  # type: ignore[method-assign]
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    await releasing.wait()
+    task.cancel()  # lands while the shielded release is running
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert task.cancelled(), "the run reported a normal result after being cancelled"
+    publish_store.mark = original_mark  # type: ignore[method-assign]
+    rows = await _lease_rows(publish_store)
+    assert [r.status for r in rows if r.status == "leased"] == [], "the lease was still released"
+
+
 class _RecordingCaptionStore:
     def __init__(self) -> None:
         self.batches: list[dict[str, str]] = []
@@ -578,3 +621,46 @@ async def test_lease_held_past_its_ttl_is_not_released_by_the_aborting_run(
 
     rows = await _lease_rows(publish_store)
     assert [r.status for r in rows] == ["leased"]
+
+
+async def test_a_stalled_run_cannot_mark_a_lease_that_was_reclaimed(publish_store: PublishStore) -> None:
+    """#139: the orchestrator must pass its lease token down to every mark.
+
+    Run A stalls past the TTL, run B reclaims the lease and starts publishing.
+    A's failure mark must not land — it would flip the row to ``failed``, make
+    it re-leasable mid-publish, and let a third run post the same image again.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy import update as sa_update
+
+    from publisher_v2.db.models import PublishRecord
+
+    lease_hash = hashlib.sha256(b"an-image").hexdigest()
+    run_a = WorkflowOrchestrator(
+        _config(),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        _DummyAI(),
+        [],
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], {})]
+    await run_a._claim_publish_targets(lease_hash, publishers, {}, "cid-a")
+
+    # A stalls; its lease lapses and run B takes it over.
+    engine_factory = publish_store._session_factory
+    async with engine_factory() as session:
+        await session.execute(sa_update(PublishRecord).values(leased_at=datetime.now(UTC) - timedelta(seconds=7200)))
+        await session.commit()
+    run_b_owned = await publish_store.acquire_lease("t1", lease_hash, ["telegram"])
+    assert set(run_b_owned) == {"telegram"}
+
+    # A finally wakes up and reports its failure.
+    await run_a._mark_publish(lease_hash, "telegram", "failed", error="stalled")
+
+    async with engine_factory() as session:
+        from sqlalchemy import select
+
+        row = (await session.execute(select(PublishRecord))).scalars().one()
+    assert row.status == "leased", "run A reopened a lease that run B was still holding"
