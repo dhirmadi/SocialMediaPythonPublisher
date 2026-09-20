@@ -45,10 +45,9 @@ platform_captions:
     style: "conversational, emoji-friendly, artistic commentary"
     max_length: 4096
     hashtags: true
-    examples:
-      - "The way light catches jute at golden hour — it's its own kind of alchemy ✨"
-      - "New work. Three hours of tying, five minutes of perfection. That's the ratio nobody talks about."
-      - "Sometimes silence says more than a caption ever could. But here we are."
+    # examples: REMOVED by #138 — no static example captions ship with the app;
+    # the tenant voice profile is the only source. An `examples:` key left in a
+    # PV2_STATIC_CONFIG_DIR override is stripped with a warning.
 ```
 
 The multi-platform prompt (from PUB-025's `generate_multi`) includes these examples in the user message:

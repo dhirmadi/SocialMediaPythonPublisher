@@ -232,23 +232,40 @@ def _captured_user_prompt(monkeypatch: pytest.MonkeyPatch) -> tuple[CaptionGener
     return CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test")), completions
 
 
-def test_default_system_prompt_is_tenant_neutral_and_keeps_banned_list(monkeypatch: pytest.MonkeyPatch) -> None:
-    gen, _ = _captured_user_prompt(monkeypatch)
-    system = gen.system_prompt.lower()
+async def test_default_system_prompt_is_tenant_neutral_and_keeps_banned_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asserted on the message that reaches the client, not on the attribute.
+
+    Reading `gen.system_prompt` proves what was assembled, not what was sent —
+    the two diverged once already (#135, the SD persona on the caption path).
+    """
+    gen, completions = _captured_user_prompt(monkeypatch)
+
+    await _generate_through_the_service(gen, completions)
+
+    system = completions.calls[-1]["messages"][0]["content"].lower()
     assert "banned" in system
     assert "rope" not in system
     assert "kink" not in system
 
 
-async def test_user_prompt_has_no_machine_tells(monkeypatch: pytest.MonkeyPatch) -> None:
-    gen, completions = _captured_user_prompt(monkeypatch)
+async def _generate_through_the_service(gen: CaptionGeneratorOpenAI, completions: _FakeCompletions) -> str:
+    """Drive AIService, not the generator, and return the user message sent."""
+    from publisher_v2.services.ai import AIService, VisionAnalyzerOpenAI
+
+    service = AIService(VisionAnalyzerOpenAI(OpenAIConfig(api_key="sk-test")), gen)
     specs = {
         "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="", max_length=4096),
         "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
     }
-    analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
-    await gen.generate_multi_with_sd(analysis, specs)
-    user = completions.calls[-1]["messages"][-1]["content"]
+    await service.create_multi_caption_pair_from_analysis(ImageAnalysis(description="d", mood="m", tags=["t"]), specs)
+    return str(completions.calls[-1]["messages"][-1]["content"])
+
+
+async def test_user_prompt_has_no_machine_tells(monkeypatch: pytest.MonkeyPatch) -> None:
+    gen, completions = _captured_user_prompt(monkeypatch)
+    user = await _generate_through_the_service(gen, completions)
     assert "Write a caption for:" not in user
     assert "will be truncated" not in user.lower()
     # Hard limits live in one trailing Constraints line.
@@ -327,3 +344,12 @@ class TestATenantPersonaKeepsTheRules:
         assert "one caption per platform" not in user.lower()
         assert "one caption for the platform" in user.lower()
         assert user.count("Platform=") == 1
+
+
+def test_a_null_sensory_detail_does_not_become_the_word_none() -> None:
+    """The model returns null for a field it cannot fill; str(None) is "None"."""
+    from publisher_v2.services.ai import _as_detail_list
+
+    assert _as_detail_list([None, "warm jute", None]) == ["warm jute"]
+    assert _as_detail_list(None) == []
+    assert _as_detail_list([None, None]) == []

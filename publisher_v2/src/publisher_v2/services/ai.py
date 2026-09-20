@@ -165,7 +165,8 @@ def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
     Truncate text to max_length while respecting word boundaries.
 
     Tries to cut at sentence end (. ! ?) first, then at word boundary.
-    Always leaves room for ellipsis when truncating.
+    A sentence-end cut needs no ellipsis — the text ends where a sentence does.
+    A word-boundary cut appends one, and only that path reserves room for it.
     """
     if len(text) <= max_length:
         return text
@@ -654,7 +655,8 @@ _ANTI_REPETITION_SUFFIX = "Use DIFFERENT openings, structure, and emotional angl
 def _as_detail_list(value: object) -> list[str]:
     """#138: sensory_detail as up to three non-empty strings (a bare string counts as one)."""
     items = [value] if isinstance(value, str) else value if isinstance(value, list) else []
-    return [str(d).strip() for d in items if str(d).strip()][:3]
+    # str(None) is "None", which would reach the prompt as a sensory detail.
+    return [str(d).strip() for d in items if d is not None and str(d).strip()][:3]
 
 
 def excluded_directives(spec: CaptionSpec) -> frozenset[str]:
