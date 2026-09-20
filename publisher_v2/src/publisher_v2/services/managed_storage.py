@@ -32,6 +32,10 @@ from publisher_v2.utils.memory_io import reader_over
 logger = logging.getLogger("publisher_v2.services.managed_storage")
 
 # Map protocol ThumbnailSize values to (width, height) for Pillow resize
+# Beyond this many keys the generation counter is pruned of entries that no
+# longer guard a cached thumbnail (#140).
+_THUMB_GENERATION_MAX_KEYS = 4096
+
 _SIZE_MAP: dict[str, tuple[int, int]] = {
     "w256h256": (256, 256),
     "w480h320": (480, 320),
@@ -94,7 +98,11 @@ class ManagedStorage:
         self._thumb_cache: OrderedDict[_ThumbKey, _ThumbEntry] = OrderedDict()
         # #140: bumped on every write to a key; a thumbnail read that started
         # before the bump is dropped instead of cached.
-        self._thumb_generation: dict[str, int] = {}
+        self._thumb_generation: OrderedDict[str, int] = OrderedDict()
+        # Key -> the ETag its last GET returned; popped by the thumbnail cache.
+        self._last_get_etags: dict[str, str] = {}
+        # Per-key single-flight locks, with the loop each was created on.
+        self._thumb_locks: OrderedDict[_ThumbKey, tuple[asyncio.AbstractEventLoop, asyncio.Lock]] = OrderedDict()
         self._thumb_cache_bytes = 0
 
     def _count_ops(self, n: int = 1) -> None:
@@ -213,10 +221,10 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def download_image(self, folder: str, filename: str) -> bytes:
+        key = self._key(folder, filename)
         try:
 
             def _download() -> bytes:
-                key = self._key(folder, filename)
                 self._count_ops()  # PUB-045: one count per get_object call (boto's internal retries are NOT counted)
                 resp = self.client.get_object(Bucket=self._bucket, Key=key)
                 expected_length = resp.get("ContentLength")
@@ -226,6 +234,11 @@ class ManagedStorage:
                     raise StorageError(
                         f"Incomplete download for {filename}: expected {expected_length} bytes, got {actual_length}"
                     )
+                # #140: the GET response carries the ETag. Recording it here lets
+                # the thumbnail cache label an entry whose HEAD failed, instead of
+                # storing it unlabelled and re-downloading at every expiry for the
+                # rest of its life. No extra request.
+                self._last_get_etags[key] = (resp.get("ETag") or "").strip('"')
                 return cast(bytes, body)
 
             return await asyncio.to_thread(_download)
@@ -358,9 +371,12 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_archive)
-            self.invalidate_thumbnail(self._key(folder, filename), self._key(archive_folder, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to archive {filename}: {exc}") from exc
+        finally:
+            # #140: also on failure. A partly applied write (copy done, delete
+            # raised) otherwise leaves a stale thumbnail on the destination key.
+            self.invalidate_thumbnail(self._key(folder, filename), self._key(archive_folder, filename))
 
     @retry(
         reraise=True,
@@ -395,10 +411,11 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_move)
-            dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
-            self.invalidate_thumbnail(self._key(folder, filename), self._key(dest_prefix, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
+        finally:
+            dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
+            self.invalidate_thumbnail(self._key(folder, filename), self._key(dest_prefix, filename))
 
     @retry(
         reraise=True,
@@ -419,9 +436,10 @@ class ManagedStorage:
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar)
 
             await asyncio.to_thread(_delete)
-            self.invalidate_thumbnail(self._key(folder, filename))
         except ClientError as exc:
             raise StorageError(f"Failed to delete {filename}: {exc}") from exc
+        finally:
+            self.invalidate_thumbnail(self._key(folder, filename))
 
     async def ensure_folder_exists(self, folder_path: str) -> None:
         """No-op — S3 has no real folders."""
@@ -485,9 +503,10 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_put)
-            self.invalidate_thumbnail(key)
         except ClientError as exc:
             raise StorageError(f"Failed to put object {key}: {exc}") from exc
+        finally:
+            self.invalidate_thumbnail(key)
 
     async def head_object(self, key: str) -> dict[str, Any] | None:
         def _head() -> dict[str, Any] | None:
@@ -528,9 +547,10 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_delete)
-            self.invalidate_thumbnail(key)
         except ClientError as exc:
             raise StorageError(f"Failed to delete object {key}: {exc}") from exc
+        finally:
+            self.invalidate_thumbnail(key)
 
     async def move_object(self, src_key: str, dst_key: str) -> None:
         def _move() -> None:
@@ -542,9 +562,10 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_move)
-            self.invalidate_thumbnail(src_key, dst_key)
         except ClientError as exc:
             raise StorageError(f"Failed to move {src_key} -> {dst_key}: {exc}") from exc
+        finally:
+            self.invalidate_thumbnail(src_key, dst_key)
 
     def supports_content_hashing(self) -> bool:
         """ETag-based content hashing is supported."""
@@ -561,6 +582,39 @@ class ManagedStorage:
         key = self._key(folder, filename)
         cache_key = (self.config.endpoint_url, self._bucket, key, str(size))
 
+        # #140: N concurrent misses on one key would each pay HEAD + GET + Pillow.
+        # The first caller through does the work; the rest wait and then find the
+        # entry in the cache.
+        async with self._thumb_lock(cache_key):
+            return await self._get_thumbnail_locked(folder, filename, cache_key, size, format)
+
+    def _thumb_lock(self, cache_key: _ThumbKey) -> asyncio.Lock:
+        """One lock per cache key, rebuilt if the running loop changed.
+
+        A service instance outlives the loop that created it in tests (and after
+        a restarted loop in production), and awaiting a lock bound to a dead loop
+        raises rather than blocking.
+        """
+        loop = asyncio.get_running_loop()
+        existing = self._thumb_locks.get(cache_key)
+        if existing is None or existing[0] is not loop:
+            existing = (loop, asyncio.Lock())
+            self._thumb_locks[cache_key] = existing
+        while len(self._thumb_locks) > _THUMB_GENERATION_MAX_KEYS:
+            oldest = next(iter(self._thumb_locks))
+            if oldest == cache_key:
+                break
+            del self._thumb_locks[oldest]
+        return existing[1]
+
+    async def _get_thumbnail_locked(
+        self,
+        folder: str,
+        filename: str,
+        cache_key: _ThumbKey,
+        size: ThumbnailSize,
+        format: ThumbnailFormat,
+    ) -> bytes:
         now = time.time()
         entry = self._thumb_cache.get(cache_key)
         if entry is not None:
@@ -601,6 +655,10 @@ class ManagedStorage:
         """Download and render one thumbnail, caching it unless the object changed meanwhile."""
         generation = self._thumb_generation.get(cache_key[2], 0)
         image_bytes = await self.download_image(folder, filename)
+        # #140: a HEAD that failed leaves etag empty, and an entry stored without
+        # one can never be revalidated. The GET above already carried the ETag,
+        # so take it from there rather than buying a second HEAD.
+        etag = etag or self._last_get_etags.pop(cache_key[2], "")
         thumb_bytes = await asyncio.to_thread(_generate_thumbnail, image_bytes, str(size), str(format))
         # #140: cache only when no write landed on this key while we were
         # downloading — otherwise these bytes are already stale, so they go to
@@ -620,8 +678,19 @@ class ManagedStorage:
         for key in keys:
             normalized = key.strip("/")
             self._thumb_generation[normalized] = self._thumb_generation.get(normalized, 0) + 1
+            self._thumb_generation.move_to_end(normalized)
             for cache_key in [k for k in self._thumb_cache if k[2] == normalized]:
                 self._evict_thumb(cache_key)
+        # The counter gained an entry per distinct key ever written and was only
+        # cleared in aclose(), so a long-lived tenant service grew it without
+        # bound. Drop the oldest entries that no longer guard a cached thumbnail;
+        # a key with no cache entry has nothing to invalidate a download against.
+        while len(self._thumb_generation) > _THUMB_GENERATION_MAX_KEYS:
+            cached = {k[2] for k in self._thumb_cache}
+            stale = next((k for k in self._thumb_generation if k not in cached), None)
+            if stale is None:
+                break
+            del self._thumb_generation[stale]
 
     def _evict_thumb(self, cache_key: _ThumbKey) -> None:
         entry = self._thumb_cache.pop(cache_key, None)
@@ -643,6 +712,8 @@ class ManagedStorage:
         self._thumb_cache.clear()
         self._thumb_cache_bytes = 0
         self._thumb_generation.clear()
+        self._thumb_locks.clear()
+        self._last_get_etags.clear()
         with contextlib.suppress(Exception):
             await asyncio.to_thread(self.client.close)
 

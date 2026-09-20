@@ -151,27 +151,38 @@ class _CountingS3:
 
 
 @pytest.fixture
-def counting_storage() -> tuple[ManagedStorage, _CountingS3]:
+def counting_storage(monkeypatch: pytest.MonkeyPatch):  # type: ignore[no-untyped-def]
+    """Build the storage with the TTL already in the environment.
+
+    Setting WEB_THUMBNAIL_CACHE_TTL_SECONDS after construction works only while
+    the TTL is read per call; #143/#162 moves it to a RuntimeSettings snapshot
+    taken in __init__, at which point a later setenv would silently stop
+    controlling anything and these tests would pass for the wrong reason.
+    """
     from unittest.mock import MagicMock, patch
 
-    client = _CountingS3(_png("red"))
-    cfg = ManagedStorageConfig(
-        access_key_id="k",
-        secret_access_key="s",
-        endpoint_url="https://example.r2.local",
-        bucket="bucket-a",
-        region="auto",
-    )
-    with patch("publisher_v2.services.managed_storage.boto3") as boto:
-        boto.client = MagicMock(return_value=client)
-        storage = ManagedStorage(cfg)
-    return storage, client
+    def _build(ttl: str | None = None) -> tuple[ManagedStorage, _CountingS3]:
+        if ttl is not None:
+            monkeypatch.setenv("WEB_THUMBNAIL_CACHE_TTL_SECONDS", ttl)
+        client = _CountingS3(_png("red"))
+        cfg = ManagedStorageConfig(
+            access_key_id="k",
+            secret_access_key="s",
+            endpoint_url="https://example.r2.local",
+            bucket="bucket-a",
+            region="auto",
+        )
+        with patch("publisher_v2.services.managed_storage.boto3") as boto:
+            boto.client = MagicMock(return_value=client)
+            storage = ManagedStorage(cfg)
+        return storage, client
+
+    return _build
 
 
-async def test_cache_hit_within_ttl_issues_no_storage_ops(counting_storage, monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_cache_hit_within_ttl_issues_no_storage_ops(counting_storage) -> None:
     """#140 AC: the second thumbnail request inside the TTL must bill nothing."""
-    storage, client = counting_storage
-    monkeypatch.setenv("WEB_THUMBNAIL_CACHE_TTL_SECONDS", "900")
+    storage, client = counting_storage("900")
     await storage.get_thumbnail("/Photos", "img.jpg")
     ops_after_first = (client.head_calls, client.get_calls)
 
@@ -180,12 +191,9 @@ async def test_cache_hit_within_ttl_issues_no_storage_ops(counting_storage, monk
     assert (client.head_calls, client.get_calls) == ops_after_first
 
 
-async def test_expired_entry_revalidates_with_one_head_and_no_download(
-    counting_storage, monkeypatch: pytest.MonkeyPatch
-) -> None:
+async def test_expired_entry_revalidates_with_one_head_and_no_download(counting_storage) -> None:
     """Past the TTL the ETag is re-checked; an unchanged object must not be downloaded again."""
-    storage, client = counting_storage
-    monkeypatch.setenv("WEB_THUMBNAIL_CACHE_TTL_SECONDS", "0")
+    storage, client = counting_storage("0")
     first = await storage.get_thumbnail("/Photos", "img.jpg")
     heads, gets = client.head_calls, client.get_calls
 
@@ -198,7 +206,7 @@ async def test_expired_entry_revalidates_with_one_head_and_no_download(
 
 async def test_invalidated_key_regenerates_on_the_next_request(counting_storage) -> None:
     """An upload/move through the library invalidates the entry directly (#140)."""
-    storage, client = counting_storage
+    storage, client = counting_storage("900")
     first = await storage.get_thumbnail("/Photos", "img.jpg")
     gets = client.get_calls
 
@@ -231,7 +239,7 @@ async def _cached_thumb(storage: ManagedStorage) -> bytes:
 )
 async def test_every_write_path_invalidates_the_cached_thumbnail(counting_storage, write) -> None:
     """Curation, publish-archive and delete share the storage instance that serves thumbnails."""
-    storage, client = counting_storage
+    storage, client = counting_storage("900")
     await _cached_thumb(storage)
     gets = client.get_calls
 
@@ -246,7 +254,7 @@ async def test_every_write_path_invalidates_the_cached_thumbnail(counting_storag
 
 async def test_a_write_during_a_thumbnail_download_is_never_cached(counting_storage) -> None:
     """#140: bytes read before an invalidation must not land in the cache afterwards."""
-    storage, client = counting_storage
+    storage, client = counting_storage("900")
     original_download = storage.download_image
 
     async def _download_then_write(folder: str, filename: str) -> bytes:
@@ -262,3 +270,138 @@ async def test_a_write_during_a_thumbnail_download_is_never_cached(counting_stor
     await _cached_thumb(storage)
 
     assert client.get_calls == gets + 1  # nothing stale was cached
+
+
+class TestConcurrentMissesShareOneDownload:
+    """#140: N simultaneous misses on one key each paid HEAD + GET + Pillow."""
+
+    async def test_ten_concurrent_misses_download_once(self) -> None:
+        import asyncio
+
+        storage = _storage("bucket-sf", _png("blue"))
+        started = asyncio.Event()
+
+        async def _slow_download(*_args, **_kwargs) -> bytes:
+            started.set()
+            await asyncio.sleep(0.05)
+            return _png("blue")
+
+        storage.download_image = AsyncMock(side_effect=_slow_download)  # type: ignore[method-assign]
+
+        results = await asyncio.gather(*(storage.get_thumbnail("f", "a.png") for _ in range(10)))
+
+        assert len({bytes(r) for r in results}) == 1
+        assert storage.download_image.await_count == 1, "each waiter re-downloaded"
+        assert storage.get_file_metadata.await_count == 1  # type: ignore[union-attr]
+
+    async def test_two_different_keys_do_not_serialise_on_each_other(self) -> None:
+        """The lock is per key: a slow render of one image must not block another."""
+        import asyncio
+
+        storage = _storage("bucket-sf2", _png("blue"))
+        in_flight, peak = {"n": 0}, {"n": 0}
+
+        async def _download(_folder: str, filename: str) -> bytes:
+            in_flight["n"] += 1
+            peak["n"] = max(peak["n"], in_flight["n"])
+            await asyncio.sleep(0.05)
+            in_flight["n"] -= 1
+            return _png("blue" if filename == "a.png" else "green")
+
+        storage.download_image = AsyncMock(side_effect=_download)  # type: ignore[method-assign]
+
+        await asyncio.gather(storage.get_thumbnail("f", "a.png"), storage.get_thumbnail("f", "b.png"))
+
+        assert peak["n"] == 2, "different keys serialised behind one lock"
+
+
+class TestTheGenerationCounterIsBounded:
+    """#140: it gained an entry per distinct key ever written and was only cleared in aclose()."""
+
+    async def test_keys_with_no_cached_thumbnail_are_pruned(self) -> None:
+        from publisher_v2.services.managed_storage import _THUMB_GENERATION_MAX_KEYS
+
+        storage = _storage("bucket-gen", _png("red"))
+        # A write puts the key in the counter; the fetch then caches a thumbnail
+        # for it, which is what makes the counter entry worth keeping.
+        storage.invalidate_thumbnail("f/keep.png")
+        await storage.get_thumbnail("f", "keep.png")
+
+        for i in range(_THUMB_GENERATION_MAX_KEYS + 50):
+            storage.invalidate_thumbnail(f"f/gone-{i}.png")
+
+        assert len(storage._thumb_generation) <= _THUMB_GENERATION_MAX_KEYS
+        # The key that still has a cached thumbnail must survive: its counter is
+        # what discards a download that started before the write.
+        assert "f/keep.png" in storage._thumb_generation
+
+
+class TestAFailedHeadStillLabelsTheEntry:
+    """#140 NIT: an entry stored without an ETag can never be revalidated."""
+
+    async def test_the_etag_comes_from_the_download_when_the_head_fails(self) -> None:
+        storage = _storage("bucket-etag", _png("red"))
+        storage.get_file_metadata = AsyncMock(side_effect=RuntimeError("HEAD blew up"))  # type: ignore[method-assign]
+
+        # The real download path records the ETag its GET returned.
+        async def _download(folder: str, filename: str) -> bytes:
+            storage._last_get_etags[storage._key(folder, filename)] = "etag-from-get"
+            return _png("red")
+
+        storage.download_image = AsyncMock(side_effect=_download)  # type: ignore[method-assign]
+
+        await storage.get_thumbnail("f", "a.png")
+
+        cache_key = ("https://example.r2.local", "bucket-etag", "f/a.png", "w960h640")
+        _data, _stored_at, etag = storage._thumb_cache[cache_key]
+        assert etag == "etag-from-get", "an unlabelled entry re-downloads at every expiry, forever"
+
+
+class TestAFailedWriteStillInvalidates:
+    """#140: invalidation ran only on the success path.
+
+    A partly applied write — the copy lands, the delete raises after tenacity
+    gives up — left the destination key serving a stale thumbnail for a full TTL.
+    """
+
+    @staticmethod
+    def _client_error():
+        from botocore.exceptions import ClientError
+
+        return ClientError({"Error": {"Code": "500", "Message": "boom"}}, "PutObject")
+
+    async def test_a_put_that_raises_still_drops_the_cached_thumbnail(self) -> None:
+        from unittest.mock import MagicMock
+
+        storage = _storage("bucket-fail", _png("red"))
+        await storage.get_thumbnail("f", "a.png")
+        cache_key = ("https://example.r2.local", "bucket-fail", "f/a.png", "w960h640")
+        assert cache_key in storage._thumb_cache
+
+        storage.client = MagicMock()
+        storage.client.put_object.side_effect = self._client_error()
+
+        with pytest.raises(Exception, match="Failed to put object"):
+            await storage.put_object("f/a.png", b"new-bytes", "image/png")
+
+        assert cache_key not in storage._thumb_cache, "a failed write left a stale thumbnail cached"
+
+    async def test_a_move_that_raises_still_drops_both_sides(self) -> None:
+        from unittest.mock import MagicMock
+
+        storage = _storage("bucket-fail2", _png("red"))
+        await storage.get_thumbnail("f", "a.png")
+        await storage.get_thumbnail("f", "b.png")
+        src = ("https://example.r2.local", "bucket-fail2", "f/a.png", "w960h640")
+        dst = ("https://example.r2.local", "bucket-fail2", "f/b.png", "w960h640")
+        assert src in storage._thumb_cache and dst in storage._thumb_cache
+
+        storage.client = MagicMock()
+        # The copy lands, the delete raises: the destination now holds new bytes.
+        storage.client.delete_object.side_effect = self._client_error()
+
+        with pytest.raises(Exception, match="Failed to move"):
+            await storage.move_object("f/a.png", "f/b.png")
+
+        assert src not in storage._thumb_cache
+        assert dst not in storage._thumb_cache, "the destination served the old image after a partial move"
