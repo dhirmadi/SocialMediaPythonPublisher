@@ -138,6 +138,11 @@ Do not break CLI flags, web endpoint contracts, or config semantics unless expli
 - Write high-signal tests for new behavior and bug fixes.
 - Coverage gates: ≥80% on affected modules, ≥85% overall.
 - Run `uv run ruff check` before committing; zero lint violations in changed files.
+- **The suite runs in random order** (`pytest-randomly`, #135). Every run prints
+  `Using --randomly-seed=<n>`; reproduce a CI or hook failure with
+  `uv run pytest -p randomly --randomly-seed=<n>`, and pin file order with
+  `-p no:randomly` while bisecting. A test that passes alone and fails in a random
+  order is an isolation defect, not a flake.
 
 ## Quality gates
 
