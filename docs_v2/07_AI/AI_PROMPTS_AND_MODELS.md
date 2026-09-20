@@ -100,13 +100,20 @@ Post‑Processing:
 ## 8. Voice Examples and Caption Diversity (#82, #138)
 
 - **Tenant voice profile is the only source of examples (#138).** No static example captions
-  ship with the app; `PlatformCaptionStyle` rejects an `examples` key. A tenant without a
-  `content.voice_profile` gets no few-shot examples at all.
-- **Default persona is tenant-neutral (#138).** The shipped `caption.system` is "You write in
-  the account owner's voice; adult, warm, specific, unhurried." plus the banned-constructions
-  list. A tenant's own persona belongs in its `system_prompt`. A tenant `system_prompt`
-  **replaces the whole shipped `caption.system`**, so copy the BANNED CONSTRUCTIONS list from
-  `config/static/ai_prompts.yaml` into it. For example (persona part):
+  ship with the app. An `examples` key left in a `PV2_STATIC_CONFIG_DIR` override is **stripped
+  with a `static_caption_examples_ignored` warning**, not rejected — that directory is a
+  fleet-wide override read at startup, so refusing it would take every instance down for a key
+  whose contents never reach a prompt. A tenant without a `content.voice_profile` gets no
+  few-shot examples at all. The examples are rendered **once**, in the hardened STYLE REFERENCES
+  block; they used to be repeated inside every platform block as well.
+- **Default persona is tenant-neutral (#138).** The shipped `caption.system` is the persona
+  only — "You write in the account owner's voice; adult, warm, specific, unhurried." A tenant
+  `system_prompt` replaces that persona, and the banned-constructions list under
+  `caption.rules` is **appended automatically to whichever persona is in force**, so you do not
+  copy it by hand and cannot lose it by writing your own. (A hand-written
+  `PV2_STATIC_CONFIG_DIR` override replaces `ai_prompts.yaml` wholesale, so one without a
+  `caption.rules:` key does lose them — keep the key when you override that file.) For example
+  (the persona you would set):
 
   > You are the artist writing about your own fine-art rope and figure photography, speaking to
   > an adult audience of collectors and kink-aware art lovers. Voice: first person, concrete,

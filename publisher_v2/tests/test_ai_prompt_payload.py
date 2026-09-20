@@ -353,3 +353,76 @@ def test_a_null_sensory_detail_does_not_become_the_word_none() -> None:
     assert _as_detail_list([None, "warm jute", None]) == ["warm jute"]
     assert _as_detail_list(None) == []
     assert _as_detail_list([None, None]) == []
+
+
+class TestTheBudgetAndTheBriefAreRespected:
+    """#138 follow-ups: behaviours the fixes claimed but nothing asserted."""
+
+    @staticmethod
+    def _specs_with_examples(examples: tuple[str, ...]) -> dict[str, CaptionSpec]:
+        return {
+            "telegram": CaptionSpec(
+                platform="telegram", style="conversational", hashtags="", max_length=4096, examples=examples
+            ),
+            "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240, examples=examples),
+        }
+
+    def test_an_empty_voice_list_is_a_decision_not_an_absence(self) -> None:
+        """truncate_voice_profile_to_budget returns [] when the first example busts the budget.
+
+        Promoting the specs' own copies then would put the untruncated profile
+        straight back into the prompt, defeating PUB-029's budget.
+        """
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = self._specs_with_examples(("A very long voice example that blew the budget.",))
+
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+            voice_examples=[],
+        )
+
+        assert "blew the budget" not in prompt
+        assert "STYLE REFERENCES" not in prompt
+
+    def test_no_voice_list_still_promotes_the_specs_examples(self) -> None:
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = self._specs_with_examples(("My signature line.",))
+
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+        )
+
+        assert prompt.count("My signature line.") == 1
+
+    async def test_a_tenant_role_prompt_survives_on_the_single_platform_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The single-platform brief must not silently override a tenant's own role."""
+        completions = _FakeCompletions("a caption")
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test", role_prompt="My own brief, thanks."))
+
+        await gen.generate(
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+        )
+
+        user = completions.calls[-1]["messages"][-1]["content"]
+        assert user.startswith("My own brief, thanks.")
+
+    def test_a_mandated_closing_is_stated_in_the_block(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240, closing="statement")
+
+        block = build_platform_block(1, "email", spec)
+
+        assert "end with a statement" in block.lower()

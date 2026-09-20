@@ -1098,8 +1098,12 @@ class CaptionGeneratorOpenAI:
         # inside every platform block, so one example stood in front of the model
         # four times over. When the caller passes none, the specs' own examples
         # (PUB-039) are promoted here rather than dropped — deduped, order kept.
-        block_examples: list[str] = list(voice_examples or [])
-        if not block_examples:
+        # Only when the caller supplied nothing at all: an empty list is a
+        # decision, not an absence. truncate_voice_profile_to_budget returns []
+        # when the first example alone busts the token budget, and promoting the
+        # specs' copies then would put the untruncated profile back in (PUB-029).
+        block_examples: list[str] = list(voice_examples) if voice_examples is not None else []
+        if voice_examples is None:
             seen: set[str] = set()
             for spec in specs.values():
                 for example in spec.examples:

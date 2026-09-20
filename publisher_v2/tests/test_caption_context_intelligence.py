@@ -492,7 +492,9 @@ class TestEmailPromptConsistency:
 
         spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240, closing="question")
         block = build_platform_block(1, "email", spec, platform_history=["Was it the knot? Tell me?"])
-        assert "closing patterns" not in block.lower()
+        # The line is singular since #138 ("Recent closing pattern to avoid"), so
+        # the plural this used to look for could never appear either way.
+        assert "closing pattern to avoid" not in block.lower()
 
     def test_any_closing_keeps_closing_pattern_constraint(self) -> None:
         from publisher_v2.services.ai import build_platform_block
@@ -556,6 +558,25 @@ async def test_regeneration_prompt_carries_exactly_one_directive_per_platform(mo
     directive_hits = sum(retry_prompt.count(d) for d in STRUCTURE_DIRECTIVES.values())
     assert directive_hits == len(specs), retry_prompt
     assert retry_prompt.count("Structure directive:") == len(specs)
+
+    # #138: the offender's retry directive is picked with the rejected draft as
+    # the MOST RECENT entry, so it never asks for the structure that draft used.
+    # (It can legitimately repeat call 1's directive — when the draft's structure
+    # matches the history it was too similar to, the least-recently-used answer
+    # has not moved. What must not happen is being told to write the structure
+    # that was just rejected.)
+    from publisher_v2.utils.captions import classify_caption_structure
+
+    def _directive_for(prompt: str, platform: str) -> str:
+        block = prompt.split(f"{platform}:", 1)[1]
+        line = next(line for line in block.splitlines() if "Structure directive:" in line)
+        return line.split("Structure directive:", 1)[1].strip()
+
+    rejected_structure = classify_caption_structure(history["telegram"][0])
+    assert _directive_for(retry_prompt, "telegram") != STRUCTURE_DIRECTIVES[rejected_structure]
+
+    # The clause points at those directives rather than adding another one.
+    assert "Follow each platform's Structure directive" in retry_prompt
 
 
 class TestDirectivesFitThePlatform:
@@ -754,3 +775,32 @@ class TestTheClosingAvoidListLeavesAnOption:
         line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
         named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
         assert named == ["fragment"], line
+
+
+def test_the_rejected_draft_counts_as_the_most_recent_caption() -> None:
+    """#138: the similarity gate picks the offender's retry directive from
+    ``[rejected_draft, *history]`` — the draft first, because history is
+    most-recent-first and `pick_structure_directive` rotates on recency.
+
+    Appending it instead makes it the *oldest* entry, which is exactly backwards:
+    the structure just rejected becomes the least-recently-used one and is handed
+    straight back as the instruction for the retry.
+    """
+    from publisher_v2.utils.captions import pick_structure_directive
+
+    # Every structure key is used once, so recency (not "never used") decides.
+    history = [
+        "The rope holds her weight without complaint tonight. That patience costs something real.",
+        "Notice how the rope holds.",
+        "You can see the knot from here and can feel how long that took to tie tonight.",
+        "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
+        "short line",
+    ]
+    rejected = "short line"
+
+    as_most_recent = pick_structure_directive([rejected, *history])
+    as_oldest = pick_structure_directive([*history, rejected])
+
+    assert as_most_recent != as_oldest
+    assert as_oldest == "Open with a short sensory fragment (no full sentence needed)."
+    assert as_most_recent == "Open with a plain declarative statement."
