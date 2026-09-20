@@ -46,21 +46,50 @@ from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult
 from publisher_v2.services.storage_protocol import FileMetadata
 
-# #135 (runs before any test module imports the app): web/service.py calls load_dotenv() at import time. Without this, a
-# developer's workspace .env is copied into os.environ for the whole session and
-# hides order dependencies that CI (no .env) then trips over. Only implicit
-# loads are disabled; an explicit dotenv path still loads.
+# #135 (runs before any test module imports the app): web/service.py calls
+# load_dotenv() at import time. Without this, a developer's workspace .env is
+# copied into os.environ for the whole session and hides order dependencies
+# that CI (no .env) then trips over. Only implicit loads are disabled; an
+# explicit dotenv path still loads.
+#
+# Why this is a module-level rebind and not monkeypatch, and why _isolate_env
+# ALSO patches publisher_v2.config.loader.load_dotenv per test: the two patches
+# catch different moments.
+#   - import-time: a module body running `load_dotenv()` fires once, during
+#     collection, long before any fixture exists. Only a rebind done here, at
+#     conftest import, is early enough.
+#   - call-time: load_application_config() calls it inside a test, where
+#     monkeypatch is the right tool because it unwinds afterwards.
+# Removing either one leaves a real hole, so both stay.
 
 _real_load_dotenv = _dotenv.load_dotenv
 
 
 def _load_dotenv_explicit_only(dotenv_path=None, *args, **kwargs):  # type: ignore[no-untyped-def]
-    if dotenv_path:
+    # A `stream=` load is as deliberate as a path, so it is not an implicit load.
+    if dotenv_path or kwargs.get("stream") is not None:
         return _real_load_dotenv(dotenv_path, *args, **kwargs)
     return False
 
 
-_dotenv.load_dotenv = _load_dotenv_explicit_only
+def _neutralise_implicit_dotenv() -> None:
+    """Rebind `dotenv.load_dotenv`, and any stale copy of it already taken.
+
+    `from dotenv import load_dotenv` copies the function object. A module
+    imported BEFORE this conftest keeps the real one and would still read the
+    developer's .env, so rebinding `dotenv.load_dotenv` alone is not enough.
+    Modules imported after this point pick up the replacement automatically.
+    """
+    import sys
+
+    _dotenv.load_dotenv = _load_dotenv_explicit_only
+    for module in list(sys.modules.values()):
+        name = getattr(module, "__name__", "")
+        if name.startswith("publisher_v2") and getattr(module, "load_dotenv", None) is _real_load_dotenv:
+            module.load_dotenv = _load_dotenv_explicit_only
+
+
+_neutralise_implicit_dotenv()
 
 
 @pytest.fixture(autouse=True)
