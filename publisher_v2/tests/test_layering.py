@@ -1,11 +1,10 @@
 """#96: layering guard — services/ and core/ must not import from publisher_v2.web.
 
-The web layer depends on services/core, never the reverse. One deliberate
-exception exists as a backward-compat re-export shim and is allowlisted:
-
-- services/tenant_factory.py — shim re-exporting TenantServiceFactory, which
-  moved to publisher_v2/web/ (the reverse shim, web/sidecar_parser.py, imports
-  in the allowed direction and needs no exemption)
+The web layer depends on services/core, never the reverse. #144 removed the
+last exception — services/tenant_factory.py, a re-export shim with no
+importers — so the allowlist is now empty. (The reverse shim,
+web/sidecar_parser.py, imports in the allowed direction and needs no
+exemption.)
 """
 
 from __future__ import annotations
@@ -16,9 +15,8 @@ from pathlib import Path
 SRC = Path(__file__).resolve().parents[1] / "src" / "publisher_v2"
 
 # Compat shims that intentionally import from publisher_v2.web (re-exports only).
-ALLOWLIST = {
-    SRC / "services" / "tenant_factory.py",
-}
+# Empty since #144: add an entry only with a documented reason and a removal plan.
+ALLOWLIST: set[Path] = set()
 
 
 def _web_imports(path: Path) -> list[str]:

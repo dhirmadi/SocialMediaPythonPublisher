@@ -386,6 +386,16 @@ class WebImageService:
         )
         return self.orchestrator
 
+    def invalidate_image_listing(self) -> None:
+        """Drop the cached folder listing (#144).
+
+        ensure_known_image reads this cache, so a library write must clear it or
+        a file uploaded seconds ago cannot be moved until the TTL lapses — while
+        the library panel, which lists storage directly, already shows it.
+        """
+        self._image_cache = None
+        self._image_cache_expiry = None
+
     async def _get_cached_images(self) -> list[str]:
         """
         Return a cached list of images when within TTL, otherwise refresh from Dropbox.

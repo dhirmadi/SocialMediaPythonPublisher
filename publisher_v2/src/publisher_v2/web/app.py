@@ -129,6 +129,24 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
     init_db()
 
+    # #144: resolve the standalone storage origin once, so the CSP on a cold
+    # process's first page render already names it. Orchestrated requests use
+    # their own tenant config instead.
+    app.state.csp_storage_origins = []
+    try:
+        from publisher_v2.web.middleware_security import storage_origins_for_config
+
+        # Building the standalone service is synchronous (config load, storage
+        # client, DB wiring), so keep it off the event loop.
+        service = await asyncio.to_thread(get_service)
+        app.state.csp_storage_origins = storage_origins_for_config(service.config)
+    except Exception as exc:
+        # Orchestrated instances have no standalone config, so this fails on
+        # EVERY boot there by design and the CSP correctly falls back to
+        # 'self'. DEBUG without a traceback: at INFO this reads as a fault in
+        # the deployment where it is the expected path.
+        _logger.debug("csp_storage_origin_unresolved: %s", type(exc).__name__)
+
     yield
 
     # Shutdown: dispose caption history DB engine
@@ -163,13 +181,15 @@ app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=life
 logger = logging.getLogger("publisher_v2.web")
 
 
-_REQUEST_ID_RE = re.compile(r"^[A-Za-z0-9._-]{1,128}$")
+# #144: fullmatch, not match — "$" also matches just before a trailing newline,
+# so "abc\n" passed and the newline reached the correlation id and every log line.
+_REQUEST_ID_RE = re.compile(r"[A-Za-z0-9._-]{1,128}")
 
 
 def _get_correlation_id(request: Request) -> str:
     """Echo X-Request-ID only when it is short and log/header-safe (#87 SEC-12)."""
     header = request.headers.get("X-Request-ID")
-    if header and _REQUEST_ID_RE.match(header):
+    if header and _REQUEST_ID_RE.fullmatch(header):
         return header
     return str(uuid.uuid4())
 

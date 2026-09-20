@@ -1385,9 +1385,11 @@ class AIService:
 
         # #82: similarity gate — one bounded regeneration when a caption is too
         # close to that platform's recent history, plus telemetry either way.
+        # #144: run it unconditionally — with an empty or flat history there is
+        # nothing to regenerate against, but the telemetry must still report a
+        # value so dashboards do not silently lose the metric.
         history_dict = history if isinstance(history, dict) else {}
-        if history_dict:
-            captions, sd_caption = await self._apply_similarity_gate(captions, sd_caption, history_dict, _generate_once)
+        captions, sd_caption = await self._apply_similarity_gate(captions, sd_caption, history_dict, _generate_once)
         return captions, sd_caption, usages
 
     async def _apply_similarity_gate(
@@ -1430,6 +1432,7 @@ class AIService:
                 "caption_similarity",
                 platform=platform,
                 max_similarity=round(score, 3),
+                history_size=len(history.get(platform, [])),
                 regenerated=regenerated,
             )
         return captions, sd_caption
@@ -1462,6 +1465,31 @@ class _NullAnalyzer:
         )
 
 
+class _NullGenerator:
+    """Fails loudly when caption generation is invoked despite being disabled (#144).
+
+    Matches the ``_NullAnalyzer`` treatment from #95: a mis-gated call raises
+    AIServiceError instead of ``AttributeError: 'NoneType' object has no ...``.
+    """
+
+    _DISABLED = (
+        "AI caption generation is disabled for this tenant "
+        "(features.analyze_caption_enabled=false); this call should have been feature-gated"
+    )
+
+    async def generate(self, analysis: ImageAnalysis, spec: Any) -> tuple[str, AIUsage | None]:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_multi(self, analysis: ImageAnalysis, specs: Any, **kwargs: Any) -> Any:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_with_sd(self, analysis: ImageAnalysis, spec: Any, **kwargs: Any) -> Any:
+        raise AIServiceError(self._DISABLED)
+
+    async def generate_multi_with_sd(self, analysis: ImageAnalysis, specs: Any, **kwargs: Any) -> Any:
+        raise AIServiceError(self._DISABLED)
+
+
 class NullAIService:
     """
     Safe stub used when AI is disabled for a tenant.
@@ -1471,4 +1499,4 @@ class NullAIService:
     """
 
     analyzer = _NullAnalyzer()
-    generator = None
+    generator = _NullGenerator()

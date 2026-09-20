@@ -418,12 +418,23 @@ async def _list_objects_from_storage(
     return {"objects": objects[:limit], "cursor": None}
 
 
+def _invalidate_listing(service: WebImageService) -> None:
+    """Drop the service's cached listing after a write (#144).
+
+    Called directly rather than through getattr: a rename would then be a type
+    error here instead of a silent no-op that brings back the 30-second window
+    where a just-uploaded file cannot be moved.
+    """
+    service.invalidate_image_listing()
+
+
 async def _upload_to_storage(service: WebImageService, filename: str, data: bytes, content_type: str) -> dict[str, Any]:
     """Upload file to managed storage (protocol-only, #96; metering inside)."""
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     await storage.put_object(key, data, content_type)
+    _invalidate_listing(service)
     return {"key": key, "size": len(data)}
 
 
@@ -436,6 +447,7 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
     if await storage.head_object(key) is None:
         raise FileNotFoundError(f"File not found: {filename}")
     await storage.delete_object(key)
+    _invalidate_listing(service)
 
     stem = os.path.splitext(filename)[0]
     sidecar_key = f"{folder.strip('/')}/{stem}.txt".lstrip("/")
@@ -469,6 +481,7 @@ async def _move_in_storage(service: WebImageService, filename: str, target_folde
 
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     await storage.move_object(src_key, dst_key)
+    _invalidate_listing(service)
 
     stem = os.path.splitext(filename)[0]
     sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")
@@ -638,6 +651,18 @@ async def move_object(
             detail=f"Invalid target_folder: {body.target_folder}. Must be one of: {', '.join(VALID_TARGET_FOLDERS)}",
         )
 
-    result = await _move_in_storage(service, filename, body.target_folder)
-    log_json(logger, logging.INFO, "library_move", filename=filename, destination=body.target_folder)
+    # #144: the raw path parameter used to be interpolated straight into the
+    # source and destination keys. Sanitize it, and require it to be in the
+    # listing — a move writes a new key as well as removing one, so a name that
+    # sanitizes cleanly but does not exist would create an empty destination.
+    # Note this is STRICTER than delete, which sanitizes without a listing
+    # check; see #128 for whether delete should match.
+    safe_name = _sanitize_filename(filename)
+    try:
+        await service.ensure_known_image(safe_name)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {safe_name}") from exc
+
+    result = await _move_in_storage(service, safe_name, body.target_folder)
+    log_json(logger, logging.INFO, "library_move", filename=safe_name, destination=body.target_folder)
     return LibraryMoveResponse(**result)
