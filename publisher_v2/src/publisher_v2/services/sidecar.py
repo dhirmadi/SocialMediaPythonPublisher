@@ -73,6 +73,11 @@ async def generate_and_upload_sidecar(
             meta["caption_generated"] = caption_generated
         if caption_edited:
             meta["caption_edited"] = str(caption_edited)
+            # #147: this writes the SD prompt under the `caption` + `caption_edited`
+            # pair that the web layer reads back as "an operator caption was
+            # published" and shows in every platform editor. No production caller
+            # passes caption_edited here today; wiring one up would put the SD
+            # prompt in front of the operator as a caption (the #80 regression).
             meta["caption"] = sd_caption  # published version
 
         # 3. Build content

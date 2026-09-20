@@ -1245,9 +1245,14 @@
       originalCaptions = {};
       for (const platform of platforms) {
         // A legacy sidecar has one caption for all platforms; show it in each
-        // editor so the operator sees where it is over a platform's limit.
-        const fromLegacy = !byPlatform[platform] && !!legacyCaption;
+        // editor so the operator sees where it is over a platform's limit. It
+        // arrives either as the scalar (no per-platform data at all) or already
+        // spread across the platforms by the server (#147: an edit stored only
+        // in `caption`), so the test is "same text as the scalar", not "came
+        // from the scalar" — otherwise the spread shape publishes N identical
+        // copies and rewrites the sidecar with them.
         const text = byPlatform[platform] || legacyCaption || "";
+        const fromLegacy = !!legacyCaption && text === legacyCaption;
         originalCaptions[platform] = text;
 
         const block = document.createElement("div");

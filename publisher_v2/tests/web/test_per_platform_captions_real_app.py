@@ -399,7 +399,14 @@ async def test_a_multi_line_edited_caption_survives_the_round_trip(no_archive: N
 
     cached = await client.post("/api/images/img.jpg/analyze")
     assert cached.json()["platform_captions"] == {"telegram": tg, "email": em}
-    # The scalar half of the round trip: #155's !json encoding, not #134's dict JSON.
+    # The scalar half of the round trip. Asserting the served `caption` would
+    # not prove it: that value comes from the per-platform dict, which #134's
+    # json.dumps already protects. This reads the scalar out of the sidecar the
+    # publish wrote, which is what #155's !json encoding covers.
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    written = rehydrate_sidecar_view(_FakeDropbox.last.files[f"{IMAGE_FOLDER}/img.txt"].decode())
+    assert written["caption"] == em, "the multi-line scalar caption lost its line breaks"
     assert cached.json()["caption"] == em
 
 
@@ -457,3 +464,25 @@ class TestALegacyEditStillWins:
         )
 
         assert _generated_captions(view) == {"telegram": "newer telegram", "email": "newer email"}
+
+
+async def test_a_bad_caption_dict_is_400_even_for_a_missing_file(client: httpx.AsyncClient) -> None:
+    """Moving the guard into the service must not turn a 400 into a 404.
+
+    The route used to reject the dict before the filename was looked at; the
+    service checks the captions first for the same reason.
+    """
+    res = await client.post("/api/images/nope.jpg/publish", json={"captions": {"telegram": "only one"}})
+
+    assert res.status_code == 400, res.text
+    assert "cover every enabled platform" in res.text
+
+
+async def test_the_served_ui_treats_a_spread_legacy_caption_as_legacy(client: httpx.AsyncClient) -> None:
+    """#147: the server spreads a legacy edit across platforms, so "came from the
+    scalar" no longer identifies it — the UI has to compare the text instead, or
+    an untouched legacy caption is published back as N identical copies."""
+    html = (await client.get("/")).text
+
+    assert "const fromLegacy = !!legacyCaption && text === legacyCaption;" in html
+    assert "allLegacyUnedited" in html

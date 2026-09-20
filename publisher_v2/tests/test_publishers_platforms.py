@@ -1139,3 +1139,46 @@ async def test_a_truncated_device_settings_does_not_cost_a_day() -> None:
     _carry_device(fresh, {"device_settings": {"model": "pixel"}})
 
     assert fresh.device_settings["model"] == "pixel"
+
+
+async def test_email_subject_folds_line_breaks_only(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """#147: a multi-line caption killed the send (a header cannot hold a newline).
+
+    Folding on *all* whitespace would also collapse runs of spaces and rewrite
+    tabs, U+00A0 and the CJK ideographic space in subjects that were going out
+    verbatim before, so only the line breaks are folded.
+    """
+    import email as email_mod
+    from email.header import decode_header, make_header
+
+    smtp = _DummySMTP()
+    monkeypatch.setattr("publisher_v2.services.publishers.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.email.asyncio.to_thread", fake_to_thread)
+
+    image_path = tmp_path / "image.jpg"
+    with Image.new("RGB", (10, 10), color="red") as img:
+        img.save(image_path)
+
+    config = EmailConfig(
+        sender="sender@example.com",
+        recipient="upload@example.com",
+        password="pwd",
+        smtp_server="smtp.example.com",
+        caption_target="subject",
+        subject_mode="normal",
+        confirmation_to_sender=False,
+    )
+    publisher = EmailPublisher(config=config, enabled=True)
+    caption = "Tokyo　Night  and\ttabs\nsecond line"
+
+    result = await publisher.publish(str(image_path), caption)
+
+    assert result.success is True, result.error
+    parsed = email_mod.message_from_string(smtp.sent_messages[0][2])
+    subject = str(make_header(decode_header(parsed["Subject"])))
+    assert "\n" not in subject and "\r" not in subject, "a header cannot hold a line break"
+    assert subject == "Tokyo　Night  and\ttabs second line", subject

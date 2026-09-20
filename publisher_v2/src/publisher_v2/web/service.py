@@ -98,8 +98,8 @@ def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
     edited = _edited_scalar_caption(view)
     if edited and generated:
         return dict.fromkeys(generated, edited)
-    if edited:
-        return None
+    # No AI dict to spread the edit across: the scalar is served on its own by
+    # _select_cached_social_caption, and the UI fills each editor from it.
     return generated
 
 
@@ -928,7 +928,6 @@ class WebImageService:
         generation and uses the caller-supplied text instead. ``caption_overrides``
         (#147) does the same per platform and wins over ``caption_override``.
         """
-        await self.ensure_known_image(filename)
         if caption_overrides:
             # #147: validated here, not only in the route — every caller of this
             # method (route, scripts, future callers) must get the same refusal,
@@ -940,6 +939,9 @@ class WebImageService:
                 raise CaptionCoverageError(
                     f"captions must cover every enabled platform; missing={missing} unknown={unknown}"
                 )
+        # After the caption check: a malformed dict is a 400 whatever the
+        # filename, which is what the route answered before the check moved here.
+        await self.ensure_known_image(filename)
         if not self.config.features.publish_enabled:
             log_json(
                 self.logger,
