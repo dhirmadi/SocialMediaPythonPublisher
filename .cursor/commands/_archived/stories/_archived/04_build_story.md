@@ -166,4 +166,3 @@ Run tests: `uv run pytest -v publisher_v2/tests/...`
 4. If `mode:agent` → execute tasks in order
 
 If no `@file` provided, output usage instructions.
-

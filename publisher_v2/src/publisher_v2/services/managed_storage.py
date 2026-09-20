@@ -53,7 +53,7 @@ _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 def _is_transient_s3_error(exc: BaseException) -> bool:
     """Return True for transient S3 errors that should be retried."""
-    if isinstance(exc, (BotoConnectionError, EndpointConnectionError)):
+    if isinstance(exc, BotoConnectionError | EndpointConnectionError):
         return True
     if isinstance(exc, ClientError):
         code = exc.response.get("Error", {}).get("Code", "")

@@ -33,5 +33,3 @@ Your job is to perform **GitHub operations** for completed work: commits/PRs/mer
   - PR link
   - Review status + outcome
   - Merge confirmation and any follow-ups
-
-

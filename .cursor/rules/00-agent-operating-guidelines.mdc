@@ -65,4 +65,3 @@ so explicitly when you do.
 ### Autonomy & approval gates
 - `AGENTS.md`'s "Autonomy & approval gates" section is the full decision matrix (scope changes, new dependencies, commits, deploys, secrets, security-relevant edits, ADRs) plus failure-handling rules.
 - **Fallback rule: if a decision isn't in that matrix, ask the user** rather than guessing.
-

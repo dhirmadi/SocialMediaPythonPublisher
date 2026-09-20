@@ -136,4 +136,3 @@ Each story should be:
 ## Start
 
 Read feature request → perform analysis → generate design with derived stories → output only Markdown.
-

@@ -30,5 +30,3 @@ Your job is to implement a roadmap item from its spec using `/feature/00_impleme
   - Key files/modules touched
   - How to verify (tests run, any manual checks)
   - Known gaps / follow-ups (if any)
-
-

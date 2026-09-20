@@ -189,7 +189,7 @@ tasks:
     description: "<what to implement>"
     file: "publisher_v2/src/path/to/file.py"
     depends_on: []
-    
+
   - id: task_02
     type: test
     description: "<what to test>"

@@ -33,5 +33,3 @@ Your job is to keep the `docs_v2/` tree **accurate, consistent, and efficient** 
   - Key workflow docs match how the team actually works.
   - Templates and naming conventions remain coherent across roadmap items.
   - Glossary and terminology usage is consistent across all docs.
-
-

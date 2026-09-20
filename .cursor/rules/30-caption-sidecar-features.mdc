@@ -24,4 +24,3 @@ alwaysApply: false
   - `docs_v2/roadmap/archive/PUB-003_expanded-vision-analysis.md`
   - `docs_v2/roadmap/archive/PUB-004_caption-extended-metadata.md`
 - Do not change field names/semantics without updating specs, tests, and migration notes.
-

@@ -18,9 +18,6 @@ panels:
   admin_title: "Administration"
   activity_title: "Activity"
 
-placeholders:
-  image_empty: "No image loaded yet."
-
 status:
   ready: "Ready."
   admin_mode_on: "Admin mode: on"

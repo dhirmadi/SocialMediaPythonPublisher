@@ -30,5 +30,3 @@ Your job is to **review documentation quality** (epics, features, stories) and r
   - Must fix / Should / Nice findings
   - References to the exact doc paths/sections
   - Verification guidance (“how to know the doc is fixed”)
-
-

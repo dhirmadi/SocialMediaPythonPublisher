@@ -138,4 +138,3 @@ High-level implementation tasks:
 ## Start
 
 Read story definition and parent feature design → generate story design → output only Markdown.
-

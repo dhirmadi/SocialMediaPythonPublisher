@@ -82,7 +82,7 @@ tasks:
     action: "create|modify"
     depends_on: []
     acceptance_criteria: [AC1]
-    
+
   - id: task_02
     type: code
     description: "Update existing module"
@@ -159,4 +159,3 @@ release:
 ## Start
 
 Read story design → extract requirements → generate executable plan → output only YAML.
-

@@ -1,6 +1,6 @@
 # Implementation Handoff: PUB-045 — R2 Storage Ops Metering
 
-**Hardened:** 2026-05-12  
+**Hardened:** 2026-05-12
 **Status:** Ready for implementation
 
 ---

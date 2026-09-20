@@ -36,5 +36,3 @@ Use these role prompts when a conversation starts to drift or when starting a ne
 ### Global rule
 
 If role instructions conflict with user instructions, **ask** for clarification before acting.
-
-

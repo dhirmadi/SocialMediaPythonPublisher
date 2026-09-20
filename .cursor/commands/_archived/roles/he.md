@@ -33,5 +33,3 @@ Your job is to validate and operate the **deployment lifecycle** (staging → pr
   - Release status (staging/prod)
   - Evidence (key checks performed)
   - Any required follow-up work (if issues found)
-
-
