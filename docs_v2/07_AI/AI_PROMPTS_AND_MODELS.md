@@ -122,7 +122,7 @@ Post‑Processing:
 - **Platform briefs state register and length, not shape (#138).** The email brief is "30 to 35
   words, one moment, first person, no hashtags"; it no longer mandates a closing question.
   `platform_captions.<name>.closing` (`question` | `statement` | `any`, default `any`) can
-  mandate a closing; when it does, that platform's "closing patterns to avoid" line is skipped.
+  mandate a closing; when it does, that platform's "closing pattern to avoid" line is skipped.
   Hard length limits appear once, in a trailing `Constraints:` line. Platforms whose style has
   `hashtags: false` get no hashtag-generation instruction.
 - `features.voice_matching_enabled` now defaults to **true when `content.voice_profile` is

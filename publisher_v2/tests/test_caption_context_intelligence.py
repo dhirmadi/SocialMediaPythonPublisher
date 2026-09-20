@@ -804,3 +804,49 @@ def test_the_rejected_draft_counts_as_the_most_recent_caption() -> None:
     assert as_most_recent != as_oldest
     assert as_oldest == "Open with a short sensory fragment (no full sentence needed)."
     assert as_most_recent == "Open with a plain declarative statement."
+
+
+async def test_the_gate_picks_the_retry_directive_with_the_draft_first(monkeypatch) -> None:
+    """#138 end to end: the rejected draft is the MOST RECENT entry when the
+    offender's retry directive is chosen.
+
+    The helper test above pins `pick_structure_directive`'s recency semantics;
+    this one pins the gate's argument order, which is the line whose comment
+    makes the claim. It needs a history that uses every structure key (so
+    recency, not "never used", decides) and a draft whose own structure is the
+    one that would otherwise be picked.
+    """
+    from publisher_v2.config.schema import OpenAIConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+
+    history = {
+        "telegram": [
+            "The rope holds her weight without complaint tonight. That patience costs something real.",
+            "Notice how the rope holds.",
+            "You can see the knot from here and can feel how long that took to tie tonight.",
+            "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
+            "short line",
+        ]
+    }
+    completions = _RecordingCompletions(
+        first={"telegram": "short line", "sd_caption": "x"},
+        second={"telegram": "Something else entirely, at length and with care.", "sd_caption": "x"},
+    )
+    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    cfg = OpenAIConfig(api_key="sk-test")
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+
+    await service.create_multi_caption_pair_from_analysis(
+        ImageAnalysis(description="d", mood="m", tags=["t"]), _real_specs(telegram=True), history=history
+    )
+
+    assert len(completions.calls) == 2, "the gate should have regenerated once"
+    retry = completions.calls[1]["messages"][-1]["content"]
+    line = next(line for line in retry.splitlines() if "Structure directive:" in line)
+    directive = line.split("Structure directive:", 1)[1].strip()
+
+    assert directive == "Open with a plain declarative statement."
+    # Draft-last would hand back the structure the draft just used:
+    assert directive != "Open with a short sensory fragment (no full sentence needed)."
