@@ -58,6 +58,7 @@ leaves it registered: ``git worktree prune`` clears that.
 from __future__ import annotations
 
 import argparse
+import ast
 import asyncio
 import json
 import os
@@ -231,14 +232,19 @@ def _baseline_takes_history(worktree: Path) -> bool:
     """
     source = worktree / "publisher_v2" / "src" / "publisher_v2" / "services" / "ai.py"
     try:
-        text = source.read_text(encoding="utf-8")
-    except OSError:
+        tree = ast.parse(source.read_text(encoding="utf-8"))
+    except (OSError, SyntaxError):
+        # Unreadable: fail open. The worker then dies on image 1 and the run's
+        # own abort stops it there, so at most one baseline image is paid for.
         return True
-    marker = "async def create_multi_caption_pair_from_analysis("
-    if marker not in text:
-        return True
-    signature = text[text.index(marker) : text.index(")", text.index(marker))]
-    return "history" in signature
+    for node in ast.walk(tree):
+        if isinstance(node, ast.AsyncFunctionDef | ast.FunctionDef):
+            if node.name != "create_multi_caption_pair_from_analysis":
+                continue
+            args = node.args
+            names = [a.arg for a in (*args.posonlyargs, *args.args, *args.kwonlyargs)]
+            return "history" in names
+    return True
 
 
 def _baseline_analyze_wants_url(worktree: Path) -> bool:

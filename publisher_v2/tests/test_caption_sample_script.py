@@ -280,6 +280,11 @@ def test_the_documented_invocation_supplies_every_required_variable(monkeypatch)
 def test_it_refuses_to_start_without_a_key(monkeypatch) -> None:
     mod = _module()
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    # _fill_unused_env writes os.environ before it raises, and delenv records no
+    # undo for a name that was already absent — so the placeholders would leak
+    # into the rest of a random-ordered suite. "" counts as unset to it.
+    for name in mod._UNUSED_ENV_PLACEHOLDERS:
+        monkeypatch.setenv(name, "")
 
     with pytest.raises(SystemExit, match="OPENAI_API_KEY"):
         mod._fill_unused_env()
@@ -611,6 +616,7 @@ class TestTheWorkerReportsWhetherItUsedTheHistory:
         result = self._run_worker(mod, src, {"telegram": ["older"]})
 
         assert result["history_used"] is True
+        assert result["captions"] == {"telegram": "stub"}, "the real publisher_v2 was imported, not the stub"
 
     def test_no_history_asked_for_is_not_reported_as_used(self, tmp_path: Path) -> None:
         mod = _module()
@@ -619,6 +625,7 @@ class TestTheWorkerReportsWhetherItUsedTheHistory:
         result = self._run_worker(mod, src, {})
 
         assert result["history_used"] is False
+        assert result["captions"] == {"telegram": "stub"}, "the real publisher_v2 was imported, not the stub"
 
 
 def test_a_baseline_without_history_support_is_refused_before_any_paid_call(tmp_path: Path, monkeypatch) -> None:
@@ -653,7 +660,12 @@ def test_a_baseline_without_history_support_is_refused_before_any_paid_call(tmp_
 
     monkeypatch.setattr(mod, "_checkout_baseline_static", _fake_checkout)
     monkeypatch.setattr(mod, "_caption_once", _fake_current)
-    monkeypatch.setattr(mod, "_caption_once_at_baseline", lambda *a, **k: paid.append("baseline") or ({}, mod.Cost()))
+
+    def _paid_baseline(*_args, **_kwargs):
+        paid.append("baseline")
+        return {}, mod.Cost()
+
+    monkeypatch.setattr(mod, "_caption_once_at_baseline", _paid_baseline)
     monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
     monkeypatch.setattr(mod, "_fill_unused_env", lambda: None)
     monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
@@ -677,3 +689,60 @@ def test_a_baseline_with_history_support_is_not_refused(tmp_path: Path) -> None:
     )
 
     assert mod._baseline_takes_history(worktree) is True
+
+
+class TestTheHistoryProbeReadsTheSignature:
+    """#146: a false positive here re-opens the billing hole it exists to close.
+
+    Once image 1 succeeds the run's abort condition no longer holds, so a
+    baseline wrongly judged history-capable bills both halves of every image
+    while the runtime refusal only marks rows as errors. A substring match on
+    the source text says yes to `history_by_platform` and to a `# history`
+    comment; the parameter list is parsed instead.
+    """
+
+    @staticmethod
+    def _tree(tmp_path: Path, signature: str) -> Path:
+        tree = tmp_path / "wt"
+        target = tree / "publisher_v2" / "src" / "publisher_v2" / "services"
+        target.mkdir(parents=True)
+        (target / "ai.py").write_text(
+            "class AIService:\n"
+            f"    async def create_multi_caption_pair_from_analysis({signature}):\n"
+            "        return {}, None, []\n",
+            encoding="utf-8",
+        )
+        return tree
+
+    def test_a_history_parameter_is_found(self, tmp_path: Path) -> None:
+        mod = _module()
+        assert mod._baseline_takes_history(self._tree(tmp_path, "self, analysis, specs, history=None")) is True
+
+    def test_a_multi_line_signature_is_read(self, tmp_path: Path) -> None:
+        mod = _module()
+        tree = self._tree(tmp_path, "\n        self,\n        analysis,\n        specs,\n        history=None,\n    ")
+        assert mod._baseline_takes_history(tree) is True
+
+    def test_a_similar_name_is_not_mistaken_for_it(self, tmp_path: Path) -> None:
+        mod = _module()
+        assert (
+            mod._baseline_takes_history(self._tree(tmp_path, "self, analysis, specs, history_by_platform=None"))
+            is False
+        )
+
+    def test_a_comment_mentioning_history_is_not_a_parameter(self, tmp_path: Path) -> None:
+        mod = _module()
+        # The comment must sit inside a multi-line list, or the closing paren
+        # lands inside it and the file does not parse at all.
+        tree = self._tree(tmp_path, "\n        self, analysis, specs,  # history goes here one day\n    ")
+        assert mod._baseline_takes_history(tree) is False
+
+    def test_a_default_containing_a_bracket_does_not_truncate_the_list(self, tmp_path: Path) -> None:
+        mod = _module()
+        tree = self._tree(tmp_path, "self, analysis, specs, hook=(lambda: None), history=None")
+        assert mod._baseline_takes_history(tree) is True
+
+    def test_an_unreadable_tree_fails_open(self, tmp_path: Path) -> None:
+        """The worker then dies on image 1 and the run's own abort stops it there."""
+        mod = _module()
+        assert mod._baseline_takes_history(tmp_path / "nothing") is True
