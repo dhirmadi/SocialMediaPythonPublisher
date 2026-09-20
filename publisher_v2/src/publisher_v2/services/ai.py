@@ -848,6 +848,10 @@ class CaptionGeneratorOpenAI:
         # Start with config-provided prompts (or schema defaults if orchestrator omitted them).
         self.system_prompt = config.system_prompt
         self.role_prompt = config.role_prompt
+        # Set here as well as in the static-override block below: tests (and any
+        # caller that stubs the static config) build this object without reaching
+        # that block, and an attribute that only sometimes exists is a landmine.
+        self.role_prompt_single = config.role_prompt
         # SD caption settings
         self.sd_caption_enabled = config.sd_caption_enabled
         self.sd_caption_single_call_enabled = config.sd_caption_single_call_enabled
@@ -871,6 +875,19 @@ class CaptionGeneratorOpenAI:
             self.system_prompt = static_prompts.caption.system
         if not tenant_custom_role and static_prompts.caption.role:
             self.role_prompt = static_prompts.caption.role
+        # #138: the banned-constructions rules are appended to whichever persona is
+        # in force. A tenant that sets its own system_prompt — which is exactly
+        # what the docs tell it to do — would otherwise replace the whole default
+        # and silently lose the rules that deliver "fewer machine tells".
+        rules = (static_prompts.caption.rules or "").strip()
+        if rules and rules not in (self.system_prompt or ""):
+            self.system_prompt = f"{(self.system_prompt or '').strip()}\n\n{rules}".strip()
+        # The single-platform fallbacks brief one platform, so the multi-platform
+        # role ("one caption per platform below") contradicted the body they sent.
+        # A tenant that wrote its own role keeps it: its wording is its choice.
+        self.role_prompt_single = (
+            self.role_prompt if tenant_custom_role else (static_prompts.caption.role_single or self.role_prompt)
+        )
 
         # SD caption prompts:
         # - If tenant explicitly provided sd prompts, use them.
@@ -891,10 +908,11 @@ class CaptionGeneratorOpenAI:
         elif tenant_custom_role:
             # Preserve the required JSON/output-shape instruction by appending the SD role template.
             sd_role_template = static_prompts.sd_caption.role or self.sd_caption_role_prompt
-            if sd_role_template and self.role_prompt and self.role_prompt not in sd_role_template:
-                self.sd_caption_role_prompt = f"{self.role_prompt}\n\n{sd_role_template}"
+            # Single-platform path, so brief one platform (#138).
+            if sd_role_template and self.role_prompt_single and self.role_prompt_single not in sd_role_template:
+                self.sd_caption_role_prompt = f"{self.role_prompt_single}\n\n{sd_role_template}"
             else:
-                self.sd_caption_role_prompt = self.role_prompt or sd_role_template
+                self.sd_caption_role_prompt = self.role_prompt_single or sd_role_template
         elif static_prompts.sd_caption.role:
             self.sd_caption_role_prompt = static_prompts.sd_caption.role
         else:
@@ -920,7 +938,10 @@ class CaptionGeneratorOpenAI:
             else:
                 length_instruction = f" Constraints: at most {spec.max_length} characters."
             prompt = (
-                f"{self.role_prompt} "
+                # #138: one platform is being written here, so the multi-platform
+                # role ("one caption per platform below") would contradict the
+                # single Platform= line that follows it.
+                f"{self.role_prompt_single} "
                 f"{build_analysis_context(analysis)}. "
                 f"Platform={spec.platform}, style={spec.style}."
                 f"{hashtags_clause}"

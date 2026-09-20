@@ -282,3 +282,48 @@ def test_vision_completion_cap_fits_caption_facing_fields() -> None:
 
     analyzer = VisionAnalyzerOpenAI(OpenAIConfig(api_key="sk-test"))
     assert analyzer.max_completion_tokens >= 1024
+
+
+class TestATenantPersonaKeepsTheRules:
+    """#138: a tenant system_prompt replaces the whole default persona.
+
+    That is what the docs tell a tenant to set, so the banned-constructions
+    rules — the part that delivers "fewer machine tells" — have to survive it.
+    They live under their own YAML key and are appended to whichever persona is
+    in force.
+    """
+
+    @staticmethod
+    def _generator(monkeypatch: pytest.MonkeyPatch, system_prompt: str | None) -> CaptionGeneratorOpenAI:
+        completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        kwargs = {"api_key": "sk-test"}
+        if system_prompt is not None:
+            kwargs["system_prompt"] = system_prompt
+        return CaptionGeneratorOpenAI(OpenAIConfig(**kwargs))
+
+    def test_a_tenant_persona_still_carries_the_banned_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen = self._generator(monkeypatch, "You write as a rope artist in Berlin. Terse, dry, first person.")
+
+        assert "rope artist in Berlin" in gen.system_prompt
+        assert "BANNED CONSTRUCTIONS" in gen.system_prompt
+        assert "step into" in gen.system_prompt
+
+    def test_the_default_persona_carries_them_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen = self._generator(monkeypatch, None)
+
+        assert gen.system_prompt.count("BANNED CONSTRUCTIONS") == 1
+
+    async def test_a_single_platform_call_is_briefed_for_one_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fallbacks send one Platform= line, so "one caption per platform below" contradicted them."""
+        completions = _FakeCompletions("a caption")
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test"))
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
+
+        await gen.generate(ImageAnalysis(description="d", mood="m", tags=["t"]), spec)
+
+        user = completions.calls[-1]["messages"][-1]["content"]
+        assert "one caption per platform" not in user.lower()
+        assert "one caption for the platform" in user.lower()
+        assert user.count("Platform=") == 1

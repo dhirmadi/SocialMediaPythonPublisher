@@ -32,11 +32,23 @@ class TestStyleExamples:
     def test_style_has_no_examples_field(self) -> None:
         assert "examples" not in PlatformCaptionStyle.model_fields
 
-    def test_examples_list_rejected(self) -> None:
-        from pydantic import ValidationError
+    def test_examples_list_is_stripped_and_logged(self, caplog) -> None:
+        """#138: dropped, not rejected.
 
-        with pytest.raises(ValidationError):
-            PlatformCaptionStyle(examples=["Example one", "Example two"])
+        PV2_STATIC_CONFIG_DIR is a fleet-wide override, so raising here took
+        every instance down — the CLI at generator construction and the web app
+        inside its lifespan, so even `GET /` 500s — for a key whose contents
+        never reach a prompt anyway.
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.config.static")
+
+        style = PlatformCaptionStyle(style="s", examples=["Example one", "Example two"])  # type: ignore[call-arg]
+
+        assert style.style == "s"
+        assert not hasattr(style, "examples")
+        assert any("static_caption_examples_ignored" in r.getMessage() for r in caplog.records), caplog.text
 
     def test_style_roundtrip_keeps_closing(self) -> None:
         style = PlatformCaptionStyle(style="conversational", max_length=4096, hashtags=True, closing="statement")
@@ -558,12 +570,10 @@ class TestDirectivesFitThePlatform:
         block = build_platform_block(1, "telegram", spec, platform_history=history)
         assert STRUCTURE_DIRECTIVES["observation"] not in block
 
-    def test_style_ignores_unknown_keys_but_rejects_examples(self) -> None:
-        from pydantic import ValidationError
-
+    def test_style_ignores_unknown_keys_and_strips_examples(self) -> None:
         assert PlatformCaptionStyle(style="s", some_future_key=1).style == "s"  # type: ignore[call-arg]
-        with pytest.raises(ValidationError):
-            PlatformCaptionStyle(examples=["x"])  # type: ignore[call-arg]
+        # An older PV2_STATIC_CONFIG_DIR must not stop the app: stripped, not raised.
+        assert PlatformCaptionStyle(style="s", examples=["x"]).style == "s"  # type: ignore[call-arg]
 
 
 async def test_regeneration_gives_new_directive_only_to_offenders(monkeypatch) -> None:
@@ -621,3 +631,66 @@ async def test_regeneration_directive_respects_platform_exclusions(monkeypatch) 
     retry_prompt = completions.calls[1]["messages"][-1]["content"]
     assert STRUCTURE_DIRECTIVES["short_line"] not in retry_prompt
     assert retry_prompt.count("Structure directive:") == 1
+
+
+class TestAStaleStaticConfigDirDoesNotStopTheApp:
+    """#138: PV2_STATIC_CONFIG_DIR is a fleet-wide override (CONFIGURATION.md).
+
+    A directory written before this change still carries `examples:`. Raising on
+    it killed the CLI at generator construction and the web app inside its
+    lifespan, so every request 500'd — for a key whose contents never reach a
+    prompt. Malformed YAML in the same file only warns and falls back; this is a
+    smaller problem than that.
+    """
+
+    @staticmethod
+    def _write_stale_dir(tmp_path) -> str:
+        import yaml
+
+        ai = {
+            "caption": {"system": "Persona.", "role_prompt": "Write:"},
+            "platform_captions": {
+                "email": {
+                    "style": "warm",
+                    "max_length": 240,
+                    "hashtags": False,
+                    "examples": ["A caption that shipped with the app once."],
+                }
+            },
+        }
+        (tmp_path / "ai_prompts.yaml").write_text(yaml.safe_dump(ai), encoding="utf-8")
+        return str(tmp_path)
+
+    def test_the_static_config_still_loads(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.static_loader import load_static_config
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+
+        config = load_static_config()
+
+        assert config.ai_prompts.platform_captions["email"].style == "warm"
+        assert config.ai_prompts.platform_captions["email"].max_length == 240
+
+    def test_the_caption_generator_still_builds(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.schema import OpenAIConfig
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+        get_static_config.cache_clear()
+        try:
+            generator = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test"))
+            assert generator.system_prompt
+        finally:
+            get_static_config.cache_clear()
+
+    def test_format_caption_still_works(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.utils.captions import format_caption
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+        get_static_config.cache_clear()
+        try:
+            assert format_caption("email", "a caption") == "a caption"
+        finally:
+            get_static_config.cache_clear()

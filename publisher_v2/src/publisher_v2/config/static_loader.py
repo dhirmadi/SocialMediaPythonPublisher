@@ -7,6 +7,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from publisher_v2.utils.logging import log_json
+
 logger = logging.getLogger("publisher_v2.config.static")
 
 
@@ -24,11 +26,19 @@ class AIVisionPrompts(BaseModel):
 class AICaptionPrompts(BaseModel):
     system: str | None = Field(
         default=None,
-        description="System prompt for caption generation",
+        description="Caption persona. A tenant system_prompt replaces this entirely",
+    )
+    rules: str | None = Field(
+        default=None,
+        description="Appended to whichever persona is in force, tenant or default (#138)",
     )
     role: str | None = Field(
         default=None,
-        description="Role/user prompt template for caption generation",
+        description="Role/user prompt template for caption generation (multi-platform)",
+    )
+    role_single: str | None = Field(
+        default=None,
+        description="Role prompt used when only one platform is being written (#138)",
     )
 
 
@@ -45,16 +55,29 @@ class AISDCaptionPrompts(BaseModel):
 
 class PlatformCaptionStyle(BaseModel):
     # #138: no static example captions ship with the app — the tenant
-    # voice_profile is the only source of examples. A reintroduced ``examples``
-    # key is rejected; other unknown keys stay ignored so an older
-    # PV2_STATIC_CONFIG_DIR override cannot stop the app at startup.
+    # voice_profile is the only source of examples.
     model_config = ConfigDict(extra="ignore")
 
     @model_validator(mode="before")
     @classmethod
-    def _reject_static_examples(cls, data: Any) -> Any:
+    def _strip_static_examples(cls, data: Any) -> Any:
+        """Drop a reintroduced ``examples`` key, loudly, instead of refusing to start.
+
+        PV2_STATIC_CONFIG_DIR is a fleet-wide override: an operator pointing at
+        a directory written before #138 would otherwise take every instance
+        down — the CLI at generator construction, the web app inside its
+        lifespan, so even ``GET /`` 500s. Malformed YAML in the same file warns
+        and falls back to defaults, and an unsupported key is a smaller problem
+        than that. The examples do not reach a prompt either way.
+        """
         if isinstance(data, dict) and data.get("examples"):
-            raise ValueError("static example captions are not supported; use the tenant voice_profile (#138)")
+            data = {k: v for k, v in data.items() if k != "examples"}
+            log_json(
+                logger,
+                logging.WARNING,
+                "static_caption_examples_ignored",
+                reason="static example captions are not supported; use the tenant voice_profile (#138)",
+            )
         return data
 
     style: str = Field(default="minimal_poetic", description="Caption style directive for this platform")

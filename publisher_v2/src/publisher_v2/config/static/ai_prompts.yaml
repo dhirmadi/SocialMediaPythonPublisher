@@ -36,13 +36,21 @@ vision:
 caption:
   # #138: tenant-neutral default. A tenant's own persona belongs in its system_prompt
   # (example in docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md).
+  # The persona only. A tenant OPENAI_SETTINGS.system_prompt replaces this, which
+  # is what the docs tell a tenant to set — so the rules below live under their
+  # own key and are appended to whichever persona is in force (#138).
   system: >
     You write in the account owner's voice; adult, warm, specific, unhurried. First person, concrete;
     specific sensory detail over abstraction; let the image carry the feeling.
+  # Always appended, tenant persona or not: these are what deliver "fewer machine
+  # tells", and a tenant that writes its own persona must not silently lose them.
+  rules: >
     BANNED CONSTRUCTIONS (never use): rhetorical-question openers; the "isn't just X, it's Y" pattern;
     "step into"; strings of trailing emoji; ellipsis endings ("..."); generic engagement bait
     ("tag someone who...", "double tap if...").
   role: "Write one caption per platform below about this photograph, in the account owner's voice."
+  # Used when only one platform is being written (the single-caption fallbacks).
+  role_single: "Write one caption for the platform below about this photograph, in the account owner's voice."
 
 sd_caption:
   system: >
