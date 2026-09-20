@@ -32,12 +32,13 @@ def _module():
 
 def test_only_images_are_sampled_and_the_limit_is_honoured(tmp_path: Path) -> None:
     mod = _module()
-    for name in ("b.jpg", "a.png", "c.jpeg", "notes.txt", "sidecar.md"):
+    # The non-images sort FIRST, or the limit hides them and "images only" is
+    # vacuous — a notes.txt would go to the vision API and nothing would fail.
+    for name in ("b.jpg", "a.png", "c.jpeg", "0notes.txt", "1sidecar.md"):
         (tmp_path / name).write_bytes(b"x")
 
-    picked = mod._image_paths(tmp_path, limit=2)
-
-    assert [p.name for p in picked] == ["a.png", "b.jpg"]  # sorted, images only, capped
+    assert [p.name for p in mod._image_paths(tmp_path, limit=99)] == ["a.png", "b.jpg", "c.jpeg"]
+    assert [p.name for p in mod._image_paths(tmp_path, limit=2)] == ["a.png", "b.jpg"]  # sorted, capped
 
 
 def test_cost_accounting_sums_calls_and_tokens() -> None:
@@ -145,8 +146,13 @@ def test_pipe_characters_in_a_caption_do_not_break_the_table() -> None:
     != 0,
     reason="baseline commit not present in this clone",
 )
-def _throwaway_repo(tmp_path: Path) -> Path:
-    """A repo of our own, so a killed run cannot leave a worktree in the developer's."""
+def _throwaway_repo(tmp_path: Path) -> tuple[Path, str]:
+    """A repo of our own, so a killed run cannot leave a worktree in the developer's.
+
+    Two commits, and the working tree differs from the first: a test that reads
+    the working tree, or ignores the commit it was given, would otherwise pass
+    against the very thing it claims to catch.
+    """
     repo = tmp_path / "repo"
     static = repo / "publisher_v2" / "src" / "publisher_v2" / "config" / "static"
     static.mkdir(parents=True)
@@ -159,25 +165,35 @@ def _throwaway_repo(tmp_path: Path) -> Path:
         "GIT_COMMITTER_NAME": "t",
         "GIT_COMMITTER_EMAIL": "t@e",
     }
-    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "baseline"]):
-        subprocess.run(  # noqa: S603
+
+    def _git(*argv: str) -> str:
+        return subprocess.run(  # noqa: S603
             ["git", *argv],  # noqa: S607
             cwd=repo,
             check=True,
             capture_output=True,
             env=env,
-        )
-    return repo
+            text=True,
+        ).stdout
+
+    _git("init", "-q")
+    _git("add", "-A")
+    _git("commit", "-qm", "baseline")
+    baseline_sha = _git("rev-parse", "HEAD").strip()
+    (static / "ai_prompts.yaml").write_text("caption:\n  system: current persona\n", encoding="utf-8")
+    _git("add", "-A")
+    _git("commit", "-qm", "current")
+    return repo, baseline_sha
 
 
 def test_the_baseline_worktree_yields_that_commits_static_config(tmp_path: Path, monkeypatch) -> None:
     """The 'before' side must come from the baseline commit, not the working tree."""
     mod = _module()
-    repo = _throwaway_repo(tmp_path)
+    repo, baseline_sha = _throwaway_repo(tmp_path)
     monkeypatch.setattr(mod, "REPO_ROOT", repo)
     worktree = tmp_path / "tree"
 
-    static = mod._checkout_baseline_static("HEAD", worktree)
+    static = mod._checkout_baseline_static(baseline_sha, worktree)
 
     assert (static / "ai_prompts.yaml").read_text(encoding="utf-8").strip().endswith("baseline persona")
     assert (static / "platform_limits.yaml").is_file()
@@ -339,3 +355,116 @@ def test_run_sends_the_baseline_to_the_baseline_code_and_feeds_each_side_its_own
     assert json.loads(calls["current"][1][1]) == {"telegram": ["current a.jpg"]}
     report = out.read_text(encoding="utf-8")
     assert "baseline a.jpg" in report and "current b.jpg" in report
+
+
+def _baseline_available() -> bool:
+    return (
+        subprocess.run(  # noqa: S603
+            ["git", "cat-file", "-e", "5c086e6^{commit}"],  # noqa: S607
+            cwd=REPO_ROOT,
+            check=False,
+            capture_output=True,
+        ).returncode
+        == 0
+    )
+
+
+@pytest.mark.skipif(not _baseline_available(), reason="baseline commit not in this clone")
+def test_the_worker_runs_against_the_real_baseline_commit(tmp_path: Path) -> None:
+    """#146: the baseline half must work at the commit the artefact names.
+
+    The worker was written against today's API and died twice at 5c086e6 before
+    any comparison was possible: `AIService.aclose` did not exist yet (added in
+    989f9e1) and `analyze` rejected bytes (byte input arrived in 6c0641d). Both
+    failures were raised inside the subprocess, so every row came back an error
+    string — after paying for the whole current-side run.
+
+    This drives the real worker against a real extraction of that commit. It
+    stops at the OpenAI call, which is the first thing that needs a key: getting
+    that far means the imports, the config, the analyzer entry point and the
+    teardown all match the baseline's own API.
+    """
+    mod = _module()
+    tree = tmp_path / "baseline"
+    tree.mkdir()
+    archive = subprocess.run(  # noqa: S603
+        ["git", "archive", "5c086e6"],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+    )
+    subprocess.run(["tar", "-x", "-C", str(tree)], input=archive.stdout, check=True)  # noqa: S603, S607
+    image = tmp_path / "img.jpg"
+    image.write_bytes(bytes.fromhex("ffd8ffdb") + b"x" * 64)
+    static = tree / "publisher_v2" / "src" / "publisher_v2" / "config" / "static"
+
+    assert mod._baseline_analyze_wants_url(tree) is True, "this baseline predates byte input"
+
+    os.environ.setdefault("OPENAI_API_KEY", "sk-not-a-real-key")
+    mod._fill_unused_env()
+    with pytest.raises(RuntimeError) as excinfo:
+        mod._caption_once_at_baseline(image, tree, static, {"telegram": ["older"]})
+
+    message = str(excinfo.value)
+    # The failure must be the missing key, not a mismatch with the baseline API.
+    assert "Incorrect API key" in message or "api_key" in message.lower(), message
+    for regression in ("aclose", "Byte input not supported", "UnsupportedProtocol"):
+        assert regression not in message, f"worker does not match the baseline API: {message}"
+
+
+def test_a_failing_worker_reports_only_its_last_line(monkeypatch, tmp_path: Path) -> None:
+    """The failure path that fires on every image when the baseline is wrong.
+
+    It was untested, and without the returncode check the next line raises
+    IndexError on empty stdout instead of showing what went wrong. The message
+    carries one line, not the traceback: row.error is written into a Markdown
+    file bound for docs_v2, and a traceback from a process whose environment
+    holds the API key is not a redaction boundary.
+    """
+    mod = _module()
+    secret_ish = "Traceback (most recent call last):\n  File x, line 1\nValueError: boom | with a pipe"
+
+    monkeypatch.setattr(
+        mod.subprocess,
+        "run",
+        lambda *a, **k: subprocess.CompletedProcess(a[0], 1, stdout="", stderr=secret_ish),
+    )
+
+    with pytest.raises(RuntimeError) as excinfo:
+        mod._caption_once_at_baseline(tmp_path / "a.jpg", tmp_path, tmp_path, None)
+
+    message = str(excinfo.value)
+    assert "ValueError: boom" in message
+    assert "Traceback" not in message, "the whole traceback must not reach the report"
+    assert "\n" not in message
+
+
+def test_a_dead_baseline_stops_the_run_instead_of_billing_every_image(tmp_path: Path, monkeypatch) -> None:
+    """#146: with the baseline half broken there is nothing to compare against."""
+    mod = _module()
+    images = tmp_path / "images"
+    images.mkdir()
+    for name in ("a.jpg", "b.jpg", "c.jpg"):
+        (images / name).write_bytes(b"\xff\xd8\xff")
+    current_calls: list[str] = []
+
+    async def _fake_current(image, static_dir, history=None):
+        current_calls.append(image.name)
+        return {"telegram": "current"}, mod.Cost(calls=1)
+
+    def _boom(*_args, **_kwargs):
+        raise RuntimeError("baseline worker failed: AttributeError: no aclose")
+
+    monkeypatch.setattr(mod, "_checkout_baseline_static", lambda commit, into: into)
+    monkeypatch.setattr(mod, "_caption_once_at_baseline", _boom)
+    monkeypatch.setattr(mod, "_caption_once", _fake_current)
+    monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
+    monkeypatch.setattr(mod, "_fill_unused_env", lambda: None)
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
+
+    with pytest.raises(SystemExit, match="baseline half failed"):
+        mod.run(SimpleNamespace(images=str(images), limit=10, baseline="5c086e6", out=str(tmp_path / "r.md")))
+
+    # The baseline half runs first, so the abort lands before the current side is
+    # called at all: zero paid calls, not one per remaining image.
+    assert current_calls == [], "images were paid for with nothing to compare them to"

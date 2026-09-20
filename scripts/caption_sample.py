@@ -29,7 +29,7 @@ Usage:
     #   PUBLISHERS='[{"type": "telegram", "channel_id": "@unused"},
     #                {"type": "fetlife", "recipient": "x@example.com"}]'
     #   DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN
-    #   TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD
+    #   TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD, OPENAI_SETTINGS (models and budgets)
 
     PYTHONPATH=publisher_v2/src uv run python scripts/caption_sample.py \\
         --images ~/caption-sample \\
@@ -50,6 +50,9 @@ repetition".
 
 Each side is fed its own previous captions as history, so the machinery under
 test actually runs.
+
+The baseline worktree is removed on the way out. A run killed outright (SIGKILL)
+leaves it registered: ``git worktree prune`` clears that.
 """
 
 from __future__ import annotations
@@ -218,6 +221,15 @@ async def _caption_once(
         await ai.aclose()
 
 
+def _baseline_analyze_wants_url(worktree: Path) -> bool:
+    """True when that commit's VisionAnalyzerOpenAI refuses bytes."""
+    source = worktree / "publisher_v2" / "src" / "publisher_v2" / "services" / "ai.py"
+    try:
+        return "Byte input not supported" in source.read_text(encoding="utf-8")
+    except OSError:
+        return False
+
+
 def _caption_once_at_baseline(
     image: Path, worktree: Path, static_dir: Path, history: dict[str, list[str]] | None
 ) -> tuple[dict[str, str], Cost]:
@@ -235,10 +247,27 @@ def _caption_once_at_baseline(
         "image": str(image),
         "static_dir": str(static_dir),
         "history": history or {},
+        # Byte input for vision arrived in 6c0641d; before that, analyze() raises
+        # for bytes and wants a URL. Read off the baseline's own source rather
+        # than assumed from today's signature.
+        "analyze_wants_url": _baseline_analyze_wants_url(worktree),
     }
     env = dict(os.environ)
     env["PYTHONPATH"] = str(worker)
     env["PV2_STATIC_CONFIG_DIR"] = str(static_dir)
+    if payload["analyze_wants_url"]:
+        # A pre-#93 baseline downloads the URL unless vision_max_dimension is 0,
+        # and a data: URL cannot be downloaded. 0 is that baseline's own
+        # pass-through path, so the image reaches OpenAI exactly as today's
+        # byte path sends it: full size, no resize.
+        settings = json.loads(env.get("OPENAI_SETTINGS") or "{}")
+        settings["vision_max_dimension"] = 0
+        # The quality-escalation fallback retries with a dimension above 0, which
+        # means downloading — and httpx cannot download a data: URL. Without this
+        # a transient vision error turns into an UnsupportedProtocol traceback
+        # instead of the retry the baseline intended.
+        settings["vision_fallback_enabled"] = False
+        env["OPENAI_SETTINGS"] = json.dumps(settings)
     proc = subprocess.run(  # noqa: S603 — fixed argv; the payload goes in on stdin
         [sys.executable, "-c", _BASELINE_WORKER, json.dumps(payload)],
         cwd=str(worktree),
@@ -247,7 +276,13 @@ def _caption_once_at_baseline(
         text=True,
     )
     if proc.returncode != 0:
-        raise RuntimeError(f"baseline worker failed: {proc.stderr.strip()[-400:]}")
+        tail = proc.stderr.strip()
+        print(tail, file=sys.stderr)  # noqa: T201 — the full text, for the operator only
+        # Only the last line reaches the caller: row.error is written into a
+        # Markdown file meant for docs_v2, and a traceback from a process whose
+        # environment holds the API key is not a redaction boundary.
+        last = tail.splitlines()[-1] if tail else "no output"
+        raise RuntimeError(f"baseline worker failed: {last[:200]}")
     result = json.loads(proc.stdout.strip().splitlines()[-1])
     cost = Cost(
         calls=result["cost"]["calls"],
@@ -259,7 +294,7 @@ def _caption_once_at_baseline(
 
 # Runs inside the baseline worktree, against the baseline's own publisher_v2.
 _BASELINE_WORKER = """
-import asyncio, json, sys
+import asyncio, base64, inspect, json, mimetypes, sys
 
 payload = json.loads(sys.argv[1])
 
@@ -283,19 +318,36 @@ async def _main():
     try:
         with open(payload["image"], "rb") as handle:
             image_bytes = handle.read()
-        analysis, vision_usage = await ai.analyzer.analyze(image_bytes)
+        # The baseline predates byte input (it arrived in 6c0641d): its analyze
+        # raises for bytes and wants a URL. A data: URL is the only one that
+        # works for a local file, and the baseline passes it through unchanged.
+        # Feature-detected rather than assumed, so a newer baseline uses bytes.
+        subject = image_bytes
+        if payload["analyze_wants_url"]:
+            # Such a baseline only passes a URL through untouched when
+            # vision_max_dimension == 0; above that it tries to DOWNLOAD the URL,
+            # and httpx rejects a data: one. The caller forces 0 for this run.
+            mime = mimetypes.guess_type(payload["image"])[0] or "image/jpeg"
+            subject = "data:" + mime + ";base64," + base64.b64encode(image_bytes).decode("ascii")
+        analysis, vision_usage = await ai.analyzer.analyze(subject)
         _add([vision_usage])
         specs = CaptionSpec.for_platforms(config)
-        try:
-            captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(
-                analysis, specs, history=payload["history"] or None
-            )
-        except TypeError:
-            # An older baseline whose signature has no history parameter.
-            captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(analysis, specs)
+        caption_call = ai.create_multi_caption_pair_from_analysis
+        # Older baselines have no history parameter. Checked, not caught: an
+        # except TypeError here would also swallow one raised inside generation
+        # and silently re-run it without history — a second paid call reported
+        # as a success.
+        takes_history = "history" in inspect.signature(caption_call).parameters
+        if takes_history and payload["history"]:
+            captions, _sd, usages = await caption_call(analysis, specs, history=payload["history"])
+        else:
+            captions, _sd, usages = await caption_call(analysis, specs)
         _add(usages)
     finally:
-        await ai.aclose()
+        # aclose() arrived in 989f9e1, after this baseline.
+        closer = getattr(ai, "aclose", None)
+        if closer is not None:
+            await closer()
     print(json.dumps({
         "captions": captions,
         "cost": {
@@ -303,6 +355,7 @@ async def _main():
             "prompt_tokens": prompt_tokens,
             "completion_tokens": completion_tokens,
         },
+        "history_used": bool(takes_history and payload["history"]),
     }))
 
 asyncio.run(_main())
@@ -360,7 +413,7 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
     previous: dict[str, dict[str, str]] = {"baseline": {}, "current": {}}
     for row in rows:
         if row.error and not row.captions:
-            lines.append(f"| `{row.image}` | — | _{row.error}_ | | | | |")
+            lines.append(f"| `{row.image}` | — | _{_cell(row.error)}_ | | | | |")
             continue
         for platform in platforms:
             before = row.captions.get("baseline", {}).get(platform, "")
@@ -370,7 +423,7 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
             prev_c = previous["current"].get(platform, "")
             adjacent_b = f"{trigram_jaccard(before, prev_b):.2f}" if before and prev_b else "—"
             adjacent_c = f"{trigram_jaccard(after, prev_c):.2f}" if after and prev_c else "—"
-            note = f" _({row.error})_" if row.error else ""
+            note = f" _({_cell(row.error)})_" if row.error else ""
             lines.append(
                 f"| `{row.image}` | {platform} | {_cell(before)}{note} | {_cell(after)} | "
                 f"{delta} | {adjacent_b} | {adjacent_c} |"
@@ -468,6 +521,15 @@ def run(args: argparse.Namespace) -> int:
                             del history[variant][platform][HISTORY_DEPTH:]
                 except Exception as exc:  # one bad variant must not discard the other
                     row.error = f"{variant}: {type(exc).__name__}: {exc}"
+                    if variant == "baseline" and not any(r.captions.get("baseline") for r in rows):
+                        # The baseline half has never worked in this run, so it
+                        # will not start working on image 2. Stopping here costs
+                        # one current-side call instead of twenty.
+                        rows.append(row)
+                        raise SystemExit(
+                            f"baseline half failed on the first image and produced nothing: {row.error}\n"
+                            "Nothing to compare against — fix the baseline before paying for the rest."
+                        ) from exc
             rows.append(row)
             print(f"done: {image.name}", file=sys.stderr)  # noqa: T201 — operator-facing progress
     finally:
