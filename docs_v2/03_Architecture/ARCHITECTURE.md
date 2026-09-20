@@ -103,6 +103,16 @@ Publishers (async):
 - is_enabled() -> bool
 
 Web API (FastAPI):
+
+**Breaking change (#137): admin actions are Auth0-only.** `POST .../analyze`, `.../publish`,
+`.../keep`, `.../remove` and `DELETE .../objects/{filename}` call `require_admin`
+**unconditionally** — the image routes used to skip it when no admin login was configured.
+`WEB_AUTH_TOKEN` Bearer and `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic satisfy `require_auth` but never
+`require_admin`, so **machine clients can no longer call those endpoints**: `503` when Auth0 is not
+configured, `403` when it is but no admin cookie is presented. `WEB_ALLOW_UNAUTHENTICATED=1` does
+not open them. The admin cookie is minted only by the Auth0 callback; the password login
+(`web_admin_pw`, `POST /api/admin/login`) is gone.
+
 - `GET /` → HTML UI (with i18n text injection from static config)
 - `GET /api/images/random` → ImageResponse (random image with metadata, includes `thumbnail_url`)
 - `GET /api/images/{filename}/thumbnail` → JPEG thumbnail bytes (fast preview, Feature 018)
@@ -115,6 +125,7 @@ Web API (FastAPI):
 - `GET /api/config/web_ui_text` → dict (i18n UI text from static config)
 - `GET /api/admin/status` → AdminStatusResponse (admin session status)
 - `POST /api/admin/logout` → AdminStatusResponse (admin logout)
+- `GET /auth/login` → Auth0 OIDC redirect, `GET /auth/callback` → mints the admin cookie (the only way to obtain one, #137)
 - `GET /health/live` → {"status": "ok"} (liveness)
 - `GET /health/ready` → {"status": "ok"} (readiness; may check orchestrator connectivity when configured)
 - `GET /health` → {"status": "ok"} (legacy/compat)

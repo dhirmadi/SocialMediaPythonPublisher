@@ -87,7 +87,11 @@ async def require_auth(request: Request) -> None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized")
     raise HTTPException(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-        detail="No auth backend configured. Set WEB_AUTH_TOKEN, WEB_AUTH_USER/WEB_AUTH_PASS, or AUTH0_DOMAIN/AUTH0_CLIENT_ID.",
+        detail=(
+            "No auth backend configured. Set AUTH0_DOMAIN/AUTH0_CLIENT_ID for admin actions "
+            "(#137: analyze, publish, keep, remove and delete accept nothing else), or "
+            "WEB_AUTH_TOKEN / WEB_AUTH_USER+WEB_AUTH_PASS for read-only machine access."
+        ),
     )
 
 
