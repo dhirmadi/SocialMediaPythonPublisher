@@ -41,8 +41,8 @@ The frontend (`index.html`) queries `/api/config/features` on load to determine 
 ### 4.2 Backend Components
 - **`AuthRouter` (`routers/auth.py`)**: Handles OIDC Login/Callback/Logout.
 - **`Auth Helpers` (`web/auth.py`)**:
-  - `is_admin_configured()`: Returns true if *either* Auth0 or Password is set.
-  - `get_auth_mode()`: Determines the active mode.
+  - `is_admin_configured()`: Returns true if *either* Auth0 or Password is set. [#137: Auth0 only.]
+  - [removed #137: `get_auth_mode()`]: Determined the active mode.
   - [removed #137: password-check helper]: Legacy check.
 - **`Config`**: Loads both Auth0 env vars and legacy `[removed #137: admin-password env var]`.
 
