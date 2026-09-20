@@ -26,7 +26,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from publisher_v2.utils.logging import log_json
-from publisher_v2.web.rate_limit import request_scheme
+from publisher_v2.web.rate_limit import forwarded_proto_values, request_scheme, trust_forwarded_headers
 
 logger = logging.getLogger("publisher_v2.web.csrf")
 
@@ -107,6 +107,23 @@ class CSRFMiddleware(BaseHTTPMiddleware):
 
 
 def _reject(request: Request, reason: str) -> JSONResponse:
+    # #129: behind a proxy the commonest cause of a cross-origin rejection is not
+    # a cross-origin request at all — it is the scheme, because the forwarded
+    # headers are untrusted or disagree. Say so in the log rather than making the
+    # next operator rediscover it. Both the Origin and the Referer branch have
+    # the identical cause, so both get the hint.
+    hint = None
+    if reason in ("cross-origin Origin", "cross-origin Referer"):
+        if not trust_forwarded_headers():
+            hint = "set WEB_TRUST_FORWARDED_FOR=true if this app sits behind a TLS-terminating proxy"
+        elif len(set(forwarded_proto_values(request))) > 1:
+            # The least diagnosable case: the flag IS set, so the operator has
+            # already done the documented fix, and the scheme still fell back.
+            hint = (
+                "X-Forwarded-Proto carries disagreeing values, so it is not trusted; "
+                "check for a proxy in front that terminates TLS and forwards plain http "
+                "(e.g. Cloudflare SSL mode 'Flexible')"
+            )
     log_json(
         logger,
         logging.WARNING,
@@ -115,6 +132,7 @@ def _reject(request: Request, reason: str) -> JSONResponse:
         method=request.method,
         reason=reason,
         remote=request.client.host if request.client else None,
+        hint=hint,
     )
     return JSONResponse(
         status_code=403,

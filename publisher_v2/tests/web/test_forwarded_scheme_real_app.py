@@ -10,6 +10,7 @@ Auth0 callback URL.
 
 from __future__ import annotations
 
+import logging
 from collections.abc import Iterator
 from unittest.mock import AsyncMock, patch
 
@@ -20,7 +21,7 @@ from starlette.responses import RedirectResponse
 from uvicorn.middleware.proxy_headers import ProxyHeadersMiddleware
 
 from publisher_v2.config.schema import Auth0Config
-from publisher_v2.web.app import app
+from publisher_v2.web.app import app, lifespan
 from publisher_v2.web.dependencies import get_request_service
 from publisher_v2.web.rate_limit import request_scheme
 
@@ -191,6 +192,128 @@ def _real_request(headers: dict[str, str]) -> Request:
             "server": ("testserver", 80),
         }
     )
+
+
+async def _run_lifespan(capsys: pytest.CaptureFixture[str]) -> str:
+    """Run the real lifespan and return what it logged.
+
+    caplog cannot be used here: the lifespan calls `setup_logging`, which
+    reconfigures the `publisher_v2` logger and drops caplog's handler. The
+    handler it installs writes to the stderr pytest is already capturing.
+    """
+    async with lifespan(app):
+        pass
+    return capsys.readouterr().err
+
+
+@pytest.mark.asyncio
+async def test_startup_warns_when_running_on_heroku_without_the_trust_flag(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The fix only works if the flag is set; a fresh dyno without it reproduces the 403.
+
+    Nothing in the app noticed the combination, and the CSRF rejection log says
+    only "cross-origin Origin", which does not point at the cause.
+    """
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    logged = await _run_lifespan(capsys)
+
+    assert "forwarded_headers_untrusted_on_heroku" in logged
+
+
+@pytest.mark.asyncio
+async def test_startup_is_quiet_when_the_trust_flag_is_set(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("DYNO", "web.1")
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    logged = await _run_lifespan(capsys)
+
+    assert "forwarded_headers_untrusted_on_heroku" not in logged
+
+
+@pytest.mark.asyncio
+async def test_startup_is_quiet_off_heroku(monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> None:
+    """No DYNO means no Heroku router, so the flag being off is legitimate."""
+    monkeypatch.delenv("DYNO", raising=False)
+    monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+
+    logged = await _run_lifespan(capsys)
+
+    assert "forwarded_headers_untrusted_on_heroku" not in logged
+
+
+@pytest.mark.asyncio
+async def test_csrf_rejection_names_the_forwarded_scheme_cause(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The real 403, through the real app: the log has to point at the flag.
+
+    "cross-origin Origin" on its own sent the last operator looking at the
+    browser rather than at WEB_TRUST_FORWARDED_FOR.
+    """
+    monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.web"):
+        res = await _logout()
+
+    assert res.status_code == 403
+    assert "WEB_TRUST_FORWARDED_FOR" in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_csrf_rejection_hints_at_disagreeing_forwarded_proto(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The least diagnosable 403: the flag IS set and the scheme still fell back.
+
+    The operator has already applied the documented fix, so a hint telling them
+    to set the flag would send them in a circle.
+
+    caplog, not capsys: the reject path never calls `setup_logging`, so nothing
+    reaches stderr unless a lifespan test happened to install that handler
+    first. Asserting on stderr here made this test pass or fail on ordering.
+    """
+    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
+
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.web.csrf"):
+        res = await _logout(proto="https, http")
+
+    assert res.status_code == 403
+    assert "disagreeing values" in caplog.text
+    assert "WEB_TRUST_FORWARDED_FOR=true" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_csrf_rejection_by_referer_also_carries_the_hint(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """The Referer fallback rejects for the identical reason, so it gets the same hint."""
+    monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
+
+    transport = httpx.ASGITransport(app=_wrapped(), client=HEROKU_ROUTER_PEER)
+    with caplog.at_level(logging.WARNING, logger="publisher_v2.web.csrf"):
+        async with httpx.AsyncClient(transport=transport, base_url="http://testserver") as client:
+            res = await client.post(
+                "/api/auth/logout",
+                headers={
+                    "X-Forwarded-Proto": "https",
+                    # No Origin: the middleware falls back to Referer.
+                    "Referer": "https://testserver/library",
+                    "X-Requested-With": "XMLHttpRequest",
+                    "Cookie": "pv2_admin=anything",
+                },
+            )
+
+    assert res.status_code == 403
+    assert "cross-origin Referer" in caplog.text
+    assert "WEB_TRUST_FORWARDED_FOR" in caplog.text
 
 
 # --- review follow-up: first-vs-last X-Forwarded-Proto -----------------------
