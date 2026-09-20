@@ -30,6 +30,7 @@ from publisher_v2.services.ai import (
     SHORT_LIMIT_THRESHOLD,
     CaptionGeneratorOpenAI,
     build_platform_block,
+    platform_length_limit,
     smart_truncate,
 )
 
@@ -109,12 +110,14 @@ def _telegram_spec() -> CaptionSpec:
 
 
 class TestEmailConfigInYAML:
-    def test_email_has_min_3_examples_each_within_limit(self) -> None:
+    def test_email_ships_no_static_examples_or_question_mandate(self) -> None:
+        """#138 (replaces the >=3 static examples check): tenant voice_profile is the only
+        source of examples, and the email brief no longer mandates a closing question."""
         cfg = load_static_config()
         email = cfg.ai_prompts.platform_captions["email"]
-        assert len(email.examples) >= 3
-        for ex in email.examples:
-            assert len(ex) <= email.max_length, f"Example exceeds max_length: {ex!r}"
+        assert not hasattr(email, "examples")
+        assert "question" not in (email.style + email.guidance).lower()
+        assert email.closing == "any"
 
     def test_email_has_word_guidance(self) -> None:
         cfg = load_static_config()
@@ -127,32 +130,34 @@ class TestEmailConfigInYAML:
 
 
 class TestEmailStyleText:
-    def test_email_style_contains_sentence_and_question(self) -> None:
+    def test_email_brief_is_register_and_length_only(self) -> None:
+        """#138 (replaces "sentence + question" style): the email brief states register
+        and length only; it no longer prescribes one sentence + one question."""
         cfg = load_static_config()
         email = cfg.ai_prompts.platform_captions["email"]
-        style_low = email.style.lower()
-        assert "sentence" in style_low
-        assert "question" in style_low
+        assert "question" not in email.style.lower()
+        assert "words" in email.guidance.lower()
 
 
 # ---------- AC-02: build_platform_block uses words for short-limit ----------
 
 
 class TestBuildPlatformBlockLengthUnits:
+    """#138: hard limits moved from each platform block into the single trailing
+    Constraints line (``platform_length_limit``); the unit rules are unchanged."""
+
     def test_short_limit_uses_words(self) -> None:
-        spec = _email_spec(max_length=240)
-        block = build_platform_block(1, "email", spec)
-        assert "words" in block.lower()
+        assert "words" in platform_length_limit("email", _email_spec(max_length=240)).lower()
 
     def test_long_limit_uses_chars(self) -> None:
-        spec = _telegram_spec()
-        block = build_platform_block(1, "telegram", spec)
-        assert "chars" in block.lower()
+        assert "characters" in platform_length_limit("telegram", _telegram_spec()).lower()
 
     def test_short_limit_threshold_boundary_300(self) -> None:
         spec = CaptionSpec(platform="x", style="s", hashtags="", max_length=300)
-        block = build_platform_block(1, "x", spec)
-        assert "words" in block.lower()
+        assert "words" in platform_length_limit("x", spec).lower()
+
+    def test_limits_not_repeated_in_platform_block(self) -> None:
+        assert "words" not in build_platform_block(1, "email", _email_spec(max_length=240)).lower()
 
 
 # ---------- AC-04: max_tokens on generate ----------
@@ -570,3 +575,12 @@ class TestCondenseHardening:
 
 
 # Static-config cache busting now lives in conftest.py (suite-wide).
+
+
+def test_smart_truncate_sentence_end_near_budget_has_no_ellipsis() -> None:
+    """#138: a cut at a sentence end ending right at the budget needs no ellipsis."""
+    # Period at index max_length-1: the old search stopped one character short and added "…".
+    text = "a" * 239 + ". more"
+    out = smart_truncate(text, 240)
+    assert out == "a" * 239 + "."
+    assert not out.endswith("…")

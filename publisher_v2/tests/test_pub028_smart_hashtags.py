@@ -129,8 +129,10 @@ class TestCaptionSpecSmartHashtagsField:
     def test_for_platforms_sets_smart_hashtags_true_when_flag_enabled(self) -> None:
         cfg = _make_config(smart_hashtags_enabled=True, telegram=True, instagram=True)
         specs = CaptionSpec.for_platforms(cfg)
-        for spec in specs.values():
-            assert spec.smart_hashtags is True
+        # #138: the flag reaches every platform whose style uses hashtags; a
+        # hashtags: false platform (telegram, email) gets no hashtag instruction.
+        assert specs["instagram"].smart_hashtags is True
+        assert specs["telegram"].smart_hashtags is False
 
     def test_for_platforms_smart_hashtags_false_when_flag_disabled(self) -> None:
         cfg = _make_config(smart_hashtags_enabled=False, telegram=True, instagram=True)
@@ -433,9 +435,9 @@ class TestByteIdenticalPrePub028:
             smart_hashtags=False,
         )
         block = build_platform_block(2, "instagram", spec)
-        expected = (
-            "2. instagram: hook-first, hashtags naturally, up to 2200 chars. Include hashtags: #shibari #ropeart."
-        )
+        # #138: the length limit moved to the prompt's single trailing Constraints
+        # line; the smart=False hashtag wording is unchanged.
+        expected = "2. instagram: hook-first, hashtags naturally. Include hashtags: #shibari #ropeart."
         assert block == expected
 
     @pytest.mark.asyncio

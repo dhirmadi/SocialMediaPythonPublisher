@@ -221,3 +221,208 @@ async def test_service_path_sends_caption_persona_system_message(monkeypatch: py
     assert messages[0]["content"] == generator.system_prompt
     assert "prompt engineer" not in messages[0]["content"].lower()
     assert "sd_caption" in messages[1]["content"]
+
+
+# ---------- #138: tenant-neutral default persona, fewer machine tells ----------
+
+
+def _captured_user_prompt(monkeypatch: pytest.MonkeyPatch) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
+    completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+    return CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test")), completions
+
+
+async def test_default_system_prompt_is_tenant_neutral_and_keeps_banned_list(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Asserted on the message that reaches the client, not on the attribute.
+
+    Reading `gen.system_prompt` proves what was assembled, not what was sent —
+    the two diverged once already (#135, the SD persona on the caption path).
+    """
+    gen, completions = _captured_user_prompt(monkeypatch)
+
+    await _generate_through_the_service(gen, completions)
+
+    system = completions.calls[-1]["messages"][0]["content"].lower()
+    assert "banned" in system
+    assert "rope" not in system
+    assert "kink" not in system
+
+
+async def _generate_through_the_service(gen: CaptionGeneratorOpenAI, completions: _FakeCompletions) -> str:
+    """Drive AIService, not the generator, and return the user message sent."""
+    from publisher_v2.services.ai import AIService, VisionAnalyzerOpenAI
+
+    service = AIService(VisionAnalyzerOpenAI(OpenAIConfig(api_key="sk-test")), gen)
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="", max_length=4096),
+        "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+    }
+    await service.create_multi_caption_pair_from_analysis(ImageAnalysis(description="d", mood="m", tags=["t"]), specs)
+    return str(completions.calls[-1]["messages"][-1]["content"])
+
+
+async def test_user_prompt_has_no_machine_tells(monkeypatch: pytest.MonkeyPatch) -> None:
+    gen, completions = _captured_user_prompt(monkeypatch)
+    user = await _generate_through_the_service(gen, completions)
+    assert "Write a caption for:" not in user
+    assert "will be truncated" not in user.lower()
+    # Hard limits live in one trailing Constraints line.
+    assert user.count("Constraints:") == 1
+
+
+def test_condense_pass_writes_as_the_same_writer() -> None:
+    from publisher_v2.services.ai import CONDENSE_SYSTEM_PROMPT
+
+    assert "same writer" in CONDENSE_SYSTEM_PROMPT
+    assert "text editor" not in CONDENSE_SYSTEM_PROMPT
+    # Injection hardening stays.
+    assert "untrusted" in CONDENSE_SYSTEM_PROMPT
+
+
+async def test_email_word_limit_reaches_the_real_prompt_and_matches_brief(monkeypatch: pytest.MonkeyPatch) -> None:
+    """#138 review: the Constraints line carries each platform's limit and agrees with the 30-35 word brief."""
+    gen, completions = _captured_user_prompt(monkeypatch)
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="conversational", hashtags="", max_length=4096),
+        "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+    }
+    await gen.generate_multi_with_sd(ImageAnalysis(description="d", mood="m", tags=["t"]), specs)
+    user = completions.calls[-1]["messages"][-1]["content"]
+    assert "email at most 40 words (aim for 30-35)" in user
+    assert "telegram at most 4096 characters" in user
+
+
+def test_vision_completion_cap_fits_caption_facing_fields() -> None:
+    from publisher_v2.services.ai import VisionAnalyzerOpenAI
+
+    analyzer = VisionAnalyzerOpenAI(OpenAIConfig(api_key="sk-test"))
+    assert analyzer.max_completion_tokens >= 1024
+
+
+class TestATenantPersonaKeepsTheRules:
+    """#138: a tenant system_prompt replaces the whole default persona.
+
+    That is what the docs tell a tenant to set, so the banned-constructions
+    rules — the part that delivers "fewer machine tells" — have to survive it.
+    They live under their own YAML key and are appended to whichever persona is
+    in force.
+    """
+
+    @staticmethod
+    def _generator(monkeypatch: pytest.MonkeyPatch, system_prompt: str | None) -> CaptionGeneratorOpenAI:
+        completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        kwargs = {"api_key": "sk-test"}
+        if system_prompt is not None:
+            kwargs["system_prompt"] = system_prompt
+        return CaptionGeneratorOpenAI(OpenAIConfig(**kwargs))
+
+    def test_a_tenant_persona_still_carries_the_banned_list(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen = self._generator(monkeypatch, "You write as a rope artist in Berlin. Terse, dry, first person.")
+
+        assert "rope artist in Berlin" in gen.system_prompt
+        assert "BANNED CONSTRUCTIONS" in gen.system_prompt
+        assert "step into" in gen.system_prompt
+
+    def test_the_default_persona_carries_them_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        gen = self._generator(monkeypatch, None)
+
+        assert gen.system_prompt.count("BANNED CONSTRUCTIONS") == 1
+
+    async def test_a_single_platform_call_is_briefed_for_one_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fallbacks send one Platform= line, so "one caption per platform below" contradicted them."""
+        completions = _FakeCompletions("a caption")
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test"))
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
+
+        await gen.generate(ImageAnalysis(description="d", mood="m", tags=["t"]), spec)
+
+        user = completions.calls[-1]["messages"][-1]["content"]
+        assert "one caption per platform" not in user.lower()
+        assert "one caption for the platform" in user.lower()
+        assert user.count("Platform=") == 1
+
+
+def test_a_null_sensory_detail_does_not_become_the_word_none() -> None:
+    """The model returns null for a field it cannot fill; str(None) is "None"."""
+    from publisher_v2.services.ai import _as_detail_list
+
+    assert _as_detail_list([None, "warm jute", None]) == ["warm jute"]
+    assert _as_detail_list(None) == []
+    assert _as_detail_list([None, None]) == []
+
+
+class TestTheBudgetAndTheBriefAreRespected:
+    """#138 follow-ups: behaviours the fixes claimed but nothing asserted."""
+
+    @staticmethod
+    def _specs_with_examples(examples: tuple[str, ...]) -> dict[str, CaptionSpec]:
+        return {
+            "telegram": CaptionSpec(
+                platform="telegram", style="conversational", hashtags="", max_length=4096, examples=examples
+            ),
+            "email": CaptionSpec(platform="email", style="short", hashtags="", max_length=240, examples=examples),
+        }
+
+    def test_an_empty_voice_list_is_a_decision_not_an_absence(self) -> None:
+        """truncate_voice_profile_to_budget returns [] when the first example busts the budget.
+
+        Promoting the specs' own copies then would put the untruncated profile
+        straight back into the prompt, defeating PUB-029's budget.
+        """
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = self._specs_with_examples(("A very long voice example that blew the budget.",))
+
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+            voice_examples=[],
+        )
+
+        assert "blew the budget" not in prompt
+        assert "STYLE REFERENCES" not in prompt
+
+    def test_no_voice_list_still_promotes_the_specs_examples(self) -> None:
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = self._specs_with_examples(("My signature line.",))
+
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+        )
+
+        assert prompt.count("My signature line.") == 1
+
+    async def test_a_tenant_role_prompt_survives_on_the_single_platform_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The single-platform brief must not silently override a tenant's own role."""
+        completions = _FakeCompletions("a caption")
+        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test", role_prompt="My own brief, thanks."))
+
+        await gen.generate(
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            CaptionSpec(platform="email", style="short", hashtags="", max_length=240),
+        )
+
+        user = completions.calls[-1]["messages"][-1]["content"]
+        assert user.startswith("My own brief, thanks.")
+
+    def test_a_mandated_closing_is_stated_in_the_block(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240, closing="statement")
+
+        block = build_platform_block(1, "email", spec)
+
+        assert "end with a statement" in block.lower()

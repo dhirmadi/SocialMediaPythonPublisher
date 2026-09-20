@@ -43,7 +43,9 @@ Following a four-agent code review (DRY/overengineering, security/red-team, perf
 | P2-4 | `_bust_static_cache` autouse fixture local to one file | Low | Promoted to suite-wide `_bust_static_config_cache` in `tests/conftest.py`. |
 | P2-5 | `_make_overshoot_email_text` whitespace hack | Low | Replaced with a deterministic non-whitespace-ending repeat unit (`"ropexxx"`). |
 
-**Knowingly not changed:** the FetLife-themed examples and guidance in `ai_prompts.yaml`. The security agent flagged this as tenant-specific content in shared static config, but PUB-046 spec Part A explicitly prescribes those exact examples in the YAML. Per project rule "the spec wins", the YAML content stays; if it needs to move to per-tenant orchestrator config later, that's a follow-up spec (see Part F).
+**Superseded by #138:** the few-shot `examples` this item added to `ai_prompts.yaml` were removed — no static example captions ship with the app, and an `examples:` key in a `PV2_STATIC_CONFIG_DIR` override is stripped with a warning. The word-count `guidance` stays. AC-01's example-count criteria no longer apply; the tenant `content.voice_profile` is the only source of examples.
+
+**Knowingly not changed (at the time):** the FetLife-themed examples and guidance in `ai_prompts.yaml`. The security agent flagged this as tenant-specific content in shared static config, but PUB-046 spec Part A explicitly prescribes those exact examples in the YAML. Per project rule "the spec wins", the YAML content stays; if it needs to move to per-tenant orchestrator config later, that's a follow-up spec (see Part F).
 
 ## Test Results
 

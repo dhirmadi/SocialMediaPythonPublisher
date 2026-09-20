@@ -87,3 +87,23 @@ class TestForPlatforms:
             assert spec.style
             assert isinstance(spec.style, str)
             assert len(spec.style) > 0
+
+
+# --- #138: no hashtag instruction for platforms whose style has hashtags: false ---
+
+
+def test_email_spec_has_smart_hashtags_off_even_when_feature_on() -> None:
+    cfg = _make_config(telegram=True, instagram=True, email=True)
+    assert cfg.features.smart_hashtags_enabled is True
+    specs = CaptionSpec.for_platforms(cfg)
+    assert specs["email"].smart_hashtags is False
+    assert specs["telegram"].smart_hashtags is False
+    assert specs["instagram"].smart_hashtags is True
+
+
+def test_email_prompt_block_carries_no_hashtag_generation() -> None:
+    from publisher_v2.services.ai import build_platform_block
+
+    specs = CaptionSpec.for_platforms(_make_config(email=True))
+    block = build_platform_block(1, "email", specs["email"])
+    assert "Generate 3-8" not in block

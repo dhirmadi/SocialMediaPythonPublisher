@@ -100,6 +100,7 @@ async def test_caption_generator_generate_returns_usage_tuple() -> None:
     gen.model = "gpt-4o-mini"
     gen.system_prompt = "You are a caption writer."
     gen.role_prompt = "Write a caption."
+    gen.role_prompt_single = "Write a caption."
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
@@ -132,6 +133,7 @@ async def test_caption_generator_generate_with_sd_returns_usage_tuple() -> None:
     # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
     gen.system_prompt = "system"
     gen.role_prompt = "role"
+    gen.role_prompt_single = "role"
     gen.sd_caption_brief = "sd brief"
 
     mock_client = AsyncMock()
@@ -160,6 +162,7 @@ async def test_caption_generator_generate_multi_returns_usage_tuple() -> None:
     gen.model = "gpt-4o-mini"
     gen.system_prompt = "system"
     gen.role_prompt = "role"
+    gen.role_prompt_single = "role"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
@@ -195,6 +198,7 @@ async def test_caption_generator_generate_multi_with_sd_returns_usage_tuple() ->
     # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
     gen.system_prompt = "system"
     gen.role_prompt = "role"
+    gen.role_prompt_single = "role"
     gen.sd_caption_brief = "sd brief"
 
     mock_client = AsyncMock()
@@ -352,6 +356,7 @@ async def test_transient_error_retries_exactly_three_attempts(monkeypatch: pytes
     gen.model = "gpt-4o-mini"
     gen.system_prompt = "system"
     gen.role_prompt = "role"
+    gen.role_prompt_single = "role"
     gen.client = SimpleNamespace(chat=SimpleNamespace(completions=_FailingCompletions()))
 
     with pytest.raises(AIServiceError):

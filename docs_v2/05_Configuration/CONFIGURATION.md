@@ -120,7 +120,7 @@ Runtime tunables below the web/auth bootstrap layer are parsed centrally in `pub
 | `folder_keep` | Override `[Dropbox].folder_keep` | (from INI) |
 | `folder_remove` | Override `[Dropbox].folder_remove` | (from INI) |
 | `AI_RATE_PER_MINUTE` | Override OpenAI rate limit | 20 (from static config) |
-| `PV2_STATIC_CONFIG_DIR` | Custom static config directory | `<package>/config/static` |
+| `PV2_STATIC_CONFIG_DIR` | Custom static config directory. A directory written before #138 may still contain `platform_captions.*.examples`; that key is stripped with a `static_caption_examples_ignored` warning rather than failing the load, since the app reads this at startup on every instance | `<package>/config/static` |
 | `WEB_DEBUG` | Enable FastAPI debug/verbose logging **only** — it no longer enables the insecure dev signing secret (#87 SEC-5) | `false` |
 | `WEB_DEV_INSECURE_SECRET` | Explicit local-dev opt-in for the built-in insecure session/cookie signing secret when `WEB_SESSION_SECRET` is unset. **Never set in production.** | `false` |
 | `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE` | Strict mode (#91 SEC-3): require Bearer/Basic header auth in addition to the admin cookie when a header backend is configured | `false` |
@@ -173,8 +173,13 @@ caption_model = gpt-4o-mini     ; Cost-effective caption generation
 ; OR use legacy single model (backward compatible):
 ; model = gpt-4o-mini           ; Use same model for both tasks
 
-system_prompt = You are a senior social media copywriter...
-role_prompt = Write a caption for:
+; Defaults now come from ai_prompts.yaml (#138): the persona under caption.system,
+; the multi-platform brief under caption.role, and the single-platform one under
+; caption.role_single. A tenant system_prompt replaces the persona; the
+; banned-constructions rules under caption.rules are appended to it either way,
+; so setting your own persona does not lose them.
+system_prompt = You write as ...  ; your own persona; rules are appended
+role_prompt = Write one caption per platform below about this photograph.
 
 ; Stable-Diffusion sidecar (optional, defaults shown)
 sd_caption_enabled = true
@@ -312,6 +317,17 @@ PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
 4. **Pydantic validation** applied to all layers
 5. **Secrets** extracted from environment only
 6. **ApplicationConfig** instance created with all three layers
+
+### Caption prompt keys in `ai_prompts.yaml` (#138)
+
+| Key | Role |
+|---|---|
+| `caption.system` | The persona. A tenant `OPENAI_SETTINGS.system_prompt` replaces it. |
+| `caption.rules` | Banned constructions. **Appended to whichever persona is in force**, so a tenant that writes its own persona keeps them. |
+| `caption.role` | The brief used when several platforms are written in one call. |
+| `caption.role_single` | The brief used by the single-platform fallbacks, which send one `Platform=` line. |
+| `platform_captions.<p>.closing` | `question`, `statement` or `any`. When set, the "recent closing pattern to avoid" constraint is skipped — a mandated closing cannot also be forbidden. |
+| `platform_captions.<p>.examples` | **Not supported.** Stripped with a warning; the tenant voice profile is the only source of examples. |
 
 ### Best Practices
 
@@ -547,7 +563,7 @@ See: `docs_v2/02_Specifications/ORCHESTRATOR_SERVICE_API_INTEGRATION_GUIDE.md` (
 | Variable | Purpose |
 |----------|---------|
 | `DROPBOX_APP_KEY` / `DROPBOX_APP_SECRET` | Shared Dropbox OAuth app credentials used with per-tenant refresh tokens from orchestrator |
-| `PV2_STATIC_CONFIG_DIR` (optional) | Override static YAML config directory for fleet-wide prompt/text tuning |
+| `PV2_STATIC_CONFIG_DIR` (optional) | Override static YAML config directory for fleet-wide prompt/text tuning. `caption.system` is the persona, `caption.rules` is appended to whichever persona is in force, `caption.role`/`caption.role_single` are the multi- and single-platform briefs, and a leftover `examples:` key is stripped with a warning (#138) |
 
 #### C) Web UI & Admin (Auth0 + HTTP auth)
 

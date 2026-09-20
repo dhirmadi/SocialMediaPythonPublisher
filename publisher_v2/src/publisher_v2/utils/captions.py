@@ -332,22 +332,24 @@ def classify_caption_structure(caption: str) -> str:
     return "declarative"
 
 
-def pick_structure_directive(history: list[str]) -> str:
+def pick_structure_directive(history: list[str], exclude: frozenset[str] = frozenset()) -> str:
     """Pick the structural directive least recently used in ``history`` (#82).
 
     ``history`` is ordered most-recent-first (as fetched from the DB). The
     directive whose structure appears furthest back (or not at all) wins;
-    registry order breaks ties deterministically.
+    registry order breaks ties deterministically. ``exclude`` (#138) removes
+    directive keys that would contradict the platform brief.
     """
+    candidates = [k for k in STRUCTURE_DIRECTIVES if k not in exclude] or list(STRUCTURE_DIRECTIVES)
     last_used: dict[str, int] = {}
     for idx, caption in enumerate(history):
         key = classify_caption_structure(caption)
         if key not in last_used:
             last_used[key] = idx  # smaller idx == more recent
-    never_used = [k for k in STRUCTURE_DIRECTIVES if k not in last_used]
+    never_used = [k for k in candidates if k not in last_used]
     if never_used:
         return STRUCTURE_DIRECTIVES[never_used[0]]
-    key = max(last_used, key=lambda k: last_used[k])
+    key = max(candidates, key=lambda k: last_used[k])
     return STRUCTURE_DIRECTIVES[key]
 
 

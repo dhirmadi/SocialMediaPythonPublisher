@@ -2,10 +2,12 @@ import logging
 import os
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from publisher_v2.utils.logging import log_json
 
 logger = logging.getLogger("publisher_v2.config.static")
 
@@ -24,11 +26,19 @@ class AIVisionPrompts(BaseModel):
 class AICaptionPrompts(BaseModel):
     system: str | None = Field(
         default=None,
-        description="System prompt for caption generation",
+        description="Caption persona. A tenant system_prompt replaces this entirely",
+    )
+    rules: str | None = Field(
+        default=None,
+        description="Appended to whichever persona is in force, tenant or default (#138)",
     )
     role: str | None = Field(
         default=None,
-        description="Role/user prompt template for caption generation",
+        description="Role/user prompt template for caption generation (multi-platform)",
+    )
+    role_single: str | None = Field(
+        default=None,
+        description="Role prompt used when only one platform is being written (#138)",
     )
 
 
@@ -44,13 +54,40 @@ class AISDCaptionPrompts(BaseModel):
 
 
 class PlatformCaptionStyle(BaseModel):
+    # #138: no static example captions ship with the app — the tenant
+    # voice_profile is the only source of examples.
+    model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _strip_static_examples(cls, data: Any) -> Any:
+        """Drop a reintroduced ``examples`` key, loudly, instead of refusing to start.
+
+        PV2_STATIC_CONFIG_DIR is a fleet-wide override: an operator pointing at
+        a directory written before #138 would otherwise take every instance
+        down — the CLI at generator construction, the web app inside its
+        lifespan, so even ``GET /`` 500s. Malformed YAML in the same file warns
+        and falls back to defaults, and an unsupported key is a smaller problem
+        than that. The examples do not reach a prompt either way.
+        """
+        if isinstance(data, dict) and data.get("examples"):
+            data = {k: v for k, v in data.items() if k != "examples"}
+            log_json(
+                logger,
+                logging.WARNING,
+                "static_caption_examples_ignored",
+                reason="static example captions are not supported; use the tenant voice_profile (#138)",
+            )
+        return data
+
     style: str = Field(default="minimal_poetic", description="Caption style directive for this platform")
     max_length: int = Field(default=2200, description="Maximum caption length")
     hashtags: bool = Field(default=True, description="Whether to include hashtags")
-    examples: list[str] = Field(
-        default_factory=list, max_length=10, description="Voice examples for few-shot prompting"
+    guidance: str = Field(default="", max_length=1000, description="Platform length/register brief")
+    closing: Literal["question", "statement", "any"] = Field(
+        default="any",
+        description="Mandated closing; when set, the closing-pattern-to-avoid constraint is skipped",
     )
-    guidance: str = Field(default="", max_length=1000, description="Platform-specific trend guidance")
 
 
 class ConfirmationTagsConfig(BaseModel):
@@ -87,9 +124,10 @@ class AIPromptsConfig(BaseModel):
                 hashtags=True,
             ),
             "email": PlatformCaptionStyle(
-                style="one intimate sentence + one brief question, FetLife-appropriate, no hashtags",
+                style="intimate, FetLife-appropriate",
                 max_length=240,
                 hashtags=False,
+                guidance="FetLife email subject. 30 to 35 words, one moment, first person, no hashtags.",
             ),
             "generic": PlatformCaptionStyle(style="minimal_poetic", max_length=2200, hashtags=True),
         },

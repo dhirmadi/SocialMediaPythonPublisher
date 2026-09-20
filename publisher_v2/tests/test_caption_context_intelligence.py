@@ -9,6 +9,7 @@ Covers all four parts:
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import pytest
@@ -22,41 +23,85 @@ from publisher_v2.core.models import CaptionSpec
 
 
 class TestStyleExamples:
-    """AC1: PlatformCaptionStyle supports an optional examples list."""
+    """#138 (replaces AC1): no static example captions ship; PlatformCaptionStyle has no examples.
 
-    def test_examples_default_empty(self) -> None:
-        style = PlatformCaptionStyle()
-        assert style.examples == []
+    The tenant voice_profile (carried on CaptionSpec.examples) is the only source
+    of examples, so the static style model rejects an ``examples`` key outright.
+    """
 
-    def test_examples_accepts_list(self) -> None:
-        style = PlatformCaptionStyle(examples=["Example one", "Example two"])
-        assert style.examples == ["Example one", "Example two"]
+    def test_style_has_no_examples_field(self) -> None:
+        assert "examples" not in PlatformCaptionStyle.model_fields
 
-    def test_examples_preserved_in_yaml_roundtrip(self) -> None:
-        style = PlatformCaptionStyle(style="conversational", examples=["Test"], max_length=4096, hashtags=True)
-        data = style.model_dump()
-        rebuilt = PlatformCaptionStyle(**data)
-        assert rebuilt.examples == ["Test"]
+    def test_examples_list_is_stripped_and_logged(self, caplog) -> None:
+        """#138: dropped, not rejected.
+
+        PV2_STATIC_CONFIG_DIR is a fleet-wide override, so raising here took
+        every instance down — the CLI at generator construction and the web app
+        inside its lifespan, so even `GET /` 500s — for a key whose contents
+        never reach a prompt anyway.
+        """
+        import logging
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.config.static")
+
+        style = PlatformCaptionStyle(style="s", examples=["Example one", "Example two"])  # type: ignore[call-arg]
+
+        assert style.style == "s"
+        assert not hasattr(style, "examples")
+        assert any("static_caption_examples_ignored" in r.getMessage() for r in caplog.records), caplog.text
+
+    def test_style_roundtrip_keeps_closing(self) -> None:
+        style = PlatformCaptionStyle(style="conversational", max_length=4096, hashtags=True, closing="statement")
+        rebuilt = PlatformCaptionStyle(**style.model_dump())
+        assert rebuilt.closing == "statement"
+        assert rebuilt == style
 
 
 class TestExamplesInPrompt:
-    """AC2: When examples is non-empty, the prompt includes a Voice examples block."""
+    """AC2, as amended by #138: the examples appear once, in the hardened block.
 
-    def test_prompt_includes_examples_block(self) -> None:
+    They used to be repeated inside every platform block as well, so with four
+    platforms one example stood in front of the model four times over — which is
+    how a "reference, do not copy" turns into a template.
+    """
+
+    _SPEC = CaptionSpec(
+        platform="telegram",
+        style="conversational",
+        hashtags="#art",
+        max_length=4096,
+        examples=("The way light catches jute", "New work. Three hours of tying"),
+        guidance="",
+    )
+
+    def test_the_platform_block_no_longer_repeats_them(self) -> None:
         from publisher_v2.services.ai import build_platform_block
 
-        spec = CaptionSpec(
-            platform="telegram",
-            style="conversational",
-            hashtags="#art",
-            max_length=4096,
-            examples=("The way light catches jute", "New work. Three hours of tying"),
-            guidance="",
+        block = build_platform_block(1, "telegram", self._SPEC)
+
+        assert "Voice examples" not in block
+        assert "The way light catches jute" not in block
+
+    def test_the_assembled_prompt_carries_each_example_once(self) -> None:
+        import dataclasses
+
+        from publisher_v2.core.models import ImageAnalysis
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        specs = {
+            "telegram": self._SPEC,
+            "email": dataclasses.replace(self._SPEC, platform="email"),
+        }
+        prompt, _keys = CaptionGeneratorOpenAI._build_multi_prompt(
+            "Write captions.",
+            ImageAnalysis(description="d", mood="m", tags=["t"]),
+            specs,
+            None,
+            voice_examples=list(self._SPEC.examples),
         )
-        block = build_platform_block(1, "telegram", spec)
-        assert "Voice examples" in block
-        assert "The way light catches jute" in block
-        assert "New work. Three hours of tying" in block
+
+        assert prompt.count("The way light catches jute") == 1, prompt
+        assert "STYLE REFERENCES" in prompt
 
     def test_prompt_omits_examples_when_empty(self) -> None:
         from publisher_v2.services.ai import build_platform_block
@@ -148,7 +193,7 @@ class TestCaptionHistoryPrompt:
         ]
         block = build_history_block(captions)
         assert "openings to avoid" in block.lower()
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
         for full in captions:
             assert full not in block
 
@@ -386,7 +431,7 @@ class TestHistoryAsConstraints:
         ]
         block = build_platform_block(1, "email", spec, platform_history=history)
         assert "openings to avoid" in block.lower()
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
         for full in history:
             assert full not in block
         # First six words of each opening are present as the avoid-list.
@@ -400,3 +445,408 @@ class TestHistoryAsConstraints:
         spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
         block = build_platform_block(1, "email", spec, platform_history=["An earlier caption line here."])
         assert "Structure directive:" in block
+
+
+# ---------------------------------------------------------------------------
+# #138: email prompt consistency, one directive per platform, no static examples
+# ---------------------------------------------------------------------------
+
+
+def _real_specs(**platforms: bool) -> dict[str, CaptionSpec]:
+    from publisher_v2.config.schema import (
+        ApplicationConfig,
+        ContentConfig,
+        DropboxConfig,
+        OpenAIConfig,
+        PlatformsConfig,
+        StoragePathConfig,
+    )
+
+    cfg = ApplicationConfig(
+        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
+        storage_paths=StoragePathConfig(image_folder="/Photos"),
+        openai=OpenAIConfig(api_key="sk-test"),
+        platforms=PlatformsConfig(
+            telegram_enabled=platforms.get("telegram", False), email_enabled=platforms.get("email", False)
+        ),
+        content=ContentConfig(),
+    )
+    return CaptionSpec.for_platforms(cfg)
+
+
+class TestEmailPromptConsistency:
+    def test_shipped_email_spec_has_no_examples_and_no_question_mandate(self) -> None:
+        email = _real_specs(email=True)["email"]
+        assert email.examples == ()
+        assert "question" not in email.style.lower()
+        assert "question" not in email.guidance.lower()
+
+    def test_no_platform_ships_static_examples(self) -> None:
+        from publisher_v2.config.static_loader import load_static_config
+
+        for name, style in load_static_config().ai_prompts.platform_captions.items():
+            assert not getattr(style, "examples", None), f"{name} ships static example captions"
+
+    def test_mandated_closing_skips_closing_pattern_constraint(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240, closing="question")
+        block = build_platform_block(1, "email", spec, platform_history=["Was it the knot? Tell me?"])
+        # The line is singular since #138 ("Recent closing pattern to avoid"), so
+        # the plural this used to look for could never appear either way.
+        assert "closing pattern to avoid" not in block.lower()
+
+    def test_any_closing_keeps_closing_pattern_constraint(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
+        assert spec.closing == "any"
+        block = build_platform_block(1, "email", spec, platform_history=["Was it the knot?"])
+        assert "closing pattern to avoid" in block.lower()
+
+
+class _Msg:
+    def __init__(self, content: str) -> None:
+        self.content = content
+
+
+class _Resp:
+    def __init__(self, content: str) -> None:
+        self.choices = [type("C", (), {"message": _Msg(content)})()]
+        self.usage = None
+
+
+class _RecordingCompletions:
+    """Fake OpenAI chat.completions: first draft copies history, the retry is fresh."""
+
+    def __init__(self, first: dict[str, str], second: dict[str, str]) -> None:
+        self.calls: list[dict[str, Any]] = []
+        self._payloads = [first, second]
+
+    async def create(self, **kwargs: Any) -> _Resp:
+        self.calls.append(kwargs)
+        payload = self._payloads[min(len(self.calls) - 1, 1)]
+        return _Resp(json.dumps(payload))
+
+
+async def test_regeneration_prompt_carries_exactly_one_directive_per_platform(monkeypatch) -> None:
+    from publisher_v2.config.schema import OpenAIConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+
+    history = {
+        "telegram": ["Rope and light across her back tonight, slow and certain."],
+        "email": ["Rope and light across her back tonight."],
+    }
+    completions = _RecordingCompletions(
+        first={"telegram": history["telegram"][0], "email": history["email"][0], "sd_caption": "x"},
+        second={"telegram": "Something else entirely.", "email": "Quiet, then the knot.", "sd_caption": "x"},
+    )
+    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    cfg = OpenAIConfig(api_key="sk-test")
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+    specs = _real_specs(telegram=True, email=True)
+    analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
+
+    await service.create_multi_caption_pair_from_analysis(analysis, specs, history=history)
+
+    assert len(completions.calls) == 2, "similarity gate should regenerate exactly once"
+    retry_prompt = completions.calls[1]["messages"][-1]["content"]
+    from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
+
+    directive_hits = sum(retry_prompt.count(d) for d in STRUCTURE_DIRECTIVES.values())
+    assert directive_hits == len(specs), retry_prompt
+    assert retry_prompt.count("Structure directive:") == len(specs)
+
+    # #138: the offender's retry directive is picked with the rejected draft as
+    # the MOST RECENT entry, so it never asks for the structure that draft used.
+    # (It can legitimately repeat call 1's directive — when the draft's structure
+    # matches the history it was too similar to, the least-recently-used answer
+    # has not moved. What must not happen is being told to write the structure
+    # that was just rejected.)
+    from publisher_v2.utils.captions import classify_caption_structure
+
+    def _directive_for(prompt: str, platform: str) -> str:
+        block = prompt.split(f"{platform}:", 1)[1]
+        line = next(line for line in block.splitlines() if "Structure directive:" in line)
+        return line.split("Structure directive:", 1)[1].strip()
+
+    rejected_structure = classify_caption_structure(history["telegram"][0])
+    assert _directive_for(retry_prompt, "telegram") != STRUCTURE_DIRECTIVES[rejected_structure]
+
+    # The clause points at those directives rather than adding another one.
+    assert "Follow each platform's Structure directive" in retry_prompt
+
+
+class TestDirectivesFitThePlatform:
+    """#138 review: a structure directive must never contradict the platform brief."""
+
+    def test_word_limited_platform_never_gets_short_line(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+        from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
+
+        spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
+        # Every other structure used recently -> plain LRU would pick short_line.
+        from publisher_v2.utils.captions import pick_structure_directive
+
+        history = [
+            "The light fell across the rope and her shoulders tonight slowly.",  # declarative
+            "Warm skin. Then the knot.",  # fragment
+            "You hold still while the rope settles in.",  # second_person
+            "Light falls across the wall today. The rope waits in her lap quietly.",  # observation
+        ]
+        assert pick_structure_directive(history) == STRUCTURE_DIRECTIVES["short_line"]
+        block = build_platform_block(1, "email", spec, platform_history=history)
+        assert STRUCTURE_DIRECTIVES["short_line"] not in block
+
+    def test_question_closing_never_gets_no_questions_directive(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+        from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
+
+        spec = CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096, closing="question")
+        from publisher_v2.utils.captions import pick_structure_directive
+
+        # Every other structure used recently -> plain LRU would pick observation.
+        history = [
+            "The light fell across the rope and her shoulders tonight slowly.",  # declarative
+            "Warm skin. Then the knot.",  # fragment
+            "You hold still while the rope settles in.",  # second_person
+            "Rope settles on warm skin tonight",  # short_line
+        ]
+        assert pick_structure_directive(history) == STRUCTURE_DIRECTIVES["observation"]
+        block = build_platform_block(1, "telegram", spec, platform_history=history)
+        assert STRUCTURE_DIRECTIVES["observation"] not in block
+
+    def test_style_ignores_unknown_keys_and_strips_examples(self) -> None:
+        assert PlatformCaptionStyle(style="s", some_future_key=1).style == "s"  # type: ignore[call-arg]
+        # An older PV2_STATIC_CONFIG_DIR must not stop the app: stripped, not raised.
+        assert PlatformCaptionStyle(style="s", examples=["x"]).style == "s"  # type: ignore[call-arg]
+
+
+async def test_regeneration_gives_new_directive_only_to_offenders(monkeypatch) -> None:
+    """Non-offending platforms keep their call-1 directive; a platform without history gets none."""
+    from publisher_v2.config.schema import OpenAIConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+
+    history = {"telegram": ["Rope and light across her back tonight, slow and certain."]}
+    completions = _RecordingCompletions(
+        first={"telegram": history["telegram"][0], "email": "Something new.", "sd_caption": "x"},
+        second={"telegram": "Different now.", "email": "Something new.", "sd_caption": "x"},
+    )
+    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    cfg = OpenAIConfig(api_key="sk-test")
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+    specs = _real_specs(telegram=True, email=True)
+    await service.create_multi_caption_pair_from_analysis(
+        ImageAnalysis(description="d", mood="m", tags=["t"]), specs, history=history
+    )
+    retry_prompt = completions.calls[1]["messages"][-1]["content"]
+    email_block = retry_prompt.split("2. email:")[1].split("Image analysis:")[0]
+    assert "Structure directive" not in email_block
+
+
+async def test_regeneration_directive_respects_platform_exclusions(monkeypatch) -> None:
+    """An email offender whose history + draft would LRU-pick short_line gets another directive on retry."""
+    from publisher_v2.config.schema import OpenAIConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+    from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES, pick_structure_directive
+
+    draft = "The light fell across the rope and her shoulders tonight slowly."  # declarative
+    history = {
+        "email": [
+            "Warm skin. Then the knot.",  # fragment
+            "You hold still while the rope settles in.",  # second_person
+            "Light falls across the wall today. The rope waits in her lap quietly.",  # observation
+            draft,
+        ]
+    }
+    assert pick_structure_directive([draft, *history["email"]]) == STRUCTURE_DIRECTIVES["short_line"]
+    completions = _RecordingCompletions(
+        first={"email": draft, "sd_caption": "x"}, second={"email": "Something else.", "sd_caption": "x"}
+    )
+    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    cfg = OpenAIConfig(api_key="sk-test")
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+    await service.create_multi_caption_pair_from_analysis(
+        ImageAnalysis(description="d", mood="m", tags=["t"]), _real_specs(email=True), history=history
+    )
+    assert len(completions.calls) == 2
+    retry_prompt = completions.calls[1]["messages"][-1]["content"]
+    assert STRUCTURE_DIRECTIVES["short_line"] not in retry_prompt
+    assert retry_prompt.count("Structure directive:") == 1
+
+
+class TestAStaleStaticConfigDirDoesNotStopTheApp:
+    """#138: PV2_STATIC_CONFIG_DIR is a fleet-wide override (CONFIGURATION.md).
+
+    A directory written before this change still carries `examples:`. Raising on
+    it killed the CLI at generator construction and the web app inside its
+    lifespan, so every request 500'd — for a key whose contents never reach a
+    prompt. Malformed YAML in the same file only warns and falls back; this is a
+    smaller problem than that.
+    """
+
+    @staticmethod
+    def _write_stale_dir(tmp_path) -> str:
+        import yaml
+
+        ai = {
+            "caption": {"system": "Persona.", "role_prompt": "Write:"},
+            "platform_captions": {
+                "email": {
+                    "style": "warm",
+                    "max_length": 240,
+                    "hashtags": False,
+                    "examples": ["A caption that shipped with the app once."],
+                }
+            },
+        }
+        (tmp_path / "ai_prompts.yaml").write_text(yaml.safe_dump(ai), encoding="utf-8")
+        return str(tmp_path)
+
+    def test_the_static_config_still_loads(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.static_loader import load_static_config
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+
+        config = load_static_config()
+
+        assert config.ai_prompts.platform_captions["email"].style == "warm"
+        assert config.ai_prompts.platform_captions["email"].max_length == 240
+
+    def test_the_caption_generator_still_builds(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.schema import OpenAIConfig
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+        get_static_config.cache_clear()
+        try:
+            generator = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test"))
+            assert generator.system_prompt
+        finally:
+            get_static_config.cache_clear()
+
+    def test_format_caption_still_works(self, tmp_path, monkeypatch) -> None:
+        from publisher_v2.config.static_loader import get_static_config
+        from publisher_v2.utils.captions import format_caption
+
+        monkeypatch.setenv("PV2_STATIC_CONFIG_DIR", self._write_stale_dir(tmp_path))
+        get_static_config.cache_clear()
+        try:
+            assert format_caption("email", "a caption") == "a caption"
+        finally:
+            get_static_config.cache_clear()
+
+
+class TestTheClosingAvoidListLeavesAnOption:
+    """#138: there are three closing patterns in all (question, statement, fragment).
+
+    Listing every closing seen in the history left the model one option with two
+    entries and none with three — an instruction it cannot satisfy, sitting next
+    to a structure directive telling it to open with a statement.
+    """
+
+    @staticmethod
+    def _spec() -> CaptionSpec:
+        return CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
+
+    def test_only_the_most_recent_closing_is_named(self) -> None:
+        from publisher_v2.services.ai import build_platform_block
+
+        history = ["A statement ending.", "Was it the knot?", "a trailing fragment"]
+
+        block = build_platform_block(1, "email", self._spec(), platform_history=history)
+
+        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
+        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
+        assert named == ["fragment"], line
+
+    def test_the_flat_history_block_caps_it_too(self) -> None:
+        from publisher_v2.services.ai import build_history_block
+
+        block = build_history_block(["A statement ending.", "Was it the knot?", "a trailing fragment"])
+
+        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
+        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
+        assert named == ["fragment"], line
+
+
+def test_the_rejected_draft_counts_as_the_most_recent_caption() -> None:
+    """#138: the similarity gate picks the offender's retry directive from
+    ``[rejected_draft, *history]`` — the draft first, because history is
+    most-recent-first and `pick_structure_directive` rotates on recency.
+
+    Appending it instead makes it the *oldest* entry, which is exactly backwards:
+    the structure just rejected becomes the least-recently-used one and is handed
+    straight back as the instruction for the retry.
+    """
+    from publisher_v2.utils.captions import pick_structure_directive
+
+    # Every structure key is used once, so recency (not "never used") decides.
+    history = [
+        "The rope holds her weight without complaint tonight. That patience costs something real.",
+        "Notice how the rope holds.",
+        "You can see the knot from here and can feel how long that took to tie tonight.",
+        "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
+        "short line",
+    ]
+    rejected = "short line"
+
+    as_most_recent = pick_structure_directive([rejected, *history])
+    as_oldest = pick_structure_directive([*history, rejected])
+
+    assert as_most_recent != as_oldest
+    assert as_oldest == "Open with a short sensory fragment (no full sentence needed)."
+    assert as_most_recent == "Open with a plain declarative statement."
+
+
+async def test_the_gate_picks_the_retry_directive_with_the_draft_first(monkeypatch) -> None:
+    """#138 end to end: the rejected draft is the MOST RECENT entry when the
+    offender's retry directive is chosen.
+
+    The helper test above pins `pick_structure_directive`'s recency semantics;
+    this one pins the gate's argument order, which is the line whose comment
+    makes the claim. It needs a history that uses every structure key (so
+    recency, not "never used", decides) and a draft whose own structure is the
+    one that would otherwise be picked.
+    """
+    from publisher_v2.config.schema import OpenAIConfig
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+
+    history = {
+        "telegram": [
+            "The rope holds her weight without complaint tonight. That patience costs something real.",
+            "Notice how the rope holds.",
+            "You can see the knot from here and can feel how long that took to tie tonight.",
+            "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
+            "short line",
+        ]
+    }
+    completions = _RecordingCompletions(
+        first={"telegram": "short line", "sd_caption": "x"},
+        second={"telegram": "Something else entirely, at length and with care.", "sd_caption": "x"},
+    )
+    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    cfg = OpenAIConfig(api_key="sk-test")
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+
+    await service.create_multi_caption_pair_from_analysis(
+        ImageAnalysis(description="d", mood="m", tags=["t"]), _real_specs(telegram=True), history=history
+    )
+
+    assert len(completions.calls) == 2, "the gate should have regenerated once"
+    retry = completions.calls[1]["messages"][-1]["content"]
+    line = next(line for line in retry.splitlines() if "Structure directive:" in line)
+    directive = line.split("Structure directive:", 1)[1].strip()
+
+    assert directive == "Open with a plain declarative statement."
+    # Draft-last would hand back the structure the draft just used:
+    assert directive != "Open with a short sensory fragment (no full sentence needed)."

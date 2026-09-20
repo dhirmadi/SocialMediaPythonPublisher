@@ -229,7 +229,7 @@ class TestPerPlatformHistoryBlock:
         assert "Recent openings to avoid" in block
         assert "Cap A about the slow morning" in block
         assert "Cap A about the slow morning light in here" not in block
-        assert "closing patterns to avoid" in block.lower()
+        assert "closing pattern to avoid" in block.lower()
         assert "DIFFERENT openings" in block
         assert "Structure directive:" in block
 
