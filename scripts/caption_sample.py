@@ -14,14 +14,22 @@ sample is evidence about real model output.
 
 Usage:
 
-    # The config loader requires all three of these, even though this script
-    # touches no storage and no publisher. STORAGE_PATHS and PUBLISHERS can be
-    # throwaway values; OPENAI_SETTINGS must carry a real key. PUBLISHERS decides
-    # which platforms appear in the table — enable every platform you want
-    # evidence for, or the column will simply be missing.
-    export STORAGE_PATHS='{"root": "/unused"}'
-    export PUBLISHERS='[{"type": "telegram", "channel_id": "@unused"}, {"type": "fetlife", "recipient": "x@example.com"}]'
-    export OPENAI_SETTINGS='{"api_key": "sk-..."}'
+    # Only the API key needs a real value: this script touches no storage and no
+    # publisher. The loader nevertheless demands storage and publisher
+    # credentials, so the script fills the unused ones with placeholders when
+    # they are absent (it says which, on stderr). PUBLISHERS decides which
+    # platforms appear in the table — enable every platform you want evidence
+    # for, or the column will simply be missing.
+    #
+    # The key is read from OPENAI_API_KEY, NOT from OPENAI_SETTINGS.api_key.
+    export OPENAI_API_KEY='sk-...'
+
+    # Optional; these are what the script would otherwise fill in for you:
+    #   STORAGE_PATHS='{"root": "/unused"}'
+    #   PUBLISHERS='[{"type": "telegram", "channel_id": "@unused"},
+    #                {"type": "fetlife", "recipient": "x@example.com"}]'
+    #   DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN
+    #   TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD
 
     PYTHONPATH=publisher_v2/src uv run python scripts/caption_sample.py \\
         --images ~/caption-sample \\
@@ -32,9 +40,16 @@ Start with ``--limit 2`` to confirm the wiring before paying for the full run:
 20 images cost roughly 80 calls (one vision + one caption per image per side),
 and the vision half dominates.
 
-The baseline is checked out into a temporary git worktree; only its static
-prompt configuration (config/static/*.yaml) is used, so the comparison isolates
-the prompt change rather than mixing in unrelated code differences.
+The baseline is checked out into a temporary git worktree and the baseline half
+runs in a subprocess against **that commit's own** ``publisher_v2`` — prompts
+and code together. #82 is code (the similarity gate, the history constraints,
+the structure-directive rotation), so swapping only the YAML would run both
+halves through today's machinery and the table would answer a different
+question: "did the prompt text change the wording", not "did #82 reduce
+repetition".
+
+Each side is fed its own previous captions as history, so the machinery under
+test actually runs.
 """
 
 from __future__ import annotations
@@ -54,6 +69,8 @@ from typing import Any
 REPO_ROOT = Path(__file__).resolve().parents[1]
 STATIC_REL = Path("publisher_v2/src/publisher_v2/config/static")
 IMAGE_SUFFIXES = (".jpg", ".jpeg", ".png")
+# How many of a side's own previous captions to feed back as history, per platform.
+HISTORY_DEPTH = 5
 
 
 @dataclass
@@ -69,7 +86,15 @@ class Cost:
         return self.prompt_tokens + self.completion_tokens
 
     def add(self, usages: list[Any]) -> None:
-        """Record one call per entry; OpenAI omits usage on some responses."""
+        """Record one call per entry; OpenAI omits usage on some responses.
+
+        This under-counts, and the report says so: ``AIService`` drops ``None``
+        usages before returning, so a caption call whose response carried no
+        usage payload never reaches here — nor does the silent paid fallback
+        from ``generate_multi_with_sd`` to ``generate_multi``. Only the vision
+        call, which this script makes itself, is counted whether or not it
+        reports usage. The numbers are a floor, not a bill.
+        """
         for usage in usages or []:
             self.calls += 1
             if usage is None:
@@ -93,6 +118,36 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--out", required=True, help="Markdown file to write")
     parser.add_argument("--limit", type=int, default=20, help="Maximum images to process")
     return parser.parse_args(argv)
+
+
+# Credentials the config loader demands but this script never uses. Filled in
+# only when absent, and reported, so the documented invocation actually loads
+# instead of failing three times over on storage and publisher secrets.
+_UNUSED_ENV_PLACEHOLDERS = {
+    "STORAGE_PATHS": '{"root": "/unused"}',
+    "PUBLISHERS": '[{"type": "telegram", "channel_id": "@unused"}, '
+    '{"type": "fetlife", "recipient": "unused@example.com"}]',
+    "DROPBOX_APP_KEY": "unused",
+    "DROPBOX_APP_SECRET": "unused",
+    "DROPBOX_REFRESH_TOKEN": "unused",
+    "TELEGRAM_BOT_TOKEN": "unused",
+    "EMAIL_PASSWORD": "unused",
+    # Required by the env-first loader even when every model default is fine.
+    "OPENAI_SETTINGS": "{}",
+}
+
+
+def _fill_unused_env() -> None:
+    filled = [name for name, value in _UNUSED_ENV_PLACEHOLDERS.items() if not os.environ.get(name)]
+    for name in filled:
+        os.environ[name] = _UNUSED_ENV_PLACEHOLDERS[name]
+    if filled:
+        print(  # noqa: T201 — operator-facing
+            "using placeholders for unused config: " + ", ".join(sorted(filled)),
+            file=sys.stderr,
+        )
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("set OPENAI_API_KEY — this script makes real API calls, and the loader reads the key there")
 
 
 def _image_paths(folder: Path, limit: int) -> list[Path]:
@@ -125,12 +180,19 @@ def _checkout_baseline_static(commit: str, into: Path) -> Path:
     return static
 
 
-async def _caption_once(image: Path, static_dir: Path) -> tuple[dict[str, str], Cost]:
+async def _caption_once(
+    image: Path, static_dir: Path, history: dict[str, list[str]] | None = None
+) -> tuple[dict[str, str], Cost]:
     """Run vision + caption for one image with the given static prompt config.
 
     The prompt configuration is selected with PV2_STATIC_CONFIG_DIR, the override
     the static loader already supports — nothing in the working tree is moved or
     rewritten.
+
+    ``history`` is that side's own previous captions, per platform. Without it
+    the #82 machinery this artefact is meant to measure — the similarity gate,
+    the openings/closings constraints, the structure-directive rotation — never
+    runs, and the table measures prompt drift only.
     """
     from publisher_v2.config.loader import load_application_config
     from publisher_v2.config.static_loader import get_static_config
@@ -147,11 +209,104 @@ async def _caption_once(image: Path, static_dir: Path) -> tuple[dict[str, str], 
         analysis, vision_usage = await ai.analyzer.analyze(image_bytes)
         cost.add([vision_usage])
         specs = CaptionSpec.for_platforms(config)
-        captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(analysis, specs)
+        captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(
+            analysis, specs, history=history or None
+        )
         cost.add(usages)
         return captions, cost
     finally:
         await ai.aclose()
+
+
+def _caption_once_at_baseline(
+    image: Path, worktree: Path, static_dir: Path, history: dict[str, list[str]] | None
+) -> tuple[dict[str, str], Cost]:
+    """Run one image through the BASELINE commit's code, not the working tree's.
+
+    The point of the artefact is "did #82 reduce repetition", and #82 is code:
+    the similarity gate, the history constraints, the structure directives. Only
+    swapping the YAML runs both halves through today's machinery, so the table
+    would answer "did the prompt text change the wording" instead. The baseline
+    worktree is already checked out, so its ``publisher_v2/src`` goes on
+    PYTHONPATH in a subprocess with its own interpreter state.
+    """
+    worker = worktree / "publisher_v2" / "src"
+    payload = {
+        "image": str(image),
+        "static_dir": str(static_dir),
+        "history": history or {},
+    }
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(worker)
+    env["PV2_STATIC_CONFIG_DIR"] = str(static_dir)
+    proc = subprocess.run(  # noqa: S603 — fixed argv; the payload goes in on stdin
+        [sys.executable, "-c", _BASELINE_WORKER, json.dumps(payload)],
+        cwd=str(worktree),
+        env=env,
+        capture_output=True,
+        text=True,
+    )
+    if proc.returncode != 0:
+        raise RuntimeError(f"baseline worker failed: {proc.stderr.strip()[-400:]}")
+    result = json.loads(proc.stdout.strip().splitlines()[-1])
+    cost = Cost(
+        calls=result["cost"]["calls"],
+        prompt_tokens=result["cost"]["prompt_tokens"],
+        completion_tokens=result["cost"]["completion_tokens"],
+    )
+    return result["captions"], cost
+
+
+# Runs inside the baseline worktree, against the baseline's own publisher_v2.
+_BASELINE_WORKER = """
+import asyncio, json, sys
+
+payload = json.loads(sys.argv[1])
+
+async def _main():
+    from publisher_v2.config.loader import load_application_config
+    from publisher_v2.config.static_loader import get_static_config
+    from publisher_v2.core.models import CaptionSpec
+    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+
+    get_static_config.cache_clear()
+    config = load_application_config()
+    ai = AIService(VisionAnalyzerOpenAI(config.openai), CaptionGeneratorOpenAI(config.openai))
+    calls = prompt_tokens = completion_tokens = 0
+    def _add(usages):
+        nonlocal calls, prompt_tokens, completion_tokens
+        for usage in usages:
+            calls += 1
+            if usage is not None:
+                prompt_tokens += getattr(usage, "prompt_tokens", 0) or 0
+                completion_tokens += getattr(usage, "completion_tokens", 0) or 0
+    try:
+        with open(payload["image"], "rb") as handle:
+            image_bytes = handle.read()
+        analysis, vision_usage = await ai.analyzer.analyze(image_bytes)
+        _add([vision_usage])
+        specs = CaptionSpec.for_platforms(config)
+        try:
+            captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(
+                analysis, specs, history=payload["history"] or None
+            )
+        except TypeError:
+            # An older baseline whose signature has no history parameter.
+            captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(analysis, specs)
+        _add(usages)
+    finally:
+        await ai.aclose()
+    print(json.dumps({
+        "captions": captions,
+        "cost": {
+            "calls": calls,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+        },
+    }))
+
+asyncio.run(_main())
+"""
 
 
 def _refuse_if_prompts_are_overridden() -> None:
@@ -241,6 +396,11 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
         "",
         "## Observed cost per image",
         "",
+        "A floor, not a bill: `AIService` drops usage-less caption responses before",
+        "they reach the counter, and a silent fallback from the single-call SD path to",
+        "`generate_multi` is a second paid call that is not counted. The vision call is",
+        "counted either way.",
+        "",
         "| Image | Variant | Calls | Prompt tokens | Completion tokens |",
         "|---|---|---|---|---|",
     ]
@@ -275,6 +435,7 @@ def run(args: argparse.Namespace) -> int:
     folder = Path(args.images).expanduser()
     if not folder.is_dir():
         raise SystemExit(f"not a folder: {folder}")
+    _fill_unused_env()
     images = _image_paths(folder, args.limit)
     if not images:
         raise SystemExit(f"no images ({', '.join(IMAGE_SUFFIXES)}) in {folder}")
@@ -284,6 +445,7 @@ def run(args: argparse.Namespace) -> int:
 
     rows: list[Row] = []
     platforms: set[str] = set()
+    history: dict[str, dict[str, list[str]]] = {"baseline": {}, "current": {}}
     try:
         baseline_static = _checkout_baseline_static(args.baseline, worktree)
         _refuse_if_prompts_are_overridden()
@@ -291,10 +453,19 @@ def run(args: argparse.Namespace) -> int:
             row = Row(image=image.name)
             for variant, static_dir in (("baseline", baseline_static), ("current", live_static)):
                 try:
-                    captions, cost = asyncio.run(_caption_once(image, static_dir))
+                    if variant == "baseline":
+                        captions, cost = _caption_once_at_baseline(image, worktree, static_dir, history[variant])
+                    else:
+                        captions, cost = asyncio.run(_caption_once(image, static_dir, history[variant]))
                     row.captions[variant] = captions
                     row.costs[variant] = cost
                     platforms |= set(captions)
+                    # Each side accumulates its OWN history, so the #82 machinery
+                    # sees what that side actually produced.
+                    for platform, text in captions.items():
+                        if text:
+                            history[variant].setdefault(platform, []).insert(0, text)
+                            del history[variant][platform][HISTORY_DEPTH:]
                 except Exception as exc:  # one bad variant must not discard the other
                     row.error = f"{variant}: {type(exc).__name__}: {exc}"
             rows.append(row)

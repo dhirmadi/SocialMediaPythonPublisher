@@ -9,6 +9,8 @@ worktree checkout, the cost accounting and the Markdown the owner will read.
 from __future__ import annotations
 
 import importlib.util
+import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -143,18 +145,197 @@ def test_pipe_characters_in_a_caption_do_not_break_the_table() -> None:
     != 0,
     reason="baseline commit not present in this clone",
 )
-def test_the_baseline_worktree_yields_that_commits_static_config(tmp_path: Path) -> None:
+def _throwaway_repo(tmp_path: Path) -> Path:
+    """A repo of our own, so a killed run cannot leave a worktree in the developer's."""
+    repo = tmp_path / "repo"
+    static = repo / "publisher_v2" / "src" / "publisher_v2" / "config" / "static"
+    static.mkdir(parents=True)
+    (static / "ai_prompts.yaml").write_text("caption:\n  system: baseline persona\n", encoding="utf-8")
+    (static / "platform_limits.yaml").write_text("email: 240\n", encoding="utf-8")
+    env = {
+        **os.environ,
+        "GIT_AUTHOR_NAME": "t",
+        "GIT_AUTHOR_EMAIL": "t@e",
+        "GIT_COMMITTER_NAME": "t",
+        "GIT_COMMITTER_EMAIL": "t@e",
+    }
+    for argv in (["init", "-q"], ["add", "-A"], ["commit", "-qm", "baseline"]):
+        subprocess.run(  # noqa: S603
+            ["git", *argv],  # noqa: S607
+            cwd=repo,
+            check=True,
+            capture_output=True,
+            env=env,
+        )
+    return repo
+
+
+def test_the_baseline_worktree_yields_that_commits_static_config(tmp_path: Path, monkeypatch) -> None:
     """The 'before' side must come from the baseline commit, not the working tree."""
     mod = _module()
+    repo = _throwaway_repo(tmp_path)
+    monkeypatch.setattr(mod, "REPO_ROOT", repo)
     worktree = tmp_path / "tree"
-    try:
-        static = mod._checkout_baseline_static("5c086e6", worktree)
-        assert (static / "ai_prompts.yaml").is_file()
-        assert (static / "platform_limits.yaml").is_file()
-    finally:
-        subprocess.run(  # noqa: S603
-            ["git", "worktree", "remove", "--force", str(worktree)],  # noqa: S607
-            cwd=REPO_ROOT,
-            check=False,
-            capture_output=True,
+
+    static = mod._checkout_baseline_static("HEAD", worktree)
+
+    assert (static / "ai_prompts.yaml").read_text(encoding="utf-8").strip().endswith("baseline persona")
+    assert (static / "platform_limits.yaml").is_file()
+    subprocess.run(  # noqa: S603
+        ["git", "worktree", "remove", "--force", str(worktree)],  # noqa: S607
+        cwd=repo,
+        check=False,
+        capture_output=True,
+    )
+
+
+def test_the_baseline_half_runs_the_baseline_commits_own_code(tmp_path: Path, monkeypatch) -> None:
+    """#146: the artefact answers "did #82 reduce repetition", and #82 is code.
+
+    Running only the baseline YAML through today's ``services/ai.py`` would run
+    both halves through the same similarity gate, history constraints and
+    structure directives — a different question. The baseline half therefore
+    runs in a subprocess with the worktree's own ``publisher_v2`` on PYTHONPATH.
+    """
+    mod = _module()
+    worktree = tmp_path / "tree"
+    src = worktree / "publisher_v2" / "src" / "publisher_v2"
+    src.mkdir(parents=True)
+    # A stand-in package: if the subprocess imported the working tree's code
+    # instead of this one, the marker below would not come back.
+    (src / "__init__.py").write_text("", encoding="utf-8")
+    captured: dict[str, object] = {}
+
+    def _fake_run(argv, **kwargs):
+        captured["argv"] = argv
+        captured["pythonpath"] = kwargs["env"]["PYTHONPATH"]
+        captured["cwd"] = kwargs["cwd"]
+        payload = json.loads(argv[-1])
+        captured["payload"] = payload
+        return subprocess.CompletedProcess(
+            argv,
+            0,
+            stdout=json.dumps(
+                {
+                    "captions": {"telegram": "baseline text"},
+                    "cost": {"calls": 2, "prompt_tokens": 10, "completion_tokens": 3},
+                }
+            ),
+            stderr="",
         )
+
+    monkeypatch.setattr(mod.subprocess, "run", _fake_run)
+
+    captions, cost = mod._caption_once_at_baseline(
+        Path("/images/a.jpg"), worktree, worktree / "static", {"telegram": ["older"]}
+    )
+
+    assert captions == {"telegram": "baseline text"}
+    assert (cost.calls, cost.prompt_tokens, cost.completion_tokens) == (2, 10, 3)
+    assert captured["pythonpath"] == str(worktree / "publisher_v2" / "src")
+    assert captured["cwd"] == str(worktree)
+    assert captured["payload"]["history"] == {"telegram": ["older"]}
+
+
+def test_the_documented_invocation_supplies_every_required_variable(monkeypatch) -> None:
+    """#146: the documented command used to fail three times over on unused secrets."""
+    mod = _module()
+    for name in (*mod._UNUSED_ENV_PLACEHOLDERS, "OPENAI_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+
+    mod._fill_unused_env()
+
+    for name in mod._UNUSED_ENV_PLACEHOLDERS:
+        assert os.environ.get(name), f"{name} left unset"
+
+
+def test_it_refuses_to_start_without_a_key(monkeypatch) -> None:
+    mod = _module()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+
+    with pytest.raises(SystemExit, match="OPENAI_API_KEY"):
+        mod._fill_unused_env()
+
+
+def test_the_baseline_commits_yaml_still_loads(tmp_path: Path) -> None:
+    """Refutes the cross-PR MAJOR: #152 no longer rejects the 5c086e6 config.
+
+    That review was written while #152 raised a ValidationError on a
+    `platform_captions.*.examples` key, which would have failed every baseline
+    half while the current half still paid for its call. #152 now strips the key
+    with a warning — the same reason the app survives a stale
+    PV2_STATIC_CONFIG_DIR — so the baseline YAML loads. Asserted against the
+    real commit rather than argued.
+    """
+    import yaml
+
+    from publisher_v2.config.static_loader import load_static_config
+
+    baseline_yaml = subprocess.run(  # noqa: S603
+        ["git", "show", "5c086e6:publisher_v2/src/publisher_v2/config/static/ai_prompts.yaml"],  # noqa: S607
+        cwd=REPO_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout
+    assert "examples:" in baseline_yaml, "the baseline is supposed to carry the static examples"
+    (tmp_path / "ai_prompts.yaml").write_text(baseline_yaml, encoding="utf-8")
+
+    config = load_static_config(str(tmp_path))
+
+    assert config.ai_prompts.platform_captions
+    shipped = yaml.safe_load(baseline_yaml)["platform_captions"]
+    for name, style in config.ai_prompts.platform_captions.items():
+        if name in shipped:
+            assert style.max_length == shipped[name]["max_length"]
+            assert not getattr(style, "examples", None), "examples must be stripped, not kept"
+
+
+def test_run_sends_the_baseline_to_the_baseline_code_and_feeds_each_side_its_own_history(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """The wiring, not the helpers: three earlier fixes all lived inside `run`.
+
+    Mutating `run` to call the in-process path for both halves, to skip the
+    placeholder fill, or to drop the history left the helper tests green.
+    """
+    mod = _module()
+    images = tmp_path / "images"
+    images.mkdir()
+    for name in ("a.jpg", "b.jpg"):
+        (images / name).write_bytes(b"\xff\xd8\xff")
+    calls: dict[str, list] = {"baseline": [], "current": [], "filled": []}
+
+    def _fake_checkout(commit: str, into: Path) -> Path:
+        (into / "static").mkdir(parents=True)
+        return into / "static"
+
+    def _fake_baseline(image, worktree, static_dir, history):
+        calls["baseline"].append((image.name, json.dumps(history, sort_keys=True)))
+        return {"telegram": f"baseline {image.name}"}, mod.Cost(calls=1)
+
+    async def _fake_current(image, static_dir, history=None):
+        calls["current"].append((image.name, json.dumps(history or {}, sort_keys=True)))
+        return {"telegram": f"current {image.name}"}, mod.Cost(calls=1)
+
+    monkeypatch.setattr(mod, "_checkout_baseline_static", _fake_checkout)
+    monkeypatch.setattr(mod, "_caption_once_at_baseline", _fake_baseline)
+    monkeypatch.setattr(mod, "_caption_once", _fake_current)
+    monkeypatch.setattr(mod, "_refuse_if_prompts_are_overridden", lambda: None)
+    monkeypatch.setattr(mod, "_fill_unused_env", lambda: calls["filled"].append(True))
+    monkeypatch.setattr(mod.subprocess, "run", lambda *a, **k: SimpleNamespace(returncode=0, stdout="", stderr=""))
+    out = tmp_path / "report.md"
+
+    mod.run(SimpleNamespace(images=str(images), limit=10, baseline="5c086e6", out=str(out)))
+
+    assert calls["filled"], "the documented invocation depends on the placeholder fill"
+    # The baseline half went to the baseline code, once per image.
+    assert [name for name, _ in calls["baseline"]] == ["a.jpg", "b.jpg"]
+    assert [name for name, _ in calls["current"]] == ["a.jpg", "b.jpg"]
+    # Each side accumulated its OWN captions as history for the second image.
+    assert calls["baseline"][0][1] == "{}"
+    assert json.loads(calls["baseline"][1][1]) == {"telegram": ["baseline a.jpg"]}
+    assert json.loads(calls["current"][1][1]) == {"telegram": ["current a.jpg"]}
+    report = out.read_text(encoding="utf-8")
+    assert "baseline a.jpg" in report and "current b.jpg" in report

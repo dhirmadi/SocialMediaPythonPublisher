@@ -62,7 +62,15 @@ def test_the_email_limit_change_requires_recorded_evidence() -> None:
     #146 asks the account owner to send one email with a 264-character subject
     and record what FetLife displays. Changing the number without that evidence
     is how 240 got here in the first place.
+
+    This pin is a reminder that the number is unverified — not evidence that it
+    is right. The three-way agreement test above is the one that catches a real
+    inconsistency; see docs_v2/09_Reviews/fetlife_subject_limit.md, which this
+    message points at and which now exists.
     """
+    evidence = Path(__file__).resolve().parents[2] / "docs_v2" / "09_Reviews" / "fetlife_subject_limit.md"
+    assert evidence.is_file(), "the message below points operators at this file; it must exist"
+
     assert _yaml("platform_limits.yaml")["email"]["max_caption_length"] == 240, (
         "the email limit changed: record the evidence (the subject length FetLife actually "
         "displayed, and when it was measured) in docs_v2/09_Reviews/fetlife_subject_limit.md "
