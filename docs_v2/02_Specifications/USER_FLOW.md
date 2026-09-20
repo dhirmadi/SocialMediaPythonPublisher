@@ -31,7 +31,11 @@ Last Updated: September 19, 2026
 5. Safe to run repeatedly against the same image to iterate on config/prompts.
 
 ### 1.5 Manual Selection (`--select filename.jpg`)
-- Bypasses random/dedup selection and targets a specific file by name; the rest of the pipeline (analyze → caption → publish → archive) proceeds normally for that file.
+- Targets a specific file by name instead of the random pick; the rest of the pipeline (analyze → caption → publish → archive) proceeds normally for that file.
+- It bypasses **random selection**, not the **already-published check** (#139). A file whose content hash is already recorded as posted exits 1 with `Already published: <filename>`, and the web UI returns 409 — this is what stops a double-click or a repeated run from posting the same image twice.
+- `--preview` and `--dry-publish` are exempt and always run, since neither publishes or archives.
+- **Recovery, no database:** the posted hashes live in `posted.json` under `$XDG_CACHE_HOME/publisher_v2` (default `~/.cache/publisher_v2/posted.json`); delete the image's SHA256 entry and re-run. `--preview` prints the hash without touching any state.
+- **Recovery, with a database:** the per-platform publish rows hold the state; a `failed` row is re-leased by the next run automatically, and a `published` row is deliberately never re-published on its own.
 
 ## 2. Web Admin — Authentication
 

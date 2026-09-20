@@ -68,11 +68,20 @@ make run-v2
 ### 🧭 CLI Flags
 
 - configuration is env-first: `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` plus secrets (`--config` is still accepted for compatibility but the file is ignored — INI support was removed in #97 stage 4)
-- `--select <filename>` select an exact image in Dropbox folder
+- `--select <filename>` select an exact image in Dropbox folder. It picks the file, it does **not** bypass the already-published check: a file whose content hash is already recorded as posted exits 1 with `Already published: <filename>` (#139, so a double-click or a re-run cannot post the same image twice). To republish deliberately, see [Republishing an already-posted image](#republishing-an-already-posted-image).
 - `--dry-publish` run end‑to‑end but skip platform publishing + archiving
 - `--preview` human‑readable output; no platform calls, no archive, no cache updates
 
 Preview mode shows: image details (temp link, SHA256), vision analysis (description/mood/tags/safety), final caption with length, per‑platform formatting, and for Email/FetLife the subject preview, caption placement, and subject mode.
+
+#### Republishing an already-posted image
+
+`--preview` and `--dry-publish` are exempt from the check and always run. To actually publish again:
+
+- **With a database** (`DATABASE_URL` set): the per-platform rows carry the state. Publishing again is allowed once a platform's row is no longer `published` — a `failed` row is retried automatically by the next run.
+- **Without a database**: the posted hashes live in `posted.json` under `$XDG_CACHE_HOME/publisher_v2` (default `~/.cache/publisher_v2/posted.json`). Remove the image's SHA256 entry from that file and re-run `--select`. Print the hash first with `--preview`, which reports it without changing any state.
+
+There is no `--force` flag by design: the check exists because a double-click used to post the same image twice.
 
 ---
 
