@@ -30,7 +30,6 @@ help:
 	@echo "  make clean-all       Deep clean including venv"
 	@echo ""
 	@echo "Run Application:"
-	@echo "  make auth            Run Dropbox authentication"
 	@echo "  make run-v2          Run V2 application (publisher_v2)"
 	@echo "  make preview-v2      Preview V2 without publishing (env-first)"
 
@@ -51,8 +50,7 @@ setup-dev: install-dev
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Edit .env with your API credentials"
-	@echo "  2. Run 'make auth' to authenticate with Dropbox"
-	@echo "  3. Run 'make test' to verify installation"
+	@echo "  2. Run 'make test' to verify installation"
 
 # Export pip requirement files for non-Poetry environments
 export-reqs:
@@ -142,14 +140,6 @@ run-v2:
 preview-v2:
 	@echo "🔍 Running preview mode (env-first config, #97 stage 4)..."
 	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview
-
-auth:
-	@if [ ! -f .env ]; then \
-		echo "❌ .env file not found"; \
-		echo "Run 'make setup-dev' first"; \
-		exit 1; \
-	fi
-	uv run python py_db_auth.py .env
 
 # Development helpers
 watch-test:

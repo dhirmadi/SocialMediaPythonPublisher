@@ -113,3 +113,44 @@ def test_the_preview_command_does_not_pass_the_ignored_config_flag() -> None:
 
     assert "--config" not in preview, preview
     assert ".ini" not in preview, preview
+
+
+_RUN_PYTHON_SCRIPT = re.compile(r"uv run python\s+(?P<script>[\w./-]+\.py)")
+_MAKE_TARGET = re.compile(r"^(?P<target>[a-zA-Z][\w-]*):", re.MULTILINE)
+_ADVERTISED_TARGET = re.compile(r"make ([a-z][\w-]+)")
+
+
+def test_makefile_targets_do_not_run_missing_scripts() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    missing = sorted(
+        {
+            match.group("script")
+            for match in _RUN_PYTHON_SCRIPT.finditer(makefile)
+            if not (REPO_ROOT / match.group("script")).exists()
+        }
+    )
+
+    assert not missing, f"Makefile recipes call scripts that do not exist: {missing}"
+
+
+def test_makefile_only_advertises_targets_it_defines() -> None:
+    makefile = (REPO_ROOT / "Makefile").read_text()
+    defined = {match.group("target") for match in _MAKE_TARGET.finditer(makefile)}
+    advertised = {match.group(1) for match in _ADVERTISED_TARGET.finditer(makefile)}
+
+    assert advertised <= defined, f"Makefile tells users to run undefined targets: {sorted(advertised - defined)}"
+
+
+_V1_SCRIPT = re.compile(r"\bpy_[a-z_]+\.py\b")
+
+
+def test_contributor_docs_do_not_reference_deleted_v1_scripts() -> None:
+    """`py_db_auth.py` and `py_rotator_daily.py` were deleted with V1; no doc may still run them."""
+    offenders: dict[str, list[str]] = {}
+    for name in _CONTRIBUTOR_DOCS:
+        path = REPO_ROOT / name
+        dead = sorted({s for s in _V1_SCRIPT.findall(path.read_text()) if not (REPO_ROOT / s).exists()})
+        if dead:
+            offenders[name] = dead
+
+    assert not offenders, f"docs reference scripts that no longer exist: {offenders}"
