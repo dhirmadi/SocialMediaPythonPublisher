@@ -17,10 +17,15 @@ class TestSeek:
         assert reader.seek(2, io.SEEK_CUR) == 5
         assert reader.seek(-2, io.SEEK_END) == 8
 
-    def test_seeking_before_the_start_clamps(self) -> None:
+    def test_seeking_before_the_start_raises(self) -> None:
+        """A real file raises; clamping would let a malformed image silently re-read the header."""
         reader = MemoryReader(b"0123456789")
 
-        assert reader.seek(-99) == 0
+        with pytest.raises(OSError, match="Invalid argument"):
+            reader.seek(-99)
+
+        with pytest.raises(OSError):
+            reader.seek(-1, io.SEEK_CUR)
 
     def test_an_invalid_whence_raises_value_error(self) -> None:
         """What every other file object raises; a KeyError would read as an internal bug."""
@@ -61,6 +66,14 @@ class TestTheBufferStaysPinnedWhileRead:
             buf.extend(b"more")
 
         assert reader.read() == b"pinned"
+
+    def test_reading_after_close_raises_instead_of_reporting_eof(self) -> None:
+        """A silent EOF would store an empty object with a checksum over the empty body."""
+        raw = MemoryReader(bytearray(b"pinned"))
+        raw.close()
+
+        with pytest.raises(ValueError, match="closed"):
+            raw.readinto(bytearray(4))
 
     def test_the_buffer_is_resizable_again_once_the_reader_is_gone(self) -> None:
         buf = bytearray(b"pinned")

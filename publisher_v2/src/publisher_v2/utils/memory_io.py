@@ -32,7 +32,12 @@ class MemoryReader(io.RawIOBase):
             # What every other file object raises; a KeyError here would read as
             # a bug in the caller's dict handling rather than a bad argument.
             raise ValueError(f"invalid whence ({whence}, should be 0, 1 or 2)")
-        self._pos = max(0, bases[whence] + offset)
+        target = bases[whence] + offset
+        if target < 0:
+            # A real file raises here. Clamping to 0 would let a malformed image
+            # seek backwards past the start and silently re-read the header.
+            raise OSError(22, "Invalid argument")
+        self._pos = target
         return self._pos
 
     def close(self) -> None:
@@ -47,6 +52,11 @@ class MemoryReader(io.RawIOBase):
         super().close()
 
     def readinto(self, buffer: Any) -> int:
+        if self.closed:
+            # Returning 0 here would read as a clean EOF: an upload retried
+            # through a closed reader would store an empty object with a valid
+            # checksum over the empty body, which no integrity check can catch.
+            raise ValueError("read of closed file")
         n = max(0, min(len(buffer), len(self._mv) - self._pos))
         buffer[:n] = self._mv[self._pos : self._pos + n]
         self._pos += n
