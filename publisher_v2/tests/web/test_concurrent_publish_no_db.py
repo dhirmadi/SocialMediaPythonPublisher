@@ -248,3 +248,30 @@ async def test_sequential_second_publish_is_refused_with_409(
 
     assert len(_FakeBot.sent) == 1, _FakeBot.sent
     assert len(_FakeSMTP.subjects) == 1, _FakeSMTP.subjects
+
+
+class TestThePublishLockMapIsBounded:
+    """#139 NIT: one lock per (tenant, image) ever published, kept for the life of the process."""
+
+    async def test_idle_locks_are_dropped_but_a_held_one_survives(self) -> None:
+        import asyncio
+
+        from publisher_v2.web import service as service_module
+
+        loop = asyncio.get_running_loop()
+        service_module._PUBLISH_LOCKS.pop(loop, None)
+
+        held = service_module._publish_lock("t1", "held.jpg")
+        await held.acquire()
+        try:
+            for i in range(service_module._PUBLISH_LOCK_MAX_KEYS + 50):
+                service_module._publish_lock("t1", f"idle-{i}.jpg")
+
+            per_loop = service_module._PUBLISH_LOCKS[loop]
+            assert len(per_loop) <= service_module._PUBLISH_LOCK_MAX_KEYS
+            # Evicting a held lock would let the next click build a fresh one and
+            # lose the serialization the lock exists for.
+            assert service_module._publish_lock("t1", "held.jpg") is held
+        finally:
+            held.release()
+            service_module._PUBLISH_LOCKS.pop(loop, None)

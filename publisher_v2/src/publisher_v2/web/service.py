@@ -6,7 +6,7 @@ import os
 import random
 import time
 import urllib.parse
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any
 from weakref import WeakKeyDictionary
 
@@ -70,10 +70,17 @@ def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
 
 # #139: without a publish store there is no DB lease, so serialize per-image
 # publishes in-process — two concurrent clicks must not both get past the
-# file-based "already posted" check. Process-wide (not per service instance):
-# FastAPI resolves the sync ``get_service`` dependency in a threadpool, so two
-# simultaneous requests can each build their own WebImageService.
-_PUBLISH_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, dict[tuple[str, str], asyncio.Lock]] = WeakKeyDictionary()
+# file-based "already posted" check. Kept process-wide rather than on the
+# service: ``get_service`` is lru_cached, so a second instance needs only a
+# first-call race, and a lock held on an instance that loses that race would
+# protect nothing.
+_PUBLISH_LOCKS: WeakKeyDictionary[asyncio.AbstractEventLoop, OrderedDict[tuple[str, str], asyncio.Lock]] = (
+    WeakKeyDictionary()
+)
+# One lock per (tenant, image) ever published would grow for the life of the
+# process, so old idle ones are dropped; a held lock is never evicted, since the
+# next arrival would then build a fresh one and the serialization would be lost.
+_PUBLISH_LOCK_MAX_KEYS = 1024
 
 
 def _publish_lock(tenant: str, filename: str) -> asyncio.Lock:
@@ -81,13 +88,18 @@ def _publish_lock(tenant: str, filename: str) -> asyncio.Lock:
     loop = asyncio.get_running_loop()
     per_loop = _PUBLISH_LOCKS.get(loop)
     if per_loop is None:
-        per_loop = {}
+        per_loop = OrderedDict()
         _PUBLISH_LOCKS[loop] = per_loop
     key = (tenant, filename)
     lock = per_loop.get(key)
     if lock is None:
         lock = asyncio.Lock()
-        per_loop[key] = lock
+    per_loop[key] = lock
+    per_loop.move_to_end(key)
+    for stale in [k for k in per_loop if len(per_loop) > _PUBLISH_LOCK_MAX_KEYS]:
+        if stale == key or per_loop[stale].locked():
+            continue
+        del per_loop[stale]
     return lock
 
 
@@ -155,7 +167,7 @@ class WebImageService:
         sf = get_session_factory()
         if sf is not None:
             self._caption_store = CaptionStore(sf)
-            self._publish_store = PublishStore(sf)
+            self._publish_store = PublishStore(sf, lease_ttl_seconds=load_runtime_settings().publish_lease_ttl_seconds)
 
         self._tenant = runtime.tenant if runtime is not None else "default"
 

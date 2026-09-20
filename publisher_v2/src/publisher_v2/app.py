@@ -83,6 +83,7 @@ async def main_async() -> int:
     # Optional: caption history DB for anti-repetition
     caption_store = None
     publish_store = None
+    from publisher_v2.config.runtime_settings import load_runtime_settings
     from publisher_v2.db import init_db, is_db_available
     from publisher_v2.db.caption_store import CaptionStore
     from publisher_v2.db.publish_store import PublishStore
@@ -91,7 +92,7 @@ async def main_async() -> int:
         sf = init_db()
         if sf is not None:
             caption_store = CaptionStore(sf)
-            publish_store = PublishStore(sf)
+            publish_store = PublishStore(sf, lease_ttl_seconds=load_runtime_settings().publish_lease_ttl_seconds)
             log_json(logger, logging.INFO, "caption_history_db_enabled")
 
     orchestrator = WorkflowOrchestrator(
