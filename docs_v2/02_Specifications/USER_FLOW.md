@@ -46,7 +46,7 @@ Last Updated: September 19, 2026
 ### 2.2 Legacy Bearer/Basic Auth (CLI/script automation, unaffected by Auth0)
 - `WEB_AUTH_TOKEN` (Bearer) or `WEB_AUTH_USER`/`WEB_AUTH_PASS` (Basic) gate mutating API calls independent of the browser session — used by scripts/automation, not the interactive admin UI.
 
-### 2.3 Anonymous Viewing (`AUTO_VIEW=true`, optional)
+### 2.3 Anonymous Viewing (`FEATURE_AUTO_VIEW=true`, optional)
 - When enabled, unauthenticated visitors can view a random image (`GET /api/images/random` and thumbnails) but cannot analyze, publish, curate, or manage the library — every mutating endpoint still requires an admin session or Bearer/Basic auth.
 
 ## 3. Web Admin — Browse / Review / Publish
@@ -91,7 +91,7 @@ Last Updated: September 19, 2026
 
 ## 8. UX and CLI Reference
 CLI flags:
-- `--config path/to.ini` (required)
+- `--config path/to.ini` (accepted but ignored since #97 stage 4; configuration is env-first)
 - `--env path/to/.env` (optional; defaults to `.env` in the working directory)
 - `--debug` (overrides `content.debug` to `true` for this run)
 - `--select filename.jpg` (manual target instead of random/dedup selection)

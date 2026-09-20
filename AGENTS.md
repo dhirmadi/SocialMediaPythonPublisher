@@ -13,11 +13,11 @@ Treat `code_v1/` and `docs_v1/` as **archived — never edit**.
 | Install (dev) | `uv sync --group dev` |
 | Format + lint fix | `make format` |
 | Lint | `make lint` |
-| Type check | `uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env` |
+| Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` |
 | Test | `uv run pytest -v --tb=short` |
 | Test + coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` |
 | All checks | `make check` |
-| Preview | `make preview-v2 CONFIG=configfiles/fetlife.ini` |
+| Preview | `make preview-v2` (env-first; `--config` is accepted but ignored since #97 stage 4) |
 
 ## Tooling
 
@@ -65,7 +65,7 @@ publisher_v2/src/publisher_v2/
 |------|---------|-----------|
 | Format | `uv run ruff format --check .` | Zero reformats |
 | Lint | `uv run ruff check .` | Zero violations |
-| Type check | `uv run mypy . --ignore-missing-imports --exclude=venv --exclude=env` | Zero errors |
+| Type check | `uv run mypy publisher_v2/src --ignore-missing-imports` | Zero errors |
 | Tests | `uv run pytest -v --tb=short` | All pass |
 | Coverage | `uv run pytest -v --cov=publisher_v2/src/publisher_v2 --cov-report=term-missing` | ≥80% affected, ≥85% overall |
 
@@ -147,7 +147,7 @@ commands above; there is no project-level `.cursor/mcp.json` or `.mcp.json`.
 ## Git hygiene
 
 - Commit messages: imperative mood, concise, focused on *why*.
-- Never commit `.env`, `*.ini` (except `*.ini.example`), `*session.json`, `*.key`, `*.pem`.
+- Never commit `.env`, `configfiles/*.ini` (leftovers from the removed INI path may still hold credentials), `*session.json`, `*.key`, `*.pem`. `publisher_v2/alembic.ini` is tooling config and carries no secrets.
 - Run `make format` before committing.
 
 ## Scoped instructions

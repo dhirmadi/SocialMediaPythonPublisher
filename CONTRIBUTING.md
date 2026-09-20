@@ -140,8 +140,7 @@ pip install -r requirements-dev.txt  # If available
 
 ```bash
 # Copy example files
-cp dotenv.example .env
-cp configfiles/SociaMediaConfig.ini.example configfiles/SocialMediaConfig.ini
+cp dotenv.v2.example .env
 
 # Edit with test credentials (never use production credentials!)
 ```
@@ -189,17 +188,14 @@ We follow [PEP 8](https://pep8.org/) with some modifications:
 **Run before committing:**
 
 ```bash
-# Format code
-black py_db_auth.py py_rotator_daily.py
+# Format code (ruff replaces black and isort)
+uv run ruff format .
 
-# Check style
-flake8 py_db_auth.py py_rotator_daily.py
+# Lint (ruff replaces flake8; --fix applies the safe fixes)
+uv run ruff check --fix .
 
 # Type checking
-mypy py_db_auth.py py_rotator_daily.py
-
-# Sort imports
-isort py_db_auth.py py_rotator_daily.py
+uv run mypy publisher_v2/src --ignore-missing-imports
 ```
 
 ### Type Hints
@@ -412,10 +408,10 @@ Fixes #123
 ### Test Structure
 
 ```python
-# tests/test_image_manager.py
+# publisher_v2/tests/test_image_manager.py
 import pytest
 from unittest.mock import Mock, patch
-from py_rotator_daily import resize_image, list_images_in_dropbox
+from publisher_v2.utils.images import resize_image_bytes
 
 class TestImageManager:
     """Tests for image management functions."""

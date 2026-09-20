@@ -30,10 +30,8 @@ help:
 	@echo "  make clean-all       Deep clean including venv"
 	@echo ""
 	@echo "Run Application:"
-	@echo "  make run             Run application with default config"
-	@echo "  make auth            Run Dropbox authentication"
 	@echo "  make run-v2          Run V2 application (publisher_v2)"
-	@echo "  make preview-v2      Preview V2 without publishing (CONFIG=file.ini)"
+	@echo "  make preview-v2      Preview V2 without publishing (env-first)"
 
 # Installation
 install:
@@ -46,19 +44,13 @@ setup-dev: install-dev
 	@echo "Setting up pre-commit hooks..."
 	@uv run pre-commit --version >/dev/null 2>&1 && uv run pre-commit install || echo "Skipping pre-commit (not available for this Python)"
 	@echo "Creating configuration files from examples..."
-	@if [ ! -f .env ]; then cp dotenv.example .env; echo "Created .env - EDIT THIS FILE"; fi
-	@if [ ! -f configfiles/SocialMediaConfig.ini ]; then \
-		cp configfiles/SociaMediaConfig.ini.example configfiles/SocialMediaConfig.ini; \
-		echo "Created SocialMediaConfig.ini - EDIT THIS FILE"; \
-	fi
+	@if [ ! -f .env ]; then cp dotenv.v2.example .env; echo "Created .env - EDIT THIS FILE"; fi
 	@echo ""
 	@echo "✅ Development environment setup complete!"
 	@echo ""
 	@echo "Next steps:"
 	@echo "  1. Edit .env with your API credentials"
-	@echo "  2. Edit configfiles/SocialMediaConfig.ini with your settings"
-	@echo "  3. Run 'make auth' to authenticate with Dropbox"
-	@echo "  4. Run 'make test' to verify installation"
+	@echo "  2. Run 'make test' to verify installation"
 
 # Export pip requirement files for non-Poetry environments
 export-reqs:
@@ -109,7 +101,7 @@ security:
 
 check-secrets:
 	@echo "Checking for exposed secrets..."
-	@if git ls-files | grep -E '\.env$$|.*\.ini$$' | grep -v '\.example$$'; then \
+	@if git ls-files | grep -E '\.env$$|.*\.ini$$' | grep -v '\.example$$' | grep -v '^publisher_v2/alembic\.ini$$'; then \
 		echo "❌ ERROR: Sensitive files found in git!"; \
 		exit 1; \
 	else \
@@ -142,28 +134,12 @@ clean-all: clean
 	fi
 
 # Application
-run:
-	@if [ ! -f configfiles/SocialMediaConfig.ini ]; then \
-		echo "❌ Configuration file not found"; \
-		echo "Run 'make setup-dev' first"; \
-		exit 1; \
-	fi
-	uv run python py_rotator_daily.py configfiles/SocialMediaConfig.ini
-
 run-v2:
 	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py
 
 preview-v2:
 	@echo "🔍 Running preview mode (env-first config, #97 stage 4)..."
 	PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview
-
-auth:
-	@if [ ! -f .env ]; then \
-		echo "❌ .env file not found"; \
-		echo "Run 'make setup-dev' first"; \
-		exit 1; \
-	fi
-	uv run python py_db_auth.py .env
 
 # Development helpers
 watch-test:
@@ -185,7 +161,6 @@ status:
 	@echo ""
 	@echo "Configuration Files:"
 	@if [ -f .env ]; then echo "✅ .env exists"; else echo "❌ .env missing"; fi
-	@if [ -f configfiles/SocialMediaConfig.ini ]; then echo "✅ Config exists"; else echo "❌ Config missing"; fi
 	@echo ""
 	@echo "Dependencies:"
 	@uv pip list -q | grep -E "dropbox|openai|telegram|instagrapi" || echo "Dependencies not installed"

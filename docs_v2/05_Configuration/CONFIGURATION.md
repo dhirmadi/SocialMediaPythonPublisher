@@ -10,7 +10,7 @@ Last Updated: December 30, 2025
 Publisher V2 uses a **three-layer configuration model** that cleanly separates:
 
 1. **Secrets** — Sensitive credentials (`.env` only, never in repo)
-2. **Dynamic Configuration** — Runtime toggles and deployment-specific settings (`.env` + `.ini`)
+2. **Dynamic Configuration** — Runtime toggles and deployment-specific settings (environment variables; `.env` locally)
 3. **Static Configuration** — AI prompts, platform limits, UI text, and service limits (versioned YAML files)
 
 This separation enables:
@@ -264,17 +264,14 @@ Behavior:
 Test your configuration without publishing or modifying anything:
 
 ```bash
-# Preview with specific config
-make preview-v2 CONFIG=configfiles/fetlife.ini
+# Preview (configuration comes from the environment)
+make preview-v2
 
 # Or direct command
-PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
-  --config configfiles/fetlife.ini \
-  --preview
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --preview
 
 # Preview specific image
 PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py \
-  --config configfiles/fetlife.ini \
   --select image.jpg \
   --preview
 ```
@@ -516,7 +513,7 @@ This section explains **which configuration must live on the dyno** vs what is e
   - Dyno env vars contain only **global** settings + service auth (no per-tenant secrets).
   - Per-request, Publisher resolves tenant by host and fetches **runtime config** and **credentials** from the orchestrator.
 - **Single-tenant (env-first / Feature 021)**: dyno env vars only (JSON groupings like `PUBLISHERS`, `STORAGE_PATHS`, etc.). Useful for local/dev and single-tenant deployments.
-- **Single-tenant (legacy INI)**: dyno env vars + `configfiles/*.ini` (deprecated).
+- *(Historical: a single-tenant INI mode existed until #97 stage 4 removed it. `--config` is still accepted for compatibility but the file is ignored.)*
 
 ### 10.2 Dyno-required environment variables (global, not per-tenant)
 

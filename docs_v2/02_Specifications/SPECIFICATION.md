@@ -50,7 +50,7 @@ Feature toggles (env vars, coarse on/off switches independent of config mode):
 | `FEATURE_PUBLISH` | `true` | When `false`, skips publishing (CLI + web); web `/publish` returns 403 |
 | `FEATURE_KEEP_CURATE` | `true` | When `false`, disables Keep curation; web `/keep` returns 403 |
 | `FEATURE_REMOVE_CURATE` | `true` | When `false`, disables Remove curation; web `/remove` returns 403 |
-| `AUTO_VIEW` | `false` | Allows non-admin users to view random images in the web UI |
+| `FEATURE_AUTO_VIEW` | `false` | Allows non-admin users to view random images in the web UI |
 | `FEATURE_LIBRARY` | unset (auto-resolve) | `true`/`false` force the admin library panel; when unset, `resolve_library_enabled()` auto-enables it for managed-storage instances and keeps it off for Dropbox-only instances |
 | `FEATURE_ALT_TEXT` | `true` | AI-generated alt text is attached to publisher context (`alt_text_enabled`, PUB-026) |
 | `FEATURE_SMART_HASHTAGS` | `true` | AI generates content-aware hashtags instead of only using the static `hashtag_string` (`smart_hashtags_enabled`, PUB-028) |
@@ -297,10 +297,15 @@ metering calls are made.
 ## 12. Security
 - Secrets only in `.env` / orchestrator-resolved credentials; never logged (regex-pattern
   redaction for `sk-`, `r8_`, tokens, bearer headers).
-- **Web auth**: mutating endpoints require Bearer token or Basic auth (`WEB_AUTH_TOKEN` or
-  `WEB_AUTH_USER`/`WEB_AUTH_PASS`), or Auth0 OIDC login (PUB-020) gated by an email allowlist
-  (`ADMIN_LOGIN_EMAILS`), plus a server-enforced admin session cookie with a clamped TTL
-  (`WEB_ADMIN_COOKIE_TTL_SECONDS`, 60–3600s, default 3600). `AUTO_VIEW=true` permits anonymous
+- **Web auth**: mutating endpoints require either HTTP auth (`WEB_AUTH_TOKEN` Bearer, or
+  `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) or the signed, tenant/host-bound admin session cookie —
+  a valid cookie alone is sufficient by default (#91 SEC-3 decision b), and
+  `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` additionally requires header auth for cookie sessions.
+  Admin-gated actions require that cookie — the image routes call `require_admin` only when admin
+  mode is configured (`is_admin_configured()`), so an instance with no admin login set up does not
+  gate them — which a browser obtains through Auth0 OIDC login
+  (PUB-020) gated by an email allowlist (`ADMIN_LOGIN_EMAILS`); its TTL is clamped
+  (`WEB_ADMIN_COOKIE_TTL_SECONDS`, 60–3600s, default 3600). `FEATURE_AUTO_VIEW=true` permits anonymous
   viewing of random images only — never mutation.
 - **Prompt-injection hardening**: vision-extracted free text is sanitized
   (`_sanitize_analysis_field`) before being re-interpolated into caption prompts; the SD
@@ -316,9 +321,9 @@ metering calls are made.
 
 Entrypoint:
 ```
-uv run python publisher_v2/src/publisher_v2/app.py --config path/to.ini [--env path/to/.env] [--debug] [--select filename] [--dry-publish] [--preview]
+uv run python publisher_v2/src/publisher_v2/app.py [--env path/to/.env] [--debug] [--select filename] [--dry-publish] [--preview]
 ```
-- `--config` (required): path to INI config file.
+- `--config`: accepted for compatibility and ignored — INI support was removed in #97 stage 4. Configuration comes from the environment.
 - `--env`: optional path to `.env` file (defaults to `.env` in cwd).
 - `--debug`: overrides `content.debug` to `True` for this run.
 - `--select filename`: target a specific file instead of random selection.

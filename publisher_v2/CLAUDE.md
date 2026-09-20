@@ -4,7 +4,7 @@ This is the active codebase. `code_v1/` is archived.
 
 ## Structure
 
-- `src/publisher_v2/app.py` — CLI entrypoint (`--config`, `--preview` flags)
+- `src/publisher_v2/app.py` — CLI entrypoint (`--preview`, `--select`, `--dry-publish`; `--config` is accepted but ignored since #97 stage 4)
 - `src/publisher_v2/config/` — Pydantic v2 models (`schema.py`), loader, credentials, static YAML configs
 - `src/publisher_v2/core/` — `WorkflowOrchestrator`, domain models, exceptions
 - `src/publisher_v2/services/` — AI service, Dropbox storage, publisher implementations

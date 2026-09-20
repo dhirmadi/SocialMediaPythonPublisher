@@ -46,8 +46,7 @@ pip install -r requirements-dev.txt
 pre-commit install
 
 # 6. Copy example configuration files
-cp dotenv.example .env
-cp configfiles/SociaMediaConfig.ini.example configfiles/SocialMediaConfig.ini
+cp dotenv.v2.example .env
 
 # 7. Edit .env with your development credentials
 # NEVER commit this file!
@@ -101,7 +100,7 @@ SocialMediaPythonPublisher/
 │   └── REVIEW_SUMMARY.md
 │
 ├── configfiles/                # Configuration examples
-│   └── SociaMediaConfig.ini.example
+│   └── (INI config removed in #97 stage 4; see dotenv.v2.example)
 │
 ├── tests/                      # Test suite (to be created)
 │   ├── __init__.py
@@ -109,8 +108,7 @@ SocialMediaPythonPublisher/
 │   ├── test_workflow.py
 │   └── fixtures/
 │
-├── py_db_auth.py              # Dropbox authentication
-├── py_rotator_daily.py        # Main application
+├── publisher_v2/              # V2 application and tests (source of truth)
 ├── requirements.txt            # Production dependencies
 ├── requirements-dev.txt        # Development dependencies
 ├── .gitignore                  # Git ignore rules
@@ -146,15 +144,13 @@ git checkout -b feature/your-feature-name
 
 ```bash
 # Format code
-black .
-isort .
+uv run ruff format .
 
 # Lint code
-flake8 .
-pylint py_rotator_daily.py py_db_auth.py
+uv run ruff check .
 
 # Type checking
-mypy .
+uv run mypy publisher_v2/src --ignore-missing-imports
 
 # Run tests
 pytest -v
@@ -210,15 +206,27 @@ pytest -k "test_config"
 ### Writing Tests
 
 ```python
-# tests/test_example.py
+# publisher_v2/tests/test_example.py
 import pytest
-from py_rotator_daily import read_config
 
-def test_read_config_valid():
-    """Test reading valid configuration"""
-    config = read_config('tests/fixtures/valid_config.ini')
-    assert config['image_folder'] == '/test/images'
-    assert config['run_archive'] is True
+from publisher_v2.config.loader import load_application_config
+
+@pytest.fixture
+def env_config(monkeypatch):
+    """Configuration is env-first since #97 stage 4; every key below is required."""
+    monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *a, **kw: None)
+    monkeypatch.setenv("DROPBOX_APP_KEY", "key")
+    monkeypatch.setenv("DROPBOX_APP_SECRET", "secret")
+    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "refresh")
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "123:ABC")
+    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/test/images", "archive": "archive"}')
+    monkeypatch.setenv("PUBLISHERS", '[{"type": "telegram", "channel_id": "@test"}]')
+    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
+
+def test_load_config_valid(env_config):
+    config = load_application_config()
+    assert config.dropbox.image_folder == '/test/images'
 
 @pytest.mark.asyncio
 async def test_async_function():
@@ -446,13 +454,11 @@ help:
 	@echo "  make clean   - Clean build artifacts"
 
 format:
-	black .
-	isort .
+	uv run ruff format .
 
 lint:
-	flake8 .
-	pylint py_rotator_daily.py py_db_auth.py
-	mypy .
+	uv run ruff check .
+	uv run mypy publisher_v2/src --ignore-missing-imports
 
 test:
 	pytest -v --cov=.

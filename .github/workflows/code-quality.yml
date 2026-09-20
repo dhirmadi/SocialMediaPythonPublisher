@@ -73,6 +73,10 @@ jobs:
     - name: Run tests with coverage
       env:
         WEB_SESSION_SECRET: ci-only-secret
+        # #145: runs the documented `uv run mypy ...` command end to end and
+        # asserts it exits 0. Skipped locally (a full mypy pass per test run);
+        # CI is where that criterion has to hold.
+        RUN_SLOW_DOC_CHECKS: "1"
       run: |
         uv run pytest --cov=. --cov-report=xml --cov-report=html
 
