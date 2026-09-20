@@ -151,3 +151,57 @@ def test_log_json_exc_info_reaches_the_log_record(caplog) -> None:
     assert record.exc_info is not None
     assert record.exc_info[0] is ValueError
     assert '"exc_info"' not in record.getMessage()
+
+
+def test_instagram_session_material_is_redacted() -> None:
+    """#133 security review: instagrapi logs bodies at DEBUG and ERROR.
+
+    `WEB_DEBUG=1` is enough to reach DEBUG in production, and the sanitizer
+    carried no Instagram shapes at all.
+    """
+    from publisher_v2.utils.logging import SENSITIVE_PATTERNS
+
+    def _redact(text: str) -> str:
+        for pattern, replacement in SENSITIVE_PATTERNS:
+            text = pattern.sub(replacement, text)
+        return text
+
+    # Cookie form, as sent in a request header.
+    cookie = _redact("Cookie: sessionid=ABC123xyz; csrftoken=tok99longvalue; ds_user_id=42")
+    assert "ABC123xyz" not in cookie
+    assert "tok99longvalue" not in cookie
+    assert "sessionid=[REDACTED]" in cookie
+
+    # The bearer decodes to the sessionid, so it is the highest-value shape.
+    assert "eyJhbGciOi_x" not in _redact("Authorization: Bearer IGT:2:eyJhbGciOi_x")
+
+    # JSON/dict form: what `Client.get_settings()` and instagrapi's own
+    # `last_json` debug line look like. The cookie patterns alone missed these.
+    settings = _redact('{"authorization_data": {"ds_user_id": "71234", "sessionid": "71234%3AabcDEF"}}')
+    assert "71234%3AabcDEF" not in settings
+    last_json = _redact("last_json {'sessionid': '71234%3Aabc', 'csrftoken': 'Xy9secret'}")
+    assert "71234%3Aabc" not in last_json
+    assert "Xy9secret" not in last_json
+
+
+def test_instagram_loggers_are_silenced_outside_debug() -> None:
+    """Clamped to CRITICAL: instagrapi dumps a full response body at ERROR."""
+    import logging
+
+    from publisher_v2.utils.logging import setup_logging
+
+    previous = logging.getLogger().level
+    try:
+        setup_logging(logging.INFO)
+        assert logging.getLogger("instagrapi").level == logging.CRITICAL
+        assert logging.getLogger("private_request").level == logging.CRITICAL
+
+        # ...but a deliberate DEBUG run leaves them alone, which is when an
+        # operator is diagnosing a login failure and needs them.
+        logging.getLogger("instagrapi").setLevel(logging.NOTSET)
+        setup_logging(logging.DEBUG)
+        assert logging.getLogger("instagrapi").level == logging.NOTSET
+    finally:
+        # setup_logging clears root handlers and sets the root level, so this
+        # test would otherwise leave every later test running at DEBUG (#135).
+        setup_logging(previous or logging.WARNING)

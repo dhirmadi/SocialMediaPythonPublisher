@@ -22,6 +22,20 @@ We release security updates for the following versions:
 2. **Credential Storage**:
    - Application stores credentials in `.env` file
    - Instagram session settings stored encrypted in Postgres (`pv2_instagram_session`) when `DATABASE_URL` and `WEB_SESSION_SECRET` are set, otherwise in `$XDG_CACHE_HOME/publisher_v2/instagram_session.json` (mode 0600)
+   - A refused Instagram login writes a back-off alongside it — `…/instagram_session.json.blocked` on the file store, `blocked_until` on the DB row. Instagram's own verdicts (challenge, 2FA, bad password, throttling) block for 24h; a network failure blocks for 1h. Nothing lifts a block early, so after rotating a password — or after instagrapi reports `BadPassword` for a blocked IP rather than a wrong credential — clear it by hand:
+
+     ```bash
+     rm -f "${XDG_CACHE_HOME:-$HOME/.cache}/publisher_v2/instagram_session.json.blocked"
+     ```
+
+   - **`WEB_DEBUG=1` makes Instagram traffic loggable.** Outside DEBUG the
+     `instagrapi`, `private_request` and `public_request` loggers are clamped to
+     CRITICAL, because instagrapi logs the username at INFO and dumps a full
+     response body at ERROR. At DEBUG they are deliberately left alone so a
+     login failure can be diagnosed; session cookie shapes (`sessionid`,
+     `csrftoken`, `ds_user_id`, `IGT:2:` bearer) are redacted by the logging
+     filter, but request URLs and response bodies containing account
+     identifiers are not. Do not leave `WEB_DEBUG=1` on in production.
    - **Recommendation**: Implement keyring-based credential storage (see documentation)
 
 3. **Temporary Files**:
