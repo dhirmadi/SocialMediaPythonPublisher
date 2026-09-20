@@ -305,6 +305,7 @@ def test_the_upload_endpoint_still_documents_its_multipart_body() -> None:
 
     operation = app.openapi()["paths"]["/api/library/upload"]["post"]
 
+    assert operation["requestBody"]["required"] is True
     schema = operation["requestBody"]["content"]["multipart/form-data"]["schema"]
     assert schema["properties"]["file"] == {"type": "string", "format": "binary"}
     assert schema["required"] == ["file"]

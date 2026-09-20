@@ -53,13 +53,19 @@ class _FakeS3:
         body = kwargs["Body"]
         if hasattr(body, "read"):
             body.seek(0)
-            head = body.read(self._KEEP_BODY_UNDER)
-            size = len(head)
-            oversized = False
+            # 64 KiB at a time, keeping the copy only while it stays under the
+            # threshold: reading a big head up front would put the harness's own
+            # allocation into the peak-memory assertions.
+            kept: bytearray | None = bytearray()
+            size = 0
             while chunk := body.read(64 * 1024):
                 size += len(chunk)
-                oversized = True
-            data = b"" if oversized else head
+                if kept is not None:
+                    if size <= self._KEEP_BODY_UNDER:
+                        kept.extend(chunk)
+                    else:
+                        kept = None
+            data = bytes(kept) if kept is not None else b""
         else:
             data = bytes(body)
             size = len(data)
