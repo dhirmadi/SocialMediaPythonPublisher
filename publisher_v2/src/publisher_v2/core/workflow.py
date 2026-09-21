@@ -913,10 +913,6 @@ class WorkflowOrchestrator:
                 if variant != tmp_path and os.path.exists(variant):  # noqa: ASYNC240 — fast local FS check
                     with contextlib.suppress(Exception):
                         os.unlink(variant)
-            # PUB-045: flush R2 storage ops counter even in preview mode (real R2 costs).
-            meter = getattr(self, "_storage_ops_meter", None)
-            if meter is not None:
-                await meter.flush()
             # #139: any lease still pending here was never published — the run
             # aborted (exception or early return) between lease and publish, so
             # mark those rows failed and let the next run re-lease them. Last in
@@ -951,6 +947,11 @@ class WorkflowOrchestrator:
                     # a normal WorkflowResult and lost an outer asyncio.timeout.
                     await release
                     raise
+
+            # PUB-045: flush R2 storage ops counter even in preview mode (real R2 costs).
+            meter = getattr(self, "_storage_ops_meter", None)
+            if meter is not None:
+                await meter.flush()
 
     async def _claim_publish_targets(
         self,
