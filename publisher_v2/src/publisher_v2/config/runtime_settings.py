@@ -14,9 +14,12 @@ env var in a running web process no longer takes effect mid-process. Tests that
 need a different value either set the env before building the component or pass
 ``settings=`` explicitly.
 
-Parsing is deliberately lenient, matching the old call sites: an invalid
-value falls back to the default instead of raising, and the historical
-clamps (publish timeout >= 5s, AI stage timeout >= 0.1s) are preserved.
+Parsing is deliberately lenient, matching the old call sites: an
+*unparseable* value falls back to the default instead of raising, and the
+historical clamps (publish timeout >= 5s, AI stage timeout >= 0.1s) are
+preserved. The one exception is the PUB-047 timeout budgets, where a parseable
+but non-positive value raises :class:`ConfigurationError` rather than being
+clamped — see :meth:`RuntimeSettings._reject_non_positive_timeout`.
 """
 
 from __future__ import annotations
@@ -24,7 +27,9 @@ from __future__ import annotations
 import os
 from collections.abc import Mapping
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, ValidationInfo, field_validator
+
+from publisher_v2.core.exceptions import ConfigurationError
 
 
 def _float_env(name: str, default: float | None) -> float | None:
@@ -101,8 +106,10 @@ class RuntimeSettings(BaseModel):
     config_source: str = ""
     orchestrator_base_url: str = ""
     # PUB-047 #186: asyncpg connect/command budgets and the publish-claim budget.
-    # Deliberately unclamped, unlike publish_timeout_seconds — a very small value
-    # is a legitimate way to fail fast (and is what the AC8 tests drive).
+    # Positive values are deliberately unclamped, unlike publish_timeout_seconds —
+    # a very small value is a legitimate way to fail fast (and is what the AC8
+    # tests drive). ``<= 0`` is rejected outright by ``_reject_non_positive_timeout``
+    # below: it is a misconfiguration, not a tunable.
     db_connect_timeout_seconds: float = 10.0
     db_command_timeout_seconds: float = 30.0
     publish_claim_timeout_seconds: float = 10.0
@@ -113,6 +120,20 @@ class RuntimeSettings(BaseModel):
         """Accept the natural ``{"telegram": 30.0}`` form and store it immutably."""
         if isinstance(value, Mapping):
             return tuple(value.items())
+        return value
+
+    @field_validator("db_connect_timeout_seconds", "db_command_timeout_seconds", "publish_claim_timeout_seconds")
+    @classmethod
+    def _reject_non_positive_timeout(cls, value: float, info: ValidationInfo) -> float:
+        """Reject ``<= 0`` budgets; positive values (however small) pass through unclamped.
+
+        ``PUBLISH_CLAIM_TIMEOUT_SECONDS=0`` makes ``asyncio.wait_for`` fire on the
+        first suspension, so every run aborts with ``publish_store_unavailable``
+        for a store outage that does not exist; ``DB_CONNECT_TIMEOUT_SECONDS=0``
+        hands asyncpg ``timeout=0``. Fail loudly at construction instead.
+        """
+        if value <= 0:
+            raise ConfigurationError(f"{info.field_name} must be greater than 0 (got {value!r})")
         return value
 
     @property
@@ -176,7 +197,8 @@ def load_runtime_settings() -> RuntimeSettings:
     lease_floor = ai_stage + max([publish_timeout, *overrides.values()]) + 60.0
     lease_ttl = max(lease_floor, lease_ttl or defaults.publish_lease_ttl_seconds)
 
-    # PUB-047 #186: no clamping here on purpose — see the field comments.
+    # PUB-047 #186: positive values are passed through unclamped on purpose; a
+    # ``<= 0`` value is rejected by the field validator, not silently floored.
     db_connect_timeout = _float_env("DB_CONNECT_TIMEOUT_SECONDS", defaults.db_connect_timeout_seconds)
     db_command_timeout = _float_env("DB_COMMAND_TIMEOUT_SECONDS", defaults.db_command_timeout_seconds)
     publish_claim_timeout = _float_env("PUBLISH_CLAIM_TIMEOUT_SECONDS", defaults.publish_claim_timeout_seconds)

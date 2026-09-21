@@ -110,7 +110,7 @@ async def main_async() -> int:
     from publisher_v2.db.publish_store import PublishStore
 
     if is_db_available():
-        sf = init_db()
+        sf = init_db(settings)
         if sf is not None:
             caption_store = CaptionStore(sf, settings=settings)
             publish_store = PublishStore(sf, lease_ttl_seconds=settings.publish_lease_ttl_seconds)

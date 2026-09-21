@@ -372,9 +372,11 @@ class TestGracefulDegradation:
 
     def test_init_db_returns_none_without_url(self) -> None:
         with patch.dict("os.environ", {}, clear=True):
+            from publisher_v2.config.runtime_settings import RuntimeSettings
             from publisher_v2.db import init_db
 
-            result = init_db()
+            # PUB-047 review item 3: ``settings`` is required — no load_runtime_settings() fallback.
+            result = init_db(settings=RuntimeSettings())
             assert result is None
 
 

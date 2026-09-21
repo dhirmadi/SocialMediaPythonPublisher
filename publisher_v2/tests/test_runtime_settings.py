@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
+from publisher_v2.core.exceptions import ConfigurationError
 
 _ENV_KEYS = [
     "AI_RATE_PER_MINUTE",
@@ -134,3 +135,44 @@ class TestDbAndClaimTimeouts:
         assert fallback.db_connect_timeout_seconds == 10.0
         assert fallback.db_command_timeout_seconds == 30.0
         assert fallback.publish_claim_timeout_seconds == 10.0
+
+    @pytest.mark.parametrize(
+        "field",
+        ["db_connect_timeout_seconds", "db_command_timeout_seconds", "publish_claim_timeout_seconds"],
+    )
+    @pytest.mark.parametrize("bad", [0, 0.0, -1.0, -0.001])
+    def test_non_positive_timeouts_are_rejected(self, field: str, bad: float) -> None:
+        """PUB-047 review item 4: 0 or negative is a misconfiguration, not a tunable.
+
+        ``PUBLISH_CLAIM_TIMEOUT_SECONDS=0`` makes ``asyncio.wait_for`` fire on the
+        first suspension, so every run reports ``publish_store_unavailable`` for a
+        store outage that does not exist; ``DB_CONNECT_TIMEOUT_SECONDS=0`` hands
+        asyncpg ``timeout=0``. Reject at construction rather than clamping.
+        """
+        with pytest.raises(ConfigurationError):
+            RuntimeSettings(**{field: bad})
+
+    @pytest.mark.parametrize(
+        "env_key",
+        ["DB_CONNECT_TIMEOUT_SECONDS", "DB_COMMAND_TIMEOUT_SECONDS", "PUBLISH_CLAIM_TIMEOUT_SECONDS"],
+    )
+    def test_non_positive_timeout_env_values_are_rejected(self, env_key: str, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A ``0`` in the environment must fail loudly at load, not silently disable the budget."""
+        monkeypatch.setenv(env_key, "0")
+        with pytest.raises(ConfigurationError):
+            load_runtime_settings()
+
+        monkeypatch.setenv(env_key, "-5")
+        with pytest.raises(ConfigurationError):
+            load_runtime_settings()
+
+    def test_small_positive_timeouts_are_still_accepted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Reject, do not clamp: AC8's hang tests drive a real, very small timeout."""
+        monkeypatch.setenv("DB_CONNECT_TIMEOUT_SECONDS", "0.001")
+        monkeypatch.setenv("DB_COMMAND_TIMEOUT_SECONDS", "0.001")
+        monkeypatch.setenv("PUBLISH_CLAIM_TIMEOUT_SECONDS", "0.001")
+        s = load_runtime_settings()
+
+        assert s.db_connect_timeout_seconds == 0.001
+        assert s.db_command_timeout_seconds == 0.001
+        assert s.publish_claim_timeout_seconds == 0.001

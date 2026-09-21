@@ -13,7 +13,7 @@ import time
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
-from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
+from publisher_v2.config.runtime_settings import RuntimeSettings
 
 logger = logging.getLogger("publisher_v2.db")
 
@@ -41,14 +41,15 @@ def is_db_available() -> bool:
     return bool(os.environ.get("DATABASE_URL", "").strip())
 
 
-def init_db(settings: RuntimeSettings | None = None) -> async_sessionmaker[AsyncSession] | None:
+def init_db(settings: RuntimeSettings) -> async_sessionmaker[AsyncSession] | None:
     """Create the async engine and session factory.
 
     Call once at process startup. Returns None when no DATABASE_URL is set.
 
-    ``settings`` supplies the asyncpg connect/command budgets (PUB-047 #186);
-    it defaults to a fresh :func:`load_runtime_settings` read so the existing
-    zero-arg call sites keep working unchanged.
+    ``settings`` supplies the asyncpg connect/command budgets (PUB-047 #186)
+    and is required: every call site already holds the process-wide snapshot
+    (#143), and a :func:`load_runtime_settings` fallback here would re-parse
+    the environment behind their backs.
     """
     global _engine, _session_factory  # noqa: PLW0603
 
@@ -56,8 +57,6 @@ def init_db(settings: RuntimeSettings | None = None) -> async_sessionmaker[Async
     if not url:
         logger.warning("DATABASE_URL not set — caption history DB disabled")
         return None
-
-    settings = settings or load_runtime_settings()
 
     url = _normalize_database_url(url)
     _engine = create_async_engine(

@@ -965,6 +965,11 @@ class WorkflowOrchestrator:
                     raise
 
             # PUB-045: flush R2 storage ops counter even in preview mode (real R2 costs).
+            # PUB-047 #185: a cancellation delivered during the shielded lease release above
+            # re-raises before this line, so that run's drained ops stay in the storage
+            # counter until the periodic loop or the next run flushes them — the lease is
+            # worth more than a few minutes of billing delay, and nothing is lost. Do not
+            # reorder this ahead of the release to "fix" it.
             meter = getattr(self, "_storage_ops_meter", None)
             if meter is not None:
                 await meter.flush()

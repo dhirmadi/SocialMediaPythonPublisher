@@ -119,7 +119,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     # Initialise caption history DB (optional — graceful degradation if not configured)
     from publisher_v2.db import init_db
 
-    init_db()
+    init_db(app.state.runtime_settings)
 
     # #144: resolve the standalone storage origin once, so the CSP on a cold
     # process's first page render already names it. Orchestrated requests use

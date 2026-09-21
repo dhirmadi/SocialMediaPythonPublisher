@@ -27,6 +27,8 @@ def _restore_db_globals():
 def test_init_db_passes_connect_and_command_timeout_from_runtime_settings(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    # Credential-free on purpose: a user:password@host URL here trips the secret scanner
+    # (PUB-047 review / PUB-055). The engine is never connected, so no credentials are needed.
     monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://localhost/appdb")
     monkeypatch.setenv("DB_CONNECT_TIMEOUT_SECONDS", "3.5")
     monkeypatch.setenv("DB_COMMAND_TIMEOUT_SECONDS", "7.25")
@@ -137,3 +139,15 @@ async def test_check_connectivity_rechecks_once_the_cached_result_is_stale(
 
     assert await db.check_connectivity() is True
     engine.connect.assert_called_once_with()
+
+
+def test_init_db_requires_an_explicit_settings_argument(monkeypatch: pytest.MonkeyPatch) -> None:
+    """PUB-047 review item 3: the ``load_runtime_settings()`` constructor fallback is gone.
+
+    Every call site must hand ``init_db`` the process-wide snapshot (#143), so a
+    zero-arg call is a ``TypeError`` rather than a second, divergent env read.
+    """
+    monkeypatch.setenv("DATABASE_URL", "postgresql+asyncpg://localhost/appdb")
+
+    with patch("publisher_v2.db.create_async_engine", MagicMock()), pytest.raises(TypeError):
+        db.init_db()
