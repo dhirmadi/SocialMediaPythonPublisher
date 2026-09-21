@@ -548,3 +548,196 @@ class TestHeadObjectFailureIsVisible:
         assert await storage.head_object("folder/a.jpg") is None
 
         assert not [r for r in caplog.records if "head_object_failed" in r.getMessage()], caplog.text
+
+
+# ---------------------------------------------------------------------------
+# PUB-047 stage A (#183, #184)
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def fast_managed_retries(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Collapse the tenacity waits on ManagedStorage so retry tests stay fast.
+
+    #183 extracts the ten near-duplicate ``@retry(...)`` instantiations into a shared
+    module-level ``_managed_retry`` whose wait is ``lambda rs: _managed_wait(rs)``,
+    mirroring ``_dropbox_retry``/``_dropbox_wait`` in ``services/storage.py`` so this
+    patch takes effect (see tests/test_storage_error_paths.py::_fast_retries).
+    ``raising=False`` so this file still collects before that refactor lands.
+    """
+    monkeypatch.setattr(
+        "publisher_v2.services.managed_storage._managed_wait",
+        lambda retry_state: 0.0,
+        raising=False,
+    )
+
+
+def _client_error(code: str, op: str, status: int = 503):
+    from botocore.exceptions import ClientError
+
+    return ClientError(
+        {"Error": {"Code": code, "Message": code}, "ResponseMetadata": {"HTTPStatusCode": status}},
+        op,
+    )
+
+
+def _endpoint_connection_error():
+    from botocore.exceptions import EndpointConnectionError
+
+    return EndpointConnectionError(endpoint_url="https://test.r2.cloudflarestorage.com")
+
+
+class TestManagedStorageRetryLayer:
+    """#183 (AC1–AC3): the tenacity layer must actually see transient S3 errors.
+
+    Today every method wraps the boto call in ``except ClientError: raise StorageError(...)
+    from exc`` *inside* the decorated coroutine and ``_is_transient_s3_error`` does not
+    unwrap ``StorageError.__cause__``, so R2 gets zero retries; connection errors are not
+    caught at all and leak raw botocore exceptions.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _fast(self, fast_managed_retries) -> None:
+        return None
+
+    async def test_list_images_retries_on_slowdown_then_succeeds(self, storage, mock_s3_client) -> None:
+        """AC1: SlowDown twice then success -> three attempts, listing returned."""
+        paginator = MagicMock()
+        paginator.paginate.side_effect = [
+            _client_error("SlowDown", "ListObjectsV2"),
+            _client_error("SlowDown", "ListObjectsV2"),
+            [{"Contents": [{"Key": "tenant/images/a.jpg"}]}],
+        ]
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images("tenant/images")
+
+        assert result == ["a.jpg"]
+        assert paginator.paginate.call_count == 3
+
+    async def test_download_image_retries_on_slowdown_then_succeeds(self, storage, mock_s3_client) -> None:
+        """AC1: SlowDown twice then success -> three attempts, bytes returned."""
+        body = MagicMock()
+        body.read.return_value = b"image-bytes"
+        mock_s3_client.get_object.side_effect = [
+            _client_error("SlowDown", "GetObject"),
+            _client_error("SlowDown", "GetObject"),
+            {"Body": body},
+        ]
+
+        result = await storage.download_image("folder", "a.jpg")
+
+        assert result == b"image-bytes"
+        assert mock_s3_client.get_object.call_count == 3
+
+    async def test_slowdown_on_every_attempt_raises_storage_error_with_client_error_cause(
+        self, storage, mock_s3_client
+    ) -> None:
+        """AC2: exhausted retries surface as StorageError whose cause is the last ClientError."""
+        from botocore.exceptions import ClientError
+
+        mock_s3_client.get_object.side_effect = _client_error("SlowDown", "GetObject")
+
+        with pytest.raises(StorageError) as excinfo:
+            await storage.download_image("folder", "a.jpg")
+
+        assert isinstance(excinfo.value.__cause__, ClientError)
+        assert excinfo.value.__cause__.response["Error"]["Code"] == "SlowDown"
+        # All three attempts were spent before giving up.
+        assert mock_s3_client.get_object.call_count == 3
+
+    async def test_404_is_not_retried(self, storage, mock_s3_client) -> None:
+        """AC2: a permanent 404 must fail on the first attempt, not burn the retry budget."""
+        from botocore.exceptions import ClientError
+
+        mock_s3_client.get_object.side_effect = _client_error("NoSuchKey", "GetObject", status=404)
+
+        with pytest.raises(StorageError) as excinfo:
+            await storage.download_image("folder", "missing.jpg")
+
+        assert isinstance(excinfo.value.__cause__, ClientError)
+        assert mock_s3_client.get_object.call_count == 1
+
+    async def test_endpoint_connection_error_raises_storage_error_not_botocore_exception(
+        self, storage, mock_s3_client
+    ) -> None:
+        """AC3: a connection error must surface as StorageError, not raw botocore."""
+        from botocore.exceptions import EndpointConnectionError
+
+        mock_s3_client.get_object.side_effect = _endpoint_connection_error()
+
+        with pytest.raises(StorageError) as excinfo:
+            await storage.download_image("folder", "a.jpg")
+
+        assert isinstance(excinfo.value.__cause__, EndpointConnectionError)
+        assert mock_s3_client.get_object.call_count == 3
+
+    async def test_delete_object_wraps_endpoint_connection_error_in_storage_error(
+        self, storage, mock_s3_client
+    ) -> None:
+        """Scope note: delete_object's widened except clause must not be coverage-gate-only."""
+        from botocore.exceptions import EndpointConnectionError
+
+        mock_s3_client.delete_object.side_effect = _endpoint_connection_error()
+
+        with pytest.raises(StorageError) as excinfo:
+            await storage.delete_object("tenant/images/a.jpg")
+
+        assert isinstance(excinfo.value.__cause__, EndpointConnectionError)
+
+
+class _RecordingPaginator:
+    """Fake S3 paginator that records its kwargs and honours ``Delimiter``.
+
+    With ``Delimiter="/"`` the backend elides nested keys, so only live (immediate-child)
+    keys are paged and billed; without it every archived key is paged and billed too.
+    """
+
+    PAGE_SIZE = 1000
+
+    def __init__(self, live_keys: list[str], archived_keys: list[str]) -> None:
+        self.live_keys = live_keys
+        self.archived_keys = archived_keys
+        self.calls: list[dict] = []
+
+    def paginate(self, **kwargs):
+        self.calls.append(kwargs)
+        keys = self.live_keys if kwargs.get("Delimiter") == "/" else [*self.live_keys, *self.archived_keys]
+        pages = []
+        for start in range(0, len(keys), self.PAGE_SIZE):
+            chunk = keys[start : start + self.PAGE_SIZE]
+            pages.append({"Contents": [{"Key": k, "ETag": f'"etag-{k}"'} for k in chunk]})
+        return pages
+
+
+class TestListingDelimiter:
+    """#184 (AC4): both listing paginators must pass Delimiter='/' so archived keys
+    are neither billed nor parsed."""
+
+    async def test_list_images_passes_delimiter_and_bills_one_page_per_1000_live_keys(
+        self, storage, mock_s3_client
+    ) -> None:
+        live = [f"tenant/images/img{i:05d}.jpg" for i in range(1500)]
+        archived = [f"tenant/images/archive/old{i:05d}.jpg" for i in range(800)]
+        paginator = _RecordingPaginator(live, archived)
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images("tenant/images")
+
+        assert paginator.calls and paginator.calls[0].get("Delimiter") == "/"
+        assert len(result) == 1500
+        # ceil(1500 / 1000) == 2 billable LIST pages, regardless of the 800 archived keys.
+        assert storage.drain_ops_count() == 2
+
+    async def test_list_images_with_hashes_passes_delimiter(self, storage, mock_s3_client) -> None:
+        live = [f"tenant/images/img{i:05d}.jpg" for i in range(3)]
+        archived = [f"tenant/images/archive/old{i:05d}.jpg" for i in range(5)]
+        paginator = _RecordingPaginator(live, archived)
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images_with_hashes("tenant/images")
+
+        assert paginator.calls and paginator.calls[0].get("Delimiter") == "/"
+        assert [name for name, _ in result] == ["img00000.jpg", "img00001.jpg", "img00002.jpg"]
+        assert result[0][1] == "etag-tenant/images/img00000.jpg"
+        assert storage.drain_ops_count() == 1

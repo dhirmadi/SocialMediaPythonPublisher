@@ -52,7 +52,20 @@ _IMAGE_EXTENSIONS = (".jpg", ".jpeg", ".png")
 
 
 def _is_transient_s3_error(exc: BaseException) -> bool:
-    """Return True for transient S3 errors that should be retried."""
+    """Return True for transient S3 errors that should be retried.
+
+    #183: every decorated method wraps its boto call in
+    ``except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
+    raise StorageError(...) from exc`` *inside* the coroutine tenacity decorates, so this
+    predicate is handed the ``StorageError`` wrapper, never the botocore exception. Unwrap
+    ``__cause__`` first — exactly like ``_is_retryable_dropbox_error`` in ``services/storage.py``
+    (#132) — or the retry layer never fires.
+    """
+    if isinstance(exc, StorageError):
+        cause = exc.__cause__
+        if cause is None or cause is exc:
+            return False
+        return _is_transient_s3_error(cause)
     if isinstance(exc, BotoConnectionError | EndpointConnectionError):
         return True
     if isinstance(exc, ClientError):
@@ -62,6 +75,26 @@ def _is_transient_s3_error(exc: BaseException) -> bool:
         if status >= 500 or code in ("SlowDown", "ServiceUnavailable", "InternalError"):
             return True
     return False
+
+
+_EXPONENTIAL_WAIT = wait_exponential(multiplier=1, min=1, max=8)
+
+
+def _managed_wait(retry_state) -> float:  # type: ignore[no-untyped-def]
+    """Backoff between managed-storage attempts: exponential 1s then 2s (#183)."""
+    return float(_EXPONENTIAL_WAIT(retry_state))
+
+
+# #93: tenacity is the single retry layer — boto's own retries are disabled in __init__ —
+# and #183 made the predicate unwrap StorageError, so this decorator now actually fires.
+# One shared instance replaces the ten identical per-method decorators; the wait is called
+# through a module-level name so tests can monkeypatch it to 0.0.
+_managed_retry = retry(
+    reraise=True,
+    stop=stop_after_attempt(3),
+    wait=lambda retry_state: _managed_wait(retry_state),
+    retry=retry_if_exception(_is_transient_s3_error),
+)
 
 
 # #140: (endpoint, bucket, key, size) → (thumbnail bytes, stored_at, etag)
@@ -175,12 +208,7 @@ class ManagedStorage:
             return False
         return "/" not in relative
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def list_images(self, folder: str) -> list[str]:
         """Return the image filenames directly under ``folder`` (no recursion).
 
@@ -196,7 +224,9 @@ class ManagedStorage:
                 prefix = f"{folder.strip('/')}/"
                 names: list[str] = []
                 paginator = self.client.get_paginator("list_objects_v2")
-                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                # #184: Delimiter elides nested keys (archive/) server-side, so only
+                # immediate children are paged and billed.
+                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
                     self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
@@ -208,15 +238,10 @@ class ManagedStorage:
                 return names
 
             return await asyncio.to_thread(_list)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to list images: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
         """Return ``(filename, etag)`` for the images directly under ``folder``.
 
@@ -232,7 +257,9 @@ class ManagedStorage:
                 prefix = f"{folder.strip('/')}/"
                 out: list[tuple[str, str]] = []
                 paginator = self.client.get_paginator("list_objects_v2")
-                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                # #184: Delimiter elides nested keys (archive/) server-side, so only
+                # immediate children are paged and billed.
+                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
                     self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
@@ -245,15 +272,10 @@ class ManagedStorage:
                 return out
 
             return await asyncio.to_thread(_list)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to list images with hashes: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def download_image(self, folder: str, filename: str) -> bytes:
         """Download an image and return its bytes, verifying the advertised length.
 
@@ -287,15 +309,10 @@ class ManagedStorage:
                 return cast(bytes, body)
 
             return await asyncio.to_thread(_download)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to download {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def get_temporary_link(self, folder: str, filename: str) -> str:
         """Return a presigned GET URL for the object, valid for one hour.
 
@@ -318,15 +335,10 @@ class ManagedStorage:
                 )
 
             return await asyncio.to_thread(_link)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to get temporary link for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def get_file_metadata(self, folder: str, filename: str) -> FileMetadata:
         """Return normalized file identity/version metadata (#96)."""
         try:
@@ -341,15 +353,10 @@ class ManagedStorage:
                 return FileMetadata(file_id=key, revision=etag, modified_at=modified, size=size)
 
             return await asyncio.to_thread(_meta)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to get metadata for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
         """Write the UTF-8 caption sidecar next to ``filename``, overwriting any existing one.
 
@@ -369,15 +376,10 @@ class ManagedStorage:
                 )
 
             await asyncio.to_thread(_upload)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to upload sidecar for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
         """Return the sidecar bytes for ``filename``, or None when there is no sidecar.
 
@@ -401,15 +403,10 @@ class ManagedStorage:
                     raise
 
             return await asyncio.to_thread(_download)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to download sidecar for {filename}: {exc}") from exc
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         """Move an image and its sidecar into ``archive_folder`` (copy then delete).
 
@@ -444,19 +441,14 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_archive)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to archive {filename}: {exc}") from exc
         finally:
             # #140: also on failure. A partly applied write (copy done, delete
             # raised) otherwise leaves a stale thumbnail on the destination key.
             self.invalidate_thumbnail(self._key(folder, filename), self._key(archive_folder, filename))
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
         """Move an image and its ``.txt`` sidecar into ``target_subfolder`` relative to ``folder``.
 
@@ -492,18 +484,13 @@ class ManagedStorage:
                     pass  # Sidecar may not exist
 
             await asyncio.to_thread(_move)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to move {filename} to {target_subfolder}: {exc}") from exc
         finally:
             dest_prefix = ManagedStorage._move_destination_prefix(folder, target_subfolder)
             self.invalidate_thumbnail(self._key(folder, filename), self._key(dest_prefix, filename))
 
-    @retry(
-        reraise=True,
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1, min=1, max=8),
-        retry=retry_if_exception(_is_transient_s3_error),
-    )
+    @_managed_retry
     async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
         """Delete an image and its sidecar, ignoring a missing sidecar.
 
@@ -524,7 +511,7 @@ class ManagedStorage:
                     self.client.delete_object(Bucket=self._bucket, Key=sidecar)
 
             await asyncio.to_thread(_delete)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to delete {filename}: {exc}") from exc
         finally:
             self.invalidate_thumbnail(self._key(folder, filename))
@@ -657,7 +644,7 @@ class ManagedStorage:
 
         try:
             await asyncio.to_thread(_delete)
-        except ClientError as exc:
+        except (ClientError, EndpointConnectionError, BotoConnectionError) as exc:
             raise StorageError(f"Failed to delete object {key}: {exc}") from exc
         finally:
             self.invalidate_thumbnail(key)

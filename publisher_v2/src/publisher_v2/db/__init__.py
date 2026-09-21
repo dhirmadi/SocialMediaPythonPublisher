@@ -13,6 +13,8 @@ import time
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 
+from publisher_v2.config.runtime_settings import RuntimeSettings
+
 logger = logging.getLogger("publisher_v2.db")
 
 _engine: AsyncEngine | None = None
@@ -39,10 +41,15 @@ def is_db_available() -> bool:
     return bool(os.environ.get("DATABASE_URL", "").strip())
 
 
-def init_db() -> async_sessionmaker[AsyncSession] | None:
+def init_db(settings: RuntimeSettings) -> async_sessionmaker[AsyncSession] | None:
     """Create the async engine and session factory.
 
     Call once at process startup. Returns None when no DATABASE_URL is set.
+
+    ``settings`` supplies the asyncpg connect/command budgets (PUB-047 #186)
+    and is required: every call site already holds the process-wide snapshot
+    (#143), and a :func:`load_runtime_settings` fallback here would re-parse
+    the environment behind their backs.
     """
     global _engine, _session_factory  # noqa: PLW0603
 
@@ -58,6 +65,11 @@ def init_db() -> async_sessionmaker[AsyncSession] | None:
         pool_size=3,
         max_overflow=5,
         pool_pre_ping=True,
+        # PUB-047 #186: asyncpg-level bounds so no DB call can hang forever.
+        connect_args={
+            "timeout": settings.db_connect_timeout_seconds,
+            "command_timeout": settings.db_command_timeout_seconds,
+        },
     )
     _session_factory = async_sessionmaker(bind=_engine, expire_on_commit=False, class_=AsyncSession)
     logger.info("Caption history DB initialised (pool_size=3, max_overflow=5)")

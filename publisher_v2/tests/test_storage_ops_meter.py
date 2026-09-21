@@ -2,10 +2,30 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import re
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+
+
+async def _hang_forever(**_kwargs: Any) -> None:
+    """Stand-in for an orchestrator POST that never answers."""
+    await asyncio.Event().wait()
+
+
+async def _settle(task: asyncio.Task[None] | None, tries: int = 200) -> None:
+    """Let a background drain task reach completion without sleeping for real timeouts."""
+    for _ in range(tries):
+        if task is None or task.done():
+            break
+        await asyncio.sleep(0.005)
+    if task is not None and not task.done():  # pragma: no cover - safety net
+        task.cancel()
+        with contextlib.suppress(BaseException):
+            await task
 
 
 def _build_meter(count: int = 0):
@@ -124,3 +144,295 @@ class TestPerFlushIdempotencyKeys:
 
         quantities = sorted(call.kwargs["quantity"] for call in client.post_usage.await_args_list)
         assert quantities == [5, 5, 7]
+
+
+class TestDrainLoopBackoffSemantics:
+    """PUB-047 (#185): one attempt per batch, exit on first failure, keep the key."""
+
+    async def test_drain_loop_exits_on_first_failure_without_hot_spinning(self) -> None:
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(side_effect=[9, 0, 0, 0])
+        client.post_usage = AsyncMock(side_effect=RuntimeError("orchestrator down"))
+
+        await meter.flush()
+
+        # The failed batch stays pending with its original key ...
+        assert meter.pending_batch_count() == 1
+        original_key = meter._pending[0][0]
+        assert meter._pending[0][1] == 9
+
+        # ... and the drain task has exited rather than retrying in a tight loop.
+        for _ in range(10):
+            await asyncio.sleep(0)
+        assert meter._drain_task is not None
+        assert meter._drain_task.done()
+        assert client.post_usage.await_count == 1
+
+        # The next flush retries the same batch under the same idempotency key.
+        client.post_usage.side_effect = None
+        client.post_usage.return_value = {"ok": True}
+        await meter.flush()
+        assert client.post_usage.await_count == 2
+        assert client.post_usage.await_args.kwargs["idempotency_key"] == original_key
+        assert meter.pending_batch_count() == 0
+
+    async def test_drain_attempt_timeout_is_bounded_and_logged(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A _post_batch that outlives _DRAIN_ATTEMPT_TIMEOUT_SECONDS logs and keeps the batch."""
+        import logging
+
+        from publisher_v2.services import storage_ops_meter as mod
+
+        monkeypatch.setattr(mod, "_DRAIN_ATTEMPT_TIMEOUT_SECONDS", 0.01)
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(side_effect=[11, 0, 0])
+        client.post_usage = AsyncMock(side_effect=_hang_forever)
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
+        await meter.flush()
+        await _settle(meter._drain_task)
+
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "storage_ops_drain_attempt_timeout" in joined
+        assert meter.pending_batch_count() == 1
+        assert meter._pending[0][1] == 11
+
+    async def test_drain_task_failure_is_logged_not_silent(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Spec risk: a background drain that dies must log storage_ops_drain_task_failed."""
+        import logging
+
+        meter, client, _ = _build_meter(count=0)
+        # A malformed pending entry makes _drain_pending itself blow up (not _post_batch,
+        # which swallows everything) — the defensive branch must surface it.
+        meter._pending.append(("bad-entry",))  # type: ignore[arg-type]
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
+        meter._ensure_drain_task()
+        await _settle(meter._drain_task)
+
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "storage_ops_drain_task_failed" in joined
+        meter._pending.clear()
+
+
+class TestAclose:
+    """PUB-047 (#185): aclose() stops background work and drains under a bounded deadline."""
+
+    async def test_aclose_cancels_periodic_task_and_drains_pending(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.services import storage_ops_meter as mod
+
+        monkeypatch.setattr(mod, "FLUSH_INTERVAL_SECONDS", 3600)
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(side_effect=[0, 13, 0])
+        client.post_usage = AsyncMock(side_effect=[RuntimeError("boom"), {"ok": True}])
+
+        meter.start_periodic_flush()
+        periodic = meter._periodic_task
+        assert periodic is not None
+
+        await meter.flush()  # drains 0 -> nothing pending
+        storage.drain_ops_count = MagicMock(return_value=13)
+        await meter.flush()  # drains 13, post fails -> stays pending
+        assert meter.pending_batch_count() == 1
+
+        storage.drain_ops_count = MagicMock(return_value=0)
+        await meter.aclose()
+
+        assert periodic.cancelled() or periodic.done()
+        assert meter._periodic_task is None
+        assert meter._drain_task is None
+        assert meter.pending_batch_count() == 0
+        assert client.post_usage.await_count == 2
+
+    async def test_aclose_deadline_logs_undrained_queue_and_never_raises(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        import logging
+
+        from publisher_v2.services import storage_ops_meter as mod
+
+        monkeypatch.setattr(mod, "_ACLOSE_DEADLINE_SECONDS", 0.01)
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=0)
+        client.post_usage = AsyncMock(side_effect=_hang_forever)
+        meter._pending.append(("r2ops:tenant-A:stuck", 17, "2026-01-01T00:00:00+00:00"))
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
+        await meter.aclose()  # must not raise despite the hung post
+
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "storage_ops_meter_undrained_queue" in joined
+        undrained = [rec for rec in caplog.records if "storage_ops_meter_undrained_queue" in rec.getMessage()]
+        assert '"remaining": 1' in undrained[-1].getMessage()
+        assert meter.pending_batch_count() == 1
+
+    async def test_stop_periodic_flush_delegates_to_aclose(self) -> None:
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=4)
+        meter.start_periodic_flush()
+
+        await meter.stop_periodic_flush()
+
+        assert meter._periodic_task is None
+        assert meter.pending_batch_count() == 0
+        client.post_usage.assert_awaited_once()
+        assert client.post_usage.await_args.kwargs["quantity"] == 4
+
+    async def test_aclose_is_idempotent(self) -> None:
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=0)
+
+        await meter.aclose()
+        await meter.aclose()
+
+        assert meter.pending_batch_count() == 0
+        client.post_usage.assert_not_awaited()
+
+
+class TestCancelTask:
+    """PUB-047 (#185): _cancel_task never raises, whatever the task's state."""
+
+    async def test_cancel_task_none_is_a_noop(self) -> None:
+        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
+
+        await StorageOpsMeter._cancel_task(None)
+
+    async def test_cancel_task_already_done_is_a_noop(self) -> None:
+        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
+
+        async def _done() -> None:
+            return None
+
+        task = asyncio.ensure_future(_done())
+        await task
+        await StorageOpsMeter._cancel_task(task)
+        assert not task.cancelled()
+
+    async def test_cancel_task_cancels_a_running_task(self) -> None:
+        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
+
+        async def _forever() -> None:
+            await asyncio.Event().wait()
+
+        task = asyncio.ensure_future(_forever())
+        await asyncio.sleep(0)
+
+        await StorageOpsMeter._cancel_task(task)
+
+        assert task.done()
+        assert task.cancelled()
+
+    async def test_cancel_task_swallows_task_exception(self) -> None:
+        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
+
+        async def _boom() -> None:
+            await asyncio.sleep(0)
+            raise RuntimeError("boom")
+
+        task = asyncio.ensure_future(_boom())
+        await StorageOpsMeter._cancel_task(task)  # must not raise
+        assert task.done()
+
+
+class TestPeriodicFlush:
+    """PUB-045/PUB-047: the periodic loop keeps metering alive without analyze traffic."""
+
+    async def test_periodic_loop_flushes_on_interval(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.services import storage_ops_meter as mod
+
+        monkeypatch.setattr(mod, "FLUSH_INTERVAL_SECONDS", 0.01)
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=3)
+
+        meter.start_periodic_flush()
+        assert meter._periodic_task is not None
+        for _ in range(100):
+            if client.post_usage.await_count >= 1:
+                break
+            await asyncio.sleep(0.01)
+
+        await meter.aclose()
+
+        assert client.post_usage.await_count >= 1
+        assert client.post_usage.await_args.kwargs["quantity"] == 3
+        assert client.post_usage.await_args.kwargs["metric"] == "storage_ops_requests"
+
+    async def test_start_periodic_flush_is_idempotent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.services import storage_ops_meter as mod
+
+        monkeypatch.setattr(mod, "FLUSH_INTERVAL_SECONDS", 3600)
+        meter, _client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=0)
+
+        meter.start_periodic_flush()
+        first = meter._periodic_task
+        meter.start_periodic_flush()
+        assert meter._periodic_task is first
+
+        await meter.aclose()
+
+    def test_start_periodic_flush_without_event_loop_is_silent(self) -> None:
+        """Sync/CLI context: no running loop must not raise and must not create a task."""
+        meter, _client, _storage = _build_meter()
+
+        meter.start_periodic_flush()
+
+        assert meter._periodic_task is None
+
+
+class TestPendingQueueBounds:
+    """#92 (decision a): the retry queue is bounded; the oldest batch is dropped loudly."""
+
+    async def test_oldest_batch_dropped_when_pending_cap_exceeded(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=1)
+        client.post_usage = AsyncMock(side_effect=_hang_forever)
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
+        for _ in range(meter._pending_max + 2):
+            meter._enqueue_drained_batch()
+
+        assert meter.pending_batch_count() == meter._pending_max
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "storage_ops_pending_batch_dropped" in joined
+        meter._pending.clear()
+
+    async def test_flush_does_not_start_a_second_drain_task(self) -> None:
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=2)
+        client.post_usage = AsyncMock(side_effect=_hang_forever)
+
+        await meter.flush()
+        first = meter._drain_task
+        assert first is not None and not first.done()
+
+        await meter.flush()
+
+        assert meter._drain_task is first
+        assert client.post_usage.await_count == 1
+        await meter._cancel_task(meter._drain_task)
+        meter._pending.clear()
+
+    async def test_drain_task_cancellation_is_not_reported_as_failure(self, caplog: pytest.LogCaptureFixture) -> None:
+        import logging
+
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(return_value=6)
+        client.post_usage = AsyncMock(side_effect=_hang_forever)
+
+        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
+        await meter.flush()
+        task = meter._drain_task
+        assert task is not None
+
+        task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+
+        assert task.cancelled()
+        joined = " ".join(rec.getMessage() for rec in caplog.records)
+        assert "storage_ops_drain_task_failed" not in joined
+        meter._pending.clear()
