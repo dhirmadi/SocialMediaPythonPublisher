@@ -1,0 +1,63 @@
+version: 1
+roadmap_id: PUB-047
+summary: >
+  Four independent reliability fixes: R2 retry predicate + except widening (#183),
+  Delimiter on listing paginators (#184), non-blocking StorageOpsMeter flush +
+  lease-release-before-flush ordering (#185), Postgres timeouts + bounded publish
+  claim that fails closed (#186).
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/services/managed_storage.py
+    - publisher_v2/src/publisher_v2/services/storage_ops_meter.py
+    - publisher_v2/src/publisher_v2/core/workflow.py
+    - publisher_v2/src/publisher_v2/core/exceptions.py
+    - publisher_v2/src/publisher_v2/db/__init__.py
+    - publisher_v2/src/publisher_v2/config/runtime_settings.py
+    - publisher_v2/tests/**
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+    - publisher_v2/src/publisher_v2/web/service.py  # no logic change expected
+
+acceptance_criteria:
+  AC1: transient SlowDown retried then succeeds (list_images, download_image)
+  AC2: permanent SlowDown -> StorageError with ClientError __cause__; 404 not retried
+  AC3: EndpointConnectionError -> StorageError, not raw botocore
+  AC4: Delimiter="/" on both listing paginators; one page per 1000 live keys
+  AC5: analyze_and_caption returns fast when orchestrator post_usage hangs; pending_batch_count() non-zero
+  AC6: lease release recorded strictly before meter.flush() in execute() finally; CancelledError still propagates
+  AC7: init_db passes connect_args from new RuntimeSettings db timeout fields
+  AC8: claim failure/timeout -> PublishStoreUnavailableError -> WorkflowResult(success=False, error="publish_store_unavailable"), nothing published
+  AC9: no publish store configured -> file-state path unchanged
+
+tasks:
+  - stage: A
+    subissues: ["#183", "#184"]
+    files: [services/managed_storage.py]
+    tests: [publisher_v2/tests/test_managed_storage.py]
+  - stage: B
+    subissues: ["#185"]
+    files: [services/storage_ops_meter.py, core/workflow.py]
+    tests:
+      - publisher_v2/tests/web/test_web_analyze_storage_ops_meter.py
+      - publisher_v2/tests/test_workflow_lease_meter_order.py
+  - stage: C
+    subissues: ["#186"]
+    files: [db/__init__.py, config/runtime_settings.py, core/exceptions.py, core/workflow.py]
+    tests:
+      - publisher_v2/tests/test_db_connect_args.py
+      - publisher_v2/tests/test_runtime_settings.py
+      - publisher_v2/tests/test_workflow_publish_store_unavailable.py
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage: ">=80% affected modules, >=85% overall (fail_under=85)"
+  safety:
+    - preview mode side-effect free
+    - no hard-coded secrets
+    - no blocking calls in async paths
+    - CLI exit codes unchanged (0/1)
