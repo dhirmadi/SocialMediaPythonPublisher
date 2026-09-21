@@ -81,6 +81,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-059 | Web UI | [Web App Factory, Routers and Typed Platform Captions](PUB-059_web-factory-and-typed-captions.md) | P2 | M | PUB-057, PUB-058 | Proposal |
 | PUB-060 | Foundation | [Test and Docs Hygiene](PUB-060_test-and-docs-hygiene.md) | P2 | M | PUB-059 | Proposal |
 | PUB-061 | Foundation | [Storage-Ops Drain Deadline — Stop Under-Billing a Slow-but-Alive Orchestrator](archive/PUB-061_storage-ops-drain-deadline.md) | P2 | XS | PUB-047 | Done |
+| PUB-062 | Foundation | [Drain-Only Request Timeout — Deliver Batches a Slow Orchestrator Can Still Answer](PUB-062_drain-request-timeout.md) | P2 | XS | PUB-061 | Not Started |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
