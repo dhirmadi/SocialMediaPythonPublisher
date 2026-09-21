@@ -1,0 +1,21 @@
+- [Storage protocol review traps](storage-protocol-review-traps.md) — runtime_checkable isinstance, ClientError-as-missing, PUB-045 op counts
+- [Config env-only review traps](config-env-only-review-traps.md) — get_config ConfigurationError bypasses stale-serve; --config ignored-not-removed; V1 model is V2 base
+- [Web template test traps](web-template-test-traps.md) — index.html: API tests pass pre/post; HTML-string asserts miss hidden containers (#details); raw XHR skips CSRF wrapper
+- [Caption sidecar review traps](caption-sidecar-review-traps.md) — #147 partial captions, caption_published records failed platforms, multi-line email Subject error, email-first beats legacy edit, #134
+- [Prompt register review traps](prompt-register-review-traps.md) — tenant system_prompt drops banned list; vision 512 cap; directive vs brief; forbid YAML
+- [instagrapi review traps](instagrapi-review-traps.md) — challenge auto-resolve/input(), rupload raises PhotoNotUpload not LoginRequired
+- [Upload streaming review traps](upload-streaming-review-traps.md) — botocore copies bytearray Body, PNG verify IDAT copy, uvicorn drains after 413, parse errors 500
+- [Publish lease expiry review traps](lease-expiry-review-traps.md) — SQLite server_default CURRENT_TIMESTAMP defeats leased_at CAS; _select_image ignores preview; TTL vs publish timeout
+- [Thumbnail cache review traps](thumbnail-cache-review-traps.md) — #140 key-without-ETag; router hook misses curation paths; per-process cache; presign isn't billed
+- [Coverage gate review traps](coverage-gate-review-traps.md) — cwd-relative coverage config kills source/fail_under; bare --cov works; fail_under breaks partial runs
+- [Layering guard review traps](layering-guard-review-traps.md) — #142 AST guard: widened, new non-storage target/source FP; presence-resume orphans sidecars; async_main untested
+- [Runtime settings injection traps](runtime-settings-injection-traps.md) — #143: lru_cache singleton key mismatch, web/settings.py fallback outside the AST guard, allow-list counting
+- [CSP storage-origin review traps](csp-storage-origin-review-traps.md) — get_service re-prime is load-bearing; state propagates outward; path-style presign; img all same-origin; 30s listing cache
+- [Docs drift review traps](docs-drift-review-traps.md) — #145: table-parsing doc tests key-collide (last wins); --config still exists; CONTRIBUTING/.github setup docs missed
+- [Caption sample script traps](caption-sample-script-traps.md) — #146: PV2_STATIC_CONFIG_DIR over rmtree swap; tenant OPENAI_SETTINGS masks static prompts; fetlife sanitize test loss
+- [Test isolation review traps](test-isolation-review-traps.md) — #135: `import conftest` needs prepend mode; pytest-randomly default-on in CI/hook; limiter reset only scans web.app
+- [Forwarded scheme review traps](forwarded-scheme-review-traps.md) — #129: first-XFP unsafe under appending proxies, multi-value refusal vs Cloudflare, real-lifespan test side effects
+- [Dropbox retry review traps](dropbox-retry-review-traps.md) — #132: tenacity waits are 1s+2s not 8s; bound is per decorated call; Heroku 30s router vs 30s cap
+- [Voice matching default review traps](voice-matching-default-review-traps.md) — #131: validator assignment marks model_fields_set; SimpleNamespace config fake; blockquote splits doc table
+- [Mutation-check review technique](mutation-check-review-technique.md) — prove a test can fail: detached worktree + source mutation; the 4 "cannot fail" classes seen here
+- [Auth0-only admin review traps](auth0-only-admin-review-traps.md) — #137: load_dotenv defeats live 503 probes; tautological `or` asserts; require_admin now unconditional on image routes
