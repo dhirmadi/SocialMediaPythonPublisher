@@ -22,6 +22,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
+from publisher_v2.config.orchestrator_client import RetryConfig
 from publisher_v2.utils.logging import log_json
 
 if TYPE_CHECKING:
@@ -31,9 +32,17 @@ if TYPE_CHECKING:
 FLUSH_INTERVAL_SECONDS = 300  # 5 minutes
 # PUB-047 (#185): one drain attempt is bounded, so a hung orchestrator parks a
 # single background task for at most this long rather than forever.
-_DRAIN_ATTEMPT_TIMEOUT_SECONDS = 5.0
+# PUB-061 (#215): the value is an invariant, not a round number — it must sit
+# strictly between OrchestratorClient's per-request ``timeout_seconds`` (5.0) and
+# ``_ACLOSE_DEADLINE_SECONDS`` (10.0). Drain posts use a single client attempt
+# (RetryConfig(max_attempts=1) below), so one full 5.0 s request plus a small
+# margin has to fit inside this deadline, and this deadline in turn has to fit
+# inside aclose()'s total budget. Do not "simplify" it to 5.0 or raise it to 10.0.
+_DRAIN_ATTEMPT_TIMEOUT_SECONDS = 8.0
 # PUB-047 (#185): total budget aclose() spends trying to deliver what is left.
 _ACLOSE_DEADLINE_SECONDS = 10.0
+# PUB-061 (#215): drain posts opt out of the client's inner retry layer.
+_SINGLE_ATTEMPT_RETRY = RetryConfig(max_attempts=1)
 
 
 class StorageOpsMeter:
@@ -193,6 +202,11 @@ class StorageOpsMeter:
                 idempotency_key=idem_key,
                 occurred_at=occurred_at,
                 source="publisher_storage_ops",
+                # PUB-061 (#215): the meter is already the retry layer — a failed
+                # batch keeps its idempotency key and is retried by the next
+                # flush()/aclose(). Stacking the client's three attempts on top is
+                # what pushed one drain attempt past the deadline wrapping it.
+                retry=_SINGLE_ATTEMPT_RETRY,
             )
             log_json(
                 self._logger,

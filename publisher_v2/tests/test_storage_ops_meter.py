@@ -436,3 +436,77 @@ class TestPendingQueueBounds:
         joined = " ".join(rec.getMessage() for rec in caplog.records)
         assert "storage_ops_drain_task_failed" not in joined
         meter._pending.clear()
+
+
+class TestSlowButAliveOrchestrator:
+    """PUB-061 (#215): a slow-but-alive orchestrator must be delivered to, not timed out.
+
+    All timings are scaled by ``_SCALE`` so the test runs in milliseconds while still
+    encoding the real relationship: a ~6 s response (1.2x the client's 5.0 s per-request
+    timeout) must fit inside ``_DRAIN_ATTEMPT_TIMEOUT_SECONDS``.
+    """
+
+    _SCALE = 0.01
+
+    @staticmethod
+    def _client_request_timeout() -> float:
+        import inspect
+
+        from publisher_v2.config.orchestrator_client import OrchestratorClient
+
+        default = inspect.signature(OrchestratorClient.__init__).parameters["timeout_seconds"].default
+        return float(default)
+
+    async def test_slow_but_alive_post_usage_batch_is_delivered_not_timed_out(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """PUB-061 AC2: a post that answers just after one client request timeout still delivers."""
+        from publisher_v2.services import storage_ops_meter as mod
+
+        scale = self._SCALE
+        # A slow-but-alive orchestrator: ~6 s, i.e. 1.2x the client's per-request timeout.
+        slow_response_seconds = 1.2 * self._client_request_timeout() * scale
+        # Scale the production deadline by the same factor — this is what makes the test
+        # track the real constant instead of a value the test itself chose.
+        monkeypatch.setattr(mod, "_DRAIN_ATTEMPT_TIMEOUT_SECONDS", mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS * scale)
+
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(side_effect=[23, 0, 0])
+
+        async def _slow_ok(**_kwargs: Any) -> dict[str, bool]:
+            await asyncio.sleep(slow_response_seconds)
+            return {"ok": True}
+
+        client.post_usage = AsyncMock(side_effect=_slow_ok)
+
+        await meter.flush()
+        await _settle(meter._drain_task)
+
+        assert client.post_usage.await_count == 1
+        assert meter.pending_batch_count() == 0, (
+            "slow-but-alive orchestrator batch was dropped by the drain deadline "
+            f"(deadline {mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS}s vs response {slow_response_seconds}s, scaled)"
+        )
+
+    def test_drain_attempt_timeout_exceeds_client_timeout_and_fits_aclose_budget(self) -> None:
+        """PUB-061 AC4: one full client attempt fits inside the drain deadline, which fits aclose()."""
+        from publisher_v2.services import storage_ops_meter as mod
+
+        client_timeout = self._client_request_timeout()
+        assert client_timeout < mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS, (
+            f"drain deadline {mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS} must exceed the client's "
+            f"per-request timeout {client_timeout}"
+        )
+        assert mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS < mod._ACLOSE_DEADLINE_SECONDS
+
+    async def test_drain_post_uses_single_attempt_retry_override(self) -> None:
+        """PUB-061 AC1/decision: drain posts opt out of the client's inner retry layer."""
+        meter, client, storage = _build_meter()
+        storage.drain_ops_count = MagicMock(side_effect=[5, 0])
+
+        await meter.flush()
+        await _settle(meter._drain_task)
+
+        kwargs = client.post_usage.await_args.kwargs
+        assert "retry" in kwargs, "drain post must pass a per-call retry override"
+        assert kwargs["retry"].max_attempts == 1

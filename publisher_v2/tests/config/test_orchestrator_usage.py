@@ -217,3 +217,159 @@ async def test_orchestrator_config_source_exposes_client(monkeypatch: pytest.Mon
     src = OrchestratorConfigSource()
     client = src.orchestrator_client
     assert isinstance(client, OrchestratorClient)
+
+
+# --- PUB-061 AC1: per-call single-attempt retry override for drain posts ---
+
+
+def _make_counting_client(transport: httpx.MockTransport) -> tuple[OrchestratorClient, list[int]]:
+    """Build a client whose backoff sleeps are recorded instead of awaited."""
+    client = httpx.AsyncClient(transport=transport, base_url="https://orch.test")
+    orch = OrchestratorClient(base_url="https://orch.test", service_token="svc-token", prefer_post=True, client=client)
+    sleeps: list[int] = []
+
+    async def _record_sleep(ms: int) -> None:
+        sleeps.append(ms)
+
+    orch._sleep = _record_sleep  # type: ignore[assignment, method-assign]
+    return orch, sleeps
+
+
+@pytest.mark.asyncio
+async def test_post_usage_single_attempt_calls_transport_once_without_backoff() -> None:
+    """PUB-061 AC1: with the single-attempt retry override, a retryable status is not retried."""
+    from publisher_v2.config.orchestrator_client import RetryConfig
+
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503)
+
+    orch, sleeps = _make_counting_client(httpx.MockTransport(handler))
+
+    with pytest.raises(OrchestratorUnavailableError):
+        await orch.post_usage(
+            tenant_id="t-1",
+            metric="storage_ops_requests",
+            quantity=10,
+            unit="requests",
+            idempotency_key="k",
+            occurred_at="2026-09-21T00:00:00+00:00",
+            retry=RetryConfig(max_attempts=1),
+        )
+
+    assert calls == 1, f"single-attempt override must hit the transport once, got {calls}"
+    assert sleeps == [], f"single-attempt override must not back off, slept {sleeps}"
+
+
+@pytest.mark.asyncio
+async def test_post_usage_without_override_keeps_three_attempt_behaviour() -> None:
+    """PUB-061 AC1 (regression guard): the default path still retries three times with backoff."""
+    calls = 0
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(503)
+
+    orch, sleeps = _make_counting_client(httpx.MockTransport(handler))
+
+    with pytest.raises(OrchestratorUnavailableError):
+        await orch.post_usage(
+            tenant_id="t-1",
+            metric="storage_ops_requests",
+            quantity=10,
+            unit="requests",
+            idempotency_key="k",
+            occurred_at="2026-09-21T00:00:00+00:00",
+        )
+
+    assert calls == 3
+    assert len(sleeps) == 2
+
+
+# --- PUB-061 review nit: _sleep must honour the per-call retry policy's jitter flag ---
+
+
+def _make_real_sleep_client(
+    transport: httpx.MockTransport, monkeypatch: pytest.MonkeyPatch
+) -> tuple[OrchestratorClient, list[float]]:
+    """Client whose real ``_sleep`` body runs, with the awaited ``asyncio.sleep`` recorded.
+
+    Deliberately does NOT stub ``_sleep`` — stubbing it is what hides jitter bugs.
+    ``asyncio.sleep`` is replaced (monkeypatch restores it) so the recorded values
+    are the exact delays ``_sleep`` computed, and nothing really sleeps.
+    """
+    from publisher_v2.config import orchestrator_client as oc_module
+
+    client = httpx.AsyncClient(transport=transport, base_url="https://orch.test")
+    orch = OrchestratorClient(base_url="https://orch.test", service_token="svc-token", prefer_post=True, client=client)
+    slept: list[float] = []
+
+    async def _fake_asyncio_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(oc_module.asyncio, "sleep", _fake_asyncio_sleep)
+    # Deterministic jitter: always the maximum the implementation allows (delay_ms // 4),
+    # so "jitter applied" vs "no jitter" is an exact, non-flaky comparison.
+    monkeypatch.setattr(oc_module.random, "randint", lambda _lo, hi: hi)
+    return orch, slept
+
+
+def _retryable_503_handler(counter: list[int]):
+    async def handler(request: httpx.Request) -> httpx.Response:
+        counter.append(1)
+        return httpx.Response(503)
+
+    return handler
+
+
+@pytest.mark.asyncio
+async def test_post_usage_per_call_jitter_disabled_uses_deterministic_backoff(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A per-call RetryConfig(jitter=False) must produce exact base, base*2 delays (no jitter)."""
+    from publisher_v2.config.orchestrator_client import RetryConfig
+
+    policy = RetryConfig(jitter=False, max_attempts=3)
+    calls: list[int] = []
+    orch, slept = _make_real_sleep_client(httpx.MockTransport(_retryable_503_handler(calls)), monkeypatch)
+
+    with pytest.raises(OrchestratorUnavailableError):
+        await orch.post_usage(
+            tenant_id="t-1",
+            metric="storage_ops_requests",
+            quantity=10,
+            unit="requests",
+            idempotency_key="k",
+            occurred_at="2026-09-21T00:00:00+00:00",
+            retry=policy,
+        )
+
+    assert len(calls) == 3
+    expected = [policy.base_delay_ms / 1000.0, policy.base_delay_ms * 2 / 1000.0]
+    assert slept == expected, f"per-call jitter=False must not jitter: expected {expected}, slept {slept}"
+
+
+@pytest.mark.asyncio
+async def test_post_usage_default_policy_still_applies_jitter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Regression guard: with no per-call override the default policy (jitter=True) still jitters."""
+    calls: list[int] = []
+    orch, slept = _make_real_sleep_client(httpx.MockTransport(_retryable_503_handler(calls)), monkeypatch)
+
+    with pytest.raises(OrchestratorUnavailableError):
+        await orch.post_usage(
+            tenant_id="t-1",
+            metric="storage_ops_requests",
+            quantity=10,
+            unit="requests",
+            idempotency_key="k",
+            occurred_at="2026-09-21T00:00:00+00:00",
+        )
+
+    assert len(calls) == 3
+    # randint is stubbed to its upper bound (delay_ms // 4): 250 -> 250+62, 500 -> 500+125.
+    assert slept == [0.312, 0.625], f"default policy must jitter, slept {slept}"
+    assert slept != [0.25, 0.5], "default policy must not fall back to un-jittered backoff"

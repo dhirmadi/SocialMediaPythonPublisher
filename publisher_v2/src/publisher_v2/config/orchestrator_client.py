@@ -81,34 +81,41 @@ class OrchestratorClient:
         headers: dict[str, str],
         json: Any | None = None,
         params: dict[str, Any] | None = None,
+        retry: RetryConfig | None = None,
     ) -> httpx.Response:
+        policy = retry or self._retry
         attempt = 0
-        delay_ms = self._retry.base_delay_ms
+        delay_ms = policy.base_delay_ms
         last_exc: Exception | None = None
 
-        while attempt < self._retry.max_attempts:
+        while attempt < policy.max_attempts:
             attempt += 1
             try:
                 resp = await self._client.request(method, url, headers=headers, json=json, params=params)
-                if resp.status_code in RETRYABLE_STATUS and attempt < self._retry.max_attempts:
-                    await self._sleep(delay_ms)
-                    delay_ms = min(delay_ms * 2, self._retry.max_delay_ms)
+                if resp.status_code in RETRYABLE_STATUS and attempt < policy.max_attempts:
+                    await self._sleep(self._with_jitter(delay_ms, policy))
+                    delay_ms = min(delay_ms * 2, policy.max_delay_ms)
                     continue
                 return resp
             except httpx.RequestError as exc:
                 last_exc = exc
-                if attempt < self._retry.max_attempts:
-                    await self._sleep(delay_ms)
-                    delay_ms = min(delay_ms * 2, self._retry.max_delay_ms)
+                if attempt < policy.max_attempts:
+                    await self._sleep(self._with_jitter(delay_ms, policy))
+                    delay_ms = min(delay_ms * 2, policy.max_delay_ms)
                     continue
                 break
 
         raise OrchestratorUnavailableError(f"Orchestrator request failed after {attempt} attempts: {last_exc}")
 
+    @staticmethod
+    def _with_jitter(delay_ms: int, policy: RetryConfig) -> int:
+        """Apply retry jitter per the *effective* policy (per-call override included)."""
+        if not policy.jitter:
+            return delay_ms
+        jitter = random.randint(0, max(1, delay_ms // 4))  # nosec B311 — retry jitter, not a secret
+        return delay_ms + jitter
+
     async def _sleep(self, delay_ms: int) -> None:
-        if self._retry.jitter:
-            jitter = random.randint(0, max(1, delay_ms // 4))  # nosec B311 — retry jitter, not a secret
-            delay_ms = delay_ms + jitter
         await asyncio.sleep(delay_ms / 1000.0)
 
     async def get_runtime_by_host(self, host: str, *, request_id: str | None = None) -> dict[str, Any]:
@@ -189,6 +196,7 @@ class OrchestratorClient:
         occurred_at: str,
         source: str = "publisher",
         request_id: str | None = None,
+        retry: RetryConfig | None = None,
     ) -> dict[str, Any]:
         """Report one metered usage event to the orchestrator billing endpoint.
 
@@ -201,6 +209,10 @@ class OrchestratorClient:
             occurred_at: ISO-8601 timestamp of the event.
             source: Reporting component; defaults to ``"publisher"``.
             request_id: Correlation id forwarded as ``X-Request-Id``.
+            retry: Per-call retry policy override; ``None`` uses the client's
+                shared default. Callers that own their own retry layer (e.g.
+                ``StorageOpsMeter``'s drain loop, PUB-061) pass
+                ``RetryConfig(max_attempts=1)`` so retries are not stacked.
 
         Returns:
             The decoded JSON acknowledgement body.
@@ -222,7 +234,7 @@ class OrchestratorClient:
             "unit": unit,
             "occurred_at": occurred_at,
         }
-        resp = await self._request_with_retry("POST", url, headers=headers, json=body)
+        resp = await self._request_with_retry("POST", url, headers=headers, json=body, retry=retry)
 
         if resp.status_code == 200:
             result: dict[str, Any] = resp.json()
