@@ -57,6 +57,15 @@ class AlreadyPublishedError(PublishingError):
     """This image was already published and will not be published again (#139)."""
 
 
+class PublishStoreUnavailableError(PublishingError):
+    """The publish store could not be reached to claim a lease (PUB-047 #186).
+
+    Deliberately fail-closed: with a store configured, a claim that raises or
+    exceeds ``publish_claim_timeout_seconds`` aborts the run instead of
+    publishing unleased.
+    """
+
+
 class CaptionCoverageError(PublishingError):
     """A per-platform caption dict does not cover exactly the enabled platforms (#147).
 

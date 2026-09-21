@@ -27,7 +27,7 @@ if TYPE_CHECKING:
 from publisher_v2.config.runtime_settings import RuntimeSettings, load_runtime_settings
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.config.static_loader import get_static_config
-from publisher_v2.core.exceptions import AIServiceError, StorageError
+from publisher_v2.core.exceptions import AIServiceError, PublishStoreUnavailableError, StorageError
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis, PublishResult, WorkflowResult
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
@@ -444,9 +444,25 @@ class WorkflowOrchestrator:
                 # Stamped before the claim round-trip so the release fence below
                 # can only ever over-estimate how fresh this run's lease is.
                 lease_claimed_at = now_monotonic()
-                publish_targets = await self._claim_publish_targets(
-                    lease_hash, enabled_publishers, publish_results, correlation_id
-                )
+                try:
+                    publish_targets = await self._claim_publish_targets(
+                        lease_hash, enabled_publishers, publish_results, correlation_id
+                    )
+                except PublishStoreUnavailableError:
+                    # AC8 (#186): fail closed. A store is configured but could not
+                    # be reached, so nothing is leased and nothing may be published.
+                    # Not re-raised: the /publish call site reads success/error off
+                    # the result, and the CLI maps success=False to exit 1.
+                    _log_timing()
+                    return WorkflowResult(
+                        success=False,
+                        image_name=selected_image,
+                        caption="",
+                        publish_results={},
+                        archived=False,
+                        error="publish_store_unavailable",
+                        correlation_id=correlation_id,
+                    )
                 pending_leases = {p.platform_name for p in publish_targets}
                 # Nothing left to publish: skip the AI stage entirely (it only
                 # feeds the publish + sidecar path for this run).
@@ -965,17 +981,30 @@ class WorkflowOrchestrator:
         Already-published platforms are recorded as successes (they WERE
         published — a retry run can then complete the archive); platforms
         leased by another run or stuck in ``unknown`` are recorded as failures
-        and never re-published automatically. On store failure, fall back to
-        publishing everywhere (pre-#85 behavior) rather than skipping.
+        and never re-published automatically. PUB-047 #186: a store failure now
+        fails *closed* — it raises :class:`PublishStoreUnavailableError` instead
+        of falling back to publishing everywhere unleased.
         """
         store = self._publish_store
         if store is None:  # pragma: no cover — caller guards
             return list(enabled_publishers)
+        to_claim: list[str] = []
+
+        async def _claim() -> tuple[set[str], dict[str, datetime]]:
+            nonlocal to_claim
+            posted = await store.posted_platforms(self._tenant, lease_hash)
+            to_claim = [p.platform_name for p in enabled_publishers if p.platform_name not in posted]
+            return posted, await store.acquire_lease(self._tenant, lease_hash, to_claim)
+
         try:
-            already_published = await store.posted_platforms(self._tenant, lease_hash)
-            to_claim = [p.platform_name for p in enabled_publishers if p.platform_name not in already_published]
-            owned_tokens = await store.acquire_lease(self._tenant, lease_hash, to_claim)
-        except Exception:
+            # One budget covers both round-trips. At the default 10s it fires well
+            # before asyncpg's 30s command_timeout — that timeout is not redundant,
+            # it still bounds CaptionStore and every other DB call that is not
+            # wrapped in a claim budget, so don't "simplify" either one away.
+            already_published, owned_tokens = await asyncio.wait_for(
+                _claim(), timeout=self._settings.publish_claim_timeout_seconds
+            )
+        except Exception as exc:
             log_json(
                 self.logger,
                 logging.WARNING,
@@ -983,7 +1012,7 @@ class WorkflowOrchestrator:
                 correlation_id=correlation_id,
                 exc_info=True,
             )
-            return list(enabled_publishers)
+            raise PublishStoreUnavailableError("publish store unavailable during lease claim") from exc
         # #139: the token each lease was stamped with, so a later mark can be
         # fenced against a lease this run no longer holds.
         self._lease_tokens.update(owned_tokens)

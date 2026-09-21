@@ -21,6 +21,10 @@ _ENV_KEYS = [
     "TENANT_SERVICE_TTL_SECONDS",
     "LIBRARY_MAX_UPLOAD_MB",
     "LIBRARY_SCAN_BUDGET",
+    # PUB-047 #186 (AC7): Postgres + publish-claim budgets.
+    "DB_CONNECT_TIMEOUT_SECONDS",
+    "DB_COMMAND_TIMEOUT_SECONDS",
+    "PUBLISH_CLAIM_TIMEOUT_SECONDS",
 ]
 
 
@@ -102,3 +106,31 @@ class TestPerPlatformPublishTimeout:
         s = load_runtime_settings()
         assert s.publish_timeout_for("telegram") == 5.0
         assert s.publish_timeout_for("email") == s.publish_timeout_seconds
+
+
+class TestDbAndClaimTimeouts:
+    """PUB-047 #186 (AC7): new DB + publish-claim budgets, lenient parse, no clamping."""
+
+    def test_db_timeout_fields_read_from_env_with_defaults(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        defaults = load_runtime_settings()
+        assert defaults.db_connect_timeout_seconds == 10.0
+        assert defaults.db_command_timeout_seconds == 30.0
+        assert defaults.publish_claim_timeout_seconds == 10.0
+
+        monkeypatch.setenv("DB_CONNECT_TIMEOUT_SECONDS", "2.5")
+        monkeypatch.setenv("DB_COMMAND_TIMEOUT_SECONDS", "45")
+        monkeypatch.setenv("PUBLISH_CLAIM_TIMEOUT_SECONDS", "0.25")
+        s = load_runtime_settings()
+        assert s.db_connect_timeout_seconds == 2.5
+        assert s.db_command_timeout_seconds == 45.0
+        # No clamping is specified for these three (contrast publish_timeout_seconds' 5s floor).
+        assert s.publish_claim_timeout_seconds == 0.25
+
+        # Lenient _float_env: an unparseable value falls back to the default, never raises.
+        monkeypatch.setenv("DB_CONNECT_TIMEOUT_SECONDS", "not-a-number")
+        monkeypatch.setenv("DB_COMMAND_TIMEOUT_SECONDS", "")
+        monkeypatch.setenv("PUBLISH_CLAIM_TIMEOUT_SECONDS", "junk")
+        fallback = load_runtime_settings()
+        assert fallback.db_connect_timeout_seconds == 10.0
+        assert fallback.db_command_timeout_seconds == 30.0
+        assert fallback.publish_claim_timeout_seconds == 10.0

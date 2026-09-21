@@ -100,6 +100,12 @@ class RuntimeSettings(BaseModel):
     secure_cookies: bool = True
     config_source: str = ""
     orchestrator_base_url: str = ""
+    # PUB-047 #186: asyncpg connect/command budgets and the publish-claim budget.
+    # Deliberately unclamped, unlike publish_timeout_seconds — a very small value
+    # is a legitimate way to fail fast (and is what the AC8 tests drive).
+    db_connect_timeout_seconds: float = 10.0
+    db_command_timeout_seconds: float = 30.0
+    publish_claim_timeout_seconds: float = 10.0
 
     @field_validator("publish_timeout_overrides", mode="before")
     @classmethod
@@ -170,6 +176,11 @@ def load_runtime_settings() -> RuntimeSettings:
     lease_floor = ai_stage + max([publish_timeout, *overrides.values()]) + 60.0
     lease_ttl = max(lease_floor, lease_ttl or defaults.publish_lease_ttl_seconds)
 
+    # PUB-047 #186: no clamping here on purpose — see the field comments.
+    db_connect_timeout = _float_env("DB_CONNECT_TIMEOUT_SECONDS", defaults.db_connect_timeout_seconds)
+    db_command_timeout = _float_env("DB_COMMAND_TIMEOUT_SECONDS", defaults.db_command_timeout_seconds)
+    publish_claim_timeout = _float_env("PUBLISH_CLAIM_TIMEOUT_SECONDS", defaults.publish_claim_timeout_seconds)
+
     return RuntimeSettings(
         ai_rate_per_minute=rate,
         publish_timeout_seconds=publish_timeout,
@@ -196,4 +207,13 @@ def load_runtime_settings() -> RuntimeSettings:
         secure_cookies=_bool_env("WEB_SECURE_COOKIES", "true", ("1", "true", "yes", "on"), strip=True),
         config_source=(os.environ.get("CONFIG_SOURCE") or "").strip().lower(),
         orchestrator_base_url=os.environ.get("ORCHESTRATOR_BASE_URL") or "",
+        db_connect_timeout_seconds=defaults.db_connect_timeout_seconds
+        if db_connect_timeout is None
+        else db_connect_timeout,
+        db_command_timeout_seconds=defaults.db_command_timeout_seconds
+        if db_command_timeout is None
+        else db_command_timeout,
+        publish_claim_timeout_seconds=defaults.publish_claim_timeout_seconds
+        if publish_claim_timeout is None
+        else publish_claim_timeout,
     )
