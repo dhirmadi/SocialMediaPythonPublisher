@@ -19,7 +19,7 @@ import random
 import time
 import urllib.parse
 from collections import OrderedDict, deque
-from typing import Any
+from typing import Any, cast
 from weakref import WeakKeyDictionary
 
 from dotenv import load_dotenv
@@ -62,7 +62,11 @@ from publisher_v2.services.publishers.base import Publisher  # noqa: E402
 from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view  # noqa: E402
 from publisher_v2.services.storage_factory import create_storage  # noqa: E402
 from publisher_v2.services.storage_ops_meter import StorageOpsMeter  # noqa: E402
-from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailSize  # noqa: E402
+from publisher_v2.services.storage_protocol import (  # noqa: E402
+    ObjectStorageProtocol,
+    StorageProtocol,
+    ThumbnailSize,
+)
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
@@ -625,6 +629,23 @@ class WebImageService:
             raise FileNotFoundError(f"Image {filename} not found")
         images = await self._get_cached_images()
         if filename not in images:
+            raise FileNotFoundError(f"Image {filename} not found")
+
+    async def ensure_known_object(self, folder: str, filename: str) -> None:
+        """PUB-048 (AC7): existence check for an image outside the root listing.
+
+        ``ensure_known_image`` only ever consults the root folder listing, so a
+        move whose source is keep/remove/archive needs a direct ``head_object``.
+        The suffix gate is deliberately the same one ``ensure_known_image``
+        applies: ``.txt`` sidecars live next to images in every folder this
+        reaches, and an existence-only check would make a raw sidecar key
+        addressable. Raises FileNotFoundError (mapped to 404).
+        """
+        if not filename or not filename.lower().endswith(self._IMAGE_SUFFIXES):
+            raise FileNotFoundError(f"Image {filename} not found")
+        storage = cast(ObjectStorageProtocol, self.storage)
+        key = f"{folder.strip('/')}/{filename}".lstrip("/")
+        if await storage.head_object(key) is None:
             raise FileNotFoundError(f"Image {filename} not found")
 
     async def get_image_details(self, filename: str) -> ImageResponse:

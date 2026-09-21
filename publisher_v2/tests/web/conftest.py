@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Generator
 
 import pytest
+from botocore.exceptions import ClientError
 from fastapi.testclient import TestClient
 
 
@@ -81,7 +82,14 @@ class _FakeS3:
         return bytes(self.puts[index]["Body"])
 
     def head_object(self, **kwargs):  # type: ignore[no-untyped-def]
-        return {"ContentLength": self.puts[-1]["Size"] if self.puts else 0}
+        # PUB-048 AC9: presence has to be per-key now that upload consults
+        # head_object before writing. A fake that answers "present" for every
+        # key would make every first upload look like an overwrite.
+        key = kwargs.get("Key")
+        for put in reversed(self.puts):
+            if put.get("Key") == key:
+                return {"ContentLength": put["Size"]}
+        raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
 
 
 class CountingUploadBody:
@@ -127,7 +135,13 @@ class _UploadHarness:
         return CountingUploadBody(payload, filename=filename, pad_to=pad_to)
 
     async def post(  # type: ignore[no-untyped-def]
-        self, body, *, admin: bool = True, cookie: str | None = None, headers: dict[str, str] | None = None
+        self,
+        body,
+        *,
+        admin: bool = True,
+        cookie: str | None = None,
+        headers: dict[str, str] | None = None,
+        query: str = "",
     ):
         import httpx
 
@@ -141,7 +155,7 @@ class _UploadHarness:
             transport=httpx.ASGITransport(app=app), base_url="http://testserver", cookies=cookies
         ) as client:
             return await client.post(
-                "/api/library/upload",
+                f"/api/library/upload{query}",
                 content=body,
                 headers={
                     "Content-Type": f"multipart/form-data; boundary={UPLOAD_BOUNDARY}",

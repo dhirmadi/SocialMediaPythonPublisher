@@ -174,9 +174,14 @@ class LibraryDeleteResponse(BaseModel):
 
 
 class LibraryMoveRequest(BaseModel):
-    """Move request body; ``target_folder`` must be one of VALID_TARGET_FOLDERS."""
+    """Move request body; both folders must be one of VALID_TARGET_FOLDERS.
+
+    ``source_folder`` (PUB-048 AC7) defaults to ``"root"``, which is exactly what
+    the router assumed before it existed — existing callers are unaffected.
+    """
 
     target_folder: str
+    source_folder: str = "root"
 
 
 class LibraryMoveResponse(BaseModel):
@@ -449,12 +454,19 @@ def _invalidate_listing(service: WebImageService) -> None:
 
 
 async def _upload_to_storage(
-    service: WebImageService, filename: str, data: bytes | bytearray, content_type: str
+    service: WebImageService, filename: str, data: bytes | bytearray, content_type: str, overwrite: bool = False
 ) -> dict[str, Any]:
     """Upload file to managed storage (protocol-only, #96; metering inside)."""
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
+    # PUB-048 AC9: a silent overwrite of an existing image is data loss. The
+    # check-then-write is a known, accepted TOCTOU race (see the roadmap item).
+    if not overwrite and await storage.head_object(key) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File already exists: {filename}. Retry with ?overwrite=true to replace it.",
+        )
     await storage.put_object(key, data, content_type)
     _invalidate_listing(service)
     return {"key": key, "size": len(data)}
@@ -462,6 +474,9 @@ async def _upload_to_storage(
 
 async def _delete_from_storage(service: WebImageService, filename: str) -> dict[str, Any]:
     """Delete image + sidecar from managed storage (protocol-only, #96)."""
+    # PUB-048 AC10: only image names the root listing knows may be deleted —
+    # without this, a raw sidecar key (or any unlisted object) was deletable.
+    await service.ensure_known_image(filename)
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     folder = service.config.storage_paths.image_folder
     key = f"{folder.strip('/')}/{filename}".lstrip("/")
@@ -481,32 +496,53 @@ async def _delete_from_storage(service: WebImageService, filename: str) -> dict[
     return {"deleted": filename, "sidecar_deleted": sidecar_deleted}
 
 
-async def _move_in_storage(service: WebImageService, filename: str, target_folder: str) -> dict[str, Any]:
-    """Move image + sidecar to target folder in managed storage."""
+def resolve_library_folder(paths: StoragePathConfig, logical: str) -> str:
+    """Resolve a logical folder name (VALID_TARGET_FOLDERS) to a storage key prefix.
+
+    INI-era configs may use short segments; the orchestrator uses full key
+    prefixes — ``_resolved_folder_under_image_root`` normalizes both.
+    """
+    if logical == "root":
+        return paths.image_folder
+    if logical == "archive":
+        return _resolved_folder_under_image_root(paths.image_folder, paths.archive_folder)
+    if logical == "keep":
+        return _resolved_folder_under_image_root(paths.image_folder, paths.folder_keep or "keep")
+    if logical == "remove":
+        return _resolved_folder_under_image_root(paths.image_folder, paths.folder_remove or "reject")
+    raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid folder: {logical}")
+
+
+async def _move_in_storage(
+    service: WebImageService, filename: str, target_folder: str, source_folder: str = "root"
+) -> dict[str, Any]:
+    """Move image + sidecar from the source folder to the target folder."""
     paths = service.config.storage_paths
-    source_folder = paths.image_folder
+    try:
+        dest_folder = resolve_library_folder(paths, target_folder)
+    except HTTPException as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid target_folder: {target_folder}"
+        ) from exc
+    src_folder = resolve_library_folder(paths, source_folder)
 
-    # Resolve target (INI may use short segments; orchestrator uses full key prefixes)
-    if target_folder == "root":
-        dest_folder = paths.image_folder
-    elif target_folder == "archive":
-        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.archive_folder)
-    elif target_folder == "keep":
-        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.folder_keep or "keep")
-    elif target_folder == "remove":
-        dest_folder = _resolved_folder_under_image_root(paths.image_folder, paths.folder_remove or "reject")
-    else:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid target_folder: {target_folder}")
-
-    src_key = f"{source_folder.strip('/')}/{filename}".lstrip("/")
+    src_key = f"{src_folder.strip('/')}/{filename}".lstrip("/")
     dst_key = f"{dest_folder.strip('/')}/{filename}".lstrip("/")
+
+    # PUB-048 AC6: move_object copies then deletes unconditionally, and R2/MinIO
+    # accept a same-key copy — so a self-move destroys the object and its sidecar.
+    if src_key == dst_key:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"File is already in {target_folder}",
+        )
 
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
     await storage.move_object(src_key, dst_key)
     _invalidate_listing(service)
 
     stem = os.path.splitext(filename)[0]
-    sidecar_src = f"{source_folder.strip('/')}/{stem}.txt".lstrip("/")
+    sidecar_src = f"{src_folder.strip('/')}/{stem}.txt".lstrip("/")
     sidecar_dst = f"{dest_folder.strip('/')}/{stem}.txt".lstrip("/")
     with contextlib.suppress(Exception):
         await storage.move_object(sidecar_src, sidecar_dst)
@@ -740,6 +776,7 @@ _UPLOAD_REQUEST_BODY = {
 @router.post("/upload", response_model=LibraryUploadResponse, openapi_extra=_UPLOAD_REQUEST_BODY)
 async def upload_file(
     request: Request,
+    overwrite: bool = False,
     service: WebImageService = Depends(get_request_service),
 ) -> LibraryUploadResponse:
     """Upload image to managed storage.
@@ -781,12 +818,19 @@ async def upload_file(
     # memoryview over this bytearray (utils/memory_io.reader_over), and a
     # bytearray cannot be resized while an exported buffer is live — an
     # `extend()` here raises BufferError at runtime, not at import.
+    # Sanitize filename first: the destination key's suffix decides whether the
+    # request can succeed at all (PUB-048 AC8), so reject before the Pillow
+    # decode rather than after it.
+    filename = _sanitize_filename(raw_filename or "upload.jpg")
+    if not filename.lower().endswith(WebImageService._IMAGE_SUFFIXES):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported file extension: {filename}. Allowed: " + ", ".join(WebImageService._IMAGE_SUFFIXES),
+        )
+
     content_type = await asyncio.to_thread(_verify_image_bytes, data)
 
-    # Sanitize filename
-    filename = _sanitize_filename(raw_filename or "upload.jpg")
-
-    result = await _upload_to_storage(service, filename, data, content_type)
+    result = await _upload_to_storage(service, filename, data, content_type, overwrite=overwrite)
     log_json(logger, logging.INFO, "library_upload", filename=filename, size=len(data))
     return LibraryUploadResponse(**result)
 
@@ -830,6 +874,11 @@ async def move_object(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Invalid target_folder: {body.target_folder}. Must be one of: {', '.join(VALID_TARGET_FOLDERS)}",
         )
+    if body.source_folder not in VALID_TARGET_FOLDERS:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid source_folder: {body.source_folder}. Must be one of: {', '.join(VALID_TARGET_FOLDERS)}",
+        )
 
     # #144: the raw path parameter used to be interpolated straight into the
     # source and destination keys. Sanitize it, and require it to be in the
@@ -839,10 +888,24 @@ async def move_object(
     # check; see #128 for whether delete should match.
     safe_name = _sanitize_filename(filename)
     try:
-        await service.ensure_known_image(safe_name)
+        if body.source_folder == "root":
+            await service.ensure_known_image(safe_name)
+        else:
+            # PUB-048 AC7: ensure_known_image only ever reads the root listing.
+            # ensure_known_object applies the same suffix gate and heads the key
+            # in the resolved source folder.
+            source_prefix = resolve_library_folder(service.config.storage_paths, body.source_folder)
+            await service.ensure_known_object(source_prefix, safe_name)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"File not found: {safe_name}") from exc
 
-    result = await _move_in_storage(service, safe_name, body.target_folder)
-    log_json(logger, logging.INFO, "library_move", filename=safe_name, destination=body.target_folder)
+    result = await _move_in_storage(service, safe_name, body.target_folder, body.source_folder)
+    log_json(
+        logger,
+        logging.INFO,
+        "library_move",
+        filename=safe_name,
+        destination=body.target_folder,
+        source=body.source_folder,
+    )
     return LibraryMoveResponse(**result)

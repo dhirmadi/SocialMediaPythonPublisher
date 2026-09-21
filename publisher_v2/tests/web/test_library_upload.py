@@ -75,6 +75,52 @@ class TestImageSafety:
         assert "_verify_image_bytes" in threaded
 
 
+class TestSuffixAndOverwrite:
+    """PUB-048 (#188) AC8/AC9: the destination key's suffix, and explicit overwrite."""
+
+    async def test_upload_named_txt_with_valid_jpeg_bytes_returns_415(self, library_upload) -> None:
+        """AC8: valid image bytes under a sidecar name must never be written."""
+        body = library_upload.body(library_upload.png(10, 10), filename="foo.txt")
+
+        res = await library_upload.post(body)
+
+        assert res.status_code == 415, res.text
+        assert library_upload.s3.puts == []
+
+    async def test_upload_existing_name_without_overwrite_query_param_returns_409(self, library_upload) -> None:
+        """AC9: a silent overwrite of an existing image is a data-loss bug."""
+        first = await library_upload.post(library_upload.body(library_upload.png(10, 10), filename="a.jpg"))
+        assert first.status_code == 200, first.text
+
+        res = await library_upload.post(library_upload.body(library_upload.png(12, 12), filename="a.jpg"))
+
+        assert res.status_code == 409, res.text
+        assert [put["Key"] for put in library_upload.s3.puts] == ["tenant/instance/a.jpg"]
+
+    async def test_upload_existing_name_with_overwrite_query_param_true_succeeds(self, library_upload) -> None:
+        """AC9: overwrite is a query parameter, not a multipart form field.
+
+        The signature assertion pins that contract: an unknown query string is
+        ignored by FastAPI, so a 200 here proves nothing on its own.
+        """
+        import inspect
+
+        assert "overwrite" in inspect.signature(library.upload_file).parameters
+
+        first = await library_upload.post(library_upload.body(library_upload.png(10, 10), filename="a.jpg"))
+        assert first.status_code == 200, first.text
+
+        res = await library_upload.post(
+            library_upload.body(library_upload.png(12, 12), filename="a.jpg"), query="?overwrite=true"
+        )
+
+        assert res.status_code == 200, res.text
+        assert [put["Key"] for put in library_upload.s3.puts] == [
+            "tenant/instance/a.jpg",
+            "tenant/instance/a.jpg",
+        ]
+
+
 def test_max_image_pixels_configured_at_import() -> None:
     """#90: Pillow's global bomb threshold is pinned by utils.images."""
     import publisher_v2.utils.images  # noqa: F401
