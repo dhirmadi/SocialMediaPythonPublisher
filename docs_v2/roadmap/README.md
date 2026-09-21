@@ -65,9 +65,24 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-045 | Foundation | [R2 Storage Ops Metering](archive/PUB-045_storage-ops-metering.md) | P1 | S | PUB-034, PUB-024, Orchestrator BIL_10 | Done |
 | **AI Quality** ||||||
 | PUB-046 | AI | [Email Caption Length Control](archive/PUB-046_email-caption-length-control.md) | P1 | S | PUB-025, PUB-029, PUB-039 | Done |
+| **Post-Review Plan 2026-09-21 (tracker #177)** ||||||
+| PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](PUB-047_reliability-batch.md) | P0 | S | — | Proposal |
+| PUB-048 | Web UI | [Auth and Library Uniformity](PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Proposal |
+| PUB-049 | AI | [Caption Evaluation Harness](PUB-049_caption-evaluation-harness.md) | P0 | M | — | Proposal |
+| PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | S | PUB-049 | Proposal |
+| PUB-051 | AI | [Caption Prompt and Register Repair](PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Proposal |
+| PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
+| PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | M | PUB-047 | Proposal |
+| PUB-054 | Foundation | [Publish State Integrity](PUB-054_publish-state-integrity.md) | P1 | M | PUB-047 | Proposal |
+| PUB-055 | Ops | [CI Security Gates](PUB-055_ci-security-gates.md) | P1 | S | — | Proposal |
+| PUB-056 | Storage | [Dropbox Removal or Storage Typing](PUB-056_dropbox-removal-or-typing.md) | P1 | M | PUB-047, PUB-053 | Proposal |
+| PUB-057 | Config | [Configuration Consolidation](PUB-057_configuration-consolidation.md) | P1 | L | PUB-056 | Proposal |
+| PUB-058 | Foundation | [Workflow Stages and Layering](PUB-058_workflow-stages-and-layering.md) | P1 | L | PUB-047, PUB-054 | Proposal |
+| PUB-059 | Web UI | [Web App Factory, Routers and Typed Platform Captions](PUB-059_web-factory-and-typed-captions.md) | P2 | M | PUB-057, PUB-058 | Proposal |
+| PUB-060 | Foundation | [Test and Docs Hygiene](PUB-060_test-and-docs-hygiene.md) | P2 | M | PUB-059 | Proposal |
 | **New Platforms** ||||||
-| PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | — | Not Started |
-| PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | — | Not Started |
+| PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
+| PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
 
 ## Priority Definitions
 
