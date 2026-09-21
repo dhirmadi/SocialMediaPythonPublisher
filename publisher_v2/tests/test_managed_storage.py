@@ -684,3 +684,60 @@ class TestManagedStorageRetryLayer:
             await storage.delete_object("tenant/images/a.jpg")
 
         assert isinstance(excinfo.value.__cause__, EndpointConnectionError)
+
+
+class _RecordingPaginator:
+    """Fake S3 paginator that records its kwargs and honours ``Delimiter``.
+
+    With ``Delimiter="/"`` the backend elides nested keys, so only live (immediate-child)
+    keys are paged and billed; without it every archived key is paged and billed too.
+    """
+
+    PAGE_SIZE = 1000
+
+    def __init__(self, live_keys: list[str], archived_keys: list[str]) -> None:
+        self.live_keys = live_keys
+        self.archived_keys = archived_keys
+        self.calls: list[dict] = []
+
+    def paginate(self, **kwargs):
+        self.calls.append(kwargs)
+        keys = self.live_keys if kwargs.get("Delimiter") == "/" else [*self.live_keys, *self.archived_keys]
+        pages = []
+        for start in range(0, len(keys), self.PAGE_SIZE):
+            chunk = keys[start : start + self.PAGE_SIZE]
+            pages.append({"Contents": [{"Key": k, "ETag": f'"etag-{k}"'} for k in chunk]})
+        return pages
+
+
+class TestListingDelimiter:
+    """#184 (AC4): both listing paginators must pass Delimiter='/' so archived keys
+    are neither billed nor parsed."""
+
+    async def test_list_images_passes_delimiter_and_bills_one_page_per_1000_live_keys(
+        self, storage, mock_s3_client
+    ) -> None:
+        live = [f"tenant/images/img{i:05d}.jpg" for i in range(1500)]
+        archived = [f"tenant/images/archive/old{i:05d}.jpg" for i in range(800)]
+        paginator = _RecordingPaginator(live, archived)
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images("tenant/images")
+
+        assert paginator.calls and paginator.calls[0].get("Delimiter") == "/"
+        assert len(result) == 1500
+        # ceil(1500 / 1000) == 2 billable LIST pages, regardless of the 800 archived keys.
+        assert storage.drain_ops_count() == 2
+
+    async def test_list_images_with_hashes_passes_delimiter(self, storage, mock_s3_client) -> None:
+        live = [f"tenant/images/img{i:05d}.jpg" for i in range(3)]
+        archived = [f"tenant/images/archive/old{i:05d}.jpg" for i in range(5)]
+        paginator = _RecordingPaginator(live, archived)
+        mock_s3_client.get_paginator.return_value = paginator
+
+        result = await storage.list_images_with_hashes("tenant/images")
+
+        assert paginator.calls and paginator.calls[0].get("Delimiter") == "/"
+        assert [name for name, _ in result] == ["img00000.jpg", "img00001.jpg", "img00002.jpg"]
+        assert result[0][1] == "etag-tenant/images/img00000.jpg"
+        assert storage.drain_ops_count() == 1

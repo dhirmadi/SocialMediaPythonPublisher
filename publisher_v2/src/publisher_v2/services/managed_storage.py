@@ -226,7 +226,7 @@ class ManagedStorage:
                 paginator = self.client.get_paginator("list_objects_v2")
                 # #184: Delimiter elides nested keys (archive/) server-side, so only
                 # immediate children are paged and billed.
-                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
                     self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
@@ -259,7 +259,7 @@ class ManagedStorage:
                 paginator = self.client.get_paginator("list_objects_v2")
                 # #184: Delimiter elides nested keys (archive/) server-side, so only
                 # immediate children are paged and billed.
-                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix):
+                for page in paginator.paginate(Bucket=self._bucket, Prefix=prefix, Delimiter="/"):
                     self._count_ops()  # PUB-045: count each page as one R2 request
                     for obj in page.get("Contents", []):
                         key: str = obj["Key"]
