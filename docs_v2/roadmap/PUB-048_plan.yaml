@@ -1,0 +1,59 @@
+version: 1
+roadmap_id: PUB-048
+summary: >
+  Uniform auth/CSRF enforcement and library-operation safety. Two stages:
+  #187 (strict mode inside require_admin, CSRF bypass only on verified header,
+  OpenAPI off) and #188 (move same-key rejection + source_folder, upload suffix
+  gate + overwrite query param, delete listing/suffix gate).
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/web/auth.py
+    - publisher_v2/src/publisher_v2/web/app.py
+    - publisher_v2/src/publisher_v2/web/middleware_csrf.py
+    - publisher_v2/src/publisher_v2/web/routers/library.py
+    - publisher_v2/src/publisher_v2/web/service.py
+    - publisher_v2/tests/web/**
+    - .claude/rules/web-security.md
+    - docs_v2/03_Architecture/ARCHITECTURE.md
+    - docs_v2/roadmap/PUB-048_*
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  AC1: strict mode enforced inside require_admin (re-verifying the header), voice-profile handlers also call require_auth first
+  AC2: every require_admin call site 401s under strict mode with cookie only, and still 200s with valid header + cookie
+  AC3: invalid Bearer + cookie + no X-Requested-With on POST /api/auth/logout -> 403, session not revoked
+  AC4: valid Bearer still bypasses CSRF without X-Requested-With
+  AC5: /docs, /redoc, /openapi.json -> 404 anonymously
+  AC6: move with src_key == dst_key -> 400, no copy/delete
+  AC7: LibraryMoveRequest.source_folder (default "root") resolves the source prefix; non-root uses new WebImageService.ensure_known_object with the same _IMAGE_SUFFIXES gate; .txt name -> 404, no copy/delete
+  AC8: upload of a non-image suffix -> 415, nothing written
+  AC9: upload of an existing name -> 409 unless ?overwrite=true
+  AC10: delete of a non-image suffix or unlisted name -> 404, nothing deleted
+
+tasks:
+  - stage: "187"
+    order: 1
+    red: publisher_v2/tests/web/test_web_settings_voice_profile.py, test_require_admin_strict_mode.py (new), test_csrf_middleware.py (new), test_web_hardening.py
+    green: web/auth.py (require_admin), web/app.py (voice-profile handlers, FastAPI ctor), web/middleware_csrf.py
+    docs: .claude/rules/web-security.md, docs_v2/03_Architecture/ARCHITECTURE.md
+  - stage: "188"
+    order: 2
+    red: publisher_v2/tests/web/test_library_move_sanitizing.py, test_library_upload.py, test_library_delete_sanitizing.py (new)
+    green: web/routers/library.py, web/service.py
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage_overall: 85
+  coverage_affected: 80
+  safety:
+    - no type: ignore added
+    - no existing web test assertions changed
+    - require_admin strict check runs AFTER is_admin_request (403 beats 401)
+    - require_auth's own strict-mode check stays
+    - no password login path reintroduced (#137)
