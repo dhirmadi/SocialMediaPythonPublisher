@@ -19,3 +19,4 @@
 - [Voice matching default review traps](voice-matching-default-review-traps.md) — #131: validator assignment marks model_fields_set; SimpleNamespace config fake; blockquote splits doc table
 - [Mutation-check review technique](mutation-check-review-technique.md) — prove a test can fail: detached worktree + source mutation; the 4 "cannot fail" classes seen here
 - [Auth0-only admin review traps](auth0-only-admin-review-traps.md) — #137: load_dotenv defeats live 503 probes; tautological `or` asserts; require_admin now unconditional on image routes
+- [Reliability batch review traps](reliability-batch-review-traps.md) — PUB-047/PUB-061: flush() sleep(0) is load-bearing; _drain_pending keeps failures and continues; claim wait_for can orphan a lease; drain deadline between client timeout and aclose budget
