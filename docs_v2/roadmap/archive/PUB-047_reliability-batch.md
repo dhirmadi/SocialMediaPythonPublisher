@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P0 |
 | **Effort** | S |
-| **Status** | In Progress |
+| **Status** | Done |
 | **Dependencies** | — |
 
 ## User Story
@@ -134,11 +134,23 @@ A throttled R2 call is retried and succeeds when the backend recovers. A listing
 ## Related
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#183](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/183), [#184](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/184), [#185](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/185), [#186](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/186)
-- [PUB-045: R2 Storage Ops Metering](archive/PUB-045_storage-ops-metering.md) — the meter this makes non-blocking
-- [PUB-024: Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md) — the retry layer this repairs
+- [PUB-045: R2 Storage Ops Metering](PUB-045_storage-ops-metering.md) — the meter this makes non-blocking
+- [PUB-024: Managed Storage Adapter](PUB-024_managed-storage-adapter.md) — the retry layer this repairs
 - Prior fixes #93 (single retry layer), #132 (Dropbox predicate), #139 (lease expiry)
 
 ## Change Log
+
+- 2026-09-21 — Shipped and archived. PR [#214](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/214),
+  merge commit `f05a1d6`, seven commits (one per sub-issue #183-#186, plus docs and the review
+  response). Gates at merge: ruff format and lint clean, mypy clean over 64 source files,
+  1752 passed / 1 skipped, coverage 92.48% (gate 85); per-module: `storage_ops_meter.py` 100%,
+  `db/__init__.py` 100%, `core/exceptions.py` 100%, `runtime_settings.py` 99%, `core/workflow.py`
+  94%, `managed_storage.py` 91%. All 16 handoff test names present verbatim. Review follow-ups:
+  the drain-deadline under-billing case is tracked as
+  [#215](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/215); the agent-memory and
+  push-permission commit was split out to PR
+  [#216](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/216). Handoff deleted per the
+  spec-format lifecycle; plan and summary kept here as the implementation record.
 
 - 2026-09-21 — Implemented (all four sub-fixes); PR #214. Tightened the #185 drain-loop
   wording: the hardened text said the task "loops while `_pending` is non-empty and then exits",
@@ -151,4 +163,4 @@ A throttled R2 call is retried and succeeds when the backend recovers. A listing
 - 2026-09-21 — Spec hardened for Claude Code handoff. Pinned the previously-open naming/mechanism
   decisions (new `RuntimeSettings` fields, `PublishStoreUnavailableError`, `StorageOpsMeter`
   internals, exact except-clause widening for AC3) directly into the ACs and Implementation Notes
-  so no design choice is left to the implementer. See `PUB-047_handoff.md`.
+  so no design choice is left to the implementer. See `PUB-047_summary.md`.
