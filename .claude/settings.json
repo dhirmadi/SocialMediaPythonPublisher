@@ -33,6 +33,8 @@
       "Bash(git fetch*)",
       "Bash(git pull*)",
       "Bash(git push *)",
+      "Bash(git push origin fix/*)",
+      "Bash(git push --force-with-lease origin fix/*)",
       "Read(publisher_v2/**)",
       "Read(docs_v2/**)",
       "Read(.claude/**)",
@@ -47,7 +49,8 @@
     ],
     "deny": [
       "Bash(rm -rf /)",
-      "Bash(git push --force*)",
+      "Bash(git push --force)",
+      "Bash(git push --force *)",
       "Bash(git push -f *)",
       "Bash(git reset --hard*)",
       "Read(.env*)",
