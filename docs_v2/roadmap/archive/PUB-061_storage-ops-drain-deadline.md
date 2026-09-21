@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | XS |
-| **Status** | In Progress |
+| **Status** | Done |
 | **Dependencies** | PUB-047 (shipped — made the drain non-blocking) |
 | **GitHub Issue** | [#215](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/215) |
 
@@ -137,11 +137,20 @@ and make a drain attempt hold a slot for 16 s, which is worse for `aclose()`'s 1
 ## Related
 
 - Issue [#215](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/215)
-- [PUB-047: Reliability Batch](archive/PUB-047_reliability-batch.md) — introduced the deadline
-- [PUB-045: R2 Storage Ops Metering](archive/PUB-045_storage-ops-metering.md) — the meter itself
+- [PUB-047: Reliability Batch](PUB-047_reliability-batch.md) — introduced the deadline
+- [PUB-045: R2 Storage Ops Metering](PUB-045_storage-ops-metering.md) — the meter itself
 - Prior art: #93 (single retry layer), #132 (Dropbox predicate)
 
 ## Change Log
+
+- 2026-09-21 — Shipped and archived. PR [#219](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/219),
+  merge commit `3abe309`, closing [#215](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/215).
+  Gates at merge: ruff format and lint clean, mypy clean over 64 source files, 1759 passed / 1 skipped,
+  coverage 92.5% (gate 85); `storage_ops_meter.py` 100%, `orchestrator_client.py` 82% -> 86%.
+  The review's two findings were both actioned before merge: the scope overclaim (recorded above as
+  the Correction section) and the `_sleep` jitter trap. The residual gap — a response slower than the
+  client's 5 s request timeout — remains open as
+  [#218](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/218).
 
 - 2026-09-21 — Written from the #214 review finding. The single-attempt option is pinned rather
   than left open, so implementation has no design choice to make.
