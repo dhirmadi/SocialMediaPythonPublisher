@@ -538,6 +538,14 @@ async def _move_in_storage(
         )
 
     storage: ObjectStorageProtocol = service.storage  # type: ignore[assignment]
+    # PUB-048 AC11: move_object copies then deletes, so moving onto an existing
+    # name destroys the destination object. Refuse before any copy or delete.
+    # No overwrite escape hatch (deliberate): delete the destination first.
+    if await storage.head_object(dst_key) is not None:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"File already exists in {target_folder}: {filename}. Delete it first to replace it.",
+        )
     await storage.move_object(src_key, dst_key)
     _invalidate_listing(service)
 

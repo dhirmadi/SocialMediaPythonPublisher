@@ -57,6 +57,7 @@ into two PRs at commit time; #187 should land first per the handoff.
 - [x] AC8 — non-image suffix upload → 415 (`test_upload_named_txt_with_valid_jpeg_bytes_returns_415`)
 - [x] AC9 — existing name → 409 unless `?overwrite=true` (`test_upload_existing_name_without_overwrite_query_param_returns_409`, `test_upload_existing_name_with_overwrite_query_param_true_succeeds`)
 - [x] AC10 — non-image or unlisted delete → 404, nothing deleted (`test_delete_non_image_suffix_or_unlisted_name_returns_404_and_nothing_deleted`)
+- [x] AC11 — move onto an existing destination name → 409 before any copy or delete (`test_move_onto_existing_destination_name_returns_409_and_nothing_copied_or_deleted`). Added *after* the first implementation pass, from an adversarial audit of the finished branch.
 
 Zero test-name drift: all 13 names match the handoff's Test-first targets table verbatim.
 
@@ -64,8 +65,10 @@ Zero test-name drift: all 13 names match the handoff's Test-first targets table 
 
 ```
 uv run pytest -q --cov --cov-report=term-missing
-1797 passed, 1 skipped, 83 warnings in 83.21s
+1799 passed, 1 skipped, 83 warnings in 83.82s
 ```
+
+(1797 at the first implementation pass; +2 from AC11.)
 
 Re-run under a second random order (`--randomly-seed=424242`): 1797 passed, 1 skipped. No isolation
 defect from the new fixtures.
@@ -78,8 +81,8 @@ against pre-fix source. The one that passes pre-fix is AC4's, which is by design
 - Format: ✅ `ruff format --check .` → 244 files already formatted
 - Lint: ✅ `ruff check .` → All checks passed
 - Type check: ✅ `mypy publisher_v2/src --ignore-missing-imports` → no issues in 64 source files
-- Tests: ✅ 1797 passed, 0 failed, 1 skipped
-- Coverage: ✅ TOTAL 92.79% (gate 85). Per-module: `web/auth.py` 93%, `web/middleware_csrf.py` 90%,
+- Tests: ✅ 1799 passed, 0 failed, 1 skipped
+- Coverage: ✅ TOTAL 92.81% (gate 85). Per-module: `web/auth.py` 93%, `web/middleware_csrf.py` 90%,
   `web/routers/library.py` 96%, `web/service.py` 82% — all over the 80% bar.
 - Success metrics: zero `type: ignore` added (`web/service.py` uses `cast(...)` instead); no existing
   test's assertions changed.
@@ -88,7 +91,10 @@ against pre-fix source. The one that passes pre-fix is AC4's, which is by design
 
 - `code-reviewer`: **PASS WITH NITS** — zero spec-to-test drift, no "cannot fail" test, all four
   known-wrong mechanisms avoided; 4 non-blocking nits recorded below.
-- `security-auditor`: **PASS WITH NITS** — all five claimed holes genuinely closed, no new hole
+- `security-auditor` (pass 2, on the committed branch): **PASS WITH NITS** — raised the move destination-collision finding that became AC11.
+- `security-auditor` (pass 3, verifying AC11): **PASS WITH NITS** — original finding **closed**, mutation-verified; guard prevents both the copy and the delete before any side effect.
+- `code-reviewer` (pass 2, on the committed branch): **PASS WITH NITS** — independently re-ran all gates, mutation-checked the AC1 mechanism (naive form fails 12/12).
+- `security-auditor` (pass 1): **PASS WITH NITS** — all five claimed holes genuinely closed, no new hole
   opened (no secrets, no logging leak, no auth bypass, no traversal, no blocking call on the loop,
   no `#137` password-login regression, preview safety untouched).
 
@@ -116,6 +122,42 @@ pre-write existence check and a blanket-truthy fake turns every *first* upload i
 `tests/web/conftest.py::_FakeS3` and the new `test_require_admin_strict_mode.py::_FakeObjectStorage`.
 The reviewer confirmed this is faithful to the real seam — `ManagedStorage.head_object` maps
 `404/NoSuchKey/NotFound` to `None` — and verified against pre-change source that it hides no defect.
+
+### AC11: a hole this item opened, found after it was "done"
+
+The first implementation pass shipped AC1-AC10 with two clean review verdicts. A second adversarial
+`security-auditor` pass on the *committed* branch then found that AC7's new `source_folder` had opened
+a fresh data-loss path: `_move_in_storage` had no destination-collision guard, so moving `a.jpg` from
+keep onto an existing `a.jpg` in root would copy over the destination and then delete the source,
+destroying the root object and its sidecar. Before this item, the source was hardcoded to root, so
+`X -> root` moves were unreachable and the collision could not occur. The asymmetry with AC9's
+brand-new upload 409 is what surfaced it.
+
+This is the failure class PUB-048 exists to prevent, introduced by PUB-048 itself. AC11 was added to
+the spec, then implemented TDD-style: a failing test, then an 8-line guard raising 409 before any copy
+or delete. The AC6 same-key 400 still wins over the 409, and that ordering is pinned by the existing
+`test_move_target_root_when_already_in_root_rejects_same_key`.
+
+**No `overwrite` escape hatch was added**, unlike AC9's upload. There is no UI consumer of `/move`
+(verified by grep of `templates/`), replacing an object via move is not an established workflow, and an
+admin who wants it can delete the destination first. The failure mode of no hatch is a 409 costing one
+extra call; the failure mode of a hatch is the data loss this AC is about.
+
+Two test-side consequences, both previously deferred and now closed:
+- `test_library_move_sanitizing.py::_FakeS3.head_object` went from blanket-truthy to per-key. This was
+  required (a truthy fake makes *every* move 409) and is the tightening the handoff's mock-boundary
+  table explicitly deferred.
+- That tightening made `WebImageService.ensure_known_object`'s existence branch (`service.py:648-649`)
+  testable. A `code-reviewer` pass had flagged it as dead-untested — an inverted condition there passed
+  the entire suite. Now covered by
+  `test_move_missing_object_from_non_root_source_folder_returns_404_and_nothing_copied_or_deleted`,
+  mutation-verified in both directions.
+
+### Endpoint contract change (backward compatibility)
+
+`POST /api/library/objects/{filename}/move` onto an existing destination name was a 200 with a silent
+clobber; it is now a 409. Intended, and no UI consumer exists, but it is a contract change and belongs
+in the PR body alongside the AC5 `/docs` 404 and the AC9 upload 409.
 
 ### Other decisions
 
