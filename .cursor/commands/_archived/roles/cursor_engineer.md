@@ -38,5 +38,3 @@ Your job is to keep the project’s **Cursor setup** correct, consistent, and en
   - Rules are authoritative and not duplicated across multiple files.
   - Commands and roles are aligned with the workflow and don’t conflict.
   - Drift fixes are captured as concrete role/command updates.
-
-

@@ -26,5 +26,3 @@ Your job is to validate implementation quality (tests, behaviour, safety) and re
   - Pass/fail vs acceptance criteria (or key risks if not fully testable)
   - Evidence (tests run, failing test names, notable logs)
   - Clear “fix request” items for SW, if needed
-
-

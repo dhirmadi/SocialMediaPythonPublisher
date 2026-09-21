@@ -102,4 +102,3 @@ If tests fail:
 3. Run tests
 4. Check quality gates
 5. Generate report
-

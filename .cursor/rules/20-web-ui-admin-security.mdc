@@ -27,4 +27,3 @@ alwaysApply: false
 
 ### Contracts
 - Preserve documented endpoint contracts in `docs_v2/03_Architecture/ARCHITECTURE.md` and `docs_v2/roadmap/`.
-

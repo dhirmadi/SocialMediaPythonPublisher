@@ -295,7 +295,7 @@ if not session_secret:
     # #87 (SEC-5): the insecure fallback requires its own explicit opt-in —
     # WEB_DEBUG is a logging flag and must not weaken the signing secret.
     if os.environ.get("WEB_DEV_INSECURE_SECRET", "").lower() in ("1", "true", "yes", "on"):
-        session_secret = "dev_secret_do_not_use_in_prod"
+        session_secret = "dev_secret_do_not_use_in_prod"  # nosec B105 — placeholder behind an explicit opt-in, and it logs a warning
         logger.warning("Using insecure dev session secret!")
     else:
         raise RuntimeError("Missing WEB_SESSION_SECRET or SECRET_KEY env var for SessionMiddleware")

@@ -570,7 +570,7 @@ class WebImageService:
             self._recently_shown.clear()
             candidates = list(images)
 
-        selected = random.choice(candidates)
+        selected = random.choice(candidates)  # nosec B311 — picks an image to show, not a token
         self._recently_shown.append(selected)
 
         folder = self.config.storage_paths.image_folder
@@ -898,7 +898,7 @@ class WebImageService:
                     platform_captions=platform_captions_dict,
                 )
                 sidecar_written = True
-            except Exception:  # noqa: S110 — error already logged in helper
+            except Exception:  # noqa: S110 — error already logged in helper  # nosec B110
                 pass
 
         return AnalysisResponse(

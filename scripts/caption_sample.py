@@ -63,7 +63,7 @@ import asyncio
 import json
 import os
 import shutil
-import subprocess
+import subprocess  # nosec B404 — used only for git/interpreter calls with fixed argv
 import sys
 import tempfile
 from dataclasses import dataclass, field
@@ -169,7 +169,7 @@ def _git() -> str:
 def _checkout_baseline_static(commit: str, into: Path) -> Path:
     """Materialise the baseline commit's static config in a temp worktree."""
     try:
-        subprocess.run(  # noqa: S603 — fixed argv, commit comes from the operator's own CLI flag
+        subprocess.run(  # nosec B603  # noqa: S603 — fixed argv, commit comes from the operator's own CLI flag
             [_git(), "worktree", "add", "--detach", str(into), commit],
             cwd=REPO_ROOT,
             check=True,
@@ -296,7 +296,7 @@ def _caption_once_at_baseline(
         # instead of the retry the baseline intended.
         settings["vision_fallback_enabled"] = False
         env["OPENAI_SETTINGS"] = json.dumps(settings)
-    proc = subprocess.run(  # noqa: S603 — fixed argv; the payload goes in on stdin
+    proc = subprocess.run(  # nosec B603  # noqa: S603 — fixed argv; the payload goes in on stdin
         [sys.executable, "-c", _BASELINE_WORKER, json.dumps(payload)],
         cwd=str(worktree),
         env=env,
@@ -584,7 +584,7 @@ def run(args: argparse.Namespace) -> int:
             print(f"done: {image.name}", file=sys.stderr)  # noqa: T201 — operator-facing progress
     finally:
         os.environ.pop("PV2_STATIC_CONFIG_DIR", None)
-        subprocess.run(  # noqa: S603 — fixed argv
+        subprocess.run(  # nosec B603  # noqa: S603 — fixed argv
             [_git(), "worktree", "remove", "--force", str(worktree)],
             cwd=REPO_ROOT,
             check=False,

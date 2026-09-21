@@ -91,7 +91,7 @@ class OrchestratorClient:
 
     async def _sleep(self, delay_ms: int) -> None:
         if self._retry.jitter:
-            jitter = random.randint(0, max(1, delay_ms // 4))
+            jitter = random.randint(0, max(1, delay_ms // 4))  # nosec B311 — retry jitter, not a secret
             delay_ms = delay_ms + jitter
         await asyncio.sleep(delay_ms / 1000.0)
 

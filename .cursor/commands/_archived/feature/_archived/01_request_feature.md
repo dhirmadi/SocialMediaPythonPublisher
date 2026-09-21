@@ -134,4 +134,3 @@ Include the file path on the first line as an HTML comment.
 ## Start
 
 Read user input → determine NNN and feature_name → generate document → output only Markdown.
-

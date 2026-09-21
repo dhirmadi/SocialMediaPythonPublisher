@@ -340,7 +340,7 @@ class WebConfig(BaseModel):
         description="Enable the web interface",
     )
     host: str = Field(
-        default="0.0.0.0",
+        default="0.0.0.0",  # nosec B104 — the platform terminates TLS and routes to the dyno/container
         description="Host interface for the web server",
     )
     port: int = Field(

@@ -36,5 +36,3 @@ Respond **only with the review**, using this structure:
 5. **Prioritized Recommendations** — ordered list (Must / Should / Nice) with concise, actionable changes.
 
 Keep the tone collaborative and pragmatic. Be **critical but constructive**, and avoid rewriting the entire document; focus on **targeted improvements** that keep the design lean, DRY, and aligned with the project’s architecture and rules.
-
-

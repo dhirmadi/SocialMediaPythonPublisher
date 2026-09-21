@@ -10,6 +10,11 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+        # docs_v2/08_Epics holds archived story plans that were never valid YAML:
+        # several open with an HTML comment line and use flow mappings whose keys
+        # contain unquoted "[", "]" and ".". They are historical prose artefacts,
+        # not configuration, so they are documented rather than rewritten.
+        exclude: ^docs_v2/08_Epics/
       - id: check-json
       - id: check-added-large-files
         args: ['--maxkb=1000']
@@ -33,7 +38,11 @@ repos:
     rev: 1.8.3
     hooks:
       - id: bandit
-        args: ['-r', '.', '-f', 'json', '-o', 'bandit-report.json']
+        # Scan the code this repo ships, not the virtualenv. "-r ." walked .venv
+        # and publisher_v2/tests and reported 13515 findings, ~11800 of them B101
+        # (assert in a test), which drowned anything real and failed the hook on
+        # every run. scripts/ is included because it is executed tooling.
+        args: ['-r', 'publisher_v2/src', 'scripts', '-f', 'json', '-o', 'bandit-report.json']
         pass_filenames: false
 
   # Secret detection
@@ -56,7 +65,10 @@ repos:
     hooks:
       - id: pydocstyle
         args: ['--convention=google']
-        exclude: ^(tests/|docs/)
+        # Anchored at the repo root, so "^tests/" never matched publisher_v2/tests/
+        # and the suite was being docstring-checked. Alembic revisions are
+        # generated files.
+        exclude: ^(publisher_v2/tests/|publisher_v2/alembic/|tests/|docs/)
 
 # Exclude patterns
 exclude: |

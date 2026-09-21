@@ -139,4 +139,3 @@ After generating the summary, also update:
 ## Start
 
 Read story documents and implementation details → generate summary → output Markdown.
-
