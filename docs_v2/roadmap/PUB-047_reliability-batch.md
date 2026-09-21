@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P0 |
 | **Effort** | S |
-| **Status** | Done |
+| **Status** | In Progress |
 | **Dependencies** | — |
 
 ## User Story
@@ -140,7 +140,7 @@ A throttled R2 call is retried and succeeds when the backend recovers. A listing
 
 ## Change Log
 
-- 2026-09-21 — Implemented (all four sub-fixes). Marked Done. Tightened the #185 drain-loop
+- 2026-09-21 — Implemented (all four sub-fixes); PR #214. Tightened the #185 drain-loop
   wording: the hardened text said the task "loops while `_pending` is non-empty and then exits",
   which taken literally hot-spins a dead orchestrator with no backoff. Replaced with the shipped
   contract — one bounded pass over a snapshot taken at entry, keeping (not head-of-line-blocking

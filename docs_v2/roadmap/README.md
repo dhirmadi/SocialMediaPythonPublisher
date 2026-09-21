@@ -66,7 +66,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **AI Quality** ||||||
 | PUB-046 | AI | [Email Caption Length Control](archive/PUB-046_email-caption-length-control.md) | P1 | S | PUB-025, PUB-029, PUB-039 | Done |
 | **Post-Review Plan 2026-09-21 (tracker #177)** ||||||
-| PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](PUB-047_reliability-batch.md) | P0 | S | — | Proposal |
+| PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](PUB-047_reliability-batch.md) | P0 | S | — | In Progress |
 | PUB-048 | Web UI | [Auth and Library Uniformity](PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Proposal |
 | PUB-049 | AI | [Caption Evaluation Harness](PUB-049_caption-evaluation-harness.md) | P0 | M | — | Proposal |
 | PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | S | PUB-049 | Proposal |

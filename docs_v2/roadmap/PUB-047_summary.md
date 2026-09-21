@@ -78,6 +78,24 @@ Using --randomly-seed=442983949
 - **Retry budget is unpinned by tests.** `_managed_wait` is monkeypatched to `0.0`, so no test asserts `stop_after_attempt(3)` / `wait_exponential(1,1,8)`; AC1's "configured backoff" is satisfied by attempt count only. An edit to `_EXPONENTIAL_WAIT` would pass the suite silently.
 - **Pre-existing, unchanged by this item:** `SanitizingFilter` covers `record.msg`/`record.args` but not `record.exc_text`; an `InvalidAccessKeyId` `ClientError` can echo the access key ID (not the secret) past the sanitizer's `access_key_id`-prefixed pattern.
 
+## PR #214 review response
+
+The review (2026-09-21) confirmed all nine ACs MET against the code and ran the gates locally. Seven items were raised; all are resolved or tracked.
+
+| # | Item | Resolution |
+|---|---|---|
+| 1 | **Blocking:** TruffleHog red — a credentialed `postgres://` URL (userinfo redacted here on purpose) in `test_db_connect_args.py` | Replaced with `postgresql+asyncpg://localhost/appdb`. **No scanner exclusion added** (PUB-055 is about to make these checks blocking). |
+| 2 | **Blocking:** commit `5c641ff` ("code reviewer memory") widened harness push permissions and rode into the PR | Branch rebased onto `origin/main`, dropping `5c641ff` entirely. `.claude/settings.json` and the 22 agent-memory files are no longer in the PR. The commit remains unpushed on local `main` and needs its own PR — see below. |
+| 3 | `init_db(settings=None)` added an eighth `load_runtime_settings()` constructor fallback | Parameter is now **required**; both call sites (`app.py`, `web/app.py`) pass the snapshot they already hold. |
+| 4 | The three new timeouts accepted `0` and negatives; `PUBLISH_CLAIM_TIMEOUT_SECONDS=0` would abort every run with a phantom store outage | `field_validator` rejects `<= 0` with `ConfigurationError`. **Reject, not clamp** — `0.001` still works, which AC8's hang test depends on. |
+| 5 | Spec marked `Done` while the index said `Proposal`; `Done` belongs to `/product-archive` after approval | Both set to `In Progress`. Archive after merge with the Verified evidence line. |
+| 6 | The 5s per-attempt drain deadline is smaller than one `OrchestratorClient` call (3 × 5s), so a slow-but-alive orchestrator never delivers and under-bills | Filed as **#215**. Not blocking — idempotency keys make this a billing-completeness issue, not a correctness one. |
+| 7 | Info: a cancellation during the shielded release now skips the flush | One-line comment added at the `meter.flush()` block so the order is not "fixed" back. |
+
+Post-review suite: **1752 passed**, 1 skipped; coverage 92.48%.
+
+**Pre-existing, not fixed here:** `test_caption_history_db.py` lines 368, 390-392 carry credential-shaped `postgres://` URLs with inline userinfo (not quoted here, so this file does not itself trip the scanner) dating to `23edf94c` (2026-05-13). They do not trip the current detector (single-letter userinfo fails its entropy/shape checks), but they should be normalised under PUB-055 before secret scans go blocking.
+
 ## Not done
 
 - No commit was made — the change is left uncommitted in the working tree for review.
