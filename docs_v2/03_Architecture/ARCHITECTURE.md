@@ -114,6 +114,15 @@ configured, `403` when it is but no admin cookie is presented. `WEB_ALLOW_UNAUTH
 not open them. The admin cookie is minted only by the Auth0 callback; the password login
 (`web_admin_pw`, `POST /api/admin/login`) is gone.
 
+**Strict mode (PUB-048):** `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` is now enforced inside
+`require_admin` itself, not only inside `require_auth`. With a header backend configured, every
+route that calls `require_admin` answers `401` ("Header authentication required in addition to the
+admin cookie") for a cookie-only request — including the read-only view-permission call site in
+`app.py` and `GET`/`POST /api/config/voice-profile`, which used to call `require_admin` alone and so
+returned `200` for a cookie alone. A request with no or an invalid admin cookie still gets `403`
+("Admin privileges required"); the header is re-verified, so a valid Bearer/Basic header plus a valid
+cookie is unchanged. `/docs`, `/redoc` and `/openapi.json` are not served at all (`404`).
+
 - `GET /` → HTML UI (with i18n text injection from static config)
 - `GET /api/images/random` → ImageResponse (random image with metadata, includes `thumbnail_url`)
 - `GET /api/images/{filename}/thumbnail` → JPEG thumbnail bytes (fast preview, Feature 018)
