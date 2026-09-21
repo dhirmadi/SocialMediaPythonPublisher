@@ -1,0 +1,46 @@
+version: 1
+roadmap_id: PUB-061
+summary: >
+  Remove the stacked retry layer on storage-ops drain posts (single client attempt,
+  since the meter already retries via _pending with a preserved idempotency key) and
+  raise the per-attempt drain deadline so one attempt fits inside it.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/config/orchestrator_client.py
+    - publisher_v2/src/publisher_v2/services/storage_ops_meter.py
+    - publisher_v2/tests/config/test_orchestrator_usage.py
+    - publisher_v2/tests/test_storage_ops_meter.py
+  excluded:
+    - publisher_v2/src/publisher_v2/services/usage_meter.py   # other post_usage caller, unchanged
+    - code_v1/**
+    - docs_v1/**
+
+acceptance_criteria:
+  AC1: single-attempt override calls transport once with no backoff; default stays 3 attempts
+  AC2: a response slower than the old deadline but inside the new one is delivered
+  AC3: a hung post_usage is still abandoned at the deadline, logged, batch retained (PUB-047 AC5)
+  AC4: client request timeout (5.0) < drain deadline (8.0) < aclose budget (10.0)
+  AC5: failed batch keeps its original idempotency key (no double-billing)
+
+tasks:
+  - stage: A
+    files: [config/orchestrator_client.py]
+    change: "_request_with_retry and post_usage take retry: RetryConfig | None = None"
+  - stage: B
+    files: [services/storage_ops_meter.py]
+    change: "_SINGLE_ATTEMPT_RETRY passed by _post_batch; _DRAIN_ATTEMPT_TIMEOUT_SECONDS 5.0 -> 8.0"
+  - stage: C
+    files: [config/orchestrator_client.py]
+    change: "_sleep reads jitter from the effective policy, not self._retry (review nit)"
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage: ">=80% affected modules, >=85% overall (fail_under=85)"
+  safety:
+    - no blocking call added to any async path
+    - CancelledError still re-raised in _post_batch and _drain_loop
+    - other OrchestratorClient callers keep the default RetryConfig
