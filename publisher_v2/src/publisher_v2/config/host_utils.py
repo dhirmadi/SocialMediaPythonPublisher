@@ -1,3 +1,10 @@
+"""Host normalization and validation shared by the config sources and web layer.
+
+Hosts are the tenant routing key, so these helpers are deliberately strict: the orchestrator
+is only queried for host shapes that pass :func:`validate_host`, which keeps bogus lookups
+from leaking tenant existence.
+"""
+
 import re
 
 _RE_IPV4 = re.compile(r"^\d{1,3}(\.\d{1,3}){3}$")
@@ -6,8 +13,9 @@ _RE_PLAUSIBLE_IPV6 = re.compile(r"^[0-9a-f:]+$", re.IGNORECASE)
 
 
 def normalize_host(host: str) -> str:
-    """
-    Normalize a host per orchestrator contract:
+    """Normalize a host to the form the orchestrator keys tenants by.
+
+    Per orchestrator contract:
     - lowercase
     - strip :port
     - strip trailing dot
@@ -22,9 +30,11 @@ def normalize_host(host: str) -> str:
 
 
 def validate_host(host: str) -> bool:
-    """
-    Return False for invalid host shapes. These should be rejected without calling
-    the orchestrator (privacy-preserving 404 behavior).
+    """Report whether a host shape is worth sending to the orchestrator.
+
+    Returns False for invalid host shapes. These should be rejected without calling
+    the orchestrator (privacy-preserving 404 behavior). Rejected: empty or untrimmed
+    input, empty/dotted-edge labels, ``localhost``, ``www.*``, and IPv4/IPv6 literals.
     """
     if host is None:
         return False
@@ -58,7 +68,9 @@ def validate_host(host: str) -> bool:
 
 
 def extract_tenant(host: str, base_domain: str) -> str:
-    """NOT AUTHORITATIVE (#89): for hosts outside the base domain this returns
+    """Guess a tenant label from a host — NOT AUTHORITATIVE, see below.
+
+    NOT AUTHORITATIVE (#89): for hosts outside the base domain this returns
     the first DNS label, which collapses distinct custom-domain tenants.
     Use only for standalone host validation — credential resolution must use
     the orchestrator's runtime.tenant.

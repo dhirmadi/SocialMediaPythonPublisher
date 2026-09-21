@@ -1,3 +1,16 @@
+"""Dropbox-backed implementation of the storage protocol.
+
+Every SDK call is blocking, so each public coroutine hands the work to
+``asyncio.to_thread`` and wraps ``DropboxException`` in ``StorageError`` (or
+``StorageAuthError``). Retries live in a single tenacity layer whose predicate
+distinguishes transient failures (rate limits, 5xx, network) from permanent
+ones (auth, bad input, path errors) — the SDK's own retrying is disabled so
+there is only one such layer (#88, #132).
+
+Object-level operations from the protocol are not supported here and raise
+``StorageNotSupportedError``; they belong to managed storage only (#96).
+"""
+
 import asyncio
 import contextlib
 import os
@@ -117,7 +130,18 @@ def _dropbox_move_destination_dir(folder: str, target_subfolder: str) -> str:
 
 
 class DropboxStorage:
+    """Dropbox implementation of the storage protocol, backed by an OAuth refresh token."""
+
     def __init__(self, config: DropboxConfig):
+        """Build the Dropbox client from the configured OAuth app credentials.
+
+        The client is pinned to a 30s HTTP timeout with both SDK retry knobs at
+        zero, so tenacity is the only retry layer (#88) and rate limits cannot
+        be retried forever by SDK 12's default (#132).
+
+        Args:
+            config: Dropbox app key/secret and refresh token, plus folder settings.
+        """
         self.config = config
         self.client = dropbox.Dropbox(
             oauth2_refresh_token=config.refresh_token,
@@ -132,9 +156,7 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
-        """
-        Write or overwrite a .txt sidecar beside the image. For 'image.jpg' writes 'image.txt'.
-        """
+        """Write or overwrite a .txt sidecar beside the image. For 'image.jpg' writes 'image.txt'."""
         try:
 
             def _upload() -> None:
@@ -155,11 +177,13 @@ class DropboxStorage:
 
     @staticmethod
     def _is_sidecar_not_found_error(exc: ApiError) -> bool:
-        """
-        Return True when the given ApiError represents a "file not found" condition
-        for a path-based operation (e.g., sidecar download).
-        """
+        """Return True when the ApiError means "file not found" for a path operation.
 
+        Dropbox models path errors with ``is_path()``/``get_path()``, and the
+        nested object exposes ``is_not_found()`` when the file is missing; any
+        other shape reads as False. Used to turn a missing sidecar download
+        into a cache miss rather than an error.
+        """
         error = getattr(exc, "error", None)
         if error is None:
             return False
@@ -176,14 +200,12 @@ class DropboxStorage:
     # "Not found" returns None before raising, so it is never retried.
     @_dropbox_retry
     async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
-        """
-        Download the .txt sidecar for the given image if it exists.
+        """Download the .txt sidecar for the given image if it exists.
 
         Returns the sidecar bytes on success, or None when Dropbox reports that
         the sidecar file does not exist. Transient errors remain subject to
         tenacity retries and ultimately surface as ApiError/StorageError.
         """
-
         try:
 
             def _download() -> bytes:
@@ -225,6 +247,14 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def list_images(self, folder: str) -> list[str]:
+        """Return the names of .jpg/.jpeg/.png files in ``folder``, following pagination.
+
+        Names only, not paths, and non-image entries and subfolders are skipped.
+        Pass "/" for the Dropbox root.
+
+        Raises:
+            StorageError: Wrapping any Dropbox failure (StorageAuthError on auth).
+        """
         try:
 
             def _list() -> list[str]:
@@ -248,8 +278,7 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
-        """
-        Return image filenames and their Dropbox content_hash where available.
+        """Return image filenames and their Dropbox content_hash where available.
 
         Falls back to the same filtering as list_images but preserves content_hash
         so that the workflow can perform metadata-based de-duplication.
@@ -278,6 +307,11 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def download_image(self, folder: str, filename: str) -> bytes:
+        """Download the image at ``folder``/``filename`` and return its raw bytes.
+
+        Raises:
+            StorageError: Wrapping any Dropbox failure (StorageAuthError on auth).
+        """
         try:
 
             def _download() -> bytes:
@@ -291,6 +325,14 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def get_temporary_link(self, folder: str, filename: str) -> str:
+        """Return a short-lived public Dropbox URL for the file.
+
+        Dropbox expires these links after a few hours, so treat the result as
+        single-use and never persist it.
+
+        Raises:
+            StorageError: Wrapping any Dropbox failure (StorageAuthError on auth).
+        """
         try:
 
             def _link() -> str:
@@ -304,9 +346,10 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def ensure_folder_exists(self, folder_path: str) -> None:
-        """
-        Ensure the specified folder exists in Dropbox.
-        Creates it if it does not exist; ignores error if it already exists.
+        """Create the folder in Dropbox unless it is already there.
+
+        An "already exists" path conflict is swallowed, so the call is
+        idempotent; every other Dropbox failure is wrapped and raised.
         """
         try:
 
@@ -327,8 +370,7 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
-        """
-        Move the image and its .txt sidecar (if present) into a subfolder under the given folder.
+        """Move the image and its .txt sidecar (if present) into a subfolder under the given folder.
 
         This is implemented via Dropbox server-side moves and is reused by archive and
         curation-style operations (Keep/Remove).
@@ -356,8 +398,7 @@ class DropboxStorage:
 
     @_dropbox_retry
     async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
-        """
-        Permanently delete an image and its .txt sidecar (if present) from Dropbox.
+        """Permanently delete an image and its .txt sidecar (if present) from Dropbox.
 
         This is a destructive operation and cannot be undone.
         """
@@ -379,8 +420,7 @@ class DropboxStorage:
             raise _wrap_dropbox_exception(exc, f"Failed to delete {filename}") from exc
 
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
-        """
-        Archive an image (and its sidecar) into the configured archive folder.
+        """Archive an image (and its sidecar) into the configured archive folder.
 
         Internally delegates to move_image_with_sidecars to keep Dropbox move
         semantics in one place.
@@ -390,21 +430,27 @@ class DropboxStorage:
     # #96: object-level operations are managed-storage-only; the library UI
     # is guarded by _check_library_available and never reaches Dropbox.
     async def list_objects(self, prefix: str, cursor: str | None = None, limit: int = 1000) -> dict:
+        """Raise StorageNotSupportedError: object listing is managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level listing")
 
     async def put_object(self, key: str, data: bytes | bytearray | memoryview, content_type: str) -> None:
+        """Raise StorageNotSupportedError: object put is managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level put")
 
     async def head_object(self, key: str) -> dict | None:
+        """Raise StorageNotSupportedError: object head is managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level head")
 
     async def exists(self, key: str) -> bool:
+        """Raise StorageNotSupportedError: object existence checks are managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level existence checks")
 
     async def delete_object(self, key: str) -> None:
+        """Raise StorageNotSupportedError: object delete is managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level delete")
 
     async def move_object(self, src_key: str, dst_key: str) -> None:
+        """Raise StorageNotSupportedError: object move is managed-storage-only (#96)."""
         raise StorageNotSupportedError("DropboxStorage does not support object-level move")
 
     def supports_content_hashing(self) -> bool:
@@ -432,8 +478,7 @@ class DropboxStorage:
         size: ThumbnailSize | DbxThumbnailSize = ThumbnailSize.W960H640,
         format: ThumbnailFormat | DbxThumbnailFormat = ThumbnailFormat.JPEG,
     ) -> bytes:
-        """
-        Return a thumbnail of the specified image using Dropbox's thumbnail API.
+        """Return a thumbnail of the specified image using Dropbox's thumbnail API.
 
         Accepts protocol-level ThumbnailSize/ThumbnailFormat enums and maps
         them to Dropbox SDK enums internally. Also accepts Dropbox SDK enums

@@ -1,5 +1,4 @@
-"""
-Web interface package for Publisher V2.
+"""Web interface package for Publisher V2.
 
 This module provides a small FastAPI-based HTTP API and HTML UI that sits
 on top of the existing CLI-driven workflow. It is intentionally thin and

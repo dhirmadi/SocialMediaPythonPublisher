@@ -14,19 +14,35 @@ class MemoryReader(io.RawIOBase):
     """
 
     def __init__(self, data: bytes | bytearray | memoryview) -> None:
+        """Wrap ``data`` in a memoryview and start reading at offset 0.
+
+        The buffer is exported, not copied, so it stays un-resizable until
+        :meth:`close` releases it.
+        """
         self._mv = memoryview(data)
         self._pos = 0
 
     def readable(self) -> bool:
+        """Return True: the reader is always readable."""
         return True
 
     def seekable(self) -> bool:
+        """Return True: the underlying buffer supports arbitrary seeks."""
         return True
 
     def tell(self) -> int:
+        """Return the current read offset in bytes."""
         return self._pos
 
     def seek(self, offset: int, whence: int = io.SEEK_SET) -> int:
+        """Move the read offset and return its new absolute value.
+
+        Seeking past the end is allowed (reads then return no data), matching a real file.
+
+        Raises:
+            ValueError: ``whence`` is not one of SEEK_SET/SEEK_CUR/SEEK_END.
+            OSError: The resulting offset would be negative.
+        """
         bases = {io.SEEK_SET: 0, io.SEEK_CUR: self._pos, io.SEEK_END: len(self._mv)}
         if whence not in bases:
             # What every other file object raises; a KeyError here would read as
@@ -52,6 +68,14 @@ class MemoryReader(io.RawIOBase):
         super().close()
 
     def readinto(self, buffer: Any) -> int:
+        """Copy up to ``len(buffer)`` bytes into ``buffer`` and return how many were copied.
+
+        Returns 0 only at genuine end of buffer.
+
+        Raises:
+            ValueError: The reader has been closed — never reported as EOF, since a
+                retried upload would then store an empty object with a valid checksum.
+        """
         if self.closed:
             # Returning 0 here would read as a clean EOF: an upload retried
             # through a closed reader would store an empty object with a valid

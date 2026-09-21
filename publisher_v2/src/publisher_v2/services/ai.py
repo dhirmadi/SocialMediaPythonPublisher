@@ -1,3 +1,5 @@
+"""OpenAI-backed vision analysis and caption generation, with retry and rate limiting."""
+
 from __future__ import annotations
 
 import asyncio
@@ -161,8 +163,7 @@ def _build_inline_hashtags_clause(spec: CaptionSpec) -> str:
 
 
 def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
-    """
-    Truncate text to max_length while respecting word boundaries.
+    """Truncate text to max_length while respecting word boundaries.
 
     Tries to cut at sentence end (. ! ?) first, then at word boundary.
     A sentence-end cut needs no ellipsis — the text ends where a sentence does.
@@ -297,7 +298,20 @@ def _combine_usages(a: AIUsage | None, b: AIUsage | None) -> AIUsage | None:
 
 
 class VisionAnalyzerOpenAI:
+    """Analyze an image with the OpenAI vision model and return structured JSON fields.
+
+    Supports a cheaper fallback pass (PUB-041) at a smaller dimension/detail level
+    when the primary pass fails or is too costly.
+    """
+
     def __init__(self, config: OpenAIConfig):
+        """Build the vision client and capture the resize/detail budget for each pass.
+
+        Retries are disabled on the SDK client because ``_ai_retry`` (tenacity) is
+        the only retry layer (#84). ``vision_max_completion_tokens`` defaults to
+        1024: too small a budget truncates the JSON object and fails the whole
+        analysis with ``json_decode_error`` (#138).
+        """
         self.client = AsyncOpenAI(
             api_key=config.api_key,
             timeout=httpx.Timeout(config.request_timeout_seconds, connect=5.0),
@@ -555,8 +569,9 @@ _INJECTION_MARKERS = (
 
 
 def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
-    """Sanitize a free-text field from the Vision model before re-interpolating it
-    into a caption prompt.
+    """Sanitize a free-text field from the Vision model.
+
+    Applied before re-interpolating the field into a caption prompt.
 
     Vision can faithfully transcribe attacker text embedded in image content
     (overlay text, file metadata visible in the frame, etc.). When that text
@@ -599,7 +614,6 @@ def build_analysis_context(analysis: ImageAnalysis, max_field_len: int = 240) ->
     clothing plus the distinctive_detail so captions stop converging on the
     tag list and mood word.
     """
-
     parts: list[str] = []
 
     # #138: caption-facing fields lead — the caption can only be as warm as its input.
@@ -839,7 +853,21 @@ def build_voice_examples_block(examples: list[str] | tuple[str, ...]) -> str:
 
 
 class CaptionGeneratorOpenAI:
+    """Caption generation against the OpenAI chat API, including the SD-caption variants.
+
+    Prompts come from the tenant config first; the static ``ai_prompts`` file only
+    fills in what the orchestrator omitted, so a tenant-specific prompt is never
+    overridden by an app default.
+    """
+
     def __init__(self, config: OpenAIConfig):
+        """Build the OpenAI client and resolve the prompt set this generator will use.
+
+        Retries are disabled on the SDK client because ``_ai_retry`` (tenacity) is
+        the only retry layer (#84). ``config`` supplies the API key, the caption
+        model, the timeout and the system/role prompts; the SD-caption prompts fall
+        back to the plain ones when unset.
+        """
         self.client = AsyncOpenAI(
             api_key=config.api_key,
             timeout=httpx.Timeout(config.request_timeout_seconds, connect=5.0),
@@ -939,6 +967,19 @@ class CaptionGeneratorOpenAI:
 
     @_ai_retry
     async def generate(self, analysis: ImageAnalysis, spec: CaptionSpec) -> tuple[str, AIUsage | None]:
+        """Generate one platform caption from an analysis, with its token usage.
+
+        On overshoot, short-limit platforms get an AI condense pass (PUB-046) and
+        longer ones are smart-truncated, which is logged as ``caption_truncated``.
+
+        Returns:
+            ``(caption, usage)``; ``usage`` is None when the response carried no
+            token accounting.
+
+        Raises:
+            AIServiceError: The model returned an empty caption, or any
+                underlying API error (wrapped) after the retry layer gave up.
+        """
         try:
             hashtags_clause = _build_inline_hashtags_clause(spec)
             short = _is_short_limit_value(spec.max_length)
@@ -996,7 +1037,8 @@ class CaptionGeneratorOpenAI:
     async def generate_with_sd(
         self, analysis: ImageAnalysis, spec: CaptionSpec
     ) -> tuple[dict[str, str], AIUsage | None]:
-        """
+        """Generate caption and SD caption in one call.
+
         Prefer a single-call generation that returns a JSON object:
         { "caption": str, "sd_caption": str }
         """
@@ -1363,12 +1405,28 @@ class CaptionGeneratorOpenAI:
 
 
 class AIService:
+    """Facade over vision analysis and caption generation, sharing one rate budget.
+
+    Every OpenAI call made through this service passes the same
+    ``AsyncRateLimiter``, including the generator's condense pass (PUB-046).
+    """
+
     def __init__(
         self,
         analyzer: VisionAnalyzerOpenAI,
         generator: CaptionGeneratorOpenAI,
         settings: RuntimeSettings | None = None,
     ):
+        """Wire the analyzer and generator together behind a shared rate limiter.
+
+        Args:
+            analyzer: Vision analyzer used for image analysis.
+            generator: Caption generator; its ``_rate_limiter`` is set to the
+                limiter built here so its condense pass cannot bypass the budget.
+            settings: Runtime settings, read once here when omitted (#143). The
+                rate falls back to the static ``service_limits.ai`` default when
+                ``ai_rate_per_minute`` is unset.
+        """
         self.analyzer = analyzer
         self.generator = generator
         limits = get_static_config().service_limits.ai
@@ -1398,8 +1456,7 @@ class AIService:
     async def create_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec
     ) -> tuple[str, str | None, list[AIUsage]]:
-        """
-        Create (caption, sd_caption, usages) when an ImageAnalysis is already available.
+        """Create (caption, sd_caption, usages) when an ImageAnalysis is already available.
 
         If SD caption generation is disabled or the single-call path fails,
         falls back to the legacy caption-only path and returns (caption, None, usages).
@@ -1618,8 +1675,7 @@ class _NullGenerator:
 
 
 class NullAIService:
-    """
-    Safe stub used when AI is disabled for a tenant.
+    """Safe stub used when AI is disabled for a tenant.
 
     WorkflowOrchestrator guards all AI usage behind config.features.analyze_caption_enabled;
     a mis-gated call fails loudly via _NullAnalyzer instead of an AttributeError.

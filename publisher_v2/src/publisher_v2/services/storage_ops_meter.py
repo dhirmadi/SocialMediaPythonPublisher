@@ -35,6 +35,13 @@ class StorageOpsMeter:
         tenant_id: str,
         storage: ManagedStorage,
     ) -> None:
+        """Bind the meter to one tenant's storage adapter and orchestrator client.
+
+        Args:
+            client: Orchestrator client used to POST usage events.
+            tenant_id: Tenant the drained ops counts are billed to.
+            storage: Managed storage instance whose op counter is drained on flush.
+        """
         self._client = client
         self._tenant_id = tenant_id
         self._storage = storage

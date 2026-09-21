@@ -1,3 +1,5 @@
+"""Frozen dataclasses for the publish pipeline: analysis, caption spec, results."""
+
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING
@@ -8,6 +10,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class AIUsage:
+    """Token accounting returned alongside one OpenAI response, used for metering."""
+
     response_id: str
     total_tokens: int
     prompt_tokens: int
@@ -16,6 +20,14 @@ class AIUsage:
 
 @dataclass(frozen=True, slots=True)
 class ImageAnalysis:
+    """Structured result of the vision pass over a single image.
+
+    Only ``description`` and ``mood`` are guaranteed; every other field is
+    optional so that older analyses (and cheaper models that omit detail) stay
+    loadable. The caption-facing fields (``sensory_detail``, ``mood_note``, #138)
+    feed the caption prompt only and are never written to SD/sidecar metadata.
+    """
+
     description: str
     mood: str
     tags: list[str] = field(default_factory=list)
@@ -44,6 +56,8 @@ class ImageAnalysis:
 
 @dataclass(frozen=True, slots=True)
 class CaptionSpec:
+    """Per-platform caption constraints resolved from the prompt registry and tenant config."""
+
     platform: str
     style: str
     hashtags: str
@@ -128,6 +142,12 @@ class CaptionSpec:
 
 @dataclass(frozen=True, slots=True)
 class PublishResult:
+    """Outcome of publishing one image to one platform.
+
+    ``post_id`` is set only on success; ``error`` carries the failure reason
+    otherwise.
+    """
+
     success: bool
     platform: str
     post_id: str | None = None
@@ -136,6 +156,13 @@ class PublishResult:
 
 @dataclass(frozen=True, slots=True)
 class WorkflowResult:
+    """Outcome of one end-to-end workflow run, including preview-only runs.
+
+    ``partial`` is True when some but not all enabled platforms published (#85).
+    The preview fields (``image_analysis``, ``caption_spec``) are populated when
+    the run stopped before publishing.
+    """
+
     success: bool
     image_name: str
     caption: str

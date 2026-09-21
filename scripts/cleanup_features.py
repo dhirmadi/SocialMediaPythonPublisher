@@ -1,3 +1,12 @@
+"""One-off cleanup pass over the migrated ``docs_v2/08_Epics`` tree.
+
+Follow-up to ``migrate_features.py``: relocates leftover per-feature summary
+and report files into ``stories/01_implementation/`` under canonical names, and
+gives every feature directory a non-empty ``stories/`` folder. Run from the
+repository root — ``BASE_DIR`` is a relative path. Historical and idempotent
+only in the sense that missing sources are skipped.
+"""
+
 import shutil
 from pathlib import Path
 
@@ -5,6 +14,16 @@ BASE_DIR = Path("docs_v2/08_Epics")
 
 
 def move_to_story(feature_dir, filename, new_name=None):
+    """Move a file from a feature directory into its implementation story folder.
+
+    Silently does nothing when the source is absent, so the script can be
+    re-run. The destination directory is created if needed.
+
+    Args:
+        feature_dir: Feature directory under ``BASE_DIR``.
+        filename: Name of the file inside ``feature_dir`` to move.
+        new_name: Destination name; defaults to ``filename``.
+    """
     src = feature_dir / filename
     if src.exists():
         dest_dir = feature_dir / "stories" / "01_implementation"
@@ -18,6 +37,7 @@ def move_to_story(feature_dir, filename, new_name=None):
 
 
 def main():
+    """Run the cleanup: relocate the known per-feature files, then backfill stories."""
     # 006
     move_to_story(
         BASE_DIR / "006_core_workflow_dedup_performance", "006_core-workflow-dedup-performance.md", "SUMMARY.md"

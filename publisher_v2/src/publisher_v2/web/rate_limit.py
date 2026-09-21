@@ -28,7 +28,23 @@ from publisher_v2.web.settings import get_runtime_settings
 
 
 class SlidingWindowLimiter:
+    """Allow at most ``max_events`` per key within a rolling ``window_seconds`` window.
+
+    Thread-safe; state lives in memory, so each worker process limits
+    independently.
+    """
+
     def __init__(self, *, window_seconds: float, max_events: int, label: str = "rate_limited") -> None:
+        """Configure the window, the per-key budget and the label used in 429 details.
+
+        Args:
+            window_seconds: Length of the rolling window; must be > 0.
+            max_events: Events allowed per key inside the window; must be > 0.
+            label: Identifies this limiter in the 429 ``detail`` text.
+
+        Raises:
+            ValueError: ``window_seconds`` or ``max_events`` is not positive.
+        """
         if window_seconds <= 0:
             raise ValueError("window_seconds must be > 0")
         if max_events <= 0:

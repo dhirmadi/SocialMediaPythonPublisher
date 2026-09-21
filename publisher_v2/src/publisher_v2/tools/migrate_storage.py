@@ -47,6 +47,10 @@ class MigrationResult:
 
     @property
     def exit_code(self) -> int:
+        """Return the process exit status: 1 if any file errored, else 0.
+
+        Skipped files (already present at the target) are not failures.
+        """
         return 1 if self.errors > 0 else 0
 
 

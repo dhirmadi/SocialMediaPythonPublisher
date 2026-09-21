@@ -1,11 +1,22 @@
+"""Pydantic models for the orchestrator runtime-config payload.
+
+These mirror the control plane's ``GET /v1/runtime/by-host`` response (schema
+v2; see ``docs/02_Architecture/publisher-v2-service-api.md`` in the orchestrator
+repo). Every model allows extra fields so a newer orchestrator can add keys
+without breaking a deployed instance — the orchestrator owns the contract.
+
+The payload is non-secret: secret material is referenced by opaque
+``*_ref`` / ``credentials_ref`` strings that are resolved separately through
+``POST /v1/credentials/resolve``.
+"""
+
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class OrchestratorAuth(BaseModel):
-    """
-    Tenant-scoped auth/authorization metadata delivered in schema v2 runtime config.
+    """Tenant-scoped auth/authorization metadata delivered in schema v2 runtime config.
 
     Notes:
     - No secrets should ever be included here (no Auth0 client_secret).
@@ -23,6 +34,13 @@ class OrchestratorAuth(BaseModel):
 
 
 class OrchestratorFeatures(BaseModel):
+    """Per-tenant feature flags gating publish, analyze and curation actions.
+
+    ``voice_matching_enabled`` is deliberately tri-state: ``None`` means the
+    tenant never set it, and Publisher then derives it from
+    ``content.voice_profile`` (see ``feature_kwargs``).
+    """
+
     model_config = ConfigDict(extra="allow")
 
     publish_enabled: bool = False
@@ -39,6 +57,13 @@ class OrchestratorFeatures(BaseModel):
 
 
 class OrchestratorStoragePaths(BaseModel):
+    """Folder layout inside the tenant's storage.
+
+    ``root`` is the source folder images are drawn from. The optional
+    ``archive``/``keep``/``remove`` destinations fall back to Publisher defaults
+    when the orchestrator does not pin them.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     root: str
@@ -48,6 +73,8 @@ class OrchestratorStoragePaths(BaseModel):
 
 
 class OrchestratorStorage(BaseModel):
+    """Storage backend selection: provider, secret reference and folder paths."""
+
     model_config = ConfigDict(extra="allow")
 
     provider: str
@@ -56,6 +83,13 @@ class OrchestratorStorage(BaseModel):
 
 
 class OrchestratorPublisher(BaseModel):
+    """One configured publish target.
+
+    ``type`` selects the Publisher implementation (telegram, instagram, email)
+    while ``id`` names this instance of it, so a tenant can configure several of
+    the same type. ``config`` holds the non-secret, type-specific settings.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     id: str
@@ -66,6 +100,12 @@ class OrchestratorPublisher(BaseModel):
 
 
 class OrchestratorEmailServer(BaseModel):
+    """SMTP transport settings for the email publisher.
+
+    Non-secret only: ``password_ref`` is an opaque credential reference, never
+    the password itself.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     host: str
@@ -77,6 +117,14 @@ class OrchestratorEmailServer(BaseModel):
 
 
 class OrchestratorAI(BaseModel):
+    """Model selection and prompt overrides for vision and caption generation.
+
+    Every field is optional; ``None`` means "keep the Publisher default" rather
+    than "disable". The ``vision_*`` fields (PUB-041) tune cost by capping the
+    uploaded image dimension and the requested detail level, with an optional
+    cheaper fallback pass.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     credentials_ref: str | None = None
@@ -100,6 +148,8 @@ class OrchestratorAI(BaseModel):
 
 
 class OrchestratorCaptionFile(BaseModel):
+    """Sidecar/caption-file options: extended metadata and the artist alias to stamp."""
+
     model_config = ConfigDict(extra="allow")
 
     extended_metadata_enabled: bool | None = None
@@ -107,6 +157,8 @@ class OrchestratorCaptionFile(BaseModel):
 
 
 class OrchestratorConfirmation(BaseModel):
+    """Settings for the confirmation email sent back after a publish."""
+
     model_config = ConfigDict(extra="allow")
 
     confirmation_to_sender: bool | None = None
@@ -115,6 +167,12 @@ class OrchestratorConfirmation(BaseModel):
 
 
 class OrchestratorContent(BaseModel):
+    """Content-shaping settings: hashtags, archiving, debug output and voice profile.
+
+    ``voice_profile`` doubles as the implicit switch for voice matching when
+    ``features.voice_matching_enabled`` is unset.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     hashtag_string: str | None = None
@@ -124,6 +182,12 @@ class OrchestratorContent(BaseModel):
 
 
 class OrchestratorConfigV1(BaseModel):
+    """Schema v1 runtime config: features and storage only.
+
+    Retained as the base class of ``OrchestratorConfigV2``; v1 payloads
+    themselves are no longer accepted (#97 stage 4).
+    """
+
     model_config = ConfigDict(extra="allow")
 
     features: OrchestratorFeatures
@@ -131,6 +195,12 @@ class OrchestratorConfigV1(BaseModel):
 
 
 class OrchestratorConfigV2(OrchestratorConfigV1):
+    """Schema v2 runtime config: the v1 core plus auth, publishers, AI and content.
+
+    Every block added over v1 is optional, so a tenant that configures nothing
+    falls back to Publisher defaults.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     auth: OrchestratorAuth | None = None
@@ -143,6 +213,13 @@ class OrchestratorConfigV2(OrchestratorConfigV1):
 
 
 class OrchestratorRuntimeResponse(BaseModel):
+    """Envelope returned by ``GET /v1/runtime/by-host``.
+
+    ``schema_version`` selects which config model ``config`` parses as.
+    ``config_version`` identifies the revision, for cache invalidation, and
+    ``ttl_seconds`` is how long the caller may serve this payload from cache.
+    """
+
     model_config = ConfigDict(extra="allow")
 
     schema_version: int = 1
@@ -154,7 +231,7 @@ class OrchestratorRuntimeResponse(BaseModel):
 
 
 def feature_kwargs(features: OrchestratorFeatures) -> dict[str, Any]:
-    """FeaturesConfig kwargs for an orchestrator features block.
+    """Return FeaturesConfig kwargs for an orchestrator features block.
 
     #131: `voice_matching_enabled` counts as explicit only when the
     orchestrator sent a bool. Absent or null drops the key entirely, which

@@ -38,6 +38,7 @@ class CaptionHistory(Base):
     __table_args__ = (Index("ix_pv2_caption_history_lookup", "tenant", "platform", created_at.desc()),)
 
     def __repr__(self) -> str:
+        """Return a debug representation with the caption's length, not its text."""
         return (
             f"<CaptionHistory(id={self.id}, tenant={self.tenant!r}, "
             f"platform={self.platform!r}, len={len(self.caption_text)})>"
@@ -71,6 +72,7 @@ class PublishRecord(Base):
     )
 
     def __repr__(self) -> str:
+        """Return a debug representation keyed on tenant, hash prefix and platform."""
         return (
             f"<PublishRecord(tenant={self.tenant!r}, hash={self.content_hash[:12]!r}, "
             f"platform={self.platform!r}, status={self.status!r})>"
@@ -89,4 +91,5 @@ class InstagramSession(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     def __repr__(self) -> str:
+        """Return a debug representation; the encrypted session blob is never shown."""
         return f"<InstagramSession(tenant={self.tenant!r}, blocked_until={self.blocked_until})>"

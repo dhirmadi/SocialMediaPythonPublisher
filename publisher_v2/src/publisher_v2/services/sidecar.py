@@ -1,3 +1,13 @@
+"""Caption sidecar generation and updates in storage.
+
+A sidecar is the ``.txt`` file written beside each image; it carries the SD
+prompt, the per-platform captions and the provenance metadata (image identity,
+model version, Dropbox file id/rev) that caption history and later web Analyze
+calls read back. Both entry points return their duration in milliseconds and
+report failures through structured logs rather than raising, so a sidecar
+problem never aborts a publish.
+"""
+
 import json
 import logging
 from datetime import UTC, datetime
@@ -31,8 +41,7 @@ async def generate_and_upload_sidecar(
     caption_edited: bool = False,
     platform_captions: dict[str, str] | None = None,
 ) -> float:
-    """
-    Generate and upload a caption sidecar file.
+    """Generate and upload a caption sidecar file.
 
     ``platform_captions`` (#80): the per-platform social captions generated in
     this run; persisted as a ``caption_generated`` JSON dict so later web
@@ -123,8 +132,7 @@ async def update_sidecar_with_caption(
     correlation_id: str | None = None,
     published_platform_captions: dict[str, str] | None = None,
 ) -> float:
-    """
-    Update an existing sidecar with the published caption.
+    """Update an existing sidecar with the published caption.
 
     PUB-035: When a caption override is used, the published caption must be
     recorded in the sidecar so caption history works correctly.

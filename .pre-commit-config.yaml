@@ -67,8 +67,9 @@ repos:
         args: ['--convention=google']
         # Anchored at the repo root, so "^tests/" never matched publisher_v2/tests/
         # and the suite was being docstring-checked. Alembic revisions are
-        # generated files.
-        exclude: ^(publisher_v2/tests/|publisher_v2/alembic/|tests/|docs/)
+        # generated files, and code_v1/docs_v1 are the archived V1 tree that
+        # CLAUDE.md forbids editing — ruff already excludes them in pyproject.
+        exclude: ^(publisher_v2/tests/|publisher_v2/alembic/|tests/|docs/|code_v1/|docs_v1/)
 
 # Exclude patterns
 exclude: |

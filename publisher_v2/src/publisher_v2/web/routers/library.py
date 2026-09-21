@@ -134,12 +134,24 @@ _DELETE_RATE_LIMIT_MAX = 20  # deletes per window (higher: deletes are lighter)
 
 
 class LibraryObject(BaseModel):
+    """One listed image: bare filename (not the full object key), byte size, modified timestamp."""
+
     key: str
     size: int
     last_modified: str
 
 
 class LibraryListResponse(BaseModel):
+    """One page of the library grid.
+
+    ``cursor`` is only populated on the legacy storage-cursor path; the
+    buffered path (filter/sort/offset/anchor) paginates in memory and leaves it
+    None. ``total_in_window`` and ``truncated`` describe the scanned window,
+    not the whole bucket: ``truncated`` True means the scan budget was hit, so
+    the count is a lower bound. ``anchor_offset`` is set only when an
+    ``anchor_key`` was found, and carries the offset of the page holding it.
+    """
+
     objects: list[LibraryObject]
     cursor: str | None = None
     total_in_window: int = 0
@@ -148,20 +160,28 @@ class LibraryListResponse(BaseModel):
 
 
 class LibraryUploadResponse(BaseModel):
+    """Result of an upload: the stored filename (possibly sanitized) and the bytes written."""
+
     key: str
     size: int
 
 
 class LibraryDeleteResponse(BaseModel):
+    """Result of a delete: the filename removed, and whether a .txt sidecar went with it."""
+
     deleted: str
     sidecar_deleted: bool
 
 
 class LibraryMoveRequest(BaseModel):
+    """Move request body; ``target_folder`` must be one of VALID_TARGET_FOLDERS."""
+
     target_folder: str
 
 
 class LibraryMoveResponse(BaseModel):
+    """Result of a move: the filename moved and the folder it now lives in."""
+
     moved: str
     destination: str
 

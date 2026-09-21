@@ -1,3 +1,14 @@
+"""Exception hierarchy for the publisher.
+
+Everything raised deliberately by the application derives from
+``SocialMediaPublisherError``, so a caller can catch that one type at the
+boundary. Sub-hierarchies group failures by subsystem (config, storage, AI,
+publishing) and the leaf types carry the retry semantics: a
+``StorageAuthError`` or ``UsageMeteringError`` must not be retried, while
+``OrchestratorUnavailableError`` may be.
+"""
+
+
 class SocialMediaPublisherError(Exception):
     """Base exception for the application."""
 

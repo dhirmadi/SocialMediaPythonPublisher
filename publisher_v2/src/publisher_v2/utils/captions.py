@@ -1,3 +1,5 @@
+"""Caption formatting, tag normalization and the image sidecar writer."""
+
 import json
 import re
 from typing import Any
@@ -32,9 +34,11 @@ def normalize_generated_hashtags(text: str, max_count: int = 30) -> str:
 
 
 def normalize_tags(raw: list[str], max_count: int) -> list[str]:
-    """
-    Clean and deduplicate tag strings: strip whitespace, lowercase,
-    remove leading '#', collapse non-alphanum chars, and limit count.
+    """Clean and deduplicate tag strings.
+
+    Strip whitespace, lowercase, remove leading '#', collapse non-alphanum
+    chars, and limit count. Order of first appearance is preserved and a
+    negative ``max_count`` yields an empty list.
     """
     cleaned: list[str] = []
     for t in raw:
@@ -81,8 +85,10 @@ def _limit_instagram_hashtags(text: str, max_hashtags: int) -> str:
 
 
 def _sanitize_for_fetlife(text: str) -> str:
-    """
-    Normalize punctuation and unicode that FetLife may strip, to preserve spacing and readability.
+    """Normalize punctuation and unicode that FetLife may strip.
+
+    Preserves spacing and readability on the FetLife email path.
+
     Examples:
       - em/en dashes → ' - ' so 'trust—what' becomes 'trust - what'
       - smart quotes → ASCII quotes
@@ -103,6 +109,20 @@ def _sanitize_for_fetlife(text: str) -> str:
 
 
 def format_caption(platform: str, caption: str, smart_hashtags: bool = False) -> str:
+    """Apply the platform's caption rules and return the text ready to publish.
+
+    Instagram caps the hashtag count; email (the FetLife path) strips hashtags
+    entirely and normalizes punctuation; Telegram is left as-is. Any unknown
+    platform falls back to the generic limits. The result is trimmed to the
+    platform maximum, with an ellipsis added and whole trailing hashtags kept
+    where possible.
+
+    Args:
+        platform: Platform name, matched case-insensitively.
+        caption: Raw caption text.
+        smart_hashtags: Normalize AI-generated hashtags first (PUB-028); a
+            no-op for email, which strips hashtags anyway.
+    """
     p = platform.lower()
     static_limits = get_static_config().platform_limits
     if p == "instagram":
@@ -143,9 +163,7 @@ def build_metadata_phase1(
     dropbox_rev: str | None,
     artist_alias: str | None = None,
 ) -> dict[str, Any]:
-    """
-    Build Phase 1 identity/version metadata. Omit missing fields.
-    """
+    """Build Phase 1 identity/version metadata. Omit missing fields."""
     meta: dict[str, Any] = {}
     if image_file:
         meta["image_file"] = image_file
@@ -171,9 +189,7 @@ def build_metadata_phase1(
 
 
 def build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, Any]:
-    """
-    Build Phase 2 contextual metadata from analysis. Omit missing/empty fields.
-    """
+    """Build Phase 2 contextual metadata from analysis. Omit missing/empty fields."""
     meta: dict[str, Any] = {}
     # Core contextual fields
     if getattr(analysis, "subject", None):
@@ -232,8 +248,8 @@ def _escape_line_breaks(rendered: str) -> str:
 
 
 def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
-    """
-    Compose the sidecar file content:
+    r"""Compose the sidecar file content.
+
     - First line: sd_caption
     - Blank line
     - '# ---'
@@ -243,7 +259,7 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
       format is one line per key, so an unencoded multi-line value loses
       everything after its first line, and "spans lines" means any character
       `str.splitlines()` splits on, not just `\n`. The marker is explicit
-      because a quoted value is otherwise ambiguous: `"Type \\n for a newline"`
+      because a quoted value is otherwise ambiguous: `"Type \n for a newline"`
       is a valid single-line caption that decodes exactly like a two-line one.
       A string that merely starts with the marker is encoded too, so the
       format is total. Every other single-line string is written bare, so

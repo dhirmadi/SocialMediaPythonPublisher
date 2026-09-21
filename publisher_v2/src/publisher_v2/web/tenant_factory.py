@@ -1,3 +1,10 @@
+"""Per-tenant cache of WebImageService instances for the multi-tenant web app.
+
+One service per tenant is reused across requests so that each request does not
+rebuild OpenAI/boto3 clients, while config_version checks, a TTL and LRU
+eviction keep a tenant from being served stale configuration.
+"""
+
 import contextlib
 import time
 from collections import OrderedDict
@@ -18,14 +25,15 @@ async def _close_service(service: WebImageService) -> None:
 
 @dataclass(frozen=True, slots=True)
 class _Entry:
+    """One cached service with its expiry timestamp and the config version it was built from."""
+
     service: WebImageService
     expires_at: float
     config_version: str | None
 
 
 class TenantServiceFactory:
-    """
-    Cache tenant-scoped WebImageService instances.
+    """Cache tenant-scoped WebImageService instances.
 
     - Keyed by tenant with config_version-aware invalidation
     - LRU eviction + TTL
@@ -34,6 +42,12 @@ class TenantServiceFactory:
     def __init__(
         self, *, max_size: int = 1000, ttl_seconds: int = 600, settings: RuntimeSettings | None = None
     ) -> None:
+        """Create an empty factory bounded by ``max_size`` tenants and ``ttl_seconds``.
+
+        Both are coerced to at least 1. ``settings`` is the already-parsed
+        runtime settings handed to every service built here, so a cache miss
+        during a request does not re-parse the environment (#143).
+        """
         self._max_size = max(1, int(max_size))
         self._ttl_seconds = max(1, int(ttl_seconds))
         # #143: carried so a cache miss during a request does not re-parse the env.
@@ -41,11 +55,21 @@ class TenantServiceFactory:
         self._data: OrderedDict[str, _Entry] = OrderedDict()
 
     def _effective_ttl(self, runtime: RuntimeConfig) -> int:
+        """Return the shorter of the factory TTL and the tenant's own ttl_seconds."""
         if runtime.ttl_seconds is None:
             return self._ttl_seconds
         return min(self._ttl_seconds, int(runtime.ttl_seconds))
 
     async def get_service(self, source: ConfigSource, runtime: RuntimeConfig) -> WebImageService:
+        """Return the cached service for this tenant, rebuilding it when it is stale.
+
+        A cached entry is reused only while its ``config_version`` still matches
+        ``runtime`` and its TTL has not passed; otherwise the old service is
+        closed (releasing its meter task and clients) before a replacement is
+        built. Creating an entry may evict the least-recently-used tenants,
+        which are closed too. Must be awaited from the request path only — it is
+        not safe against concurrent creation for the same tenant.
+        """
         tenant = runtime.tenant or "default"
         now = time.time()
 

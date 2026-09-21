@@ -1,3 +1,15 @@
+"""One-off migration of ``docs_v2/08_Epics`` into per-feature directories.
+
+Rewrites the old phase-based layout (``08_01_Feature_Request``,
+``08_02_Feature_Design``, the plan directories including the ``08_03_Feature_plam``
+typo, ``08_04_ChangeRequests``) into one ``NNN_snake_case_name/`` directory per
+feature in ``FEATURES``, each holding ``README.md``, ``DESIGN.md``,
+``stories/`` and ``change_requests/``.
+
+Destructive: it moves files and removes the emptied source directories. Run
+from the repository root, on a clean working tree.
+"""
+
 import shutil
 from pathlib import Path
 
@@ -29,15 +41,22 @@ FEATURES = {
 
 
 def normalize_name(name):
+    """Return ``name`` as lowercase snake_case, folding hyphens and spaces."""
     return name.replace("-", "_").replace(" ", "_").lower()
 
 
 def ensure_dir(path):
+    """Create ``path`` and any missing parents unless it already exists."""
     if not path.exists():
         path.mkdir(parents=True)
 
 
 def move_file(src, dst):
+    """Move ``src`` to ``dst``, creating the destination's parent directory.
+
+    A missing source is reported on stdout and skipped rather than raising, so
+    features with no design or plan file do not abort the migration.
+    """
     if src.exists():
         print(f"Moving {src} to {dst}")
         ensure_dir(dst.parent)
@@ -47,6 +66,13 @@ def move_file(src, dst):
 
 
 def main():
+    """Migrate every feature in ``FEATURES``, then sweep leftover root files.
+
+    Walks each feature in turn — create the directories, move request, design
+    and plan documents into place, relocate change requests — then moves any
+    remaining ID-prefixed file at the root of ``BASE_DIR`` into its feature
+    directory and applies the hardcoded 005 fix-up.
+    """
     # 1. Create Feature Dirs
     for fid, fname in FEATURES.items():
         feature_dir = BASE_DIR / f"{fid}_{fname}"

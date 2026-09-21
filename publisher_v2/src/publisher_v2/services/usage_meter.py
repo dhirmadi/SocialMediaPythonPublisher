@@ -32,6 +32,12 @@ class UsageMeter:
     """
 
     def __init__(self, client: OrchestratorClient, tenant_id: str) -> None:
+        """Bind the meter to one orchestrator client and the tenant that is billed.
+
+        The bounded queue (``_QUEUE_MAX`` events) and the background drainer are
+        created lazily on first ``emit``, so constructing a meter outside a
+        running event loop is safe.
+        """
         self._client = client
         self._tenant_id = tenant_id
         self._logger = logging.getLogger("publisher_v2.metering")

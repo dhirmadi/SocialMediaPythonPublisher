@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Heroku + Hetzner DNS automation script for Social Media Publisher.
+"""Heroku + Hetzner DNS automation script for Social Media Publisher.
 
 This tool clones a reference Heroku app (default: fetlife-prod), updates the
 FETLIFE_INI config var's [Dropbox].image_folder for the new app, attaches a
@@ -54,8 +53,7 @@ def append_server_record(
     heroku_url: str,
     subdomain_url: str,
 ) -> None:
-    """
-    Append a single server record line to scripts/servers.txt.
+    """Append a single server record line to scripts/servers.txt.
 
     Format:
       <name>,<folder>,<heroku_url>,<subdomain_url>,<created_at_utc>
@@ -68,8 +66,7 @@ def append_server_record(
 
 
 def _parse_app_name_from_heroku_url(heroku_url: str) -> str | None:
-    """
-    Extract the Heroku app name from a standard Heroku URL.
+    """Extract the Heroku app name from a standard Heroku URL.
 
     Expected formats:
       - https://<app-name>.herokuapp.com
@@ -93,11 +90,12 @@ def _delete_server_by_name(
     heroku: HerokuClient,
     hetzner: HetznerDNSClient,
 ) -> int:
-    """
-    Delete a server by name:
-      - Remove matching records from scripts/servers.txt
-      - Delete the corresponding Heroku app(s)
-      - Delete the corresponding Hetzner DNS CNAME record(s)
+    """Delete a server by name, returning a process exit code.
+
+    Destructive and not reversible:
+    - Remove matching records from scripts/servers.txt
+    - Delete the corresponding Heroku app(s)
+    - Delete the corresponding Hetzner DNS CNAME record(s)
     """
     path = Path(__file__).resolve().parent / "servers.txt"
     if not path.exists():
@@ -185,9 +183,10 @@ def _delete_server_by_name(
 
 
 def normalize_heroku_app_name(name: str) -> str:
-    """
-    Derive a Heroku app name for a logical instance name using the fixed
-    pattern: fetlife-prod-<name>.
+    """Derive a Heroku app name for a logical instance name.
+
+    Uses the fixed pattern: fetlife-prod-<name>. The result is truncated to 30
+    characters, so two long instance names can collide.
 
     Heroku app names:
     - Must be lowercase.
@@ -204,8 +203,7 @@ def normalize_heroku_app_name(name: str) -> str:
 
 
 def validate_subdomain_label(label: str) -> None:
-    """
-    Validate that a subdomain label is DNS-safe.
+    """Validate that a subdomain label is DNS-safe.
 
     Accepts:
     - a–z, A–Z, 0–9, and '-'
@@ -220,8 +218,7 @@ def validate_subdomain_label(label: str) -> None:
 
 
 def update_image_folder(ini_text: str, new_folder: str) -> str:
-    """
-    Update the [Dropbox].image_folder value in an INI string.
+    """Update the [Dropbox].image_folder value in an INI string.
 
     Raises ValueError if the [Dropbox] section or image_folder key is missing
     or if the result cannot be parsed back into a valid INI.
@@ -254,11 +251,22 @@ def update_image_folder(ini_text: str, new_folder: str) -> str:
 
 @dataclass
 class HerokuClient:
+    """Minimal Heroku Platform API client backed by a pre-authenticated session.
+
+    Every method raises ``HerokuError`` on a 4xx/5xx response rather than
+    returning it. Build one with ``from_env``.
+    """
+
     api_token: str
     session: requests.Session
 
     @classmethod
     def from_env(cls) -> HerokuClient:
+        """Build a client from ``HEROKU_API_TOKEN``, with the API headers preset.
+
+        Raises:
+            HerokuError: The environment variable is unset or empty.
+        """
         token = os.environ.get("HEROKU_API_TOKEN")
         if not token:
             raise HerokuError("HEROKU_API_TOKEN environment variable is required.")
@@ -327,9 +335,10 @@ class HerokuClient:
         target_app: str,
         pipeline_id: str,
     ) -> dict[str, Any]:
-        """
-        Promote the current release (slug) from source_app to target_app
-        using the Heroku pipelines promotion API.
+        """Promote the current release (slug) from source_app to target_app.
+
+        Uses the Heroku pipelines promotion API; both apps must already belong
+        to ``pipeline_id``. Returns the promotion object.
         """
         source_info = self.get_app(source_app)
         target_info = self.get_app(target_app)
@@ -357,6 +366,10 @@ class HerokuClient:
         return result
 
     def get_config_vars(self, app_name: str) -> dict[str, str]:
+        """Return the app's config vars as a name-to-value mapping.
+
+        The values are live secrets: do not print or log the result.
+        """
         url = f"{HEROKU_API_BASE}/apps/{app_name}/config-vars"
         resp = self.session.get(url, timeout=30)
         if resp.status_code >= 400:
@@ -366,6 +379,10 @@ class HerokuClient:
         return result
 
     def set_config_vars(self, app_name: str, config: dict[str, str]) -> None:
+        """Patch the app's config vars, leaving names not present in ``config`` untouched.
+
+        Setting a name to an empty value removes it, per the Heroku API.
+        """
         url = f"{HEROKU_API_BASE}/apps/{app_name}/config-vars"
         resp = self.session.patch(url, json=config, timeout=30)
         if resp.status_code >= 400:
@@ -382,8 +399,7 @@ class HerokuClient:
         return result
 
     def create_domain(self, app_name: str, hostname: str) -> dict[str, Any]:
-        """
-        Create a custom domain for the app.
+        """Create a custom domain for the app.
 
         As of November 2021, the Heroku Domains API requires the
         `sni_endpoint` parameter. For apps with Automated Certificate
@@ -414,11 +430,22 @@ class HerokuClient:
 
 @dataclass
 class HetznerDNSClient:
+    """Minimal Hetzner DNS API client backed by a pre-authenticated session.
+
+    Every method raises ``HetznerDNSError`` on a 4xx/5xx response. Build one
+    with ``from_env``.
+    """
+
     api_token: str
     session: requests.Session
 
     @classmethod
     def from_env(cls) -> HetznerDNSClient:
+        """Build a client from ``HETZNER_DNS_API_TOKEN``, with the auth header preset.
+
+        Raises:
+            HetznerDNSError: The environment variable is unset or empty.
+        """
         token = os.environ.get("HETZNER_DNS_API_TOKEN")
         if not token:
             raise HetznerDNSError("HETZNER_DNS_API_TOKEN environment variable is required.")
@@ -432,6 +459,11 @@ class HetznerDNSClient:
         return cls(api_token=token, session=session)
 
     def get_zone_by_name(self, name: str) -> dict[str, Any]:
+        """Return the first DNS zone matching ``name``.
+
+        Raises:
+            HetznerDNSError: No zone matches, or the API call failed.
+        """
         url = f"{HETZNER_API_BASE}/zones"
         resp = self.session.get(url, params={"name": name}, timeout=30)
         if resp.status_code >= 400:
@@ -444,6 +476,7 @@ class HetznerDNSClient:
         return result
 
     def find_record(self, *, zone_id: str, name: str, rtype: str = "CNAME") -> dict[str, Any] | None:
+        """Return the first record of type ``rtype`` named ``name``, or None if there is none."""
         url = f"{HETZNER_API_BASE}/records"
         resp = self.session.get(url, params={"zone_id": zone_id, "name": name, "type": rtype}, timeout=30)
         if resp.status_code >= 400:
@@ -453,6 +486,10 @@ class HetznerDNSClient:
         return records[0] if records else None
 
     def create_record(self, *, zone_id: str, name: str, target: str, ttl: int = 300) -> dict[str, Any]:
+        """Create a CNAME record ``name`` -> ``target`` in the zone and return it.
+
+        Does not check for an existing record; use ``ensure_cname`` for that.
+        """
         url = f"{HETZNER_API_BASE}/records"
         payload = {
             "value": target,
@@ -470,6 +507,11 @@ class HetznerDNSClient:
         return result
 
     def update_record(self, record_id: str, *, name: str, target: str, ttl: int = 300) -> dict[str, Any]:
+        """Overwrite the record with ``record_id`` as a CNAME ``name`` -> ``target``.
+
+        This is a full replacement, so every field must be supplied; the record
+        type becomes CNAME whatever it was before.
+        """
         url = f"{HETZNER_API_BASE}/records/{record_id}"
         payload = {
             "value": target,
@@ -486,6 +528,11 @@ class HetznerDNSClient:
         return result
 
     def ensure_cname(self, *, zone_id: str, name: str, target: str, overwrite: bool = True) -> dict[str, Any]:
+        """Create the CNAME, or update the existing one, and return the record.
+
+        Idempotent. With ``overwrite=False`` an existing record is returned
+        untouched even when it points somewhere else.
+        """
         existing = self.find_record(zone_id=zone_id, name=name, rtype="CNAME")
         if existing:
             if not overwrite:
@@ -503,6 +550,11 @@ class HetznerDNSClient:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the CLI arguments, defaulting to ``sys.argv`` when ``argv`` is None.
+
+    Note that ``--folder`` is only enforced by ``main`` (for a non-dry-run
+    create), not by the parser.
+    """
     parser = argparse.ArgumentParser(
         description=(
             "Clone a Heroku app (default fetlife-prod), update FETLIFE_INI image_folder, "
@@ -560,6 +612,12 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Run the clone or delete flow and return a process exit code.
+
+    Returns 0 on success and 1 on a usage or API error, which is written to
+    stderr rather than raised. With ``--dry-run`` the planned operations are
+    printed and no external API is called.
+    """
     args = parse_args(argv)
 
     try:

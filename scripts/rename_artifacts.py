@@ -1,9 +1,21 @@
+"""One-off maintenance script that flattens epic artifact filenames.
+
+Walks ``docs_v2/08_Epics`` and renames the generic per-feature/per-story artifacts
+(FEATURE_REQUEST.md, DESIGN.md, STORY.md, plan.yaml, SUMMARY.md) to ID-prefixed names,
+so files stay distinguishable when searched or listed across features. Renames in place
+and skips any target that already exists.
+"""
+
 from pathlib import Path
 
 BASE_DIR = Path("docs_v2/08_Epics")
 
 
 def rename_artifact(path, new_name):
+    """Rename ``path`` to ``new_name`` in its own directory.
+
+    Does nothing if the source is missing or the target name is already taken.
+    """
     if not path.exists():
         return
 
@@ -17,6 +29,10 @@ def rename_artifact(path, new_name):
 
 
 def process_story(feature_id, story_dir):
+    """Rename one story directory's artifacts to ``<feature_id>_<story_id>_*`` names.
+
+    Skips directories whose name is not in ``<story_id>_<name>`` form.
+    """
     # Story format: bb_storyname
     parts = story_dir.name.split("_", 1)
     if len(parts) < 2:
@@ -43,6 +59,10 @@ def process_story(feature_id, story_dir):
 
 
 def process_feature(feature_dir):
+    """Rename a feature directory's root artifacts, then recurse into its stories.
+
+    Skips directories whose name does not start with a numeric feature ID.
+    """
     # Feature format: aaa_name
     parts = feature_dir.name.split("_", 1)
     if not parts[0].isdigit():
@@ -67,6 +87,7 @@ def process_feature(feature_dir):
 
 
 def main():
+    """Process every feature directory under BASE_DIR, reporting if it is missing."""
     if not BASE_DIR.exists():
         print(f"Directory {BASE_DIR} does not exist.")
         return
