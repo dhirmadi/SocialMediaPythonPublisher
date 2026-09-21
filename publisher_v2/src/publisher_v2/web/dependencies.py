@@ -1,3 +1,10 @@
+"""FastAPI dependency providers for the admin UI.
+
+Resolves the ``WebImageService`` for a request: the per-tenant instance the
+tenant middleware attaches in orchestrator mode, or a process-wide singleton in
+standalone mode.
+"""
+
 from functools import lru_cache
 
 from fastapi import Request
@@ -7,8 +14,7 @@ from publisher_v2.web.service import WebImageService
 
 @lru_cache(maxsize=1)
 def get_service() -> WebImageService:
-    """
-    Backward-compatible standalone singleton.
+    """Backward-compatible standalone singleton.
 
     Many tests override this dependency or call get_service.cache_clear().
     """
@@ -16,8 +22,7 @@ def get_service() -> WebImageService:
 
 
 def get_request_service(request: Request) -> WebImageService:
-    """
-    Request-scoped dependency for WebImageService.
+    """Request-scoped dependency for WebImageService.
 
     - In orchestrator mode, tenant_middleware attaches request.state.web_service.
     - Otherwise, fall back to the standalone singleton get_service().

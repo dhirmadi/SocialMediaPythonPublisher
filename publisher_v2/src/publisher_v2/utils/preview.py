@@ -1,6 +1,7 @@
-"""
-Preview mode utilities for human-readable output.
-Displays what will be published without taking any actions.
+"""Preview mode utilities for human-readable output.
+
+Displays what will be published without taking any actions. Everything in this module
+only writes to stdout: nothing here publishes, archives, or mutates cache/state.
 """
 
 from publisher_v2.config.static_loader import get_static_config
@@ -10,7 +11,7 @@ from publisher_v2.utils.captions import build_caption_sidecar
 
 
 def print_preview_header() -> None:
-    """Print beautiful header for preview mode"""
+    """Print the banner that opens a preview run."""
     cfg = get_static_config().preview_text
     print("\n" + "═" * 70)
     title = cfg.headers.get("preview_mode", "PUBLISHER V2 - PREVIEW MODE")
@@ -26,7 +27,7 @@ def print_image_details(
     is_new: bool,
     already_posted: bool = False,
 ) -> None:
-    """Print image selection details"""
+    """Print the selected image, its hash and Dropbox URL, and whether it was posted before."""
     print("\n📸 IMAGE SELECTED")
     print("─" * 70)
     print(f"  File:        {filename}")
@@ -43,7 +44,7 @@ def print_image_details(
 
 
 def print_vision_analysis(analysis: ImageAnalysis | None, model: str, feature_enabled: bool = True) -> None:
-    """Print vision analysis results"""
+    """Print the vision analysis, or a note when it was skipped or unavailable."""
     cfg = get_static_config().preview_text
     header = cfg.headers.get("vision_analysis", "🔍 AI VISION ANALYSIS")
     print(f"\n{header} ({model})")
@@ -130,7 +131,7 @@ def print_caption(
     hashtag_count: int,
     feature_enabled: bool = True,
 ) -> None:
-    """Print generated caption"""
+    """Print the generated caption plus the spec and hashtag count it was built against."""
     cfg = get_static_config().preview_text
     header = cfg.headers.get("caption_generation", "✍️  AI CAPTION GENERATION")
     print(f"\n{header} ({model})")
@@ -166,7 +167,7 @@ def print_platform_preview(
     email_subject_mode: str | None = None,
     publish_enabled: bool = True,
 ) -> None:
-    """Print which platforms will receive what"""
+    """Print, per configured publisher, the exact caption that would be sent."""
     cfg = get_static_config().preview_text
     header = cfg.headers.get("publishing_preview", "📤 PUBLISHING PREVIEW")
     print(f"\n{header}")
@@ -232,7 +233,7 @@ def print_email_confirmation_preview(
     confirmation_recipients: list[str] | None = None,
     confirmation_fallback_email: str = "",
 ) -> None:
-    """Show what confirmation email settings will do"""
+    """Print the confirmation-email plan, or nothing at all when it is disabled."""
     if not enabled:
         return
     cfg = get_static_config().preview_text
@@ -256,7 +257,7 @@ def print_config_summary(
     caption_model: str,
     config_file: str,
 ) -> None:
-    """Print configuration summary"""
+    """Print the models and config source in effect for this run."""
     cfg = get_static_config().preview_text
     header = cfg.headers.get("configuration", "⚙️  CONFIGURATION")
     print(f"\n{header}")
@@ -267,7 +268,7 @@ def print_config_summary(
 
 
 def print_preview_footer() -> None:
-    """Print warning that this is preview only"""
+    """Print the closing banner restating that no side effects were performed."""
     cfg = get_static_config().preview_text
     header = cfg.headers.get("preview_footer", "⚠️  PREVIEW MODE - NO ACTIONS TAKEN")
     print(f"\n{header}")
@@ -281,7 +282,7 @@ def print_preview_footer() -> None:
 
 
 def print_error(message: str) -> None:
-    """Print error message in preview mode"""
+    """Print an error banner without aborting the preview."""
     print("\n❌ ERROR")
     print("─" * 70)
     print(f"  {message}")
@@ -316,7 +317,12 @@ def print_curation_action(
 
 
 def _wrap_text(text: str, max_width: int) -> list[str]:
-    """Wrap text to specified width, breaking on spaces"""
+    """Wrap text to ``max_width``, breaking on spaces.
+
+    Returns:
+        One entry per line; words longer than ``max_width`` are not split, so a line
+        may exceed the requested width.
+    """
     if len(text) <= max_width:
         return [text]
 

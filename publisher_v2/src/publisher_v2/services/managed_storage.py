@@ -73,6 +73,17 @@ class ManagedStorage:
     """S3-compatible storage backend implementing StorageProtocol."""
 
     def __init__(self, config: ManagedStorageConfig, settings: RuntimeSettings | None = None) -> None:
+        """Build the boto3 S3 client and the per-instance thumbnail cache.
+
+        Args:
+            config: Endpoint, bucket, region and access keys for the S3-compatible backend.
+            settings: Runtime tunables for the thumbnail cache. Read once here rather than
+                per request (#143); defaults to :func:`load_runtime_settings`.
+
+        The thumbnail cache, generation counters, single-flight locks and the R2 operation
+        counter are per instance on purpose (#86): a module-global cache let tenants sharing
+        a key path see each other's thumbnails.
+        """
         self.config = config
         # #143: thumbnail cache tunables are read once here, not per request.
         self._settings = settings if settings is not None else load_runtime_settings()
@@ -171,6 +182,14 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def list_images(self, folder: str) -> list[str]:
+        """Return the image filenames directly under ``folder`` (no recursion).
+
+        Only .jpg/.jpeg/.png are returned. Each listing page counts as one billable
+        R2 request.
+
+        Raises:
+            StorageError: The listing failed after retries.
+        """
         try:
 
             def _list() -> list[str]:
@@ -199,6 +218,14 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def list_images_with_hashes(self, folder: str) -> list[tuple[str, str]]:
+        """Return ``(filename, etag)`` for the images directly under ``folder``.
+
+        The ETag comes from the listing itself, so this costs no more than
+        :meth:`list_images`.
+
+        Raises:
+            StorageError: The listing failed after retries.
+        """
         try:
 
             def _list() -> list[tuple[str, str]]:
@@ -228,6 +255,14 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def download_image(self, folder: str, filename: str) -> bytes:
+        """Download an image and return its bytes, verifying the advertised length.
+
+        The response ETag is recorded for the key so the thumbnail cache can label an
+        entry whose HEAD failed, at no extra request (#140).
+
+        Raises:
+            StorageError: The download failed, or the body was shorter than ContentLength.
+        """
         key = self._key(folder, filename)
         try:
 
@@ -262,6 +297,13 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def get_temporary_link(self, folder: str, filename: str) -> str:
+        """Return a presigned GET URL for the object, valid for one hour.
+
+        Presigning is local to the client, so this issues no request and is not metered.
+
+        Raises:
+            StorageError: The URL could not be generated.
+        """
         try:
 
             def _link() -> str:
@@ -309,6 +351,11 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def write_sidecar_text(self, folder: str, filename: str, text: str) -> None:
+        """Write the UTF-8 caption sidecar next to ``filename``, overwriting any existing one.
+
+        Raises:
+            StorageError: The upload failed after retries.
+        """
         try:
 
             def _upload() -> None:
@@ -332,6 +379,13 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def download_sidecar_if_exists(self, folder: str, filename: str) -> bytes | None:
+        """Return the sidecar bytes for ``filename``, or None when there is no sidecar.
+
+        The request is metered even when it 404s, because R2 bills it.
+
+        Raises:
+            StorageError: The download failed for any reason other than absence.
+        """
         try:
 
             def _download() -> bytes | None:
@@ -357,6 +411,15 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
+        """Move an image and its sidecar into ``archive_folder`` (copy then delete).
+
+        A missing sidecar is not an error. Cached thumbnails for both the source and the
+        destination key are invalidated even when the move fails, since a partly applied
+        move would otherwise leave a stale thumbnail on the destination (#140).
+
+        Raises:
+            StorageError: The image copy or delete failed.
+        """
         try:
 
             def _archive() -> None:
@@ -395,6 +458,14 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def move_image_with_sidecars(self, folder: str, filename: str, target_subfolder: str) -> None:
+        """Move an image and its ``.txt`` sidecar into ``target_subfolder`` relative to ``folder``.
+
+        A missing sidecar is not an error. Thumbnails for the source and destination keys
+        are invalidated even on failure.
+
+        Raises:
+            StorageError: The image copy or delete failed.
+        """
         try:
 
             def _move() -> None:
@@ -434,6 +505,13 @@ class ManagedStorage:
         retry=retry_if_exception(_is_transient_s3_error),
     )
     async def delete_file_with_sidecar(self, folder: str, filename: str) -> None:
+        """Delete an image and its sidecar, ignoring a missing sidecar.
+
+        The cached thumbnail is invalidated even if the delete fails.
+
+        Raises:
+            StorageError: The image delete failed.
+        """
         try:
 
             def _delete() -> None:
@@ -495,6 +573,15 @@ class ManagedStorage:
             raise StorageError(f"Failed to list objects under {prefix}: {exc}") from exc
 
     async def put_object(self, key: str, data: bytes | bytearray | memoryview, content_type: str) -> None:
+        """Upload raw bytes to an absolute ``key``, invalidating any cached thumbnail for it.
+
+        A bytearray/memoryview body is wrapped in a zero-copy seekable reader rather than
+        copied by botocore (#136).
+
+        Raises:
+            StorageError: The upload failed.
+        """
+
         def _put() -> None:
             self._count_ops()
             # #136: botocore copies a bytearray Body (io.BytesIO for checksums);
@@ -519,6 +606,13 @@ class ManagedStorage:
             self.invalidate_thumbnail(key)
 
     async def head_object(self, key: str) -> dict[str, Any] | None:
+        """Return ``size``/``etag``/``last_modified`` for ``key``, or None if it is absent.
+
+        Never raises: any ClientError yields None. A non-404 code (403, throttling) is
+        logged as a warning first, because presence is the migration tool's only resume
+        gate and a silent "missing" would re-copy the whole library (#142).
+        """
+
         def _head() -> dict[str, Any] | None:
             self._count_ops()
             try:
@@ -551,6 +645,12 @@ class ManagedStorage:
         return await self.head_object(key) is not None
 
     async def delete_object(self, key: str) -> None:
+        """Delete an absolute ``key``, invalidating its cached thumbnail even on failure.
+
+        Raises:
+            StorageError: The delete failed.
+        """
+
         def _delete() -> None:
             self._count_ops()
             self.client.delete_object(Bucket=self._bucket, Key=key)
@@ -563,6 +663,14 @@ class ManagedStorage:
             self.invalidate_thumbnail(key)
 
     async def move_object(self, src_key: str, dst_key: str) -> None:
+        """Move one absolute key to another as a copy plus delete (metered as two ops).
+
+        Thumbnails for both keys are invalidated even when the move fails.
+
+        Raises:
+            StorageError: The copy or the delete failed.
+        """
+
         def _move() -> None:
             self._count_ops(2)  # copy + delete
             self.client.copy_object(

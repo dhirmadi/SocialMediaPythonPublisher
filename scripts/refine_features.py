@@ -1,3 +1,16 @@
+"""One-off refinement pass over the per-feature ``docs_v2/08_Epics`` tree.
+
+Third and last of the migration scripts (after ``migrate_features.py`` and
+``cleanup_features.py``). It renames each feature's ``README.md`` to
+``FEATURE_REQUEST.md``, renames story ``README.md`` files to ``STORY.md``
+(rewriting the generated placeholders), and folds each numbered change request
+out of ``change_requests/`` into its own numbered story directory, mapping CR
+``NNN`` to story ``NNN + 1`` since ``01_implementation`` is the baseline.
+
+Destructive: it moves and renames files and removes emptied directories. Run
+from the repository root, on a clean working tree.
+"""
+
 import re
 import shutil
 from pathlib import Path
@@ -6,10 +19,15 @@ BASE_DIR = Path("docs_v2/08_Epics")
 
 
 def get_feature_dirs():
+    """Return the feature directories under ``BASE_DIR`` (those starting with a digit)."""
     return [d for d in BASE_DIR.iterdir() if d.is_dir() and d.name[0].isdigit()]
 
 
 def rename_root_readme(feature_dir):
+    """Rename the feature's ``README.md`` to ``FEATURE_REQUEST.md`` if it is there.
+
+    Does nothing when the file is absent, so re-running is safe.
+    """
     readme = feature_dir / "README.md"
     if readme.exists():
         new_path = feature_dir / "FEATURE_REQUEST.md"
@@ -18,6 +36,12 @@ def rename_root_readme(feature_dir):
 
 
 def process_existing_stories(feature_dir):
+    """Rename each story's ``README.md`` to ``STORY.md`` and replace placeholders.
+
+    A story body that is still the short generated "See plan.yaml for details"
+    stub is overwritten with a titled one; real content is left untouched.
+    Features without a ``stories/`` directory are skipped.
+    """
     stories_dir = feature_dir / "stories"
     if not stories_dir.exists():
         return
@@ -46,6 +70,11 @@ def process_existing_stories(feature_dir):
 
 
 def normalize_name(name):
+    """Strip a leading numeric segment from an underscore-separated name.
+
+    ``"001_something"`` becomes ``"something"``; a name that does not start
+    with digits is returned unchanged.
+    """
     # Remove numbering if present at start for the name part
     # 001_something -> something
     parts = name.split("_")
@@ -55,6 +84,15 @@ def normalize_name(name):
 
 
 def process_change_requests(feature_dir):
+    """Turn the feature's numbered change requests into numbered story directories.
+
+    Files in ``change_requests/`` are grouped by their ``NNN_`` prefix; each
+    group becomes ``stories/<NNN+1>_<name>/`` with the members renamed to
+    ``plan.yaml``, ``DESIGN.md`` or ``STORY.md`` by suffix. When two files
+    would both become ``STORY.md`` the explicit ``_story.md`` one wins and the
+    other keeps its own stem. The ``change_requests/`` directory is removed once
+    empty. Unnumbered files are left in place.
+    """
     cr_dir = feature_dir / "change_requests"
     stories_dir = feature_dir / "stories"
     if not cr_dir.exists():
@@ -159,6 +197,7 @@ def process_change_requests(feature_dir):
 
 
 def main():
+    """Run the rename and change-request folding over every feature directory."""
     features = get_feature_dirs()
     for f in features:
         print(f"Processing {f.name}...")

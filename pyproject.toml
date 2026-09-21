@@ -70,12 +70,21 @@ select = [
     "SIM",   # flake8-simplify
     "S",     # flake8-bandit (security)
     "ASYNC", # flake8-async
+    "D",     # pydocstyle (google convention, configured below)
 ]
 ignore = ["E501", "B008", "S104", "S105", "S311"]
 
+[tool.ruff.lint.pydocstyle]
+# Match the pre-commit pydocstyle hook exactly. Ruff is the enforcer that
+# actually covers the whole tree: pydocstyle 6.3.0 cannot parse PEP 695
+# generics, so it silently skips config/runtime_cache.py and
+# config/credential_cache.py while reporting them clean.
+convention = "google"
+
 [tool.ruff.lint.per-file-ignores]
-"publisher_v2/tests/**/*.py" = ["S101", "S106"]  # assert and hardcoded passwords expected in tests
+"publisher_v2/tests/**/*.py" = ["S101", "S106", "D"]  # assert, fixture passwords, and docstrings not required in tests
 "scripts/**/*.py" = ["S106"]  # hardcoded passwords in script fixtures
+"publisher_v2/alembic/**/*.py" = ["D"]  # generated migration revisions
 
 [tool.ruff.lint.isort]
 known-first-party = ["publisher_v2"]

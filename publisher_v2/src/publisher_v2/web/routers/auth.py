@@ -1,3 +1,10 @@
+"""Auth0 OIDC login routes — the only way an admin session is minted (#137).
+
+Registers the Authlib client lazily, starts the authorization-code flow with PKCE, and on
+callback mints the signed, tenant/host-bound ``pv2_admin`` cookie for allowlisted emails.
+No password login may be added back here.
+"""
+
 import logging
 
 from authlib.integrations.starlette_client import OAuth
@@ -19,9 +26,7 @@ oauth = OAuth()
 
 
 def configure_oauth(config):
-    """
-    Called by app startup to register Auth0.
-    """
+    """Called by app startup to register Auth0."""
     if not config.auth0:
         return
 
@@ -39,9 +44,11 @@ def configure_oauth(config):
 
 
 def ensure_oauth_configured(service: WebImageService) -> bool:
-    """
-    Ensure OAuth is configured if the service has auth config.
-    Returns True if configured, False otherwise.
+    """Register the Auth0 client on first use if this tenant has auth config.
+
+    Returns:
+        True when the tenant has Auth0 configured (and is now registered), False when
+        Auth0 is unavailable and the caller should answer 503.
     """
     if not oauth._registry.get("auth0") and service.config.auth0:
         configure_oauth(service.config)
@@ -49,8 +56,7 @@ def ensure_oauth_configured(service: WebImageService) -> bool:
 
 
 def get_auth0_callback_url(request: Request) -> str | None:
-    """
-    Derive the Auth0 callback URL from the incoming request.
+    """Derive the Auth0 callback URL from the incoming request.
 
     The scheme comes from ``request_scheme`` (#129): the ``X-Forwarded-Proto``
     value when ``WEB_TRUST_FORWARDED_FOR`` is set AND every value that header
@@ -81,9 +87,7 @@ def get_auth0_callback_url(request: Request) -> str | None:
 
 @router.get("/login")
 async def login(request: Request, service: WebImageService = Depends(get_request_service)):
-    """
-    Initiate the OIDC login flow.
-    """
+    """Initiate the OIDC login flow."""
     if not ensure_oauth_configured(service):
         log_json(logger, logging.WARNING, "auth_login_disabled", reason="no_config")
         return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
@@ -104,9 +108,7 @@ async def login(request: Request, service: WebImageService = Depends(get_request
 
 @router.get("/callback")
 async def callback(request: Request, service: WebImageService = Depends(get_request_service)):
-    """
-    Handle the OIDC callback.
-    """
+    """Handle the OIDC callback."""
     if not ensure_oauth_configured(service):
         return RedirectResponse(url="/?auth_error=auth_not_configured", status_code=status.HTTP_303_SEE_OTHER)
 

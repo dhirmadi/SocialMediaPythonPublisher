@@ -119,6 +119,11 @@ def _load_state() -> dict[str, object]:
 
 
 def load_posted_hashes() -> set[str]:
+    """Return the SHA-256 hashes of already-published image bytes.
+
+    An empty set is returned when no state file exists yet or the stored value
+    is not a list.
+    """
     state = _load_state()
     hashes = state.get("hashes")
     if isinstance(hashes, list):
@@ -127,6 +132,12 @@ def load_posted_hashes() -> set[str]:
 
 
 def save_posted_hash(hash_value: str) -> None:
+    """Record one image SHA-256 as published, under the advisory file lock.
+
+    Empty values and duplicates are no-ops. A failed write is logged and
+    re-raised rather than swallowed, so the caller knows the image may be
+    re-published on the next run.
+    """
     if not hash_value:
         return
     with _file_lock():
@@ -142,6 +153,11 @@ def save_posted_hash(hash_value: str) -> None:
 
 
 def load_posted_content_hashes() -> set[str]:
+    """Return the provider-supplied content hashes used for fast dedup.
+
+    Stored under the legacy ``dropbox_content_hashes`` key; an empty set is
+    returned when absent or malformed.
+    """
     state = _load_state()
     content_hashes = state.get("dropbox_content_hashes")
     if isinstance(content_hashes, list):
@@ -150,6 +166,11 @@ def load_posted_content_hashes() -> set[str]:
 
 
 def save_posted_content_hash(hash_value: str) -> None:
+    """Record one provider content hash as published, under the advisory file lock.
+
+    Empty values and duplicates are no-ops; a failed write is logged and
+    re-raised.
+    """
     if not hash_value:
         return
     with _file_lock():

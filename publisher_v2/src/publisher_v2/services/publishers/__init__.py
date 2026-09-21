@@ -1,3 +1,9 @@
+"""Platform publishers and the factory that assembles them from application config.
+
+Holds the ``Publisher`` interface plus the Telegram, email and Instagram
+implementations.
+"""
+
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.services.publishers.email import EmailPublisher

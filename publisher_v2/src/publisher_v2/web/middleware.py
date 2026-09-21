@@ -1,3 +1,10 @@
+"""Per-request tenant resolution middleware for the web app.
+
+Resolves the runtime config for the request host and attaches the matching
+tenant-scoped ``WebImageService`` to ``request.state``, so routers never build
+services themselves. Health endpoints are exempt.
+"""
+
 import logging
 
 from fastapi import Request
@@ -51,9 +58,7 @@ def reset_tenant_service_factory() -> TenantServiceFactory | None:
 
 
 async def tenant_middleware(request: Request, call_next):
-    """
-    Resolve per-request runtime config and attach a WebImageService to request.state.
-    """
+    """Resolve per-request runtime config and attach a WebImageService to request.state."""
     # Skip all health endpoints (liveness/readiness probes should never require tenant resolution)
     if request.url.path.startswith("/health"):
         return await call_next(request)

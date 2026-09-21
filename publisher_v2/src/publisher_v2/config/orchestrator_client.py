@@ -1,3 +1,5 @@
+"""HTTP client for the Platform Orchestrator service API (runtime, credentials, usage)."""
+
 import asyncio
 import os
 import random
@@ -19,6 +21,8 @@ RETRYABLE_STATUS = {429, 500, 502, 503, 504}
 
 @dataclass(frozen=True, slots=True)
 class RetryConfig:
+    """Exponential-backoff parameters shared by every orchestrator request."""
+
     base_delay_ms: int = 250
     max_delay_ms: int = 5000
     max_attempts: int = 3
@@ -26,9 +30,7 @@ class RetryConfig:
 
 
 class OrchestratorClient:
-    """
-    Async HTTP client for the orchestrator service API (/v1).
-    """
+    """Async HTTP client for the orchestrator service API (/v1)."""
 
     def __init__(
         self,
@@ -39,6 +41,19 @@ class OrchestratorClient:
         timeout_seconds: float = 5.0,
         client: httpx.AsyncClient | None = None,
     ) -> None:
+        """Configure the orchestrator endpoint and the service token used to authenticate.
+
+        Args:
+            base_url: Orchestrator root URL; a trailing slash is stripped.
+            service_token: Bearer token sent on every request. Never logged.
+            prefer_post: Try ``POST /v1/runtime/by-host`` first and remember a
+                405 so later calls go straight to GET.
+            timeout_seconds: Timeout for the client created when ``client`` is
+                not supplied.
+            client: Pre-built client to use instead (tests inject one); when
+                passed, ``timeout_seconds`` is ignored and the caller owns
+                closing it.
+        """
         self._base_url = base_url.rstrip("/")
         self._token = service_token
         self._prefer_post = prefer_post
@@ -47,6 +62,7 @@ class OrchestratorClient:
         self._client = client or httpx.AsyncClient(timeout=timeout_seconds)
 
     async def aclose(self) -> None:
+        """Close the underlying HTTP client, including one injected by the caller."""
         await self._client.aclose()
 
     def _headers(self, request_id: str | None = None, tenant: str | None = None) -> dict[str, str]:
@@ -96,9 +112,7 @@ class OrchestratorClient:
         await asyncio.sleep(delay_ms / 1000.0)
 
     async def get_runtime_by_host(self, host: str, *, request_id: str | None = None) -> dict[str, Any]:
-        """
-        Fetch runtime config. Prefer POST when enabled; fall back to GET on 405.
-        """
+        """Fetch runtime config. Prefer POST when enabled; fall back to GET on 405."""
         url = f"{self._base_url}/v1/runtime/by-host"
         headers = self._headers(request_id=request_id)
 
@@ -127,6 +141,21 @@ class OrchestratorClient:
     async def resolve_credentials(
         self, tenant: str, credentials_ref: str, *, request_id: str | None = None
     ) -> dict[str, Any]:
+        """Resolve an opaque credentials ref to secret material for one tenant.
+
+        Args:
+            tenant: Tenant id, sent as the ``X-Tenant`` header.
+            credentials_ref: Opaque reference issued by the orchestrator.
+            request_id: Correlation id forwarded as ``X-Request-Id``.
+
+        Returns:
+            The decoded JSON body holding the secret material. Never log it.
+
+        Raises:
+            InsufficientBalanceError: 403 with ``error="insufficient_balance"``.
+            CredentialResolutionError: 404, any other 403, or an unexpected status.
+            OrchestratorUnavailableError: Retryable status after all attempts.
+        """
         url = f"{self._base_url}/v1/credentials/resolve"
         headers = self._headers(request_id=request_id, tenant=tenant)
         resp = await self._request_with_retry("POST", url, headers=headers, json={"credentials_ref": credentials_ref})
@@ -161,6 +190,27 @@ class OrchestratorClient:
         source: str = "publisher",
         request_id: str | None = None,
     ) -> dict[str, Any]:
+        """Report one metered usage event to the orchestrator billing endpoint.
+
+        Args:
+            tenant_id: Tenant the usage is billed to.
+            metric: Metric name the orchestrator knows (unknown names yield 422).
+            quantity: Amount of ``unit`` consumed.
+            unit: Unit of ``quantity``, e.g. tokens or posts.
+            idempotency_key: Stable key so retries are not double-counted.
+            occurred_at: ISO-8601 timestamp of the event.
+            source: Reporting component; defaults to ``"publisher"``.
+            request_id: Correlation id forwarded as ``X-Request-Id``.
+
+        Returns:
+            The decoded JSON acknowledgement body.
+
+        Raises:
+            CredentialResolutionError: The service token was rejected (403).
+            UsageMeteringError: Unknown tenant (404), rejected body (422), or an
+                unexpected status.
+            OrchestratorUnavailableError: Retryable status after all attempts.
+        """
         url = f"{self._base_url}/v1/billing/usage"
         headers = self._headers(request_id=request_id)
         body = {
@@ -189,4 +239,5 @@ class OrchestratorClient:
 
 
 def prefer_post_default() -> bool:
+    """Read ORCHESTRATOR_PREFER_POST; default True when unset or empty."""
     return (os.environ.get("ORCHESTRATOR_PREFER_POST") or "true").lower() in ("1", "true", "yes", "on")

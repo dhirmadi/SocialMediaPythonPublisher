@@ -23,6 +23,13 @@ class CaptionStore:
     def __init__(
         self, session_factory: async_sessionmaker[AsyncSession], settings: RuntimeSettings | None = None
     ) -> None:
+        """Bind the store to a session factory and the settings holding retention policy.
+
+        Args:
+            session_factory: Async session factory for the tenant database.
+            settings: Runtime settings; loaded once here when omitted, so a
+                later settings change does not affect this store (#143).
+        """
         self._session_factory = session_factory
         # #143: retention is read once, when the store is built.
         self._settings = settings if settings is not None else load_runtime_settings()

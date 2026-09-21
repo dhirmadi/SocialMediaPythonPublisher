@@ -23,6 +23,12 @@ _DEFAULT_LIMITS = httpx.Limits(max_keepalive_connections=20, max_connections=40)
 
 
 async def get_shared_client() -> httpx.AsyncClient:
+    """Return the process-wide keep-alive HTTP client, creating it on first use.
+
+    Creation is guarded by an asyncio lock so concurrent first callers share one
+    client. The returned client is owned by this module: callers must not close
+    it, and must not assume it survives ``aclose_shared_client``.
+    """
     global _client
     if _client is not None:
         return _client
@@ -33,6 +39,12 @@ async def get_shared_client() -> httpx.AsyncClient:
 
 
 async def aclose_shared_client() -> None:
+    """Close the shared client and reset the module slot.
+
+    Idempotent: a no-op when no client has been created. A later
+    ``get_shared_client`` call builds a fresh one, so this is safe to call from
+    the FastAPI shutdown hook even if requests may still arrive.
+    """
     global _client
     if _client is not None:
         await _client.aclose()

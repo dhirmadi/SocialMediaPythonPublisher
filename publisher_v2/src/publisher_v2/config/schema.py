@@ -1,7 +1,11 @@
+"""Pydantic models for the validated application configuration tree."""
+
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 class DropboxConfig(BaseModel):
+    """Dropbox storage credentials and the folder layout used for curation."""
+
     app_key: str = Field(..., description="Dropbox application key")
     app_secret: str = Field(..., description="Dropbox application secret")
     refresh_token: str = Field(..., description="OAuth2 refresh token")
@@ -19,6 +23,7 @@ class DropboxConfig(BaseModel):
     @field_validator("image_folder")
     @classmethod
     def validate_folder_path(cls, v: str) -> str:
+        """Require an absolute Dropbox path; raise ValueError when it has no leading slash."""
         if not v.startswith("/"):
             raise ValueError("Dropbox folder path must start with /")
         return v
@@ -54,6 +59,7 @@ class ModelLifecycle(BaseModel):
     @field_validator("severity")
     @classmethod
     def validate_severity(cls, v: str) -> str:
+        """Restrict severity to info/warning/critical; raise ValueError otherwise."""
         allowed = {"info", "warning", "critical"}
         if v not in allowed:
             raise ValueError(f"severity must be one of {allowed}, got '{v}'")
@@ -61,6 +67,13 @@ class ModelLifecycle(BaseModel):
 
 
 class OpenAIConfig(BaseModel):
+    """OpenAI credentials, per-task models, prompts and the vision cost knobs.
+
+    Vision and caption use separate models for a quality/cost balance; the
+    ``sd_caption_*`` fields configure the Stable-Diffusion sidecar pass and fall
+    back to the plain prompts/model when unset.
+    """
+
     # In orchestrator mode, api_key may be resolved lazily; loader still requires it.
     api_key: str | None = Field(default=None, description="OpenAI API key")
 
@@ -148,6 +161,7 @@ class OpenAIConfig(BaseModel):
     @field_validator("vision_detail", "vision_fallback_detail")
     @classmethod
     def validate_vision_detail(cls, v: str) -> str:
+        """Restrict the vision ``detail`` parameter to low/high/auto."""
         allowed = {"low", "high", "auto"}
         if v not in allowed:
             raise ValueError(f"vision detail must be one of {allowed}, got '{v}'")
@@ -156,6 +170,10 @@ class OpenAIConfig(BaseModel):
     @field_validator("api_key")
     @classmethod
     def validate_api_key(cls, v: str | None) -> str | None:
+        """Check the key shape (``sk-`` prefix); None is allowed for lazy resolution.
+
+        The key value is never echoed in the error message.
+        """
         if v is None:
             return v
         if not v.startswith("sk-"):
@@ -181,18 +199,24 @@ class OpenAIConfig(BaseModel):
 
 
 class PlatformsConfig(BaseModel):
+    """Which publishers are enabled; all default to off."""
+
     telegram_enabled: bool = False
     instagram_enabled: bool = False
     email_enabled: bool = False
 
 
 class TelegramConfig(BaseModel):
+    """Telegram bot credentials and the target channel/chat."""
+
     # In orchestrator mode, bot_token may be resolved lazily; env-loader still requires it.
     bot_token: str | None = Field(default=None, description="Telegram bot token")
     channel_id: str = Field(..., description="Telegram channel/chat id")
 
 
 class InstagramConfig(BaseModel):
+    """Instagram (instagrapi) credentials and optional session-file location."""
+
     username: str = Field(..., description="Instagram username")
     password: str = Field(..., description="Instagram password (instagrapi, optional in V2)")
     session_file: str | None = Field(
@@ -202,6 +226,8 @@ class InstagramConfig(BaseModel):
 
 
 class EmailConfig(BaseModel):
+    """SMTP settings for the email publisher, including the FetLife subject rules."""
+
     sender: str = Field(..., description="Sender email address")
     recipient: str = Field(..., description="Recipient email address")
     # In orchestrator mode, password may be resolved lazily; env-loader still requires it.
@@ -237,6 +263,7 @@ class EmailConfig(BaseModel):
     @field_validator("caption_target")
     @classmethod
     def validate_caption_target(cls, v: str) -> str:
+        """Normalize caption_target to lowercase and restrict it to subject/body/both."""
         allowed = {"subject", "body", "both"}
         v2 = v.strip().lower()
         if v2 not in allowed:
@@ -246,6 +273,7 @@ class EmailConfig(BaseModel):
     @field_validator("subject_mode")
     @classmethod
     def validate_subject_mode(cls, v: str) -> str:
+        """Normalize subject_mode to lowercase and restrict it to normal/private/avatar."""
         allowed = {"normal", "private", "avatar"}
         v2 = v.strip().lower()
         if v2 not in allowed:
@@ -254,6 +282,8 @@ class EmailConfig(BaseModel):
 
 
 class ContentConfig(BaseModel):
+    """Tenant content settings: hashtags, archiving, debug and the voice profile."""
+
     hashtag_string: str = Field(default="", description="Hashtags to append")
     archive: bool = Field(default=True, description="Archive after posting")
     debug: bool = Field(default=False, description="Debug mode")
@@ -262,6 +292,7 @@ class ContentConfig(BaseModel):
     @field_validator("voice_profile")
     @classmethod
     def validate_voice_profile(cls, v: list[str] | None) -> list[str] | None:
+        """Allow at most 20 example captions, each non-blank; None means unset."""
         if v is None:
             return v
         if len(v) > 20:
@@ -272,8 +303,8 @@ class ContentConfig(BaseModel):
 
 
 class CaptionFileConfig(BaseModel):
-    """
-    Configuration for caption sidecar files.
+    """Configuration for caption sidecar files.
+
     - extended_metadata_enabled controls Phase 2 contextual metadata output.
     Phase 1 identity/version metadata is always included when sd_caption exists.
     """
@@ -289,6 +320,12 @@ class CaptionFileConfig(BaseModel):
 
 
 class FeaturesConfig(BaseModel):
+    """Feature flags for the workflow and the web UI.
+
+    Fields left unset stay out of ``model_fields_set``, which is how
+    ``ApplicationConfig`` tells a derived default from an operator-set value.
+    """
+
     analyze_caption_enabled: bool = Field(
         default=True,
         description="Enable AI vision analysis and caption generation feature",
@@ -329,8 +366,8 @@ class FeaturesConfig(BaseModel):
 
 
 class WebConfig(BaseModel):
-    """
-    Optional configuration for the web interface.
+    """Optional configuration for the web interface.
+
     For MVP we primarily rely on environment variables, but this model
     allows typed access and future INI-based overrides.
     """
@@ -370,8 +407,8 @@ class WebConfig(BaseModel):
 
 
 class Auth0Config(BaseModel):
-    """
-    Configuration for Auth0 OIDC integration.
+    """Configuration for Auth0 OIDC integration.
+
     Loaded primarily from AUTH0_* environment variables.
     """
 
@@ -400,6 +437,11 @@ class Auth0Config(BaseModel):
 
 
 class ApplicationConfig(BaseModel):
+    """Root config: storage, AI, publishers, content, features and web/auth settings.
+
+    Exactly one storage provider (``dropbox`` or ``managed``) must be set.
+    """
+
     dropbox: DropboxConfig | None = None
     managed: ManagedStorageConfig | None = None
     storage_paths: StoragePathConfig
@@ -440,6 +482,7 @@ class ApplicationConfig(BaseModel):
 
     @model_validator(mode="after")
     def validate_storage_provider(self) -> "ApplicationConfig":
+        """Require exactly one storage provider: dropbox or managed, never both or neither."""
         if self.dropbox is None and self.managed is None:
             raise ValueError("Exactly one storage provider must be set: dropbox or managed")
         if self.dropbox is not None and self.managed is not None:

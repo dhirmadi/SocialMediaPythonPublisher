@@ -1,3 +1,16 @@
+"""Standalone configuration loading from the environment.
+
+Builds a validated ``ApplicationConfig`` from JSON environment variables
+(``STORAGE_PATHS``, ``PUBLISHERS``, ``OPENAI_SETTINGS`` and optional blobs),
+after loading a ``.env`` file if present. INI configuration was removed in #97
+stage 4; ``--config`` is still accepted by the CLI but ignored.
+
+Values are validated on the way in — paths are checked for traversal, and
+anything matching ``REDACT_KEYS`` is masked before configuration is logged.
+This module is the standalone path only; in orchestrator mode the runtime
+config comes from the orchestrator instead.
+"""
+
 from __future__ import annotations
 
 import json
@@ -73,8 +86,7 @@ def resolve_library_enabled_env(managed_present: bool) -> bool:
 
 
 def _parse_json_env(var_name: str) -> dict | list | None:
-    """
-    Parse JSON from an environment variable.
+    """Parse JSON from an environment variable.
 
     Returns:
         Parsed dict/list if the env var is set and contains valid JSON.
@@ -94,8 +106,7 @@ def _parse_json_env(var_name: str) -> dict | list | None:
 
 
 def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
-    """
-    Return a copy of config dict with sensitive values redacted for logging.
+    """Return a copy of config dict with sensitive values redacted for logging.
 
     Args:
         cfg: Configuration dictionary to redact.
@@ -116,8 +127,7 @@ def _safe_log_config(cfg: dict, redact_keys: set[str] | None = None) -> dict:
 
 
 def _load_email_server_from_env() -> dict | None:
-    """
-    Parse EMAIL_SERVER JSON env var for SMTP configuration.
+    """Parse EMAIL_SERVER JSON env var for SMTP configuration.
 
     Returns:
         Dict with smtp_server, smtp_port, sender if EMAIL_SERVER is set.
@@ -167,8 +177,7 @@ def _validate_path_no_traversal(path: str, field: str) -> None:
 
 
 def _load_storage_paths_from_env() -> dict | None:
-    """
-    Parse STORAGE_PATHS JSON env var for Dropbox folder configuration.
+    """Parse STORAGE_PATHS JSON env var for Dropbox folder configuration.
 
     Returns:
         Dict with root, archive, keep, remove paths (all resolved to absolute).
@@ -291,8 +300,7 @@ def _load_publishers_from_env(
     entries: list,
     email_server: dict | None,
 ) -> tuple[TelegramConfig | None, InstagramConfig | None, EmailConfig | None, PlatformsConfig]:
-    """
-    Parse PUBLISHERS JSON array and create publisher configurations.
+    """Parse PUBLISHERS JSON array and create publisher configurations.
 
     Args:
         entries: Parsed PUBLISHERS JSON array.
@@ -437,8 +445,7 @@ def log_config_source(
 
 
 def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | None = None) -> bool:
-    """
-    Parse common truthy/falsey strings for environment variables.
+    """Parse common truthy/falsey strings for environment variables.
 
     Raises ConfigurationError for invalid values.
     """
@@ -457,8 +464,7 @@ def parse_bool_env(value: str | None, default: bool = True, *, var_name: str | N
 
 
 def load_application_config(config_file_path: str | None = None, env_path: str | None = None) -> ApplicationConfig:
-    """
-    Load and validate application configuration from environment variables.
+    """Load and validate application configuration from environment variables.
 
     #97 stage 4: INI support is removed. Configuration comes from JSON env
     vars (STORAGE_PATHS, PUBLISHERS, OPENAI_SETTINGS, and the optional

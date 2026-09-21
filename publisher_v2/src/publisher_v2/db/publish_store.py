@@ -47,6 +47,15 @@ class PublishStore:
     def __init__(
         self, session_factory: async_sessionmaker[AsyncSession], lease_ttl_seconds: float | None = None
     ) -> None:
+        """Bind the store to a session factory and fix its lease TTL.
+
+        Args:
+            session_factory: Async SQLAlchemy session factory for the caption history DB.
+            lease_ttl_seconds: How long a ``leased`` row stays owned before another run may
+                reclaim it. ``None`` defers to the runtime settings, read at acquire time;
+                pass it explicitly so the DB layer does not re-read the environment on every
+                ``acquire_lease`` (#139/#162).
+        """
         self._session_factory = session_factory
         # #139/#162: the TTL is a caller-supplied setting, not something the DB
         # layer reads from the environment on every acquire_lease.

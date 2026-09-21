@@ -1,3 +1,15 @@
+"""WebImageService: the orchestration layer behind the web admin API.
+
+One instance is built per tenant and owns that tenant's storage adapter, AI
+service, publishers and workflow orchestrator, so the FastAPI routes stay thin.
+Business logic is delegated to those components rather than duplicated here.
+
+In standalone mode the config is loaded from the environment at construction
+time; in orchestrator mode it is a deep copy of the cached runtime config (#86)
+and the AI service and workflow orchestrator are bound lazily, because the
+credentials behind them are resolved on first use.
+"""
+
 import asyncio
 import dataclasses
 import json
@@ -153,8 +165,7 @@ def _publish_lock(tenant: str, filename: str) -> asyncio.Lock:
 
 
 class WebImageService:
-    """
-    Thin orchestration layer for the web interface.
+    """Thin orchestration layer for the web interface.
 
     This service delegates to existing storage, AI, and workflow components
     and avoids duplicating business logic wherever possible.
@@ -166,6 +177,24 @@ class WebImageService:
         config_source: ConfigSource | None = None,
         settings: RuntimeSettings | None = None,
     ) -> None:
+        """Build the per-tenant service and every component it delegates to.
+
+        Args:
+            runtime: Orchestrator runtime config for this tenant. ``None``
+                selects standalone mode, where config is loaded from
+                ``CONFIG_PATH``/``ENV_PATH`` and the environment instead.
+            config_source: Config source the runtime came from; needed to reach
+                the orchestrator client for usage and storage-ops metering.
+            settings: Runtime tunables. #143: read once here and snapshotted for
+                the life of the service, so later environment changes do not
+                alter behaviour mid-process. Defaults to the process settings.
+
+        Storage, publishers, caption/publish stores and (standalone only) the
+        workflow orchestrator are constructed eagerly; the AI service is only
+        built when an API key is already available, since in orchestrator mode
+        it is resolved lazily. A missing database degrades gracefully: the
+        caption and publish stores stay ``None``.
+        """
         self.logger = logging.getLogger("publisher_v2.web")
         # #143: runtime tunables are read once, when the service is built.
         self._settings = settings if settings is not None else load_runtime_settings()
@@ -444,9 +473,7 @@ class WebImageService:
             self.config.platforms.telegram_enabled = False
 
     async def _ensure_publishers(self) -> None:
-        """
-        In orchestrator mode, resolve optional publisher secrets lazily before publishing.
-        """
+        """In orchestrator mode, resolve optional publisher secrets lazily before publishing."""
         await self._ensure_email_publisher()
         await self._ensure_telegram_publisher()
 
@@ -489,8 +516,7 @@ class WebImageService:
         self._image_cache_expiry = None
 
     async def _get_cached_images(self) -> list[str]:
-        """
-        Return a cached list of images when within TTL, otherwise refresh from Dropbox.
+        """Return a cached list of images when within TTL, otherwise refresh from Dropbox.
 
         The single-flight lock prevents a thundering herd when many concurrent
         requests miss the cache simultaneously — only one runs ``list_images``
@@ -522,9 +548,11 @@ class WebImageService:
             return images
 
     async def _build_image_response(self, filename: str, temp_link: str) -> ImageResponse:
-        """
-        Shared helper to build an ImageResponse from a filename and temp link.
-        Handles sidecar loading and thumbnail URL generation consistently.
+        """Build an ImageResponse from a filename and temp link.
+
+        Shared helper: handles sidecar loading and thumbnail URL generation
+        consistently. A missing sidecar is not an error — the caption fields
+        come back ``None`` and ``has_sidecar`` is false.
         """
         sidecar_result = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
 
@@ -559,6 +587,14 @@ class WebImageService:
         )
 
     async def get_random_image(self) -> ImageResponse:
+        """Return a random image, shuffling without replacement.
+
+        Recently shown filenames are skipped until the pool is exhausted, then
+        the exclusion list resets and the cycle starts again.
+
+        Raises:
+            FileNotFoundError: The image folder listing is empty.
+        """
         images = await self._get_cached_images()
         if not images:
             raise FileNotFoundError("No images found")
@@ -592,9 +628,7 @@ class WebImageService:
             raise FileNotFoundError(f"Image {filename} not found")
 
     async def get_image_details(self, filename: str) -> ImageResponse:
-        """
-        Fetch details for a specific image by filename.
-        """
+        """Fetch details for a specific image by filename."""
         await self.ensure_known_image(filename)
         folder = self.config.storage_paths.image_folder
         # Check existence via temp link (will raise if not found)
@@ -607,9 +641,10 @@ class WebImageService:
         return await self._build_image_response(filename, temp_link)
 
     async def list_images(self) -> dict[str, Any]:
-        """
-        Return a sorted list of all valid image filenames.
-        Uses in-memory caching to avoid hitting Dropbox too frequently.
+        """Return a sorted list of all valid image filenames, with their count.
+
+        Uses the short-lived in-memory listing cache to avoid hitting Dropbox
+        too frequently, so a just-added image may not appear immediately.
         """
         images = await self._get_cached_images()
         sorted_images = sorted(images)
@@ -620,8 +655,7 @@ class WebImageService:
         filename: str,
         size: str = "w960h640",
     ) -> bytes:
-        """
-        Return thumbnail bytes for the specified image.
+        """Return thumbnail bytes for the specified image.
 
         Args:
             filename: Image filename
@@ -646,6 +680,16 @@ class WebImageService:
     async def analyze_and_caption(
         self, filename: str, correlation_id: str | None = None, force_refresh: bool = False
     ) -> AnalysisResponse:
+        """Analyze an image and generate its captions, returning the full response.
+
+        A cached sidecar is reused unless ``force_refresh`` is set, in which case
+        the AI is re-run. ``correlation_id`` is threaded into the structured logs
+        for this request. The storage ops counter is flushed afterwards whether
+        or not the analysis succeeded.
+
+        Raises:
+            FileNotFoundError: ``filename`` is not in the current image listing.
+        """
         await self.ensure_known_image(filename)
         try:
             return await self._analyze_and_caption_impl(filename, correlation_id, force_refresh)
@@ -922,8 +966,7 @@ class WebImageService:
         caption_override: str | None = None,
         caption_overrides: dict[str, str] | None = None,
     ) -> PublishResponse:
-        """
-        Publish a specific image by delegating to the existing WorkflowOrchestrator.
+        """Publish a specific image by delegating to the existing WorkflowOrchestrator.
 
         Platforms list is currently advisory only; for MVP we respect the
         enabled flags from config and still reuse the orchestrator behaviour.
@@ -1017,9 +1060,7 @@ class WebImageService:
         )
 
     async def keep_image(self, filename: str) -> CurationResponse:
-        """
-        Keep the specified image by moving it (and its sidecars) into the configured keep folder.
-        """
+        """Keep the specified image by moving it (and its sidecars) into the configured keep folder."""
         await self.ensure_known_image(filename)
         if not self.config.features.keep_enabled:
             log_json(
@@ -1046,9 +1087,7 @@ class WebImageService:
         )
 
     async def remove_image(self, filename: str) -> CurationResponse:
-        """
-        Remove the specified image by moving it (and its sidecars) into the configured remove folder.
-        """
+        """Remove the specified image by moving it (and its sidecars) into the configured remove folder."""
         await self.ensure_known_image(filename)
         if not self.config.features.remove_enabled:
             log_json(
@@ -1075,8 +1114,7 @@ class WebImageService:
         )
 
     async def delete_image(self, filename: str) -> CurationResponse:
-        """
-        Permanently delete the specified image from storage.
+        """Permanently delete the specified image from storage.
 
         This is a destructive operation and cannot be undone.
         """
@@ -1105,9 +1143,11 @@ class WebImageService:
         )
 
     async def verify_curation_folders(self) -> None:
-        """
-        Proactively ensure that configured Keep/Remove folders exist in Dropbox.
-        Safe to call repeatedly (idempotent).
+        """Proactively ensure that configured Keep/Remove folders exist in Dropbox.
+
+        Safe to call repeatedly (idempotent). Only creates the folders for
+        curation actions that are enabled and configured; does nothing when
+        neither is.
         """
         tasks = []
         image_folder = self.config.storage_paths.image_folder.rstrip("/")

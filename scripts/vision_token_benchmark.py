@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Benchmark OpenAI vision cost vs downstream caption+SD quality (publisher-equivalent).
+r"""Benchmark OpenAI vision cost vs downstream caption+SD quality (publisher-equivalent).
 
 Vision (per image, three variants — same prompts/model params as VisionAnalyzerOpenAI):
   A) Long side 1024px JPEG + detail=low
@@ -14,7 +14,7 @@ Requires OPENAI_API_KEY. Optional: OPENAI_VISION_MODEL (default gpt-4o),
 OPENAI_CAPTION_MODEL (default gpt-4o-mini).
 
 Usage (from repo root):
-  PYTHONPATH=publisher_v2/src uv run python scripts/vision_token_benchmark.py \\
+  PYTHONPATH=publisher_v2/src uv run python scripts/vision_token_benchmark.py \
     --images-dir docs_v2/07_AI/Testfiles --out /tmp/vision_benchmark.json
 """
 
@@ -245,6 +245,14 @@ async def benchmark_image(
     generator: CaptionGeneratorOpenAI,
     caption_spec: CaptionSpec,
 ) -> list[dict[str, Any]]:
+    """Run all three vision variants on one image and return a row per variant.
+
+    Each row carries the vision usage/tokens, the parsed vision JSON and, unless
+    the vision output was degenerate, the downstream caption+SD result. Tag and
+    caption overlap are scored against the full-resolution ``detail=high``
+    variant, which is treated as the reference. Makes six or more billed OpenAI
+    calls per image and sleeps between them to stay under the rate limit.
+    """
     rows: list[dict[str, Any]] = []
 
     jpeg_1024, dim_1024 = _prepare_jpeg(image_path, 1024)
@@ -446,6 +454,13 @@ def _collect_images(images_dir: Path) -> list[Path]:
 
 
 def main() -> int:
+    """Run the benchmark over a directory of images and return a process exit code.
+
+    Returns 1 when the images directory is missing, holds no images, or the
+    async run failed; 0 otherwise. Results are written to ``--out`` as JSON when
+    given, and printed to stdout when not; a summary is logged either way.
+    Requires ``OPENAI_API_KEY`` and spends real money on API calls.
+    """
     p = argparse.ArgumentParser(description="Vision + downstream caption/SD benchmark (publisher-equivalent).")
     p.add_argument(
         "--images-dir",

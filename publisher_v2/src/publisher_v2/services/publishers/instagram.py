@@ -1,3 +1,11 @@
+"""Instagram publisher built on instagrapi, with a persistent, reusable session.
+
+Session settings (device fingerprint, uuids, cookies) are stored per tenant so
+password logins happen rarely; challenges and two-factor prompts are never
+resolved interactively — they record a backoff and fail the publish instead
+(#133).
+"""
+
 import asyncio
 import contextlib
 import logging
@@ -47,7 +55,7 @@ logger = logging.getLogger("publisher_v2.publishers.instagram")
 
 
 def _reraise(_client: Client, exc: Exception) -> None:
-    """instagrapi ``handle_exception`` hook: surface every error to the publisher.
+    """Instagrapi ``handle_exception`` hook: surface every error to the publisher.
 
     Without it, instagrapi auto-resolves a ChallengeRequired inside the request
     (#133) — prompting ``input()`` for a code or raising ChallengeError siblings —
@@ -57,8 +65,13 @@ def _reraise(_client: Client, exc: Exception) -> None:
 
 
 def _has_session_identity(settings: dict[str, Any]) -> bool:
-    """True when restored settings carry a user id, i.e. instagrapi's login() will
-    reuse the session instead of doing a password login (#133)."""
+    """Report whether restored settings identify a logged-in user.
+
+    True when restored settings carry a user id, i.e. instagrapi's login() will
+    reuse the session instead of doing a password login (#133). The id may sit
+    under ``user_id``, ``authorization_data.ds_user_id`` or the ``ds_user_id``
+    cookie, so all three are checked.
+    """
     auth = settings.get("authorization_data") or {}
     cookies = settings.get("cookies") or {}
     return bool(
@@ -154,6 +167,13 @@ class InstagramPublisher(Publisher):
         session_store: SessionStore | None = None,
         tenant: str = "default",
     ):
+        """Configure the publisher for one tenant's Instagram account.
+
+        ``config`` None (or ``enabled`` False) leaves the publisher permanently
+        disabled — ``publish`` then fails fast without touching the network.
+        ``session_store`` defaults to the store built from the config's
+        ``session_file``; the ``Client`` itself is created lazily on first use.
+        """
         self._config = config
         self._enabled = enabled and config is not None
         self._limits = get_static_config().service_limits.instagram
@@ -164,9 +184,11 @@ class InstagramPublisher(Publisher):
 
     @property
     def platform_name(self) -> str:
+        """Return the platform key used in results and logs: ``"instagram"``."""
         return "instagram"
 
     def is_enabled(self) -> bool:
+        """Return True only when Instagram is enabled *and* credentials were supplied."""
         return self._enabled
 
     def _get_client(self) -> Client:
@@ -310,6 +332,17 @@ class InstagramPublisher(Publisher):
         return PublishResult(success=False, platform=self.platform_name, error=error)
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
+        """Upload the image with the caption, logging in or re-logging in as needed.
+
+        Never raises: every failure — disabled publisher, an active challenge
+        backoff, a dead session, an upload error — is returned as a
+        ``PublishResult`` with ``success=False`` and a sanitized error string,
+        so one platform cannot abort the workflow. A ``LoginRequired`` during
+        upload triggers exactly one relogin and retry; a challenge or two-factor
+        prompt records a 24h backoff instead of retrying. Session settings are
+        persisted after each successful login and upload. ``context`` is
+        accepted for interface compatibility and unused.
+        """
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 

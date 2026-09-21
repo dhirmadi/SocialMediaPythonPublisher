@@ -1,3 +1,10 @@
+"""In-memory caching primitives for resolved credential material.
+
+Secrets resolved from the orchestrator are held here for a short TTL so that a
+burst of requests does not re-resolve the same credential. Nothing in this
+module persists to disk or logs cached values.
+"""
+
 import asyncio
 import time
 from collections import OrderedDict
@@ -11,6 +18,11 @@ V = TypeVar("V")
 
 @dataclass(slots=True)
 class CacheStats:
+    """Counters for cache lookups, exposed for metrics and tests.
+
+    A lookup of an expired entry counts as a miss, not a hit.
+    """
+
     hit_total: int = 0
     miss_total: int = 0
 
@@ -22,16 +34,24 @@ class _Entry[V]:
 
 
 class CredentialCache[K, V]:
-    """
-    In-memory LRU+TTL cache for secrets (process memory only).
-    """
+    """In-memory LRU+TTL cache for secrets (process memory only)."""
 
     def __init__(self, *, max_size: int = 5000) -> None:
+        """Create an empty cache bounded to ``max_size`` entries (minimum 1).
+
+        Once the bound is exceeded the least recently used entries are evicted.
+        Entries are never written to disk; they live only in process memory.
+        """
         self._max_size = max(1, int(max_size))
         self._data: OrderedDict[K, _Entry[V]] = OrderedDict()
         self.stats = CacheStats()
 
     def get(self, key: K) -> V | None:
+        """Return the cached value for ``key``, or ``None`` if absent or expired.
+
+        An expired entry is evicted as a side effect. Hits refresh the entry's
+        recency, so the returned key is the last candidate for LRU eviction.
+        """
         entry = self._data.get(key)
         if entry is None:
             self.stats.miss_total += 1
@@ -48,6 +68,11 @@ class CredentialCache[K, V]:
         return entry.value
 
     def set(self, key: K, value: V, *, ttl_seconds: int) -> None:
+        """Store ``value`` under ``key``, expiring ``ttl_seconds`` from now.
+
+        A TTL below one second is clamped to one second. Writing may evict the
+        least recently used entries to stay within the configured maximum size.
+        """
         ttl = max(1, int(ttl_seconds))
         self._data[key] = _Entry(value=value, expires_at=time.time() + ttl)
         self._data.move_to_end(key)
@@ -56,15 +81,24 @@ class CredentialCache[K, V]:
 
 
 class SingleFlight:
-    """
-    Coalesce concurrent requests for the same key.
-    """
+    """Coalesce concurrent requests for the same key."""
 
     def __init__(self) -> None:
+        """Create an empty in-flight registry with its own asyncio lock.
+
+        The instance is bound to the event loop it is first awaited on and is
+        not safe to share across loops or threads.
+        """
         self._lock = asyncio.Lock()
         self._in_flight: dict[str, asyncio.Task[Any]] = {}
 
     async def do(self, key: str, fn: Callable[[], Awaitable[Any]]) -> Any:
+        """Run ``fn`` for ``key``, or await the call already in flight for it.
+
+        Every waiter observes the same result, including the same exception if
+        ``fn`` raises. Failures are not cached: the in-flight entry is always
+        cleared, so the next caller re-runs ``fn``.
+        """
         async with self._lock:
             existing = self._in_flight.get(key)
             if existing is not None:

@@ -1,3 +1,9 @@
+"""SMTP publisher: sends the image as an attachment to the configured recipient.
+
+Used for the FetLife-style upload-by-email flow, and optionally sends a second
+confirmation copy — with the analysis tags appended — to the admin addresses.
+"""
+
 import asyncio
 import logging
 import smtplib
@@ -33,6 +39,13 @@ def _dedupe_email_recipients(emails: list[str]) -> list[str]:
 
 
 class EmailPublisher(Publisher):
+    """Publish an image by emailing it, with an optional confirmation copy.
+
+    Subject/body placement and the subject prefix follow the config's
+    ``caption_target`` and ``subject_mode``; the SMTP timeout comes from static
+    service limits.
+    """
+
     def __init__(
         self,
         config: EmailConfig | None,
@@ -40,6 +53,14 @@ class EmailPublisher(Publisher):
         *,
         admin_login_emails: list[str] | None = None,
     ):
+        """Configure the SMTP sender, its recipient, and the confirmation-copy addresses.
+
+        ``admin_login_emails`` are deduplicated case-insensitively in order and
+        receive the confirmation copy; empty falls back to the sender itself.
+        The publisher enables itself only when ``enabled`` is set and sender,
+        recipient and password are all present — missing credentials disable it
+        rather than failing at send time.
+        """
         self._config = config
         self._admin_login_emails = _dedupe_email_recipients(list(admin_login_emails or []))
         self._enabled = (
@@ -48,12 +69,23 @@ class EmailPublisher(Publisher):
 
     @property
     def platform_name(self) -> str:
+        """Return the platform key used in results and logs: ``"email"``."""
         return "email"
 
     def is_enabled(self) -> bool:
+        """Return True only when email is enabled and sender/recipient/password are configured."""
         return self._enabled
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
+        """Send the image as an attachment, plus a confirmation copy when configured.
+
+        Never raises: SMTP and file errors come back as a ``PublishResult`` with
+        ``success=False`` and a sanitized message that cannot leak the password.
+        Line breaks in the caption are folded into spaces before it is used as a
+        subject header. ``context["analysis_tags"]``, when present, is
+        normalized into the tag line of the confirmation copy. The blocking SMTP
+        conversation runs in a worker thread.
+        """
         config = self._config
         if not self._enabled or not config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")

@@ -1,3 +1,10 @@
+"""Pillow-backed image helpers: resizing and width capping for publishing.
+
+Sets the process-wide decompression-bomb ceiling (#90/SEC-6) as an import side
+effect, so this module must be imported before untrusted image bytes are
+decoded.
+"""
+
 import shutil
 from io import BytesIO
 

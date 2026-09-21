@@ -1,3 +1,11 @@
+"""Resolution of per-request runtime config and credentials.
+
+Two implementations satisfy :class:`ConfigSource`: :class:`EnvConfigSource` builds a
+single-tenant config from the environment, and :class:`OrchestratorConfigSource` fetches
+per-host config (and resolves opaque credential refs) from the Platform Orchestrator,
+caching both and serving stale runtime config when the orchestrator is unreachable.
+"""
+
 import logging
 import os
 import uuid
@@ -51,8 +59,7 @@ from publisher_v2.utils.logging import log_json
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
-    """
-    Per-request runtime configuration context.
+    """Per-request runtime configuration context.
 
     In env-first mode, tenant/host are synthetic; in orchestrator mode they come
     from the request host and orchestrator response.
@@ -150,25 +157,43 @@ def emit_model_lifecycle_warnings(openai_cfg: OpenAIConfig) -> None:
 
 
 class ConfigSource(Protocol):
-    async def get_config(self, host: str) -> RuntimeConfig: ...
+    """Interface every config backend implements, env-first or orchestrator-backed."""
 
-    async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]: ...
+    async def get_config(self, host: str) -> RuntimeConfig:
+        """Return the runtime config bound to ``host``.
 
-    def is_orchestrated(self) -> bool: ...
+        Raises:
+            TenantNotFoundError: If the host is unknown, malformed, or not bound to this app.
+        """
+        ...
+
+    async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]:
+        """Resolve an opaque credential ref into secret material for ``tenant``.
+
+        ``tenant`` must be the authoritative tenant from the runtime response, not one
+        derived from the Host header (#89).
+        """
+        ...
+
+    def is_orchestrated(self) -> bool:
+        """Return True when config comes from the orchestrator rather than the environment."""
+        ...
 
     @property
-    def orchestrator_client(self) -> OrchestratorClient | None: ...
+    def orchestrator_client(self) -> OrchestratorClient | None:
+        """Return the orchestrator HTTP client, or None in env-first mode."""
+        ...
 
 
 class EnvConfigSource:
-    """
-    Env-first config source (single-tenant).
+    """Env-first config source (single-tenant).
 
     Host is accepted for request plumbing, but config comes from Feature 021 loader.
     Optional STANDALONE_HOST enforces a single-host allowlist for safety.
     """
 
     def __init__(self) -> None:
+        """Load the application config once from CONFIG_PATH/ENV_PATH and latch STANDALONE_HOST."""
         self._standalone_host = os.environ.get("STANDALONE_HOST")
 
         config_path = os.environ.get("CONFIG_PATH")
@@ -176,9 +201,15 @@ class EnvConfigSource:
         self._cfg = load_application_config(config_path, env_path)
 
     def is_orchestrated(self) -> bool:
+        """Return False: this source never talks to the orchestrator."""
         return False
 
     async def get_config(self, host: str) -> RuntimeConfig:
+        """Return the single env-loaded config, labelled tenant ``default`` and no TTL.
+
+        Raises:
+            TenantNotFoundError: If STANDALONE_HOST is set and ``host`` does not match it.
+        """
         h = normalize_host(host.strip())
         if self._standalone_host:
             allowed = normalize_host(self._standalone_host.strip())
@@ -197,21 +228,31 @@ class EnvConfigSource:
 
     @property
     def orchestrator_client(self) -> None:
+        """Return None: env-first mode has no orchestrator client."""
         return None
 
     async def get_credentials(self, host: str, credentials_ref: str, *, tenant: str) -> dict[str, Any]:
+        """Always raise: env-first deployments pass secrets as flat env vars, not refs.
+
+        Raises:
+            ConfigurationError: Always.
+        """
         # Env-first mode does not support opaque refs; callers should use flat env vars.
         raise ConfigurationError("EnvConfigSource does not support credentials_ref resolution")
 
 
 class OrchestratorConfigSource:
-    """
-    Orchestrator-backed config source (multi-tenant).
+    """Orchestrator-backed config source (multi-tenant).
 
     Full implementation is added in Stories 02-05.
     """
 
     def __init__(self) -> None:
+        """Read orchestrator endpoint, service token and cache tuning from the environment.
+
+        Raises:
+            ConfigurationError: If ORCHESTRATOR_BASE_URL or ORCHESTRATOR_SERVICE_TOKEN is missing.
+        """
         self.base_url = os.environ.get("ORCHESTRATOR_BASE_URL")
         self.token = os.environ.get("ORCHESTRATOR_SERVICE_TOKEN")
         self.base_domain = os.environ.get("ORCHESTRATOR_BASE_DOMAIN") or "shibari.photo"
@@ -245,12 +286,25 @@ class OrchestratorConfigSource:
 
     @property
     def orchestrator_client(self) -> OrchestratorClient:
+        """Return the shared orchestrator HTTP client used for runtime and credential calls."""
         return self._client
 
     def is_orchestrated(self) -> bool:
+        """Return True: config is fetched per host from the orchestrator."""
         return True
 
     async def get_config(self, host: str) -> RuntimeConfig:
+        """Fetch (or serve from cache) the runtime config for ``host``.
+
+        A fresh cache entry is returned directly; on a fetch failure a stale entry is served
+        instead, so a brief orchestrator outage does not take the data plane down. Model
+        lifecycle warnings are emitted only on a fresh fetch.
+
+        Raises:
+            TenantNotFoundError: Host is malformed, unknown, or not bound to publisher_v2.
+            UnsupportedSchemaError: Orchestrator answered with runtime schema older than v2.
+            OrchestratorUnavailableError: Fetch failed and no cached config is available.
+        """
         if not validate_host(host):
             raise TenantNotFoundError("Invalid host shape")
         h = normalize_host(host.strip())
@@ -368,9 +422,10 @@ class OrchestratorConfigSource:
         return f"healthcheck.{bd}"
 
     async def check_connectivity(self) -> None:
-        """
-        Readiness check: validate we can reach orchestrator.
-        A 404 is acceptable and indicates connectivity.
+        """Probe the orchestrator for readiness, raising if it cannot be reached.
+
+        A 404 (TenantNotFoundError) for the synthetic healthcheck host counts as success:
+        it proves connectivity and authentication without depending on a real tenant.
         """
         host = self.check_connectivity_host()
         request_id = str(uuid.uuid4())
@@ -398,9 +453,7 @@ class OrchestratorConfigSource:
     async def _build_app_config_v2(
         self, host: str, tenant: str, cfg: OrchestratorConfigV2
     ) -> tuple[ApplicationConfig, dict[str, str]]:
-        """
-        Schema v2: parse additional blocks and maintain forward-compatibility.
-        """
+        """Schema v2: parse additional blocks and maintain forward-compatibility."""
         features = FeaturesConfig(**feature_kwargs(cfg.features))
 
         storage = cfg.storage
@@ -541,12 +594,20 @@ class OrchestratorConfigSource:
 
 
 def _apply_orchestrator_auth_policy(auth0_cfg: Auth0Config | None, cfg: OrchestratorConfigV2) -> Auth0Config | None:
-    """
+    """Apply the tenant's orchestrator `auth` block on top of the env Auth0 config.
+
     In orchestrator mode, tenant runtime config may include an `auth` block. We use it to:
     - Enable/disable Auth0 login per tenant (`auth.enabled`)
     - Override the per-tenant admin allowlist (`auth.allowed_emails`)
 
     Auth0 OAuth client credentials remain global (env-based) in Publisher.
+
+    Returns:
+        The adjusted config, or None when the tenant disables auth. With no `auth` block the
+        env-derived config is returned unchanged.
+
+    Raises:
+        ConfigurationError: Tenant enables auth but the dyno has no Auth0 env config.
     """
     auth = getattr(cfg, "auth", None)
     if auth is None:
@@ -568,8 +629,7 @@ def _apply_orchestrator_auth_policy(auth0_cfg: Auth0Config | None, cfg: Orchestr
 
 @lru_cache(maxsize=1)
 def get_config_source() -> ConfigSource:
-    """
-    Factory for config sources.
+    """Factory for config sources.
 
     - If CONFIG_SOURCE=env: force env-first.
     - Else if ORCHESTRATOR_BASE_URL set: orchestrator mode.

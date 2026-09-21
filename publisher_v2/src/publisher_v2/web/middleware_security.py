@@ -158,11 +158,30 @@ _HSTS_VALUE = "max-age=31536000; includeSubDomains"
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    """Attach the CSP nonce and the security response headers to every response.
+
+    Must be installed outside the tenant middleware: the storage origins are
+    read after the downstream call so this request's tenant config is available.
+    """
+
     def __init__(self, app: ASGIApp, *, csp_template: str = _CSP_TEMPLATE) -> None:
+        """Wrap ``app``, formatting ``csp_template`` per request.
+
+        The template must contain the ``{nonce}`` and ``{storage}``
+        placeholders; it is only overridden in tests.
+        """
         super().__init__(app)
         self._csp_template = csp_template
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        """Mint a per-request CSP nonce, then set the security headers on the response.
+
+        The nonce is published as ``request.state.csp_nonce`` before the
+        downstream call so the template renderer can stamp it on its inline
+        script block. Headers are set with ``setdefault``, so a route that
+        deliberately sent its own value keeps it. ``Strict-Transport-Security``
+        is only added when secure cookies are enabled for this request.
+        """
         # Per-request nonce, exposed to the template renderer via request.state.
         nonce = secrets.token_urlsafe(16)
         request.state.csp_nonce = nonce

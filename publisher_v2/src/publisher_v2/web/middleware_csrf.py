@@ -60,10 +60,17 @@ class CSRFMiddleware(BaseHTTPMiddleware):
     """Block cross-site state-changing requests that lack a CSRF signal."""
 
     def __init__(self, app: ASGIApp, *, api_prefix: str = "/api") -> None:
+        """Wrap ``app``, guarding state-changing requests under ``api_prefix`` only."""
         super().__init__(app)
         self._api_prefix = api_prefix
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
+        """Pass the request through, or answer 403 when the CSRF signal is missing.
+
+        Skipped entirely for non-state-changing methods, paths outside the API prefix,
+        exempt auth-bootstrap paths, requests carrying an ``Authorization`` header, and
+        cookieless requests (no victim session to ride — auth dependencies reject those).
+        """
         if request.method not in _STATE_CHANGING:
             return await call_next(request)
         path = request.url.path

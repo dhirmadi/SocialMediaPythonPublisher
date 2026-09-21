@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Produce the #146 before/after caption sample for a folder of images.
+r"""Produce the #146 before/after caption sample for a folder of images.
 
 For each image the script runs the real vision + caption stage twice — once
 against a baseline commit's prompt configuration, once against the working
@@ -31,9 +31,9 @@ Usage:
     #   DROPBOX_APP_KEY / DROPBOX_APP_SECRET / DROPBOX_REFRESH_TOKEN
     #   TELEGRAM_BOT_TOKEN, EMAIL_PASSWORD, OPENAI_SETTINGS (models and budgets)
 
-    PYTHONPATH=publisher_v2/src uv run python scripts/caption_sample.py \\
-        --images ~/caption-sample \\
-        --baseline 5c086e6 \\
+    PYTHONPATH=publisher_v2/src uv run python scripts/caption_sample.py \
+        --images ~/caption-sample \
+        --baseline 5c086e6 \
         --out docs_v2/09_Reviews/caption_sample.md
 
 Start with ``--limit 2`` to confirm the wiring before paying for the full run:
@@ -87,6 +87,7 @@ class Cost:
 
     @property
     def total_tokens(self) -> int:
+        """Return prompt plus completion tokens; a floor, since some usages are missing."""
         return self.prompt_tokens + self.completion_tokens
 
     def add(self, usages: list[Any]) -> None:
@@ -109,6 +110,13 @@ class Cost:
 
 @dataclass
 class Row:
+    """One image's results: both sides' captions per platform, their cost, any error.
+
+    ``captions`` and ``costs`` are keyed by variant ("baseline"/"current");
+    ``captions`` is then keyed by platform. ``error`` records the first side
+    that failed — the other side's results are still kept.
+    """
+
     image: str
     captions: dict[str, dict[str, str]] = field(default_factory=dict)  # variant -> platform -> caption
     costs: dict[str, Cost] = field(default_factory=dict)
@@ -116,6 +124,11 @@ class Row:
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    """Parse the CLI arguments; see the module docstring for the full invocation.
+
+    Defaults to 20 images and baseline ``5c086e6``. Use a small ``--limit``
+    first: every image costs two vision and two caption calls.
+    """
     parser = argparse.ArgumentParser(description="Before/after caption sample (#146).")
     parser.add_argument("--images", required=True, help="Folder of images to sample (20 for the #146 artifact)")
     parser.add_argument("--baseline", default="5c086e6", help="Commit whose prompt config is the 'before' side")
@@ -530,6 +543,19 @@ def _adjacent_means(rows: list[Row], platforms: list[str]) -> dict[str, tuple[fl
 
 
 def run(args: argparse.Namespace) -> int:
+    """Caption every sampled image on both sides and write the Markdown report.
+
+    Checks out the baseline commit into a temporary git worktree, runs that
+    half in a subprocess and the current half in-process, feeding each side its
+    own captions back as history. Publishes nothing and writes no sidecar or
+    state; the only output is the file at ``--out``. The worktree is removed in
+    a finally block. Returns 0.
+
+    Raises:
+        SystemExit: On a bad image folder, no images, overridden prompt config,
+            a baseline that cannot take history, or a baseline half that fails
+            on the very first image (which would leave nothing to compare).
+    """
     folder = Path(args.images).expanduser()
     if not folder.is_dir():
         raise SystemExit(f"not a folder: {folder}")
@@ -600,6 +626,7 @@ def run(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    """Parse ``argv`` and run the sample; return the process exit code."""
     return run(parse_args(argv))
 
 

@@ -1,3 +1,5 @@
+"""CLI entrypoint: builds the services, runs one workflow, and maps the result to an exit code."""
+
 import argparse
 import asyncio
 import dataclasses
@@ -17,6 +19,12 @@ from publisher_v2.utils.logging import log_json, setup_logging
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse the publisher CLI arguments.
+
+    ``--config`` is still accepted so existing invocations keep working, but the
+    value is ignored: INI support was removed in #97 stage 4 and configuration
+    comes from the environment.
+    """
     parser = argparse.ArgumentParser(description="Social Media Publisher V2")
     parser.add_argument(
         "--config",
@@ -41,6 +49,16 @@ def parse_args() -> argparse.Namespace:
 
 
 async def main_async() -> int:
+    """Run one publish (or preview) cycle end to end and return the process exit code.
+
+    Preview mode implies ``--dry-publish``, drops logging to WARNING so the
+    human-readable report is not buried in JSON logs, and must not publish,
+    archive or mutate state.
+
+    Returns:
+        0 on success, 1 when the workflow failed or storage raised a
+        ``StorageError`` (#88: reported as one line, not a traceback).
+    """
     args = parse_args()
 
     # Preview mode uses minimal logging (suppress JSON logs)
@@ -254,6 +272,7 @@ async def main_async() -> int:
 
 
 def main() -> None:
+    """Run :func:`main_async` on a fresh event loop and exit with its return code."""
     raise SystemExit(asyncio.run(main_async()))
 
 

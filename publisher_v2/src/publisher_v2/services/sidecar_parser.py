@@ -1,3 +1,5 @@
+"""Reader for the line-oriented image sidecar format written by ``utils.captions``."""
+
 import ast
 import json
 import logging
@@ -60,7 +62,7 @@ def _recover_python_repr_mapping(raw_value: str) -> dict[str, str] | None:
 
 
 def parse_sidecar_text(text: str, source: str | None = None) -> tuple[str | None, dict[str, Any] | None]:
-    """Parse sidecar text into ``(sd_caption, metadata)``.
+    r"""Parse sidecar text into ``(sd_caption, metadata)``.
 
     The format is line-oriented: the SD prompt, a blank line, ``# ---`` and
     then ``# key: value`` lines. Values are read back as follows.
@@ -77,7 +79,7 @@ def parse_sidecar_text(text: str, source: str | None = None) -> tuple[str | None
       something other than a string, is unambiguous corruption — the file
       itself says it was encoded — so it is kept raw and logged.
     - anything else: the raw text, stripped of surrounding whitespace. A
-      quoted value is NOT treated as encoded; ``"Type \\n for a newline"`` is a
+      quoted value is NOT treated as encoded; ``"Type \n for a newline"`` is a
       legitimate caption and decodes identically to a genuine two-line value,
       which is why the marker exists.
 
@@ -159,8 +161,7 @@ def parse_sidecar_text(text: str, source: str | None = None) -> tuple[str | None
 
 
 def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, Any]:
-    """
-    Construct a lightweight, cache-ready view from raw sidecar text.
+    """Construct a lightweight, cache-ready view from raw sidecar text.
 
     Returns a dict with keys:
       - sd_caption: Optional[str]

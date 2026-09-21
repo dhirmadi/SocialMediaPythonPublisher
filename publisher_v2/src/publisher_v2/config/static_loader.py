@@ -1,3 +1,12 @@
+"""Static (non-secret, repo-versioned) configuration loaded from YAML.
+
+Holds the prompt text, per-platform caption styles and limits, preview/web-UI
+strings and service limits that ship with the app. Every file is optional: a
+missing or malformed YAML file warns and the built-in defaults below apply, so
+the app always starts. ``PV2_STATIC_CONFIG_DIR`` overrides the directory
+fleet-wide. Tenant-specific values live in runtime config, not here.
+"""
+
 import logging
 import os
 from functools import lru_cache
@@ -13,6 +22,8 @@ logger = logging.getLogger("publisher_v2.config.static")
 
 
 class AIVisionPrompts(BaseModel):
+    """Prompt pair driving OpenAI Vision image analysis."""
+
     system: str | None = Field(
         default=None,
         description="System prompt for vision analysis",
@@ -24,6 +35,12 @@ class AIVisionPrompts(BaseModel):
 
 
 class AICaptionPrompts(BaseModel):
+    """Default caption prompts, layered with tenant settings.
+
+    A tenant ``system_prompt`` replaces ``system`` outright, while ``rules`` is
+    appended to whichever persona ends up in force (#138).
+    """
+
     system: str | None = Field(
         default=None,
         description="Caption persona. A tenant system_prompt replaces this entirely",
@@ -43,6 +60,8 @@ class AICaptionPrompts(BaseModel):
 
 
 class AISDCaptionPrompts(BaseModel):
+    """Prompts for generating Stable-Diffusion-style descriptive captions."""
+
     system: str | None = Field(
         default=None,
         description="System prompt for SD caption generation",
@@ -54,6 +73,12 @@ class AISDCaptionPrompts(BaseModel):
 
 
 class PlatformCaptionStyle(BaseModel):
+    """Per-platform caption shaping: style directive, length cap, hashtags, closing.
+
+    Unknown keys are ignored rather than rejected, and a reintroduced
+    ``examples`` key is stripped with a warning — see ``_strip_static_examples``.
+    """
+
     # #138: no static example captions ship with the app — the tenant
     # voice_profile is the only source of examples.
     model_config = ConfigDict(extra="ignore")
@@ -91,6 +116,8 @@ class PlatformCaptionStyle(BaseModel):
 
 
 class ConfirmationTagsConfig(BaseModel):
+    """Prompt and default count for the confirmation tags offered after analysis."""
+
     prompt: str = Field(
         default="short, lowercase, human-friendly topical nouns; no hashtags; no emojis",
         description="Prompt for confirmation tags generation",
@@ -102,6 +129,8 @@ class ConfirmationTagsConfig(BaseModel):
 
 
 class CaptionHistoryConfig(BaseModel):
+    """Bounds on the recent-caption history fed back into the caption prompt."""
+
     # #82: reduced from 8 — history feeds the prompt as constraints, and a
     # small window keeps the openings-to-avoid list tight.
     window_size: int = Field(default=3, ge=0, le=50, description="Number of recent captions to fetch")
@@ -109,6 +138,13 @@ class CaptionHistoryConfig(BaseModel):
 
 
 class AIPromptsConfig(BaseModel):
+    """Root of ai_prompts.yaml: every prompt and caption-style default.
+
+    ``platform_captions`` is a registry keyed by platform name; a tenant adding
+    a platform key here gets that style without a code change, and unknown
+    platforms fall back to the ``generic`` entry.
+    """
+
     vision: AIVisionPrompts = AIVisionPrompts()
     caption: AICaptionPrompts = AICaptionPrompts()
     sd_caption: AISDCaptionPrompts = AISDCaptionPrompts()
@@ -137,6 +173,13 @@ class AIPromptsConfig(BaseModel):
 
 
 class PlatformLimit(BaseModel):
+    """Hard publishing limits for one platform.
+
+    Every field is optional: None means "this platform imposes no such limit"
+    and the corresponding enforcement step is skipped. ``caption_target`` and
+    ``subject_mode`` apply to the email/FetLife publisher only.
+    """
+
     max_caption_length: int | None = Field(
         default=None,
         description="Maximum caption length for this platform",
@@ -161,6 +204,8 @@ class PlatformLimit(BaseModel):
 
 
 class PlatformLimitsConfig(BaseModel):
+    """Root of platform_limits.yaml — the per-platform limits actually enforced at publish time."""
+
     instagram: PlatformLimit = PlatformLimit(
         max_caption_length=2200,
         max_hashtags=30,
@@ -181,6 +226,8 @@ class PlatformLimitsConfig(BaseModel):
 
 
 class PreviewTextConfig(BaseModel):
+    """Section headers and messages printed by the side-effect-free CLI preview."""
+
     headers: dict[str, str] = Field(
         default_factory=lambda: {
             "preview_mode": "PUBLISHER V2 - PREVIEW MODE",
@@ -203,6 +250,12 @@ class PreviewTextConfig(BaseModel):
 
 
 class WebUITextConfig(BaseModel):
+    """Localizable web-UI strings (titles, buttons, panels, placeholders, status).
+
+    Loaded from web_ui_text.en.yaml and kept as a free-form nested mapping so
+    the single-page front end can read new keys without a schema change here.
+    """
+
     values: dict[str, Any] = Field(
         default_factory=lambda: {
             "title": "Publisher V2 Web",
@@ -234,6 +287,8 @@ class WebUITextConfig(BaseModel):
 
 
 class AIServiceLimits(BaseModel):
+    """Client-side throttling defaults for the OpenAI calls."""
+
     rate_per_minute: int = Field(
         default=20,
         description="Default OpenAI rate limit in requests per minute",
@@ -241,19 +296,27 @@ class AIServiceLimits(BaseModel):
 
 
 class InstagramLimits(BaseModel):
+    """Bounds of the randomized human-like delay applied around Instagram actions."""
+
     delay_min_seconds: int = Field(default=1)
     delay_max_seconds: int = Field(default=3)
 
 
 class WebLimits(BaseModel):
+    """Tuning for the web layer, currently the image-listing cache TTL in seconds."""
+
     image_cache_ttl_seconds: float = Field(default=30.0)
 
 
 class SMTPLimits(BaseModel):
+    """SMTP tuning; ``timeout_seconds`` None leaves the library default in place."""
+
     timeout_seconds: float | None = None
 
 
 class ServiceLimitsConfig(BaseModel):
+    """Root of service_limits.yaml — operational tuning per outbound service."""
+
     ai: AIServiceLimits = AIServiceLimits()
     instagram: InstagramLimits = InstagramLimits()
     web: WebLimits = WebLimits()
@@ -261,6 +324,12 @@ class ServiceLimitsConfig(BaseModel):
 
 
 class StaticConfig(BaseModel):
+    """Aggregate of all static config files, one attribute per YAML file.
+
+    Every section defaults to its built-in values, so an instance is always
+    complete even when no YAML file was found.
+    """
+
     ai_prompts: AIPromptsConfig = AIPromptsConfig()
     platform_limits: PlatformLimitsConfig = PlatformLimitsConfig()
     preview_text: PreviewTextConfig = PreviewTextConfig()
@@ -269,6 +338,12 @@ class StaticConfig(BaseModel):
 
 
 def _load_yaml(path: Path) -> dict[str, Any]:
+    """Read one YAML file into a mapping, returning {} instead of raising.
+
+    A missing file, a non-mapping document and a parse error are all logged as
+    warnings and yield {}, so the caller falls back to defaults rather than
+    failing to start.
+    """
     if not path.exists():
         logger.warning("Static config file missing", extra={"path": str(path)})
         return {}
@@ -291,8 +366,7 @@ def _load_yaml(path: Path) -> dict[str, Any]:
 
 
 def load_static_config(base_dir: str | None = None) -> StaticConfig:
-    """
-    Load static configuration from YAML files, falling back to safe defaults.
+    """Load static configuration from YAML files, falling back to safe defaults.
 
     Static config is non-secret and versioned in the repository. Callers should
     use get_static_config() rather than this function directly.
@@ -320,8 +394,7 @@ def load_static_config(base_dir: str | None = None) -> StaticConfig:
 
 @lru_cache(maxsize=1)
 def get_static_config() -> StaticConfig:
-    """
-    Cached accessor for static configuration.
+    """Cached accessor for static configuration.
 
     This is the primary entry point other modules should use.
     """

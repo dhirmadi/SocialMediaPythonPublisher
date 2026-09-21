@@ -1,3 +1,24 @@
+"""Authentication and admin-mode guards for the FastAPI admin UI.
+
+Two distinct layers, per ``.claude/rules/web-security.md``:
+
+- ``require_auth`` — HTTP auth for machine clients (Bearer ``WEB_AUTH_TOKEN``
+  or Basic ``WEB_AUTH_USER``/``WEB_AUTH_PASS``), also satisfied on its own by a
+  valid admin cookie for same-origin browser admins (#91 SEC-3 decision b).
+  Set ``WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE`` for the strict mode that demands
+  both. It fails closed when nothing is configured, unless
+  ``WEB_ALLOW_UNAUTHENTICATED`` is explicitly set for local development.
+- ``require_admin`` — admin mode, which Bearer/Basic auth alone never
+  satisfies. It requires the signed ``pv2_admin`` cookie, minted solely by the
+  Auth0 callback: Auth0 is the only admin login and no password login may be
+  added back (#137).
+
+The cookie is stateless and signed with the session secret, bound to the
+request's tenant and host so it cannot be replayed across tenants (#91 SEC-1).
+Revocation has two levers (#91 SEC-10): an in-process, bounded set of revoked
+session ids, and ``WEB_ADMIN_COOKIE_EPOCH`` as the fleet-wide kill switch.
+"""
+
 import base64
 import hmac
 import logging
@@ -18,8 +39,7 @@ def _get_env(name: str) -> str | None:
 
 
 def is_auth_enabled() -> bool:
-    """
-    Determine whether web auth is enabled based on environment variables.
+    """Determine whether web auth is enabled based on environment variables.
 
     MVP rule:
       - If any of WEB_AUTH_TOKEN or (WEB_AUTH_USER and WEB_AUTH_PASS) is set,
@@ -42,8 +62,7 @@ def _allow_unauthenticated() -> bool:
 
 
 async def require_auth(request: Request) -> None:
-    """
-    Enforce simple auth for mutating endpoints.
+    """Enforce simple auth for mutating endpoints.
 
     Supports either:
       - Bearer token via WEB_AUTH_TOKEN, or
@@ -155,6 +174,12 @@ def _prune_revoked_sids() -> None:
 
 
 def revoke_admin_sid(sid: str) -> None:
+    """Revoke a single admin session id in this process (#91 SEC-10).
+
+    Cookies are stateless, so this is best-effort: the set is bounded and
+    pruned on every call, and it is not shared with other dynos or workers.
+    ``WEB_ADMIN_COOKIE_EPOCH`` is the fleet-wide equivalent.
+    """
     import time as _time
 
     _prune_revoked_sids()
@@ -173,9 +198,7 @@ _ADMIN_COOKIE_MODE = "auth0"
 
 
 def is_admin_configured() -> bool:
-    """
-    Check if admin mode is available. Auth0 is the only admin login (#137).
-    """
+    """Check if admin mode is available. Auth0 is the only admin login (#137)."""
     return bool(_get_env("AUTH0_DOMAIN") and _get_env("AUTH0_CLIENT_ID"))
 
 
@@ -190,9 +213,18 @@ def _admin_cookie_ttl_seconds() -> int:
 
 
 def _cookie_secret() -> str:
-    """
-    Secret used to sign the admin cookie. Reuses the session secret so operators
-    only need to configure one. Falls back to a dev secret when WEB_DEBUG=1.
+    """Return the secret used to sign the admin cookie.
+
+    Reuses the session secret (``WEB_SESSION_SECRET``, then ``SECRET_KEY``) so
+    operators only need to configure one.
+
+    #87 (SEC-5): ``WEB_DEBUG`` is a logging flag and must not enable a public
+    signing secret, so the insecure development fallback needs its own explicit
+    ``WEB_DEV_INSECURE_SECRET`` opt-in.
+
+    Raises:
+        RuntimeError: When no secret is configured and the insecure development
+            fallback has not been opted into.
     """
     secret = os.environ.get("WEB_SESSION_SECRET") or os.environ.get("SECRET_KEY")
     if secret:
@@ -225,8 +257,7 @@ def mint_admin_cookie_value(
     mode: str = "auth0",
     email: str | None = None,
 ) -> str:
-    """
-    Mint a signed admin-cookie payload bound to a tenant and host (SEC-1).
+    """Mint a signed admin-cookie payload bound to a tenant and host (SEC-1).
 
     Payload: {"sid", "tenant", "host", "mode", "email"?}. Signature and
     timestamp are embedded by URLSafeTimedSerializer. Exposed so tests can
@@ -281,8 +312,7 @@ def _load_admin_cookie(token: str | None) -> dict | None:
 
 
 def request_binding(request: Request) -> tuple[str | None, str | None]:
-    """
-    Resolve the (tenant, host) pair the admin cookie must be bound to.
+    """Resolve the (tenant, host) pair the admin cookie must be bound to.
 
     Orchestrator mode: tenant middleware sets request.state.tenant/.host.
     Standalone mode: no tenant; the normalized Host header is the binding.
@@ -302,8 +332,7 @@ def set_admin_cookie(
     mode: str = "auth0",
     email: str | None = None,
 ) -> None:
-    """
-    Set the signed admin-mode cookie on the response, bound to tenant/host.
+    """Set the signed admin-mode cookie on the response, bound to tenant/host.
 
     ``secure`` comes from the caller's :class:`RuntimeSettings` snapshot (#143).
     It used to be parsed here from ``WEB_SECURE_COOKIES`` with a truthy set that
@@ -325,14 +354,19 @@ def set_admin_cookie(
 
 
 def clear_admin_cookie(response: Response) -> None:
+    """Delete the admin cookie from the browser on ``response``.
+
+    This only ends the session in that browser; use ``revoke_admin_request`` as
+    well to invalidate the cookie server-side for anyone holding a copy.
+    """
     response.delete_cookie(key=ADMIN_COOKIE_NAME, path="/")
 
 
 def is_admin_request(request: Request) -> bool:
-    """
-    Determine whether the incoming request is in admin mode by verifying the
-    signed cookie AND its tenant/host binding (SEC-1). Returns False on
-    missing, tampered, expired, legacy, or cross-tenant cookies.
+    """Return True when the request carries a valid admin cookie for this tenant.
+
+    Verifies the signed cookie AND its tenant/host binding (SEC-1). Returns
+    False on missing, tampered, expired, legacy, or cross-tenant cookies.
     """
     payload = _load_admin_cookie(request.cookies.get(ADMIN_COOKIE_NAME))
     if payload is None:
@@ -344,8 +378,7 @@ def is_admin_request(request: Request) -> bool:
 
 
 def _tenant_admin_available(request: Request) -> bool | None:
-    """
-    Per-tenant admin auth policy from the orchestrator runtime config.
+    """Per-tenant admin auth policy from the orchestrator runtime config.
 
     Returns None in standalone mode (no request.state.config); otherwise True
     only when the resolved tenant has Auth0 (a non-None auth0 config), the one
@@ -358,8 +391,7 @@ def _tenant_admin_available(request: Request) -> bool | None:
 
 
 def require_admin(request: Request) -> None:
-    """
-    Enforce admin mode for web-triggered mutating actions.
+    """Enforce admin mode for web-triggered mutating actions.
 
     Orchestrator mode: the resolved tenant's runtime config decides whether
     any admin login exists for the tenant; a disabled tenant gets 403 even

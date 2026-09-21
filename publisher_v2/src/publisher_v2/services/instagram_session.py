@@ -43,11 +43,25 @@ TRANSIENT_BACKOFF_HOURS = 1
 
 
 class SessionStore(Protocol):
-    async def load(self, tenant: str) -> dict[str, Any] | None: ...
+    """Per-tenant store for instagrapi settings and the challenge backoff.
 
-    async def save(self, tenant: str, settings: dict[str, Any]) -> None: ...
+    Implementations are expected to swallow their own storage errors and
+    degrade to "no session" rather than raising into a publish: a missing
+    session only costs a password login, while an exception would abort the
+    publish entirely.
+    """
 
-    async def get_blocked_until(self, tenant: str) -> datetime | None: ...
+    async def load(self, tenant: str) -> dict[str, Any] | None:
+        """Return the stored instagrapi settings, or None when there are none."""
+        ...
+
+    async def save(self, tenant: str, settings: dict[str, Any]) -> None:
+        """Persist the instagrapi settings for ``tenant``, replacing any earlier ones."""
+        ...
+
+    async def get_blocked_until(self, tenant: str) -> datetime | None:
+        """Return the UTC instant before which logins are suppressed, or None."""
+        ...
 
     async def set_blocked_until(self, tenant: str, until: datetime | None) -> bool:
         """Store (or clear) the backoff; False when it could not be written (#133)."""
@@ -74,10 +88,20 @@ def _is_regular_file(path: Path) -> bool:
 
 
 def challenge_backoff_until() -> datetime:
+    """Return the UTC instant a day out, for a login Instagram itself refused.
+
+    Use this when the verdict is unambiguous — challenge, 2FA, bad
+    credentials — since retrying sooner only re-triggers it.
+    """
     return datetime.now(UTC) + timedelta(hours=CHALLENGE_BACKOFF_HOURS)
 
 
 def transient_backoff_until() -> datetime:
+    """Return the UTC instant an hour out, for a login that never reached a verdict.
+
+    Network errors, throttling and publish timeouts get the short backoff: the
+    cause may already be gone, so a full day would be too wide a blast radius.
+    """
     return datetime.now(UTC) + timedelta(hours=TRANSIENT_BACKOFF_HOURS)
 
 
@@ -92,6 +116,16 @@ class FileSessionStore:
     LEGACY_DEFAULT_PATH = "instasession.json"
 
     def __init__(self, path: str | None = None) -> None:
+        """Store the session at ``path``, or under the user cache when omitted.
+
+        With no path, the location is ``$XDG_CACHE_HOME/publisher_v2/`` (falling
+        back to ``~/.cache``) and the pre-#133 relative default is remembered as
+        a one-time migration source, pinned to the working directory as it is at
+        construction time.
+
+        Args:
+            path: Explicit session file path, usually ``session_file`` from config.
+        """
         self._legacy_path: Path | None = None
         if not path:
             base = os.environ.get("XDG_CACHE_HOME") or os.path.join(Path.home(), ".cache")
@@ -147,6 +181,12 @@ class FileSessionStore:
         return None, False
 
     async def load(self, tenant: str) -> dict[str, Any] | None:
+        """Read the session file, migrating the pre-#133 location on first use.
+
+        ``tenant`` is ignored — a file store holds a single standalone session.
+        Returns None on unreadable or non-JSON-object content rather than
+        raising, so a corrupt file degrades to a password login.
+        """
         try:
             data, migrated = await asyncio.to_thread(self._load_sync)
         except OSError:
@@ -157,6 +197,10 @@ class FileSessionStore:
         return data
 
     async def save(self, tenant: str, settings: dict[str, Any]) -> None:
+        """Write the settings 0600 and atomically; log and continue on OSError.
+
+        ``tenant`` is ignored — a file store holds a single standalone session.
+        """
         try:
             await asyncio.to_thread(self._write_private, self._path, json.dumps(settings))
         except OSError:
@@ -170,6 +214,11 @@ class FileSessionStore:
             self._legacy_path.unlink(missing_ok=True)
 
     async def clear(self, tenant: str) -> None:
+        """Delete the session file and any legacy copy; the backoff file survives.
+
+        Removing the legacy copy too stops an expired session being resurrected
+        from the pre-#133 path on the next load.
+        """
         try:
             await asyncio.to_thread(self._clear_sync)
         except OSError:
@@ -182,6 +231,10 @@ class FileSessionStore:
             return None
 
     async def get_blocked_until(self, tenant: str) -> datetime | None:
+        """Return the backoff deadline from the sidecar ``.blocked`` file, or None.
+
+        A missing or unparsable file reads as "not blocked".
+        """
         return await asyncio.to_thread(self._get_blocked_sync)
 
     def _set_blocked_sync(self, until: datetime | None) -> None:
@@ -191,6 +244,11 @@ class FileSessionStore:
             self._write_private(self._blocked_path(), until.isoformat())
 
     async def set_blocked_until(self, tenant: str, until: datetime | None) -> bool:
+        """Write the backoff deadline, or remove it when ``until`` is None.
+
+        Returns False if the write failed (#133), so the caller can tell that
+        the backoff is not actually being enforced.
+        """
         try:
             await asyncio.to_thread(self._set_blocked_sync, until)
             return True
@@ -210,6 +268,13 @@ class DbSessionStore:
     """Postgres-backed session store: one encrypted row per tenant."""
 
     def __init__(self, session_factory: Any, secret: str) -> None:
+        """Bind the store to an async SQLAlchemy session factory and a Fernet key.
+
+        Args:
+            session_factory: Async context-manager factory yielding a DB session.
+            secret: Passphrase the encryption key is derived from; typically the
+                web session secret. It is never stored or logged.
+        """
         self._session_factory = session_factory
         self._fernet = _fernet_from_secret(secret)
 
@@ -223,6 +288,12 @@ class DbSessionStore:
         ).scalar_one_or_none()
 
     async def load(self, tenant: str) -> dict[str, Any] | None:
+        """Decrypt and return the tenant's stored settings, or None.
+
+        None covers every failure mode — no row, a cleared blob, a key that no
+        longer decrypts the blob, or a database error — so a rotated secret
+        costs a fresh login instead of breaking the publish.
+        """
         try:
             async with self._session_factory() as session:
                 row = await self._get_row(session, tenant)
@@ -236,6 +307,11 @@ class DbSessionStore:
             return None
 
     async def save(self, tenant: str, settings: dict[str, Any]) -> None:
+        """Encrypt the settings and upsert the tenant's row, inserting if absent.
+
+        Any database or encryption failure is logged and swallowed; the session
+        simply does not survive the restart.
+        """
         try:
             blob = self._fernet.encrypt(json.dumps(settings).encode("utf-8")).decode("ascii")
             async with self._session_factory() as session:
@@ -252,6 +328,11 @@ class DbSessionStore:
             log_json(logger, logging.WARNING, "instagram_session_save_failed", exc_info=True)
 
     async def clear(self, tenant: str) -> None:
+        """Blank the tenant's session blob, keeping the row and its backoff.
+
+        The row survives so ``blocked_until`` is not lost along with the
+        session. Failures are logged and swallowed.
+        """
         try:
             async with self._session_factory() as session:
                 row = await self._get_row(session, tenant)
@@ -263,6 +344,11 @@ class DbSessionStore:
             log_json(logger, logging.WARNING, "instagram_session_clear_failed", exc_info=True)
 
     async def get_blocked_until(self, tenant: str) -> datetime | None:
+        """Return the tenant's backoff deadline, or None when unset or unreadable.
+
+        A database error reads as "not blocked" and is deliberately not logged,
+        since this is consulted on every publish attempt.
+        """
         try:
             async with self._session_factory() as session:
                 row = await self._get_row(session, tenant)
@@ -271,6 +357,11 @@ class DbSessionStore:
             return None
 
     async def set_blocked_until(self, tenant: str, until: datetime | None) -> bool:
+        """Store (or clear with None) the tenant's backoff, creating the row if needed.
+
+        Returns False on failure (#133) so the caller can tell that the backoff
+        is not actually being enforced.
+        """
         try:
             async with self._session_factory() as session:
                 row = await self._get_row(session, tenant)

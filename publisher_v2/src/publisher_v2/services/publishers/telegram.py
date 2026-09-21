@@ -1,3 +1,10 @@
+"""Telegram publisher: posts the image with its caption to a configured channel.
+
+Uses python-telegram-bot's async ``send_photo``. Failures never raise — they
+are sanitised (the bot token can appear in SDK error strings) and returned as
+an unsuccessful ``PublishResult``.
+"""
+
 import logging
 
 import telegram
@@ -11,18 +18,45 @@ logger = logging.getLogger("publisher_v2.publishers.telegram")
 
 
 class TelegramPublisher(Publisher):
+    """Publisher that sends photos to a Telegram channel via a bot."""
+
     def __init__(self, config: TelegramConfig | None, enabled: bool):
+        """Configure the publisher and decide up front whether it can publish.
+
+        The publisher only counts as enabled when ``enabled`` is set and the
+        config actually carries both a bot token and a channel id, so a
+        half-filled config disables it rather than failing at publish time.
+
+        Args:
+            config: Telegram bot token and channel id; None when unconfigured.
+            enabled: Whether Telegram is switched on for this tenant.
+        """
         self._config = config
         self._enabled = enabled and config is not None and bool(config.bot_token) and bool(config.channel_id)
 
     @property
     def platform_name(self) -> str:
+        """Return the platform identifier used in results and log records."""
         return "telegram"
 
     def is_enabled(self) -> bool:
+        """Return True when a bot token and channel id were both configured."""
         return self._enabled
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None) -> PublishResult:
+        """Send the local image with ``caption`` to the configured channel.
+
+        Never raises: a disabled publisher, a missing token or any SDK error
+        comes back as ``PublishResult(success=False)`` with a sanitised message,
+        so one platform's failure cannot abort the run. On success the Telegram
+        message id is returned as ``post_id``. The bot client is always shut
+        down afterwards.
+
+        Args:
+            image_path: Path to the already-downloaded image on local disk.
+            caption: Caption text to attach to the photo.
+            context: Unused; present for the Publisher interface.
+        """
         if not self._enabled or not self._config:
             return PublishResult(success=False, platform=self.platform_name, error="Disabled or not configured")
 

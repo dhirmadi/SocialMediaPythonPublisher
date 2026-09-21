@@ -1,3 +1,11 @@
+"""End-to-end publishing workflow: select, analyze, caption, publish, archive.
+
+:class:`WorkflowOrchestrator` is the single place orchestration lives. It owns image
+selection and dedup, the per-platform publish leases and their marks (#139), caption
+sidecar writes, usage/storage metering, and the preview and dry-publish paths — both of
+which must stay side-effect free: no publish, no archive, no state or cache mutation.
+"""
+
 from __future__ import annotations
 
 import asyncio
@@ -61,6 +69,8 @@ ALREADY_PUBLISHED_ERROR = "Already published: "
 
 
 class WorkflowOrchestrator:
+    """Runs one publish attempt end to end for a single tenant."""
+
     def __init__(
         self,
         config: ApplicationConfig,
@@ -74,6 +84,22 @@ class WorkflowOrchestrator:
         publish_store: PublishStore | None = None,
         settings: RuntimeSettings | None = None,
     ):
+        """Wire the collaborators one run needs.
+
+        Args:
+            config: Resolved application config for this tenant.
+            storage: Storage backend holding the image library.
+            ai_service: Vision analysis and caption generation.
+            publishers: Platform publishers to fan out to; may be empty.
+            usage_meter: Optional AI token/cost meter.
+            storage_ops_meter: Optional storage-operation meter.
+            tenant: Tenant label used in logs and store keys.
+            caption_store: Optional caption history store.
+            publish_store: Optional per-platform publish/lease store. When present it owns
+                retry semantics, and the coarse file-based posted state no longer vetoes a
+                run (#139).
+            settings: Runtime tunables, read once here rather than per step (#143).
+        """
         self.config = config
         self.storage = storage
         self.ai_service = ai_service
@@ -109,8 +135,7 @@ class WorkflowOrchestrator:
     async def _select_image(
         self, select_filename: str | None = None, respect_posted_state: bool = True
     ) -> _ImageSelection:
-        """
-        Select the next image to publish, applying dedup logic.
+        """Select the next image to publish, applying dedup logic.
 
         Uses Dropbox metadata-based dedup when a real Dropbox client is available,
         otherwise falls back to the legacy SHA256-only path (test/dummy storages).
@@ -285,6 +310,31 @@ class WorkflowOrchestrator:
         caption_override: str | None = None,
         caption_overrides: dict[str, str] | None = None,
     ) -> WorkflowResult:
+        """Run the full workflow once and return its outcome.
+
+        On any exit path, leases this run took but never published are marked failed so the
+        next run can re-lease them — unless the run held them past the lease TTL, in which
+        case another run may already own them and the release is left to the TTL (#139).
+
+        Args:
+            select_filename: Publish this specific image instead of picking the next one.
+            dry_publish: Run every step but skip the actual platform calls and state writes.
+            preview_mode: Render what would happen; performs no publish, archive, sidecar
+                write or state/cache mutation, and populates the preview-only fields of the
+                result (analysis, spec, source URL, hash, folder).
+            caption_override: Replace the generated caption for every platform.
+            caption_overrides: Per-platform caption replacements; blank values are ignored.
+
+        Returns:
+            A WorkflowResult. Expected non-outcomes (nothing to publish, an image already
+            published) come back as ``error`` text rather than an exception; an error
+            prefixed with ``ALREADY_PUBLISHED_ERROR`` means file-based posted state refused
+            the re-publish.
+
+        Raises:
+            AIServiceError: Vision or caption generation failed or timed out.
+            StorageError: The image or its sidecar could not be read or written.
+        """
         correlation_id = str(uuid.uuid4())
         caption = ""
         overrides: dict[str, str] = {}
@@ -1038,8 +1088,7 @@ class WorkflowOrchestrator:
         preview_mode: bool = False,
         dry_run: bool = False,
     ) -> None:
-        """
-        Internal helper for Keep/Remove-style curation actions.
+        """Internal helper for Keep/Remove-style curation actions.
 
         When preview_mode or dry_run is True, this prints a human-readable
         description of the intended move and performs no Dropbox operations.
@@ -1091,9 +1140,7 @@ class WorkflowOrchestrator:
         preview_mode: bool = False,
         dry_run: bool = False,
     ) -> None:
-        """
-        Move an image (and its sidecars) into the configured keep folder.
-        """
+        """Move an image (and its sidecars) into the configured keep folder."""
         if not self.config.features.keep_enabled:
             raise StorageError("Keep feature is disabled via FEATURE_KEEP_CURATE toggle")
         await self._curate_image(
@@ -1111,9 +1158,7 @@ class WorkflowOrchestrator:
         preview_mode: bool = False,
         dry_run: bool = False,
     ) -> None:
-        """
-        Move an image (and its sidecars) into the configured remove folder.
-        """
+        """Move an image (and its sidecars) into the configured remove folder."""
         if not self.config.features.remove_enabled:
             raise StorageError("Remove feature is disabled via FEATURE_REMOVE_CURATE toggle")
         await self._curate_image(
@@ -1131,8 +1176,7 @@ class WorkflowOrchestrator:
         preview_mode: bool = False,
         dry_run: bool = False,
     ) -> None:
-        """
-        Permanently delete an image (and its sidecars) from storage.
+        """Permanently delete an image (and its sidecars) from storage.
 
         This is a destructive operation and cannot be undone.
         """

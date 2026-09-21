@@ -1,3 +1,12 @@
+"""FastAPI application for the Publisher V2 admin UI and its JSON API.
+
+Owns app construction: the lifespan that snapshots runtime settings onto ``app.state``
+once per process (#143), the middleware stack (tenant resolution, CSRF, security headers,
+sessions), the health probes, and the admin/auth and view-permission endpoints. Routers
+for the library and image endpoints are mounted here; per-request services come from
+:mod:`publisher_v2.web.dependencies`.
+"""
+
 import asyncio
 import json
 import logging
@@ -69,8 +78,7 @@ _PUBLISH_LIMITER_MIN = SlidingWindowLimiter(window_seconds=60, max_events=10, la
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """
-    Lifespan context manager for FastAPI app startup and shutdown events.
+    """Lifespan context manager for FastAPI app startup and shutdown events.
 
     This replaces the deprecated @app.on_event("startup") decorator.
     """
@@ -207,8 +215,7 @@ class RequestTelemetry:
 
 
 async def get_request_telemetry(request: Request) -> RequestTelemetry:
-    """
-    Derive a per-request correlation_id and capture a monotonic start time.
+    """Derive a per-request correlation_id and capture a monotonic start time.
 
     The correlation_id is based on X-Request-ID when present, or a new UUID4.
     """
@@ -241,8 +248,7 @@ async def endpoint_telemetry(
 def raise_for_service_error(
     exc: Exception, event_name: str, response: Response, telemetry: RequestTelemetry
 ) -> NoReturn:
-    """
-    Map service-layer exceptions to HTTP responses, with error telemetry.
+    """Map service-layer exceptions to HTTP responses, with error telemetry.
 
     The exception text is kept server-side (logged with correlation_id) and is
     NOT included in the response body, since exception strings can carry
@@ -322,8 +328,7 @@ app.include_router(library_router.router)
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request) -> HTMLResponse:
-    """
-    Render the main HTML page.
+    """Render the main HTML page.
 
     Web UI text defaults come from static, non-secret configuration so that
     labels and headings can be tuned or localized without code changes.
@@ -348,7 +353,8 @@ async def health_live() -> dict[str, str]:
 
 @app.get("/health/ready")
 async def health_ready(request: Request) -> Response:
-    """
+    """Report readiness, returning 503 when a required dependency is unreachable.
+
     Readiness probe:
     - env-first mode: always ready
     - orchestrator mode: requires orchestrator connectivity (404 is acceptable)
@@ -395,9 +401,7 @@ async def health_ready(request: Request) -> Response:
     response_model=AdminStatusResponse,
 )
 async def api_admin_status(request: Request) -> AdminStatusResponse:
-    """
-    Report whether the current request is in admin mode.
-    """
+    """Report whether the current request is in admin mode."""
     admin = is_admin_request(request)
     return AdminStatusResponse(admin=admin)
 
@@ -420,9 +424,10 @@ async def api_auth_logout(response: Response, request: Request) -> AdminStatusRe
     deprecated=True,
 )
 async def api_admin_logout(response: Response, request: Request) -> AdminStatusResponse:
-    """
-    Explicitly log out of admin mode by clearing the admin cookie.
-    Also clears server-side session.
+    """Log out of admin mode by clearing the admin cookie.
+
+    Deprecated in favour of ``POST /api/auth/logout``. Also revokes the admin request
+    marker and clears the server-side session.
     """
     revoke_admin_request(request)
     clear_admin_cookie(response)
@@ -436,8 +441,7 @@ def verify_view_permissions(
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> None:
-    """
-    Enforce permission policy for viewing images (list, details, random, thumbnails).
+    """Enforce permission policy for viewing images (list, details, random, thumbnails).
 
     Policy:
       - If FEATURE_AUTO_VIEW=true (default for local/dev), allow public access.
@@ -750,8 +754,7 @@ async def api_get_thumbnail(
     service: WebImageService = Depends(get_request_service),
     telemetry: RequestTelemetry = Depends(get_request_telemetry),
 ) -> Response:
-    """
-    Return a thumbnail of the specified image.
+    """Return a thumbnail of the specified image.
 
     Thumbnails are generated server-side by Dropbox and cached by
     the browser. This provides fast loading for previews while
@@ -801,8 +804,7 @@ async def api_get_thumbnail(
 
 @app.get("/api/config/publishers")
 async def api_get_publishers_config(service: WebImageService = Depends(get_request_service)) -> dict[str, bool]:
-    """
-    Return enablement state for all configured publishers.
+    """Return enablement state for all configured publishers.
 
     Returns a dict mapping publisher names to enabled state.
     No authentication required (non-sensitive configuration flags).
@@ -819,8 +821,7 @@ async def api_get_publishers_config(service: WebImageService = Depends(get_reque
 async def api_get_features_config(
     service: WebImageService = Depends(get_request_service),
 ) -> dict[str, Any]:
-    """
-    Return high-level product feature flags for the web UI.
+    """Return high-level product feature flags for the web UI.
 
     Values come from environment variables (FEATURE_ANALYZE_CAPTION, FEATURE_PUBLISH,
     FEATURE_KEEP_CURATE, FEATURE_REMOVE_CURATE) via the typed FeaturesConfig loaded

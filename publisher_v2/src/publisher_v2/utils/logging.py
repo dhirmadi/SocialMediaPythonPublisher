@@ -1,3 +1,13 @@
+"""Structured JSON logging with mandatory secret redaction.
+
+Every log line the application emits goes through ``sanitize``, either directly
+via ``log_json`` or via the ``SanitizingFilter`` that ``setup_logging`` attaches
+to the root handler — the filter is what catches secrets logged by third-party
+libraries (httpx, instagrapi) that never call our helpers. Use ``log_json``
+rather than ``logger.info`` with an f-string so the payload stays machine
+readable; never use ``print``.
+"""
+
 import json
 import logging
 import re
@@ -43,8 +53,7 @@ def sanitize(message: str) -> str:
 
 
 class SanitizingFilter(logging.Filter):
-    """
-    Logging filter that redacts sensitive data from ALL log records.
+    """Logging filter that redacts sensitive data from ALL log records.
 
     This filter applies sanitization to:
     - The formatted message (record.msg after % formatting)
@@ -55,6 +64,11 @@ class SanitizingFilter(logging.Filter):
     """
 
     def filter(self, record: logging.LogRecord) -> bool:
+        """Redact secrets from ``record`` in place and always keep the record.
+
+        Mutates ``record.msg`` and ``record.args``; nothing is ever dropped, so
+        this filter changes content but never log volume.
+        """
         # Sanitize the message
         if record.msg and isinstance(record.msg, str):
             record.msg = sanitize(record.msg)
@@ -70,8 +84,7 @@ class SanitizingFilter(logging.Filter):
 
 
 def setup_logging(level: int = logging.INFO) -> None:
-    """
-    Configure logging with sanitization filter applied to ALL handlers.
+    """Configure logging with sanitization filter applied to ALL handlers.
 
     This ensures secrets are redacted from:
     - Our application logs
@@ -109,6 +122,13 @@ def setup_logging(level: int = logging.INFO) -> None:
 
 
 def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) -> None:
+    """Emit one JSON log line with ``message`` plus ``kwargs`` as fields.
+
+    A ``timestamp`` field (UTC, ISO-8601) is added automatically and ``message``
+    is sanitized. ``exc_info`` is treated as a logging directive rather than
+    payload and forwarded to ``logger.log`` so tracebacks are rendered. All
+    other keyword arguments must be JSON-serialisable.
+    """
     # #87 (REL-8): exc_info is a logging directive, not payload — forward it to
     # logger.log so tracebacks actually appear instead of '"exc_info": true'.
     exc_info = kwargs.pop("exc_info", None)
@@ -121,16 +141,12 @@ def log_json(logger: logging.Logger, level: int, message: str, **kwargs: Any) ->
 
 
 def now_monotonic() -> float:
-    """
-    Return a monotonically increasing timestamp suitable for measuring durations.
-    """
+    """Return a monotonically increasing timestamp suitable for measuring durations."""
     return time.perf_counter()
 
 
 def elapsed_ms(start: float) -> int:
-    """
-    Return the elapsed time in integer milliseconds since ``start``.
-    """
+    """Return the elapsed time in integer milliseconds since ``start``."""
     return int((time.perf_counter() - start) * 1000)
 
 
@@ -141,10 +157,12 @@ def log_publisher_publish(
     success: bool,
     error: str | None = None,
 ) -> None:
-    """
-    Convenience helper to emit a structured per-publisher timing log.
-    """
+    """Emit a structured ``publisher_publish`` line with the elapsed duration.
 
+    ``start`` must come from ``now_monotonic``. Logs at INFO when ``success`` is
+    true and at ERROR otherwise, so a failed publish is visible without the
+    caller choosing a level.
+    """
     duration_ms = elapsed_ms(start)
     level = logging.INFO if success else logging.ERROR
     log_json(
