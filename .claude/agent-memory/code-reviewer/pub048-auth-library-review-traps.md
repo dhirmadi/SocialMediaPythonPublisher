@@ -28,3 +28,15 @@ PUB-048 (#187/#188) hardening left four things a future reviewer should re-check
 - In `test_require_admin_strict_mode.py` only 3 of the 12 parametrized call sites (`app.py:476`,
   `:859`, `:878`) actually fail against pre-fix code — the other 9 already 401 via `require_auth`.
   That is expected, not a weak test; the file's value is the uniform walk plus the positive case.
+- AC11 (`_move_in_storage`'s 409 destination guard, `web/routers/library.py`) must sit **after**
+  the AC6 `src_key == dst_key` 400 — otherwise a root→root self-move answers 409 and
+  `test_move_target_root_when_already_in_root_rejects_same_key` (which asserts 400) fails. That
+  existing test is the only thing pinning the order.
+- `/api/library/objects/{f}/move` has **no UI consumer** (verified: `templates/index.html` curation
+  buttons call `/api/images/{f}/keep|remove|delete`, not `/move`), which is why AC11 ships without
+  an `overwrite` hatch. PUB-031's archived spec describes a "Move dropdown" that does not exist in
+  the current template — do not take that doc as evidence of a consumer.
+- The move-test `_FakeS3` has two seeds: `keys` (returned by the listing paginator, i.e. root) and
+  `unlisted_keys` (head-only, e.g. `keep/`). Seeding a destination into `keys` is what makes the
+  AC11 collision test real; a destination that is absent from both is what keeps every other move
+  test at 200.

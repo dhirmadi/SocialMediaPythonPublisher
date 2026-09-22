@@ -59,7 +59,7 @@ into two PRs at commit time; #187 should land first per the handoff.
 - [x] AC10 — non-image or unlisted delete → 404, nothing deleted (`test_delete_non_image_suffix_or_unlisted_name_returns_404_and_nothing_deleted`)
 - [x] AC11 — move onto an existing destination name → 409 before any copy or delete (`test_move_onto_existing_destination_name_returns_409_and_nothing_copied_or_deleted`). Added *after* the first implementation pass, from an adversarial audit of the finished branch.
 
-Zero test-name drift: all 13 names match the handoff's Test-first targets table verbatim.
+Zero test-name drift: all 16 handoff test names match verbatim. The handoff table originally had 14 rows (AC1-AC10); the two AC11 rows were added to it when AC11 was, so the table and the tree agree.
 
 ## Test Results
 
@@ -70,7 +70,7 @@ uv run pytest -q --cov --cov-report=term-missing
 
 (1797 at the first implementation pass; +2 from AC11.)
 
-Re-run under a second random order (`--randomly-seed=424242`): 1797 passed, 1 skipped. No isolation
+Re-run under other random seeds (e.g. `--randomly-seed=13579`): 1799 passed, 1 skipped. No isolation
 defect from the new fixtures.
 
 Mutation check (reviewer, detached worktree at HEAD with the new tests): 15 of 16 new test cases fail

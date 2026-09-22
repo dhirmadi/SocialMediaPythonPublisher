@@ -29,6 +29,8 @@ no new request fields, so it's lower-risk to land and verify independently first
 | AC9 | #188 | `publisher_v2/tests/web/test_library_upload.py` | `test_upload_existing_name_without_overwrite_query_param_returns_409` |
 | AC9 | #188 | `publisher_v2/tests/web/test_library_upload.py` | `test_upload_existing_name_with_overwrite_query_param_true_succeeds` |
 | AC10 | #188 | `publisher_v2/tests/web/test_library_delete_sanitizing.py` (new) | `test_delete_non_image_suffix_or_unlisted_name_returns_404_and_nothing_deleted` |
+| AC11 | #188 | `publisher_v2/tests/web/test_library_move_sanitizing.py` | `test_move_onto_existing_destination_name_returns_409_and_nothing_copied_or_deleted` (added post-implementation — see the AC11 Change Log entry) |
+| AC11 | #188 | `publisher_v2/tests/web/test_library_move_sanitizing.py` | `test_move_missing_object_from_non_root_source_folder_returns_404_and_nothing_copied_or_deleted` (covers `ensure_known_object`'s existence branch, dead-untested until the AC11 fake tightening) |
 
 The **Test name** column is the exact `pytest` function name to create — the only spec-to-test
 traceability link `/verify` and `/product-review-delivery` check against. If a name must change,
