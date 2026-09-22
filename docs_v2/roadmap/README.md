@@ -67,7 +67,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-046 | AI | [Email Caption Length Control](archive/PUB-046_email-caption-length-control.md) | P1 | S | PUB-025, PUB-029, PUB-039 | Done |
 | **Post-Review Plan 2026-09-21 (tracker #177)** ||||||
 | PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](archive/PUB-047_reliability-batch.md) | P0 | S | — | Done |
-| PUB-048 | Web UI | [Auth and Library Uniformity](PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Proposal |
+| PUB-048 | Web UI | [Auth and Library Uniformity](archive/PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Done |
 | PUB-049 | AI | [Caption Evaluation Harness](PUB-049_caption-evaluation-harness.md) | P0 | M | — | Proposal |
 | PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | S | PUB-049 | Proposal |
 | PUB-051 | AI | [Caption Prompt and Register Repair](PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Proposal |
@@ -81,6 +81,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-059 | Web UI | [Web App Factory, Routers and Typed Platform Captions](PUB-059_web-factory-and-typed-captions.md) | P2 | M | PUB-057, PUB-058 | Proposal |
 | PUB-060 | Foundation | [Test and Docs Hygiene](PUB-060_test-and-docs-hygiene.md) | P2 | M | PUB-059 | Proposal |
 | PUB-061 | Foundation | [Storage-Ops Drain Deadline — Stop Under-Billing a Slow-but-Alive Orchestrator](archive/PUB-061_storage-ops-drain-deadline.md) | P2 | XS | PUB-047 | Done |
+| PUB-063 | Foundation | [Distinguish "absent" from "could not tell" in head_object](PUB-063_head-object-fail-open.md) | P1 | S | PUB-048 | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
