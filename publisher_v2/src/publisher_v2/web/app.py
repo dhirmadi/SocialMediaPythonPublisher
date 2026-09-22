@@ -190,7 +190,18 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.runtime_settings = None
 
 
-app = FastAPI(title="Publisher V2 Web Interface", version="0.1.0", lifespan=lifespan)
+# PUB-048 (AC5): FastAPI's interactive docs and schema are disabled, so the
+# route table and the upload contract are not readable anonymously on every
+# tenant host. With these set to None no routes are registered for those
+# paths at all, and they fall through to the app's default 404.
+app = FastAPI(
+    title="Publisher V2 Web Interface",
+    version="0.1.0",
+    lifespan=lifespan,
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
+)
 
 logger = logging.getLogger("publisher_v2.web")
 
@@ -856,7 +867,15 @@ async def api_get_voice_profile(
     service: WebImageService = Depends(get_request_service),
 ) -> VoiceProfileResponse:
     """PUB-029 AC-06: return current runtime voice profile (admin only)."""
+    # PUB-048 (AC1): both guards, like every other admin route. Order is
+    # inverted relative to those routes on purpose: `require_admin` runs
+    # first so its 403 ("Admin mode disabled for this tenant" / "Admin
+    # privileges required") keeps winning over `require_auth`'s 401/503 for
+    # a missing or cross-tenant cookie, which is the precedence this item's
+    # Implementation Notes require. Strict mode is enforced inside
+    # `require_admin` itself, so running it first loses no coverage.
     require_admin(request)
+    await require_auth(request)
     config = service.config
     return VoiceProfileResponse(
         voice_profile=config.content.voice_profile,
@@ -875,7 +894,15 @@ async def api_set_voice_profile(
     Updates the active service config for this process; does not persist back
     to the orchestrator. Empty list clears the profile (stored as ``None``).
     """
+    # PUB-048 (AC1): both guards, like every other admin route. Order is
+    # inverted relative to those routes on purpose: `require_admin` runs
+    # first so its 403 ("Admin mode disabled for this tenant" / "Admin
+    # privileges required") keeps winning over `require_auth`'s 401/503 for
+    # a missing or cross-tenant cookie, which is the precedence this item's
+    # Implementation Notes require. Strict mode is enforced inside
+    # `require_admin` itself, so running it first loses no coverage.
     require_admin(request)
+    await require_auth(request)
     from pydantic import ValidationError as _PydValidation
 
     from publisher_v2.config.schema import ContentConfig

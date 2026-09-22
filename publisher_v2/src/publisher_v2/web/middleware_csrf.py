@@ -3,9 +3,10 @@
 Strategy: for any state-changing request (POST/PUT/PATCH/DELETE) under /api/*,
 require ONE of:
 
-  (a) An ``Authorization`` header — machine clients with Bearer/Basic creds.
-      These are unaffected by CSRF because the attacker cannot forge such a
-      header from a victim browser.
+  (a) An ``Authorization`` header that *verifies* — machine clients with valid
+      Bearer/Basic creds. These are unaffected by CSRF because the attacker
+      cannot forge valid credentials from a victim browser. An unverified
+      header grants no bypass (PUB-048 AC3).
   (b) Both: an ``X-Requested-With: XMLHttpRequest`` header AND a same-origin
       ``Origin`` (or ``Referer`` fallback). Browsers prevent cross-origin pages
       from setting custom request headers without a CORS preflight, so this
@@ -26,6 +27,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from publisher_v2.utils.logging import log_json
+from publisher_v2.web.auth import _verify_basic, _verify_bearer
 from publisher_v2.web.rate_limit import forwarded_proto_values, request_scheme, trust_forwarded_headers
 
 logger = logging.getLogger("publisher_v2.web.csrf")
@@ -68,7 +70,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         """Pass the request through, or answer 403 when the CSRF signal is missing.
 
         Skipped entirely for non-state-changing methods, paths outside the API prefix,
-        exempt auth-bootstrap paths, requests carrying an ``Authorization`` header, and
+        exempt auth-bootstrap paths, requests carrying a *verified* ``Authorization`` header, and
         cookieless requests (no victim session to ride — auth dependencies reject those).
         """
         if request.method not in _STATE_CHANGING:
@@ -79,9 +81,15 @@ class CSRFMiddleware(BaseHTTPMiddleware):
         if path in _CSRF_EXEMPT_PATHS:
             return await call_next(request)
 
-        # Machine clients with Authorization header bypass CSRF — credentials in
-        # the header cannot be forged from a victim browser.
-        if request.headers.get("authorization"):
+        # Machine clients with a *verified* Authorization header bypass CSRF —
+        # credentials in the header cannot be forged from a victim browser.
+        # PUB-048 (AC3): mere presence is not enough. An attacker page can make
+        # the browser send an arbitrary `Authorization: Bearer nope` alongside
+        # the victim's cookie, so an unverified header used to be a free CSRF
+        # bypass. An invalid header now falls through to the X-Requested-With
+        # branch below and is rejected there.
+        auth_header = (request.headers.get("authorization") or "").strip()
+        if auth_header and (_verify_bearer(auth_header) or _verify_basic(auth_header)):
             return await call_next(request)
 
         # No cookies on the request means there is no victim session to ride —

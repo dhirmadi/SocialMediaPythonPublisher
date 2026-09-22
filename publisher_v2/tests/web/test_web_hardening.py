@@ -275,3 +275,16 @@ class TestHeaderAuthWithCookie:
         client.cookies.set("pv2_admin", self._cookie())
         res = client.post("/mutate", headers={"Authorization": "Bearer token-1"})
         assert res.status_code == 200
+
+
+class TestOpenApiDisabled:
+    """PUB-048 AC5 (#187): the schema and its viewers are not served anonymously."""
+
+    def test_docs_redoc_openapi_json_all_404_for_anonymous_request(self, client: TestClient) -> None:
+        statuses = {
+            path: client.get(path, follow_redirects=False).status_code for path in ("/docs", "/redoc", "/openapi.json")
+        }
+
+        assert statuses == {"/docs": 404, "/redoc": 404, "/openapi.json": 404}, (
+            f"the route table and upload contract are still readable anonymously: {statuses}"
+        )

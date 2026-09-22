@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from fastapi.testclient import TestClient
 
 from publisher_v2.config.schema import FeaturesConfig
@@ -182,3 +183,47 @@ class TestVoiceProfilePost:
             json={"voice_profile": [f"e{i}" for i in range(21)]},
         )
         assert res.status_code in (400, 422)
+
+
+# ---------------------------------------------------------------------------
+# PUB-048 AC1 (#187): strict mode is enforced by require_admin itself, so the
+# voice-profile routes (require_admin-only today) cannot forget it.
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceProfileStrictMode:
+    """AC1: `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` + cookie only -> 401 on both verbs."""
+
+    _STRICT_DETAIL = "Header authentication required in addition to the admin cookie"
+
+    @staticmethod
+    def _strict(monkeypatch: pytest.MonkeyPatch) -> None:
+        """Strict mode is only meaningful when a header backend is configured."""
+        monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
+        monkeypatch.setenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", "1")
+
+    def test_get_requires_admin_under_strict_mode_with_cookie_only(
+        self, managed_admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._strict(monkeypatch)
+        client = _admin(managed_admin_client)
+
+        res = client.get("/api/config/voice-profile")
+
+        assert res.status_code == 401, "a cookie alone defeated strict mode on GET /api/config/voice-profile"
+        assert res.json()["detail"] == self._STRICT_DETAIL
+
+    def test_post_requires_admin_under_strict_mode_with_cookie_only(
+        self, managed_admin_client: TestClient, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        self._strict(monkeypatch)
+        client = _admin(managed_admin_client)
+
+        res = client.post("/api/config/voice-profile", json={"voice_profile": ["injected line."]})
+
+        assert res.status_code == 401, "a cookie alone defeated strict mode on POST /api/config/voice-profile"
+        assert res.json()["detail"] == self._STRICT_DETAIL
+        # The profile feeds the caption prompt: a rejected request must not have written it.
+        allowed = _admin(managed_admin_client)
+        monkeypatch.delenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", raising=False)
+        assert "injected line." not in (allowed.get("/api/config/voice-profile").json()["voice_profile"] or [])

@@ -19,21 +19,35 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 import pytest
+from botocore.exceptions import ClientError
 
 FOLDER = "/tenant/instance"
 KEY_PREFIX = FOLDER.strip("/")
 
 
 class _FakeS3:
-    """Records copy/delete calls; lists exactly one object in the image folder."""
+    """Records copy/delete calls; lists exactly one object in the image folder.
+
+    ``head_object`` is per-key (PUB-048 AC11): a blanket-truthy head would make
+    every move collide with the new destination guard, and would leave
+    ``ensure_known_object``'s existence branch untestable. Keys in ``keys`` are
+    returned by the listing paginator; keys in ``unlisted_keys`` exist for
+    ``head_object`` only (objects outside the image-root listing, e.g. the keep
+    folder). Anything else heads as a 404, which the real
+    ``ManagedStorage.head_object`` maps to ``None``.
+    """
 
     def __init__(self) -> None:
         self.copied: list[tuple[str, str]] = []
         self.deleted: list[str] = []
         self.keys: list[str] = [f"{KEY_PREFIX}/known.jpg"]
+        self.unlisted_keys: list[str] = [f"{KEY_PREFIX}/keep/kept.jpg"]
 
     def add_object(self, name: str) -> None:
         self.keys.append(f"{KEY_PREFIX}/{name}")
+
+    def add_unlisted_object(self, folder: str, name: str) -> None:
+        self.unlisted_keys.append(f"{KEY_PREFIX}/{folder}/{name}")
 
     def get_paginator(self, _name: str) -> Any:
         keys = list(self.keys)
@@ -45,6 +59,8 @@ class _FakeS3:
         return _Paginator()
 
     def head_object(self, **kwargs: Any) -> dict[str, Any]:
+        if kwargs["Key"] not in self.keys and kwargs["Key"] not in self.unlisted_keys:
+            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
         return {"ETag": '"e"', "ContentLength": 10, "LastModified": None}
 
     def copy_object(self, **kwargs: Any) -> dict[str, Any]:
@@ -172,3 +188,111 @@ async def test_listed_name_still_moves(client_and_s3: tuple[httpx.AsyncClient, _
 
     assert response.status_code == 200, response.text
     assert (f"{KEY_PREFIX}/known.jpg", f"{KEY_PREFIX}/archive/known.jpg") in s3.copied
+
+
+# --- PUB-048 (#188) AC6/AC7: same-key moves and a real source folder ---
+
+
+async def test_move_target_root_when_already_in_root_rejects_same_key(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """AC6: root -> root is a copy onto itself, which R2/MinIO honour and then delete."""
+    client, s3 = client_and_s3
+
+    response = await client.post("/api/library/objects/known.jpg/move", json={"target_folder": "root"})
+
+    assert response.status_code == 400, response.text
+    assert s3.copied == []
+    assert s3.deleted == []
+
+
+async def test_move_from_keep_folder_to_root_uses_keep_folder_as_source_key(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """AC7: source_folder=keep must resolve the source prefix, not assume the image root."""
+    client, s3 = client_and_s3
+
+    response = await client.post(
+        "/api/library/objects/kept.jpg/move",
+        json={"target_folder": "root", "source_folder": "keep"},
+    )
+
+    assert response.status_code == 200, response.text
+    assert (f"{KEY_PREFIX}/keep/kept.jpg", f"{KEY_PREFIX}/kept.jpg") in s3.copied
+    assert f"{KEY_PREFIX}/keep/kept.jpg" in s3.deleted
+    # The destination must never be the key that gets deleted (the AC6 hazard).
+    assert f"{KEY_PREFIX}/kept.jpg" not in s3.deleted
+
+
+async def test_move_sidecar_txt_name_from_non_root_source_folder_returns_404(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """AC7 negative: ensure_known_object must suffix-gate, not merely check existence.
+
+    The field assertion pins the contract this 404 has to come from: without
+    ``source_folder`` the body field is silently dropped as an extra key and the
+    404 would only prove the old root-listing check, not the new helper's gate.
+    """
+    from publisher_v2.web.routers.library import LibraryMoveRequest
+
+    assert "source_folder" in LibraryMoveRequest.model_fields
+    client, s3 = client_and_s3
+
+    response = await client.post(
+        "/api/library/objects/notes.txt/move",
+        json={"target_folder": "root", "source_folder": "keep"},
+    )
+
+    assert response.status_code == 404, response.text
+    assert s3.copied == []
+    assert s3.deleted == []
+
+
+# --- PUB-048 AC11: a move must never clobber an existing destination ---
+
+
+async def test_move_onto_existing_destination_name_returns_409_and_nothing_copied_or_deleted(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """AC11: keep/a.jpg -> root when root already holds a.jpg must 409 before any write.
+
+    ``ManagedStorage.move_object`` copies then deletes unconditionally, so an
+    unguarded move would overwrite the root object and its sidecar and then
+    remove the source. The recorded call lists are the assertion that matters:
+    a 409 raised *after* the copy would still destroy data.
+    """
+    client, s3 = client_and_s3
+    s3.add_object("a.jpg")  # already in the root folder (and its listing)
+    s3.add_unlisted_object("keep", "a.jpg")
+
+    response = await client.post(
+        "/api/library/objects/a.jpg/move",
+        json={"target_folder": "root", "source_folder": "keep"},
+    )
+
+    assert response.status_code == 409, response.text
+    assert s3.copied == []
+    assert s3.deleted == []
+
+
+async def test_move_missing_object_from_non_root_source_folder_returns_404_and_nothing_copied_or_deleted(
+    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+) -> None:
+    """AC7 existence branch: a correctly-suffixed name absent from the source folder 404s.
+
+    This is the branch the per-key ``head_object`` fake unlocks
+    (``WebImageService.ensure_known_object``'s ``head_object(...) is None ->
+    FileNotFoundError``). The suffix gate cannot account for the 404 here:
+    ``.jpg`` passes it, so only the existence check can reject.
+    """
+    client, s3 = client_and_s3
+    assert f"{KEY_PREFIX}/keep/ghost.jpg" not in s3.unlisted_keys
+
+    response = await client.post(
+        "/api/library/objects/ghost.jpg/move",
+        json={"target_folder": "root", "source_folder": "keep"},
+    )
+
+    assert response.status_code == 404, response.text
+    assert s3.copied == []
+    assert s3.deleted == []

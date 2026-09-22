@@ -114,6 +114,15 @@ configured, `403` when it is but no admin cookie is presented. `WEB_ALLOW_UNAUTH
 not open them. The admin cookie is minted only by the Auth0 callback; the password login
 (`web_admin_pw`, `POST /api/admin/login`) is gone.
 
+**Strict mode (PUB-048):** `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` is now enforced inside
+`require_admin` itself, not only inside `require_auth`. With a header backend configured, every
+route that calls `require_admin` answers `401` ("Header authentication required in addition to the
+admin cookie") for a cookie-only request — including the read-only view-permission call site in
+`app.py` and `GET`/`POST /api/config/voice-profile`, which used to call `require_admin` alone and so
+returned `200` for a cookie alone. A request with no or an invalid admin cookie still gets `403`
+("Admin privileges required"); the header is re-verified, so a valid Bearer/Basic header plus a valid
+cookie is unchanged. `/docs`, `/redoc` and `/openapi.json` are not served at all (`404`).
+
 - `GET /` → HTML UI (with i18n text injection from static config)
 - `GET /api/images/random` → ImageResponse (random image with metadata, includes `thumbnail_url`)
 - `GET /api/images/{filename}/thumbnail` → JPEG thumbnail bytes (fast preview, Feature 018)
@@ -133,9 +142,17 @@ not open them. The admin cookie is minted only by the Auth0 callback; the passwo
 
 Admin Library API (PUB-031, managed storage only):
 - `GET /api/library/objects` → LibraryListResponse (paginated object list; query params: prefix, cursor, limit)
-- `POST /api/library/upload` → LibraryUploadResponse (multipart upload; MIME allowlist, 20 MB limit, rate limited)
-- `DELETE /api/library/objects/{filename}` → LibraryDeleteResponse (delete image + sidecar)
-- `POST /api/library/objects/{filename}/move` → LibraryMoveResponse (move to keep/remove/archive/root)
+- `POST /api/library/upload` → LibraryUploadResponse (multipart upload; MIME allowlist, 20 MB limit, rate limited).
+  Query param `overwrite` (bool, default false). 415 when the name's suffix is not `.jpg`/`.jpeg`/`.png`
+  — checked before the image decode, so JPEG bytes cannot be written under a sidecar `.txt` name;
+  409 when the name already exists and `overwrite` is not set (PUB-048 AC8/AC9)
+- `DELETE /api/library/objects/{filename}` → LibraryDeleteResponse (delete image + sidecar). 404 unless the
+  name has an image suffix **and** is in the root listing — a raw sidecar key cannot be deleted (PUB-048 AC10)
+- `POST /api/library/objects/{filename}/move` → LibraryMoveResponse (move to keep/remove/archive/root).
+  Body field `source_folder` (same four values, default `root`) selects the source prefix; the sidecar follows it.
+  400 when the resolved source and target keys are equal, 409 when the destination name already exists
+  (no overwrite flag — delete the destination first), 404 when a non-root source object is missing or is not
+  an image key. Every refusal happens before any copy or delete (PUB-048 AC6/AC7/AC11)
 
 Migration CLI (PUB-031, standalone tool):
 - `uv run python -m publisher_v2.tools.migrate_storage --source-folder <path> --target-prefix <prefix>`

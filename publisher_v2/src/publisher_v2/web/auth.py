@@ -413,3 +413,17 @@ def require_admin(request: Request) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin privileges required",
         )
+    # PUB-048 (AC1): strict mode is enforced here too, not only in
+    # ``require_auth``, so a ``require_admin``-only call site cannot forget it.
+    # Runs AFTER the cookie check above on purpose: no/invalid cookie must stay
+    # 403, not 401. The header is re-verified rather than merely required to be
+    # configured — ``require_auth``'s copy of this check is implicitly guarded
+    # by "no Authorization header was presented at all", and dropping that guard
+    # would 401 every valid header + valid cookie request.
+    if is_auth_enabled() and _require_header_auth_with_cookie():
+        auth_header = (request.headers.get("authorization") or "").strip()
+        if not (auth_header and (_verify_bearer(auth_header) or _verify_basic(auth_header))):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Header authentication required in addition to the admin cookie",
+            )

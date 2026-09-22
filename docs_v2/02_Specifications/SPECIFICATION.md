@@ -244,9 +244,9 @@ see §12):
 | GET | `/api/config/publishers` | Platform enablement state |
 | GET / POST | `/api/config/voice-profile` | Read/write operator voice-profile examples (PUB-029, PUB-039) |
 | GET | `/api/library/objects` | Managed-storage-only: paginated object list (prefix/cursor/limit) |
-| POST | `/api/library/upload` | Managed-storage-only: multipart upload (MIME allowlist, 20 MB limit, rate limited) |
-| DELETE | `/api/library/objects/{filename}` | Managed-storage-only: delete image + sidecar |
-| POST | `/api/library/objects/{filename}/move` | Managed-storage-only: move between root/keep/remove/archive |
+| POST | `/api/library/upload` | Managed-storage-only: multipart upload (MIME allowlist, 20 MB limit, rate limited); `?overwrite=` bool, 415 on a non-image suffix, 409 on an existing name (PUB-048) |
+| DELETE | `/api/library/objects/{filename}` | Managed-storage-only: delete image + sidecar; 404 unless the name is an image key in the listing (PUB-048) |
+| POST | `/api/library/objects/{filename}/move` | Managed-storage-only: move between root/keep/remove/archive; `source_folder` body field, 400 on a same-key move, 409 on a destination collision (PUB-048) |
 
 Web-UI features layered on top of this API (frontend-only unless noted): thumbnail-first
 grid with lazy full-size loading (PUB-018), swipe gestures with distinct Publish/Review modes
