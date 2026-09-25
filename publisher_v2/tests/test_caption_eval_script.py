@@ -10,7 +10,9 @@ Interface this file pins (the implementer must match it):
 - ``--nightly --out DIR [--fixtures DIR]``
 - ``--generate-thresholds --snapshot PATH --out PATH``
 - ``generate_thresholds(scores: dict[str, float]) -> dict`` — pure, no I/O.
-- ``build_generator()`` — the single seam that produces the caption generator
+- ``build_service()`` — the single seam the nightly uses; it wraps
+  ``build_generator()`` in the real ``AIService`` so the #82 similarity gate
+  runs, since the snapshot must measure published output, not the draft
   used by ``--nightly``. Tests replace it; nothing else in the script may
   construct an OpenAI client.
 - The offline prompt-render check must call
@@ -81,6 +83,23 @@ def _write_permissive_thresholds(path: Path) -> None:
     path.write_text(json.dumps(thresholds, indent=2))
 
 
+def _service_around(generator: Any) -> Any:
+    """Wrap a canned generator in the REAL AIService, so the real gate runs.
+
+    The rate is pinned high on purpose: ``AIService`` otherwise builds a limiter
+    from the static 20/min budget, and a 20-image snapshot would spend minutes
+    asleep in a unit test. The gate logic under test is unaffected by the rate.
+    """
+    from publisher_v2.config.runtime_settings import RuntimeSettings
+    from publisher_v2.services.ai import AIService
+
+    return AIService(
+        analyzer=object(),
+        generator=generator,
+        settings=RuntimeSettings(ai_rate_per_minute=100_000),
+    )
+
+
 class _CannedGenerator:
     """Stands in for the OpenAI caption generator in ``--nightly`` (mock boundary)."""
 
@@ -96,7 +115,7 @@ class _CannedGenerator:
         self.calls += 1
         n = self.calls
         return {
-            platform: f"Canned caption {n} for {platform}. The rope went on before the kettle boiled."
+            platform: f"Canned caption {n} for {platform}. Nothing here echoes the stored history."
             for platform in specs
         }, None
 
@@ -372,7 +391,7 @@ def test_nightly_mode_regenerates_snapshot_and_writes_diff_to_disk(
     mod = _module()
     generator = _CannedGenerator()
 
-    with patch.object(mod, "build_generator", lambda: generator):
+    with patch.object(mod, "build_service", lambda: _service_around(generator)):
         code = mod.main(["--nightly", "--fixtures", str(FIXTURES), "--out", str(out_dir)])
 
     assert code == 0
@@ -420,7 +439,7 @@ def test_nightly_mode_never_imports_or_calls_anything_github_shaped(
     before = set(sys.modules)
     mod = _module()
 
-    with patch.object(mod, "build_generator", lambda: _CannedGenerator()):
+    with patch.object(mod, "build_service", lambda: _service_around(_CannedGenerator())):
         assert mod.main(["--nightly", "--fixtures", str(FIXTURES), "--out", str(tmp_path / "out")]) == 0
 
     newly_imported = set(sys.modules) - before
@@ -565,3 +584,53 @@ def test_nightly_fills_the_config_the_loader_demands_but_the_harness_never_uses(
     with pytest.raises(SystemExit) as excinfo:
         mod._fill_unused_env()
     assert "OPENAI_API_KEY" in str(excinfo.value)
+
+
+def test_nightly_snapshot_goes_through_the_production_similarity_gate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The snapshot must measure what production publishes, not the pre-gate draft.
+
+    ``AIService.create_multi_caption_pair_from_analysis`` is where the #82
+    similarity gate, the structure-directive rotation and the one bounded
+    regeneration live. Calling ``generate_multi`` directly skips all of it, so a
+    harness built that way systematically under-reports the very machinery the
+    prompt PRs added to reduce repetition — the comparison PUB-051/PUB-052 are
+    meant to make off these numbers. ``scripts/caption_sample.py`` already makes
+    this argument in its own docstring: #82 is code, not just prompt text.
+
+    The generator here hands back a first draft copied verbatim from telegram's
+    history, which is far over the 0.45 gate threshold. If the gate runs, the
+    snapshot holds the SECOND draft; if it was bypassed, it holds the first.
+    """
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-testkeynotreal1234567890abcdef")
+    history = json.loads((FIXTURES / "history" / "telegram.json").read_text())["captions"]
+    duplicated = history[0]
+
+    class _GateTrippingGenerator:
+        sd_caption_enabled = False
+        sd_caption_single_call_enabled = False
+
+        def __init__(self) -> None:
+            self.calls = 0
+
+        async def generate_multi(self, analysis, specs, history=None, **kwargs):
+            self.calls += 1
+            # First draft per image duplicates history; the regeneration does not.
+            text = duplicated if self.calls % 2 == 1 else "A different line entirely, nothing like the last one."
+            return {platform: text for platform in specs}, None
+
+    generator = _GateTrippingGenerator()
+    service = _service_around(generator)
+    out_dir = tmp_path / "out"
+    mod = _module()
+
+    with patch.object(mod, "build_service", lambda: service):
+        code = mod.main(["--nightly", "--fixtures", str(FIXTURES), "--out", str(out_dir)])
+
+    assert code == 0
+    snapshot = json.loads((out_dir / "snapshot.json").read_text())
+    telegram = [entry["captions"]["telegram"] for entry in snapshot["entries"]]
+
+    assert duplicated not in telegram, "the pre-gate draft reached the snapshot; the similarity gate was bypassed"
+    assert generator.calls > len(snapshot["entries"]), "no regeneration happened, so the gate never ran"

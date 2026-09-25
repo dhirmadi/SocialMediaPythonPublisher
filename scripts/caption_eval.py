@@ -389,16 +389,46 @@ def build_generator() -> Any:
     return CaptionGeneratorOpenAI(config.openai)
 
 
-async def _generate_snapshot(generator: Any, fixtures: Path) -> dict[str, Any]:
-    """Caption every fixture analysis once, returning the snapshot payload."""
+def build_service() -> Any:
+    """Build the real :class:`AIService`. The single seam the nightly mode uses.
+
+    The snapshot has to measure what production publishes, not the draft before
+    the machinery runs: ``create_multi_caption_pair_from_analysis`` is where the
+    #82 similarity gate, the structure-directive rotation and the one bounded
+    regeneration live. Calling the generator directly would skip all of it and
+    systematically under-report exactly the mechanism the prompt PRs added —
+    ``scripts/caption_sample.py`` makes the same argument in its own docstring.
+
+    The analyzer is never used (this harness captions stored analyses and never
+    looks at an image), but ``AIService`` requires one, so the real vision
+    analyzer is built and left idle rather than faked.
+    """
+    from publisher_v2.config.loader import load_application_config
+    from publisher_v2.services.ai import AIService, VisionAnalyzerOpenAI
+
+    generator = build_generator()
+    config = load_application_config()
+    return AIService(analyzer=VisionAnalyzerOpenAI(config.openai), generator=generator)
+
+
+async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
+    """Caption every fixture analysis once, returning the snapshot payload.
+
+    Goes through the production entry point, so the captions that land in the
+    snapshot are post-gate: the ones a publish would actually emit. A tripped
+    gate costs a second caption call for that image, which is the nightly's
+    budget to bear — an under-reported metric would be worse.
+    """
     history = await asyncio.to_thread(load_history, fixtures)
     specs = await asyncio.to_thread(build_specs, sorted(history) or ["telegram"])
     analyses = await asyncio.to_thread(load_analyses, fixtures)
     entries: list[dict[str, Any]] = []
     for name, analysis in analyses.items():
-        # generate_multi returns (captions, AIUsage | None); the usage counter is
-        # not part of the snapshot, so it is dropped here.
-        captions, _usage = await generator.generate_multi(analysis, specs, history=history)
+        # Returns (captions, sd_caption, usages); neither the SD caption nor the
+        # usage counters belong in the snapshot.
+        captions, _sd_caption, _usages = await service.create_multi_caption_pair_from_analysis(
+            analysis, specs, history=history
+        )
         entries.append({"analysis": name, "captions": dict(captions)})
     return {"entries": entries}
 
@@ -453,9 +483,9 @@ def run_nightly(fixtures: Path, out_dir: Path, thresholds_path: Path) -> int:
     never writes it: re-baselining stays a separate, human-invoked
     ``--generate-thresholds`` run.
     """
-    generator = build_generator()
+    service = build_service()
     try:
-        snapshot = asyncio.run(_generate_snapshot(generator, fixtures))
+        snapshot = asyncio.run(_generate_snapshot(service, fixtures))
     except AIServiceError as exc:
         # Every caption failure reaches here as AIServiceError, and its message
         # interpolates the upstream error — which for a rejected key carries
