@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
 import sys
 import time
 from pathlib import Path
@@ -496,3 +497,71 @@ def test_generate_thresholds_derives_bar_from_snapshot_scores_with_margin(tmp_pa
     for name, bar in written.items():
         assert bar["direction"] == ("max" if name in MAX_METRICS else "min")
         assert isinstance(bar["value"], float)
+
+
+# --- PUB-049 review follow-ups (outside the handoff's Test-first table) ---
+
+
+def test_build_specs_resolves_the_hashtag_flag_the_way_production_does() -> None:
+    """``PlatformCaptionStyle.hashtags`` is a BOOL FLAG, not a hashtag string.
+
+    Production resolves it as ``config.content.hashtag_string if
+    style_cfg.hashtags else ""`` (``CaptionSpec.for_platforms``). Reading the
+    flag as text instead renders the literal line ``Include hashtags: True.``
+    into the prompt, so the harness would score captions produced by a prompt
+    production never emits — which is the one thing this harness must not do.
+    """
+    mod = _module()
+    specs = mod.build_specs(["telegram", "email", "instagram"])
+
+    for platform, spec in specs.items():
+        assert spec.hashtags != "True", f"{platform}: the bool flag leaked into the prompt as text"
+        assert spec.hashtags in ("", mod.FIXTURE_HASHTAG_STRING), f"{platform}: {spec.hashtags!r}"
+        # A flag that is on must yield real hashtags, not an empty string.
+        assert isinstance(spec.hashtags, str)
+
+    # At least one platform in the real registry has the flag on, or this test
+    # would pass vacuously on an all-empty registry.
+    assert any(spec.hashtags for spec in specs.values()), "no platform exercised the flag-on branch"
+
+
+def test_the_rendered_prompt_never_carries_the_hashtag_flag_as_text() -> None:
+    """End-to-end guard on the same bug, through the real prompt builder."""
+    from publisher_v2.services.ai import CaptionGeneratorOpenAI
+
+    mod = _module()
+    fixtures = FIXTURES
+    history = mod.load_history(fixtures)
+    specs = mod.build_specs(sorted(history))
+    analysis = next(iter(mod.load_analyses(fixtures).values()))
+
+    prompt, _ = CaptionGeneratorOpenAI._build_multi_prompt(mod.role_prompt(), analysis, specs, history)
+
+    assert "hashtags: True" not in prompt
+    assert "hashtags: False" not in prompt
+
+
+def test_nightly_fills_the_config_the_loader_demands_but_the_harness_never_uses(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The nightly workflow supplies only OPENAI_API_KEY; the loader demands more.
+
+    ``load_application_config`` hard-requires STORAGE_PATHS, PUBLISHERS and
+    OPENAI_SETTINGS. Without them every scheduled run dies at the first step.
+    This harness touches no storage and no publisher, so it fills those with
+    placeholders exactly as ``scripts/caption_sample.py`` already does.
+    """
+    mod = _module()
+    for name in ("STORAGE_PATHS", "PUBLISHERS", "OPENAI_SETTINGS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-testkeynotreal1234567890abcdef")
+
+    mod._fill_unused_env()
+
+    for name in ("STORAGE_PATHS", "PUBLISHERS", "OPENAI_SETTINGS"):
+        assert os.environ.get(name), f"{name} still unset; the nightly would die on the loader"
+    # The key itself is never invented: that one must come from the environment.
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    with pytest.raises(SystemExit) as excinfo:
+        mod._fill_unused_env()
+    assert "OPENAI_API_KEY" in str(excinfo.value)

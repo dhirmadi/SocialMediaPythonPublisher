@@ -44,6 +44,7 @@ import dataclasses
 import difflib
 import json
 import math
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -56,7 +57,7 @@ DEFAULT_THRESHOLDS = DEFAULT_FIXTURES / "caption_eval_thresholds.json"
 if str(REPO_ROOT / "publisher_v2" / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "publisher_v2" / "src"))
 
-from publisher_v2.core.exceptions import AIServiceError  # noqa: E402
+from publisher_v2.core.exceptions import AIServiceError, ConfigurationError  # noqa: E402
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis  # noqa: E402
 from publisher_v2.utils import caption_metrics as metrics  # noqa: E402
 
@@ -91,6 +92,28 @@ MARGIN = 0.10
 # degenerate.
 ZERO_BAR_EPSILON = 0.01
 
+# Stands in for the tenant's ``content.hashtag_string`` for the platforms whose
+# static style has the hashtag flag on. There is no tenant in this harness, so
+# the snapshot is generated against this fixed string; changing it changes the
+# prompt and means regenerating the snapshot.
+FIXTURE_HASHTAG_STRING = "#rope #shibari"
+
+# Config the loader hard-requires but this harness never uses: it touches no
+# storage and no publisher, only fixture files and the caption API. Without
+# these, ``load_application_config`` raises before the nightly reaches OpenAI,
+# and the scheduled workflow supplies only OPENAI_API_KEY. Mirrors what
+# ``scripts/caption_sample.py`` already does for the same reason.
+_UNUSED_ENV_PLACEHOLDERS: dict[str, str] = {
+    "STORAGE_PATHS": '{"root": "/unused"}',
+    "PUBLISHERS": '[{"type": "telegram", "channel_id": "@unused"}]',
+    "DROPBOX_APP_KEY": "unused",
+    "DROPBOX_APP_SECRET": "unused",
+    "DROPBOX_REFRESH_TOKEN": "unused",
+    "TELEGRAM_BOT_TOKEN": "unused",
+    "EMAIL_PASSWORD": "unused",
+    "OPENAI_SETTINGS": "{}",
+}
+
 
 # --- fixtures ---------------------------------------------------------------
 
@@ -115,7 +138,26 @@ def load_history(fixtures: Path) -> dict[str, list[str]]:
 
 
 def build_specs(platforms: list[str]) -> dict[str, CaptionSpec]:
-    """Build a :class:`CaptionSpec` per platform from the real static registry."""
+    """Build a :class:`CaptionSpec` per platform, resolved the way production resolves it.
+
+    ``PlatformCaptionStyle.hashtags`` is a **bool flag**, not a hashtag string:
+    ``CaptionSpec.for_platforms`` turns it into ``config.content.hashtag_string
+    if style_cfg.hashtags else ""``. Reading the flag as text renders the
+    literal ``Include hashtags: True.`` into the prompt, which would make this
+    harness score captions produced by a prompt production never emits.
+
+    There is no tenant here, so the tenant-supplied halves are fixture
+    constants standing in for a specific tenant shape, documented rather than
+    guessed:
+
+    * ``hashtags`` — :data:`FIXTURE_HASHTAG_STRING` when the flag is on.
+    * ``examples`` — empty: a tenant with no voice profile (#138 ships no
+      static examples, so the tenant profile is the only source).
+    * ``smart_hashtags`` — ``False``: a tenant with PUB-028 smart hashtags off.
+
+    Change any of these and the snapshot must be regenerated, because the
+    prompt changes.
+    """
     from publisher_v2.config.static_loader import get_static_config
 
     registry = get_static_config().ai_prompts.platform_captions
@@ -125,9 +167,11 @@ def build_specs(platforms: list[str]) -> dict[str, CaptionSpec]:
         specs[platform] = CaptionSpec(
             platform=platform,
             style=entry.style,
-            hashtags="" if not entry.hashtags else str(entry.hashtags),
+            hashtags=FIXTURE_HASHTAG_STRING if entry.hashtags else "",
             max_length=entry.max_length,
+            examples=(),
             guidance=entry.guidance,
+            smart_hashtags=False,
             closing=entry.closing,
         )
     return specs
@@ -298,6 +342,24 @@ def render_prompts(fixtures: Path) -> None:
 # --- caption generation (nightly only) --------------------------------------
 
 
+def _fill_unused_env() -> None:
+    """Fill the config the loader demands but this harness never uses, and report it.
+
+    Only fills what is absent, and never invents ``OPENAI_API_KEY``: the key is
+    the one value that must genuinely come from the environment.
+    """
+    filled = [name for name, value in _UNUSED_ENV_PLACEHOLDERS.items() if not os.environ.get(name)]
+    for name in filled:
+        os.environ[name] = _UNUSED_ENV_PLACEHOLDERS[name]
+    if filled:
+        print(  # noqa: T201 — operator-facing
+            "using placeholders for unused config: " + ", ".join(sorted(filled)),
+            file=sys.stderr,
+        )
+    if not os.environ.get("OPENAI_API_KEY"):
+        raise SystemExit("set OPENAI_API_KEY — --nightly makes real caption calls, and the loader reads the key there")
+
+
 def build_generator() -> Any:
     """Build the real caption generator. The single seam the nightly mode uses.
 
@@ -307,8 +369,14 @@ def build_generator() -> Any:
     from publisher_v2.config.loader import load_application_config
     from publisher_v2.services.ai import CaptionGeneratorOpenAI
 
+    _fill_unused_env()
     try:
         config = load_application_config()
+    except ConfigurationError as exc:
+        # This one names missing environment VARIABLES and never quotes their
+        # values, so withholding it would cost the operator the only thing that
+        # identifies the problem. Surface it.
+        raise SystemExit(f"could not load configuration: {exc}") from None
     except Exception as exc:  # noqa: BLE001 — see below; the type does not matter, the payload does
         # A malformed key makes pydantic render the offending value in its
         # ValidationError (``input_value='...'``). That is raw key material on
