@@ -384,6 +384,17 @@ def test_nightly_mode_regenerates_snapshot_and_writes_diff_to_disk(
     assert "tells_lexicon_hit_rate" in report, "the score table must be in the report"
     assert "diff" in report.lower(), "AC5 asks for the diff as well as the score table"
 
+    # The report is the PR body a human reads to judge a regenerated snapshot,
+    # so every metric must carry the bar it is judged against. Rendering the
+    # table without the thresholds leaves every Bar cell as an em dash, which
+    # tells the reader a score and nothing to compare it to. Reading the bars
+    # is not regenerating them: the nightly still must not write that file.
+    committed_bars = json.loads((FIXTURES / "caption_eval_thresholds.json").read_text())
+    table = report.split("## Snapshot diff")[0]
+    bar_row = next(line for line in table.splitlines() if line.startswith("| tells_lexicon_hit_rate |"))
+    assert "—" not in bar_row, f"the nightly report shows no bar to judge the score against: {bar_row}"
+    assert f"{float(committed_bars['tells_lexicon_hit_rate']['value']):.4f}" in bar_row, bar_row
+
     # The committed fixture snapshot must not be touched by a nightly --out run.
     committed = FIXTURES / "snapshot.json"
     if committed.exists():

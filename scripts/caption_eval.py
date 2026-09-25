@@ -363,8 +363,28 @@ def run_offline(fixtures: Path, snapshot_path: Path, thresholds_path: Path) -> i
     return 0
 
 
-def run_nightly(fixtures: Path, out_dir: Path) -> int:
-    """Regenerate the snapshot with the real generator and write the report to disk."""
+def _read_thresholds(path: Path) -> dict[str, Any] | None:
+    """Read a thresholds file for display, or ``None`` when it cannot be read.
+
+    Display-only, and deliberately forgiving: the nightly report is better with
+    bars than without, but a missing or corrupt thresholds file must not cost
+    the operator the regenerated snapshot and the diff. The gating read in
+    :func:`run_offline` is the strict one.
+    """
+    try:
+        loaded = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+def run_nightly(fixtures: Path, out_dir: Path, thresholds_path: Path) -> int:
+    """Regenerate the snapshot with the real generator and write the report to disk.
+
+    ``thresholds_path`` is read for the report's Bar column only. The nightly
+    never writes it: re-baselining stays a separate, human-invoked
+    ``--generate-thresholds`` run.
+    """
     generator = build_generator()
     try:
         snapshot = asyncio.run(_generate_snapshot(generator, fixtures))
@@ -384,6 +404,7 @@ def run_nightly(fixtures: Path, out_dir: Path) -> int:
     (out_dir / "snapshot.json").write_text(new_text, encoding="utf-8")
 
     scores = score_snapshot(snapshot, fixtures)
+    thresholds = _read_thresholds(thresholds_path)
     committed_path = fixtures / "snapshot.json"
     committed_text = committed_path.read_text(encoding="utf-8") if committed_path.is_file() else ""
     diff = "\n".join(
@@ -401,7 +422,7 @@ def run_nightly(fixtures: Path, out_dir: Path) -> int:
             "",
             "## Scores",
             "",
-            format_table(scores),
+            format_table(scores, thresholds),
             "",
             "Thresholds are deliberately NOT regenerated here: re-baselining the bars",
             "is a separate, human-invoked `--generate-thresholds` run.",
@@ -415,7 +436,7 @@ def run_nightly(fixtures: Path, out_dir: Path) -> int:
         ]
     )
     (out_dir / "report.md").write_text(report, encoding="utf-8")
-    print(format_table(scores))  # noqa: T201
+    print(format_table(scores, thresholds))  # noqa: T201
     print(f"wrote {out_dir / 'snapshot.json'} and {out_dir / 'report.md'}")  # noqa: T201
     return 0
 
@@ -455,7 +476,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.nightly:
         if not args.out:
             raise SystemExit("--nightly needs --out DIR")
-        return run_nightly(fixtures, Path(args.out))
+        return run_nightly(fixtures, Path(args.out), Path(args.thresholds))
     if not args.out:
         raise SystemExit("--generate-thresholds needs --out FILE")
     return run_generate_thresholds(fixtures, Path(args.snapshot), Path(args.out))
