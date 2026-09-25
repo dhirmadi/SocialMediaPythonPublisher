@@ -1,0 +1,31 @@
+{
+  "description": "Back arched over a velvet chaise, arms above the head",
+  "mood": "theatrical",
+  "tags": [
+    "velvet",
+    "chaise",
+    "arch"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "velvet",
+  "style": "classical boudoir",
+  "lighting": "single gelled key",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "chaise",
+  "aesthetic_terms": [
+    "classical",
+    "theatrical"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a bald patch worn into the velvet arm",
+  "sensory_detail": [],
+  "mood_note": null
+}

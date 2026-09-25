@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Sequence
 from typing import Any
 
 from publisher_v2.config.static_loader import get_static_config
@@ -294,9 +295,29 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
 _WORD_RE = re.compile(r"[^\W_]+(?:'[^\W_]+)*", re.UNICODE)
 
 
-def _words(text: str) -> list[str]:
-    """Lowercased word tokens, punctuation-insensitive."""
+def words(text: str) -> list[str]:
+    """Lowercased word tokens, punctuation-insensitive.
+
+    PUB-049: this is the single tokenizer for every caption metric in the
+    codebase. ``utils/caption_metrics.py`` imports it rather than keeping a
+    second definition of "how a caption tokenizes into words".
+    """
     return _WORD_RE.findall(text.lower())
+
+
+# Kept as the historical private name; ``words`` is the public spelling (PUB-049).
+_words = words
+
+
+def word_ngrams(tokens: Sequence[str], n: int) -> list[tuple[str, ...]]:
+    """Return the ordered word n-grams of ``tokens`` (empty when too short).
+
+    PUB-049: the one n-gram construction shared by ``trigram_jaccard`` and the
+    opener/closer, distinct-n and TF-IDF bigram metrics.
+    """
+    if n <= 0 or len(tokens) < n:
+        return []
+    return [tuple(tokens[i : i + n]) for i in range(len(tokens) - n + 1)]
 
 
 def trigram_jaccard(a: str, b: str) -> float:
@@ -305,14 +326,13 @@ def trigram_jaccard(a: str, b: str) -> float:
     Texts shorter than three words fall back to word-set Jaccard so very
     short captions still compare meaningfully. Returns a float in [0, 1].
     """
-    wa, wb = _words(a), _words(b)
+    wa, wb = words(a), words(b)
     if not wa or not wb:
         return 0.0
     if len(wa) < 3 or len(wb) < 3:
         sa, sb = set(wa), set(wb)
         return len(sa & sb) / len(sa | sb)
-    ta = {tuple(wa[i : i + 3]) for i in range(len(wa) - 2)}
-    tb = {tuple(wb[i : i + 3]) for i in range(len(wb) - 2)}
+    ta, tb = set(word_ngrams(wa, 3)), set(word_ngrams(wb, 3))
     return len(ta & tb) / len(ta | tb)
 
 

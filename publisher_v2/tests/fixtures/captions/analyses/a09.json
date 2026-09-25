@@ -1,0 +1,31 @@
+{
+  "description": "A collar resting on an unmade bed, no wearer in frame",
+  "mood": "aftermath",
+  "tags": [
+    "collar",
+    "bed",
+    "absence"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "collar",
+  "style": "still life",
+  "lighting": "morning side light",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "bed",
+  "aesthetic_terms": [
+    "still",
+    "aftermath"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "the buckle still fastened at the last hole",
+  "sensory_detail": [],
+  "mood_note": null
+}

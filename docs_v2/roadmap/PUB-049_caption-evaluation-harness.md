@@ -6,7 +6,7 @@
 | **Category** | AI |
 | **Priority** | P0 |
 | **Effort** | M |
-| **Status** | Proposal |
+| **Status** | Not Started |
 | **Dependencies** | — |
 
 ## User Story
@@ -24,45 +24,59 @@ An offline harness that runs in CI without a key in under ten seconds, scores a 
 ## Scope
 
 **In scope:**
-- Fixture under `publisher_v2/tests/fixtures/captions/`: 20 stored `ImageAnalysis` JSON files (fields only, no image bytes), the last 30 published captions per platform, the owner corpus once available
+- Fixture under `publisher_v2/tests/fixtures/captions/`: 20 stored `ImageAnalysis` JSON files (fields only, no image bytes), the last 30 published captions per platform, and a constructed six-caption clone-set fixture (see AC1). The owner corpus is an optional, additive fixture source once available — its absence must not block any AC in this item
 - `utils/caption_metrics.py`: opener and closer 3-gram share; sentence-count and word-count variance; share with the two-sentences-plus-emoji rhythm; tells-lexicon hit rate (extensible regex list); distinct-1 and distinct-2; TF-IDF bigram cosine to history; overlap of caption content words with the vision fields
-- `scripts/caption_eval.py`: offline mode (render prompts through the real `_build_multi_prompt`, score the snapshot) and nightly mode (regenerate, score, open a PR)
-- CI job running offline mode with thresholds in a checked-in `caption_eval_thresholds.json`
-- Retirement of the trigram-only parts of `scripts/caption_sample.py`
+- `scripts/caption_eval.py`: offline mode (render prompts through the real `_build_multi_prompt` as a rendering-regression smoke check, score the committed `snapshot.json` against `caption_eval_thresholds.json`) and nightly mode (regenerate `snapshot.json`, score it, write the diff/score table to disk)
+- `caption_eval_thresholds.json`: checked-in thresholds, plus a `--generate-thresholds` mode that derives the file from a snapshot's scores (see AC6). Regenerating this file is always a separate, deliberate, human-invoked step — a nightly PR that regenerates `snapshot.json` never touches `caption_eval_thresholds.json` in the same PR, so ordinary run-to-run LLM variance in a merged snapshot cannot silently turn the next offline CI run red
+- A new `caption-eval` job added to the existing `.github/workflows/code-quality.yml` (same `push`/`pull_request` triggers as the `lint`/`test` jobs already there), running offline mode and failing the build on a threshold regression — not a new workflow file, since this job shares the existing triggers and needs no new permissions
+- A new, separate `.github/workflows/caption-eval-nightly.yml` on a `schedule` trigger only (never `push`/`pull_request`, since it spends an OpenAI budget and needs pull-request-open permissions) that runs `--nightly` and then opens the PR from the resulting branch using the runner's own token (`gh pr create` or `peter-evans/create-pull-request`) — the script itself never calls the GitHub API or holds a GitHub token
+- Retirement of the trigram-only "Delta" column and "Mean similarity to the previous image" section in `scripts/caption_sample.py`, replaced by the harness's tells-rate/cosine deltas (see AC7)
 
 **Out of scope:**
 - Any change to prompts, directives, sampling or the gate (PUB-051, PUB-052)
 - Human rubric tooling beyond a markdown table the owner fills in
+- Deleting `trigram_jaccard` itself or the similarity gate in `services/ai.py` (PUB-052 decides its fate)
 
 ## Acceptance Criteria
 
-- AC1: Given the six-caption clone set from the review, when it is scored, then TF-IDF bigram cosine and tells rate both flag it and trigram Jaccard does not (the gap is documented by a test)
-- AC2: Given each metric and a tiny hand-computed set, when the metric runs, then it returns the expected value
-- AC3: Given no `OPENAI_API_KEY`, when `scripts/caption_eval.py --offline` runs, then it completes in under ten seconds and prints a score table for the committed snapshot
-- AC4: Given a metric crosses its threshold in `caption_eval_thresholds.json`, when the offline mode runs, then the exit code is non-zero and CI fails
-- AC5: Given a key and a budget, when the nightly mode runs, then it regenerates `snapshot.json` for the 20 analyses and opens a PR containing the diff and the score table
-- AC6: Given the first snapshot on `main`, when the thresholds file is generated, then the bar is set from that snapshot and committed
-- AC7: Given the harness lands, when #146 is checked, then its 20-image evidence comes from the first nightly run and #138 receives the same table for the owner's reading
+- AC1: Given `publisher_v2/tests/fixtures/captions/clone_set.json` — six captions constructed (and documented in-file as constructed, since the literal review captions are not stored anywhere retrievable) to match the review's clone pattern: identical opener words, an identical one-line closer, and under 15% word-count variance across the six — when they are scored pairwise, then TF-IDF bigram cosine and tells-lexicon hit rate both cross their `caption_eval_thresholds.json` bar and `trigram_jaccard` on the same pairs stays at or below the 0.04 ceiling measured in the Problem section; the gap is asserted by one test (e.g. `test_clone_set_flagged_by_new_metrics_not_by_trigram`)
+- AC2: Given a small hand-computed input for each of the seven `caption_metrics` functions (opener/closer 3-gram share, sentence-count/word-count variance, two-sentence-plus-emoji rhythm share, tells-lexicon hit rate, distinct-1/distinct-2, TF-IDF bigram cosine to history, vision-field content-word overlap), when each metric runs on its own input, then it returns the exact value computed by hand, one test per metric
+- AC3: Given no `OPENAI_API_KEY` and the OpenAI client patched to raise if called, when `scripts/caption_eval.py --offline` runs, then it makes zero network calls, completes in under ten seconds, and prints a score table for the committed `snapshot.json`; a separate check in the same run re-renders every fixture's prompt through the real `_build_multi_prompt` and fails loudly on any exception, without that render itself being scored as a metric
+- AC4: Given `caption_eval_thresholds.json` in the schema `{"<metric_name>": {"direction": "max"|"min", "value": <float>}}` (one entry per metric; `direction` states which side is a regression), when the offline mode scores the snapshot and any metric crosses its `value` on the regression `direction`, then the process exits non-zero, names the offending metric(s) in its output, and CI fails on that exit code
+- AC5: Given a key and a budget, when `scripts/caption_eval.py --nightly` runs, then it regenerates `snapshot.json` for the 20 fixture analyses and writes the diff and score table to disk for the calling workflow to open as a PR (the script does not call the GitHub API itself; see Scope)
+- AC6: Given a snapshot's score table, when `scripts/caption_eval.py --generate-thresholds` runs (backed by a pure function, e.g. `generate_thresholds(scores: dict[str, float]) -> dict`, unit-testable with a fixed input), then it writes `caption_eval_thresholds.json` with each metric's bar set from that table plus a documented margin so a same-quality re-run does not immediately fail; this first-run file is committed alongside the harness, and Risks records that a three-run-averaged bar is a fast-follow, not a blocker, for this item
+- AC7: Given `scripts/caption_sample.py`'s Markdown output, when the trigram-only "Delta" column and "Mean similarity to the previous image" section are replaced with the harness's tells-rate and TF-IDF-cosine deltas, then `test_the_table_pairs_each_platform_and_scores_similarity` and `test_similarity_to_the_previous_image_is_reported_per_variant` in `publisher_v2/tests/test_caption_sample_script.py` are updated to assert on the new columns and pass
 
 ## Implementation Notes
 
 - Metrics are pure Python; no new runtime dependency. TF-IDF over bigrams can be implemented in fifty lines; do not add scikit-learn.
 - The prompt-render half exercises the real builder so a prompt change that breaks rendering fails here too.
+- `caption_eval_thresholds.json` schema (AC4/AC6): `{"<metric_name>": {"direction": "max"|"min", "value": <float>}}`. `direction: "max"` means the run fails if the metric's score rises above `value` (e.g. TF-IDF cosine, tells rate); `direction: "min"` means it fails if the score falls below `value` (e.g. distinct-1/distinct-2). `--generate-thresholds` applies a fixed margin (suggest ±10%, in the direction that makes the just-generated snapshot pass) so the bootstrap run is not immediately red.
+- `sentence_word_count_variance` uses **population** variance (divide by N, not N-1) — pin this now rather than leaving it to the implementer, since PUB-051/PUB-052 read these numbers across items and a later inconsistency would be a quiet semantics drift.
+- Word-level tokenization and n-gram construction (opener/closer 3-grams, distinct-n) must reuse a single shared helper with the existing `trigram_jaccard`/`_words` logic in `utils/captions.py` — promote `_words` (and the n-gram-set construction) to a public, shared function there (or a tiny shared module) rather than hand-copying it into `caption_metrics.py`. Two independently-maintained caption tokenizers is exactly the drift DRY exists to prevent.
+- Coverage: `utils/caption_metrics.py` is inside `[tool.coverage.run] source` (`pyproject.toml`) and is subject to the ≥80%-affected / ≥85%-overall gates. `scripts/caption_eval.py` (like today's `scripts/caption_sample.py`) is **outside** that `source` path and is not measured by `--cov-fail-under=85` at all — write tests for it for correctness, but do not claim it against the coverage gate.
+- This item's job is done once the harness exists and prints real numbers; closing #146 and #138 with those numbers (Success Metrics) happens on the issues themselves after the first nightly run, and is not itself a pytest-gated AC.
 - Sub-issue #189. Blocks every other Phase 2 sub-issue on #177 (working rule 2).
 - Budget and the trial model come from #182.
 
 ## Risks
 
-- A snapshot generated once by a nightly run is a point sample; thresholds should allow some variance (set from three nightly runs where budget permits).
+- A snapshot generated once by a nightly run is a point sample; thresholds should allow some variance (set from three nightly runs where budget permits). Because `--generate-thresholds` is always a separate, deliberate step from a nightly regen (see Scope), ordinary run-to-run variance in a merged snapshot cannot silently turn CI red on its own — but it means the very first `caption_eval_thresholds.json` is looser than ideal until re-baselined.
 - The tells lexicon will need curation; keep it in one file with a comment per pattern.
+- `clone_set.json` (AC1) validates one constructed clone shape — shared opener, shared closer, low word-count variance. It does not cover the full space of "machine-like" repetition a human reviewer might flag; the nightly snapshot plus the owner's markdown-table read (Scope, out of scope: human rubric) remains the real backstop for anything outside that shape.
+- The committed `snapshot.json` and `caption_eval_thresholds.json` must agree the moment they land (AC4's end-to-end test, see handoff) — a mismatch here would make CI red from day one, not from a real regression.
 
 ## Success Metrics
 
-- CI fails on a branch that reintroduces the closing-question mandate or the static email examples.
-- #146 and #138 closed with numbers.
+- CI fails on a branch whose snapshot regresses any metric past its checked-in `caption_eval_thresholds.json` bar.
+- #146 and #138 closed with numbers from the harness (see Implementation Notes).
 
 ## Related
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issue [#189](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/189); absorbs [#146](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/146)
 - [PUB-035: Caption Context Intelligence](archive/PUB-035_caption-context-intelligence.md) — introduced the history window this measures against
 - `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md` §6 ("keep a small golden set"), which this finally implements
+
+## Change Log
+
+- 2026-09-22 — Spec hardened for Claude Code handoff (`/product-harden`). Independent architect review ran; all four Must-fix findings applied (Success Metrics copy/paste error corrected; unenforceable `scripts/` coverage claim fixed; real-artifact end-to-end smoke test added to AC4; CI topology for the offline job vs. nightly workflow committed instead of left open). Should-improve findings applied (nightly-vs-thresholds lifecycle separation stated explicitly; shared tokenizer/n-gram helper called out instead of duplication; AC5 split into two tests). Nice-to-haves applied (clone-set scope limit noted in Risks; population-variance convention pinned).

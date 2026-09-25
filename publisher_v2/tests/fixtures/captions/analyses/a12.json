@@ -1,0 +1,31 @@
+{
+  "description": "Sunlight through blinds striping a torso",
+  "mood": "warm",
+  "tags": [
+    "sunlight",
+    "blinds",
+    "stripes"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "sunlight",
+  "style": "graphic",
+  "lighting": "hard midday slats",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "blinds",
+  "aesthetic_terms": [
+    "graphic",
+    "warm"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "dust visible in the third stripe down",
+  "sensory_detail": [],
+  "mood_note": null
+}

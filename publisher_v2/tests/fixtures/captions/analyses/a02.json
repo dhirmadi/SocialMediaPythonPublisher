@@ -1,0 +1,31 @@
+{
+  "description": "Close crop of a leather cuff buckled over a wrist, brass hardware catching the lamp",
+  "mood": "quiet",
+  "tags": [
+    "leather",
+    "cuff",
+    "brass"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "leather",
+  "style": "still life",
+  "lighting": "single warm lamp",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "cuff",
+  "aesthetic_terms": [
+    "still",
+    "quiet"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "one buckle hole worn wider than the rest",
+  "sensory_detail": [],
+  "mood_note": null
+}

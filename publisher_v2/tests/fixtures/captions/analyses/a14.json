@@ -1,0 +1,31 @@
+{
+  "description": "Fishnet snagged at the thigh, one thread pulled loose",
+  "mood": "worn-in",
+  "tags": [
+    "fishnet",
+    "thigh",
+    "snag"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "fishnet",
+  "style": "detail crop",
+  "lighting": "ringflash",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "thigh",
+  "aesthetic_terms": [
+    "detail",
+    "worn-in"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "the loose thread knotted rather than cut",
+  "sensory_detail": [],
+  "mood_note": null
+}

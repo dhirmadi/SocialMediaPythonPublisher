@@ -1,0 +1,31 @@
+{
+  "description": "Silk robe slipping off a shoulder in a hotel room at dusk",
+  "mood": "languid",
+  "tags": [
+    "silk",
+    "robe",
+    "dusk"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "silk",
+  "style": "available light portrait",
+  "lighting": "blue hour through sheer curtains",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "robe",
+  "aesthetic_terms": [
+    "available",
+    "languid"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a coffee ring on the bedside table",
+  "sensory_detail": [],
+  "mood_note": null
+}

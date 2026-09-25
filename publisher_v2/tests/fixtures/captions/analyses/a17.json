@@ -1,0 +1,31 @@
+{
+  "description": "Lipstick smudged past the lip line, eyes off camera",
+  "mood": "dishevelled",
+  "tags": [
+    "lipstick",
+    "smudge",
+    "portrait"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "lipstick",
+  "style": "tight portrait",
+  "lighting": "on-camera bounce",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "smudge",
+  "aesthetic_terms": [
+    "tight",
+    "dishevelled"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a single sequin stuck to the cheekbone",
+  "sensory_detail": [],
+  "mood_note": null
+}

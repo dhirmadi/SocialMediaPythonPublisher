@@ -1,0 +1,79 @@
+version: 1
+roadmap_id: PUB-049
+summary: >-
+  Offline caption-evaluation harness: nine metrics that flag the repetition the
+  owner reports, scored against a committed snapshot in CI without an API key,
+  plus a nightly regeneration mode that opens a PR with the diff and score table.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/utils/caption_metrics.py
+    - publisher_v2/src/publisher_v2/utils/captions.py
+    - publisher_v2/tests/test_caption_metrics.py
+    - publisher_v2/tests/test_caption_eval_script.py
+    - publisher_v2/tests/test_caption_sample_script.py
+    - publisher_v2/tests/fixtures/captions/**
+    - scripts/caption_eval.py
+    - scripts/caption_sample.py
+    - .github/workflows/code-quality.yml
+    - .github/workflows/caption-eval-nightly.yml
+  excluded:
+    - code_v1/**          # archived, never edit
+    - docs_v1/**          # archived, never edit
+    - publisher_v2/src/publisher_v2/web/**   # no web surface in this item
+    - pyproject.toml      # no new runtime dependency (spec Implementation Notes)
+    - uv.lock
+
+acceptance_criteria:
+  AC1: Clone set is flagged by the new metrics while trigram_jaccard stays <= 0.04
+  AC2: Each of the seven metric functions returns a hand-computed value
+  AC3: --offline makes zero network calls, runs under 10s, re-renders every prompt
+  AC4: A metric crossing its threshold exits non-zero and names the metric
+  AC5: --nightly regenerates the snapshot and writes the diff to disk, no GitHub API
+  AC6: --generate-thresholds derives bars from a snapshot with a documented margin
+  AC7: caption_sample.py's trigram-only Delta column and mean-similarity section retired
+
+tasks:
+  - id: 1
+    phase: red
+    owner: test-engineer
+    description: >-
+      17 failing tests at the handoff's exact names, plus the hand-authored
+      fixtures (clone_set.json, analyses/*.json, history/*.json).
+  - id: 2
+    phase: green
+    owner: developer
+    description: >-
+      caption_metrics.py (nine metrics), caption_eval.py (three modes), the
+      shared tokenizer promotion in captions.py, the generated snapshot and
+      thresholds pair, both CI jobs, and the caption_sample.py retirement.
+  - id: 3
+    phase: review
+    owner: code-reviewer + security-auditor
+    description: Quality gates, spec traceability, workflow supply chain, secret handling.
+  - id: 4
+    phase: fix
+    owner: test-engineer then developer
+    description: >-
+      Close the ungated-metric gate hole (Red test first), score nightly PRs
+      keylessly, redact the key from the config error path, harden the nightly
+      workflow, correct the epsilon justification.
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage:
+    affected_min: 80    # utils/caption_metrics.py
+    overall_min: 85
+    note: >-
+      scripts/caption_eval.py is outside [tool.coverage.run] source and is not
+      claimable against the gate; it is tested for correctness only.
+
+safety:
+  - No new runtime dependency; TF-IDF is hand-rolled (no scikit-learn).
+  - --offline makes zero network calls and reads fixture files only.
+  - The eval script never holds a GitHub token and never calls the GitHub API.
+  - The nightly workflow never regenerates caption_eval_thresholds.json.
+  - OPENAI_API_KEY is never logged, echoed, or rendered in an error path.

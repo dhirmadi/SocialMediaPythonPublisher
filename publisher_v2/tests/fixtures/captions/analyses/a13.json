@@ -1,0 +1,31 @@
+{
+  "description": "A hand resting on the nape of a neck, fingers relaxed",
+  "mood": "tender",
+  "tags": [
+    "hand",
+    "neck",
+    "touch"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "hand",
+  "style": "close portrait",
+  "lighting": "diffused north light",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "neck",
+  "aesthetic_terms": [
+    "close",
+    "tender"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a faint tan line just below the hairline",
+  "sensory_detail": [],
+  "mood_note": null
+}

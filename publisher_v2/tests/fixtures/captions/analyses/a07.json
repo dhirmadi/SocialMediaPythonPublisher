@@ -1,0 +1,31 @@
+{
+  "description": "Rain on a window, a figure blurred behind it in a dark slip",
+  "mood": "melancholy",
+  "tags": [
+    "rain",
+    "window",
+    "slip"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "rain",
+  "style": "through-glass",
+  "lighting": "grey afternoon",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "window",
+  "aesthetic_terms": [
+    "through-glass",
+    "melancholy"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "one droplet running sideways against the rest",
+  "sensory_detail": [],
+  "mood_note": null
+}

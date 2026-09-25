@@ -88,3 +88,32 @@ jobs:
         flags: unittests
         name: codecov-umbrella
       continue-on-error: true
+
+  caption-eval:
+    # PUB-049: the offline caption evaluation harness. No key, no network, no
+    # extra permissions — it only reads the committed fixtures and fails the
+    # build when a metric crosses its bar in caption_eval_thresholds.json.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Score the committed caption snapshot (offline)
+      run: |
+        uv run python scripts/caption_eval.py --offline

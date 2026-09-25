@@ -1,0 +1,107 @@
+name: Caption Eval Nightly
+
+# PUB-049: regenerates the caption snapshot against the real model and opens a
+# pull request with the diff and the score table.
+#
+# Schedule trigger ONLY, deliberately: this workflow spends an OpenAI budget and
+# needs write + PR permissions, neither of which belongs on a push or
+# pull_request trigger. The offline scoring job that every PR runs lives in
+# code-quality.yml instead.
+#
+# It never regenerates caption_eval_thresholds.json. Re-baselining the bars is a
+# separate, human-invoked `--generate-thresholds` run, so ordinary run-to-run
+# model variance in a merged snapshot cannot silently turn the next offline CI
+# run red.
+on:
+  schedule:
+    # 03:20 UTC daily.
+    - cron: '20 3 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: caption-eval-nightly
+  cancel-in-progress: false
+
+jobs:
+  regenerate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Scoped to this job, not the workflow, so a job added to this file later
+    # does not silently inherit write + PR rights.
+    permissions:
+      contents: write
+      pull-requests: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        # Keeps the token out of .git/config on the runner while the script
+        # runs, which is what makes the comment below literally true. The PR
+        # step is handed the token explicitly instead.
+        persist-credentials: false
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Regenerate and score the snapshot
+      env:
+        # The only secret this workflow hands the script. The script never sees
+        # a forge token: opening the PR is this workflow's job, not the
+        # script's.
+        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      run: |
+        uv run python scripts/caption_eval.py --nightly --out build/caption-eval
+
+    - name: Stage the regenerated snapshot
+      run: |
+        cp build/caption-eval/snapshot.json publisher_v2/tests/fixtures/captions/snapshot.json
+
+    - name: Score the regenerated snapshot (offline, keyless)
+      # A PR opened with GITHUB_TOKEN does not trigger workflow runs, so the
+      # offline caption-eval job in code-quality.yml never runs on the one
+      # branch that actually changes snapshot.json. Scoring it here is free and
+      # keyless, and turns THIS run red when a regenerated snapshot crosses a
+      # bar — which is PUB-049's Success Metric.
+      run: |
+        uv run python scripts/caption_eval.py --offline
+
+    - name: Preserve the report when scoring failed
+      # A regression fails the step above, so no PR is opened and the report —
+      # the caption-level diff that explains WHY — would die with the
+      # workspace, leaving the operator a score table in the log and nothing
+      # else. Upload it instead.
+      if: failure()
+      # SHA-pinned: third-party. This is tag v4 == v4.6.2.
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      with:
+        name: caption-eval-report
+        path: build/caption-eval/
+        if-no-files-found: warn
+        retention-days: 14
+
+    - name: Open the pull request
+      # SHA-pinned: third-party, and it runs with contents: write +
+      # pull-requests: write. This is tag v6 == v6.1.0.
+      uses: peter-evans/create-pull-request@c5a7806660adbe173f04e3e038b0ccdcd758773c  # v6.1.0
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+        branch: chore/caption-eval-nightly
+        base: main
+        commit-message: "chore: regenerate caption eval snapshot (nightly)"
+        title: "chore: nightly caption eval snapshot"
+        body-path: build/caption-eval/report.md
+        add-paths: |
+          publisher_v2/tests/fixtures/captions/snapshot.json
+        delete-branch: true

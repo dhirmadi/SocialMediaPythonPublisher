@@ -1,0 +1,31 @@
+{
+  "description": "A pair of shoes abandoned mid-hallway, one upright one not",
+  "mood": "narrative",
+  "tags": [
+    "shoes",
+    "hallway",
+    "story"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "shoes",
+  "style": "wide environmental",
+  "lighting": "mixed tungsten and daylight",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "hallway",
+  "aesthetic_terms": [
+    "wide",
+    "narrative"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a price sticker still on one sole",
+  "sensory_detail": [],
+  "mood_note": null
+}

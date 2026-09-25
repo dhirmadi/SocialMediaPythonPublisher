@@ -1,0 +1,31 @@
+{
+  "description": "Bootlaces being pulled tight, knee braced against a stair",
+  "mood": "brisk",
+  "tags": [
+    "boots",
+    "laces",
+    "stairs"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "boots",
+  "style": "reportage",
+  "lighting": "stairwell bounce",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "laces",
+  "aesthetic_terms": [
+    "reportage",
+    "brisk"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "one lace hook bent slightly outward",
+  "sensory_detail": [],
+  "mood_note": null
+}

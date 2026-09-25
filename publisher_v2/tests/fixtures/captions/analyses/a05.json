@@ -1,0 +1,31 @@
+{
+  "description": "Candle flame reflected in a mirror behind a turned back",
+  "mood": "intimate",
+  "tags": [
+    "candle",
+    "mirror",
+    "back"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "candle",
+  "style": "chiaroscuro",
+  "lighting": "candlelight only",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "mirror",
+  "aesthetic_terms": [
+    "chiaroscuro",
+    "intimate"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "wax pooled off-centre and already hardening",
+  "sensory_detail": [],
+  "mood_note": null
+}
