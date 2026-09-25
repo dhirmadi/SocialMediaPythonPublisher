@@ -53,10 +53,17 @@ def test_cost_accounting_sums_calls_and_tokens() -> None:
 
 
 def test_the_table_pairs_each_platform_and_scores_similarity() -> None:
+    """PUB-049 AC7: the trigram-only Delta column is retired for the harness metrics.
+
+    The per-row columns are now the two harness numbers, per side: whether the
+    caption trips the tells lexicon, and its TF-IDF bigram cosine against the
+    captions already emitted for earlier images on that same side. With a single
+    row there is no history yet, so both cosine cells read as unavailable.
+    """
     mod = _module()
     row = mod.Row(image="img.jpg")
     row.captions = {
-        "baseline": {"telegram": "Rope marks on warm skin", "email": "A quiet evening"},
+        "baseline": {"telegram": "This isn't just rope, it is trust", "email": "A quiet evening"},
         "current": {"telegram": "Rope marks on warm skin", "email": "Knots and patience, slowly"},
     }
     row.costs = {"baseline": mod.Cost(calls=2, prompt_tokens=100, completion_tokens=20)}
@@ -65,22 +72,37 @@ def test_the_table_pairs_each_platform_and_scores_similarity() -> None:
 
     assert "Baseline: `5c086e6`" in table
     assert "One asymmetry" in table, "the vision-payload difference must be disclosed"
-    assert "| `img.jpg` | telegram | Rope marks on warm skin | Rope marks on warm skin | 1.00 |" in table.replace(
-        " | — | — |", " |"
-    )
-    assert "| `img.jpg` | email | A quiet evening | Knots and patience, slowly | 0.00 |" in table.replace(
-        " | — | — |", " |"
-    )
+
+    # The retired column and the metric behind it are gone.
+    assert "| Delta |" not in table
+    assert "trigram" not in table.lower()
+
+    assert (
+        "| Image | Platform | Baseline caption | Current caption | Tells (baseline) | Tells (current) | "
+        "Cosine (baseline) | Cosine (current) |"
+    ) in table
+
+    # "isn't just" is a tells-lexicon phrase; the current telegram caption is not.
+    assert (
+        "| `img.jpg` | telegram | This isn't just rope, it is trust | Rope marks on warm skin | 1.00 | 0.00 | — | — |"
+    ) in table
+    assert ("| `img.jpg` | email | A quiet evening | Knots and patience, slowly | 0.00 | 0.00 | — | — |") in table
     assert "| `img.jpg` | baseline | 2 | 100 | 20 |" in table
 
 
 def test_similarity_to_the_previous_image_is_reported_per_variant() -> None:
-    """#146 asks for repetitiveness across images, which is the #82 claim under test."""
+    """PUB-049 AC7: the summary section is now the harness deltas, not the trigram mean.
+
+    #146 still asks for repetitiveness across images; the number answering it is
+    now the tells rate and the TF-IDF bigram cosine to the captions already
+    emitted on that side, reported per platform with the baseline-to-current
+    delta.
+    """
     mod = _module()
     rows = []
     for name, baseline, current in (
-        ("a.jpg", "the same opener every time", "a quiet first line"),
-        ("b.jpg", "the same opener every time", "rope, and then patience"),
+        ("a.jpg", "This isn't just the same opener every time", "a quiet first line"),
+        ("b.jpg", "This isn't just the same opener every time", "rope, and then patience"),
     ):
         row = mod.Row(image=name)
         row.captions = {"baseline": {"telegram": baseline}, "current": {"telegram": current}}
@@ -88,9 +110,23 @@ def test_similarity_to_the_previous_image_is_reported_per_variant() -> None:
 
     table = mod._render(rows, "5c086e6", ["telegram"])
 
-    assert "Mean similarity to the previous image" in table
-    # The baseline repeats itself verbatim; the current captions do not.
-    assert "| telegram | 1.00 | 0.00 |" in table
+    assert "Mean similarity to the previous image" not in table, "the trigram-only section is retired"
+    assert "## Harness deltas (baseline vs current, lower = less repetitive)" in table
+    assert (
+        "| Platform | Tells rate (baseline) | Tells rate (current) | Tells Δ | "
+        "Mean cosine (baseline) | Mean cosine (current) | Cosine Δ |"
+    ) in table
+
+    # Every baseline caption trips the lexicon; no current caption does.
+    summary = [line for line in table.splitlines() if line.startswith("| telegram |")]
+    assert len(summary) == 1, table
+    cells = [cell.strip() for cell in summary[0].strip("|").split("|")]
+    assert cells[:4] == ["telegram", "1.00", "0.00", "-1.00"]
+
+    # The baseline repeats itself verbatim, so it is far closer to its own history.
+    mean_cosine_baseline, mean_cosine_current = float(cells[4]), float(cells[5])
+    assert mean_cosine_baseline > mean_cosine_current
+    assert float(cells[6]) == pytest.approx(mean_cosine_current - mean_cosine_baseline, abs=0.005)
 
 
 def test_a_newline_in_a_caption_cannot_break_the_table() -> None:
@@ -126,8 +162,9 @@ def test_a_failed_image_is_reported_not_dropped() -> None:
 
     assert "_RuntimeError: vision \\| exploded<br>at line 2_" in table, table
     error_row = next(line for line in table.splitlines() if "broken.jpg" in line)
-    # Eight cell separators; the error's own pipe is escaped, so it is not one.
-    assert error_row.count("|") - error_row.count("\\|") == 8, f"the error broke the table: {error_row}"
+    # Nine cell separators (PUB-049 AC7 widened the table from seven columns to
+    # eight); the error's own pipe is escaped, so it is not one of them.
+    assert error_row.count("|") - error_row.count("\\|") == 9, f"the error broke the table: {error_row}"
     assert "\n" not in error_row.strip()
 
 
@@ -140,7 +177,7 @@ def test_pipe_characters_in_a_caption_do_not_break_the_table() -> None:
 
     body = [line for line in table.splitlines() if line.startswith("| `img.jpg`")][0]
     unescaped = body.replace("\\|", "")
-    assert unescaped.count("|") == 8, body  # 7 columns; the pipes inside captions are escaped
+    assert unescaped.count("|") == 9, body  # 8 columns (PUB-049 AC7); pipes inside captions are escaped
 
 
 @pytest.mark.skipif(

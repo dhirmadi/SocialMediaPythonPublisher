@@ -4,7 +4,8 @@ r"""Produce the #146 before/after caption sample for a folder of images.
 For each image the script runs the real vision + caption stage twice — once
 against a baseline commit's prompt configuration, once against the working
 tree's — and writes a Markdown table with both captions per platform, the
-trigram similarity between them, and the observed cost (calls and tokens).
+PUB-049 harness numbers for each side (tells-lexicon hit rate and TF-IDF bigram
+cosine to that side's own earlier captions), and the observed cost.
 
 It is read-only with respect to storage and state: it never publishes, never
 writes a sidecar, never archives and never touches the posted-state cache. It
@@ -442,9 +443,25 @@ def _cell(text: str) -> str:
     return text.replace("|", "\\|").replace("\r\n", "\n").replace("\n", "<br>")
 
 
-def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
-    from publisher_v2.utils.captions import trigram_jaccard
+def _score_cells(caption: str, history: list[str]) -> tuple[str, str]:
+    """The two harness numbers for one caption: tells rate, then cosine to its own history.
 
+    PUB-049 AC7: these replace the trigram-only Delta column. ``history`` is the
+    captions already emitted on that same side for earlier images, so the cosine
+    answers "is this side repeating itself", which is what #146 asked. An empty
+    caption, or a caption with no history yet, renders as an em dash rather than
+    a fabricated 0.00.
+    """
+    from publisher_v2.utils.caption_metrics import tells_lexicon_hit_rate, tfidf_bigram_cosine
+
+    if not caption:
+        return "—", "—"
+    tells = f"{tells_lexicon_hit_rate([caption]):.2f}"
+    cosine = f"{tfidf_bigram_cosine(caption, history):.2f}" if history else "—"
+    return tells, cosine
+
+
+def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
     lines = [
         "# Caption sample: baseline vs current (#146)",
         "",
@@ -459,49 +476,52 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
         'With the default `vision_detail="low"` the practical difference is small, but',
         "it is not nothing.",
         "",
-        "- **Delta** is the trigram Jaccard between this image's two captions: how far the prompt",
-        "  change moved the wording. 1.00 means it changed nothing.",
-        "- **Prev (baseline)** / **Prev (current)** compare each caption with the previous image's",
-        "  caption on the same side. These are the #82 evidence: if the current column is",
-        "  consistently lower, the captions repeat themselves less across images.",
+        "- **Tells (baseline)** / **Tells (current)** are the PUB-049 tells-lexicon hit rate for that",
+        "  one caption: 1.00 means it uses at least one stock AI-caption phrase, 0.00 means none.",
+        "- **Cosine (baseline)** / **Cosine (current)** are the PUB-049 TF-IDF bigram cosine between",
+        "  that caption and the captions already produced on the SAME side for earlier images. These",
+        "  are the #82 evidence: if the current column is consistently lower, the captions repeat",
+        "  themselves less across images. The first image has no history yet, so both read as —.",
         "",
-        "| Image | Platform | Baseline caption | Current caption | Delta | Prev (baseline) | Prev (current) |",
-        "|---|---|---|---|---|---|---|",
+        "| Image | Platform | Baseline caption | Current caption | Tells (baseline) | Tells (current) | "
+        "Cosine (baseline) | Cosine (current) |",
+        "|---|---|---|---|---|---|---|---|",
     ]
-    previous: dict[str, dict[str, str]] = {"baseline": {}, "current": {}}
+    previous: dict[str, dict[str, list[str]]] = {"baseline": {}, "current": {}}
     for row in rows:
         if row.error and not row.captions:
-            lines.append(f"| `{row.image}` | — | _{_cell(row.error)}_ | | | | |")
+            lines.append(f"| `{row.image}` | — | _{_cell(row.error)}_ | | | | | |")
             continue
         for platform in platforms:
             before = row.captions.get("baseline", {}).get(platform, "")
             after = row.captions.get("current", {}).get(platform, "")
-            delta = f"{trigram_jaccard(before, after):.2f}" if before and after else "—"
-            prev_b = previous["baseline"].get(platform, "")
-            prev_c = previous["current"].get(platform, "")
-            adjacent_b = f"{trigram_jaccard(before, prev_b):.2f}" if before and prev_b else "—"
-            adjacent_c = f"{trigram_jaccard(after, prev_c):.2f}" if after and prev_c else "—"
+            tells_b, cosine_b = _score_cells(before, previous["baseline"].get(platform, []))
+            tells_c, cosine_c = _score_cells(after, previous["current"].get(platform, []))
             note = f" _({_cell(row.error)})_" if row.error else ""
             lines.append(
                 f"| `{row.image}` | {platform} | {_cell(before)}{note} | {_cell(after)} | "
-                f"{delta} | {adjacent_b} | {adjacent_c} |"
+                f"{tells_b} | {tells_c} | {cosine_b} | {cosine_c} |"
             )
             if before:
-                previous["baseline"][platform] = before
+                previous["baseline"].setdefault(platform, []).append(before)
             if after:
-                previous["current"][platform] = after
+                previous["current"].setdefault(platform, []).append(after)
 
-    means = _adjacent_means(rows, platforms)
-    if means:
+    deltas = _harness_deltas(rows, platforms)
+    if deltas:
         lines += [
             "",
-            "## Mean similarity to the previous image (lower = less repetitive)",
+            "## Harness deltas (baseline vs current, lower = less repetitive)",
             "",
-            "| Platform | Baseline | Current |",
-            "|---|---|---|",
+            "| Platform | Tells rate (baseline) | Tells rate (current) | Tells Δ | "
+            "Mean cosine (baseline) | Mean cosine (current) | Cosine Δ |",
+            "|---|---|---|---|---|---|---|",
         ]
-        for platform, (mean_b, mean_c) in means.items():
-            lines.append(f"| {platform} | {mean_b:.2f} | {mean_c:.2f} |")
+        for platform, (tells_b, tells_c, cos_b, cos_c) in deltas.items():
+            lines.append(
+                f"| {platform} | {tells_b:.2f} | {tells_c:.2f} | {tells_c - tells_b:.2f} | "
+                f"{cos_b:.2f} | {cos_c:.2f} | {cos_c - cos_b:.2f} |"
+            )
 
     lines += [
         "",
@@ -523,23 +543,32 @@ def _render(rows: list[Row], baseline: str, platforms: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _adjacent_means(rows: list[Row], platforms: list[str]) -> dict[str, tuple[float, float]]:
-    """Mean similarity between consecutive images, per platform, for each variant."""
-    from publisher_v2.utils.captions import trigram_jaccard
+def _harness_deltas(rows: list[Row], platforms: list[str]) -> dict[str, tuple[float, float, float, float]]:
+    """Per platform: the tells rate and the mean self-similarity, for each side.
 
-    means: dict[str, tuple[float, float]] = {}
+    PUB-049 AC7 replaces the trigram mean with the two harness numbers. The mean
+    cosine is taken over every caption from the second image onwards, each scored
+    against that side's own earlier captions — the first image has no history, so
+    it contributes nothing rather than a zero.
+    """
+    from publisher_v2.utils.caption_metrics import tells_lexicon_hit_rate, tfidf_bigram_cosine
+
+    deltas: dict[str, tuple[float, float, float, float]] = {}
     for platform in platforms:
-        scores: dict[str, list[float]] = {"baseline": [], "current": []}
+        scored: dict[str, tuple[float, float]] = {}
         for variant in ("baseline", "current"):
             captions = [r.captions.get(variant, {}).get(platform, "") for r in rows]
             captions = [c for c in captions if c]
-            scores[variant] = [trigram_jaccard(a, b) for a, b in zip(captions, captions[1:], strict=False)]
-        if scores["baseline"] or scores["current"]:
-            means[platform] = (
-                sum(scores["baseline"]) / len(scores["baseline"]) if scores["baseline"] else 0.0,
-                sum(scores["current"]) / len(scores["current"]) if scores["current"] else 0.0,
+            cosines = [tfidf_bigram_cosine(c, captions[:i]) for i, c in enumerate(captions) if i]
+            scored[variant] = (
+                tells_lexicon_hit_rate(captions),
+                sum(cosines) / len(cosines) if cosines else 0.0,
             )
-    return means
+        if any(r.captions.get(v, {}).get(platform) for r in rows for v in ("baseline", "current")):
+            tells_b, cos_b = scored["baseline"]
+            tells_c, cos_c = scored["current"]
+            deltas[platform] = (tells_b, tells_c, cos_b, cos_c)
+    return deltas
 
 
 def run(args: argparse.Namespace) -> int:

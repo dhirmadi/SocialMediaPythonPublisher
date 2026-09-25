@@ -1,0 +1,31 @@
+{
+  "description": "Hands tying a single column knot, forearms tensed",
+  "mood": "focused",
+  "tags": [
+    "hands",
+    "knot",
+    "forearms"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "hands",
+  "style": "documentary",
+  "lighting": "overhead softbox",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "knot",
+  "aesthetic_terms": [
+    "documentary",
+    "focused"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "a plaster on the left index finger",
+  "sensory_detail": [],
+  "mood_note": null
+}

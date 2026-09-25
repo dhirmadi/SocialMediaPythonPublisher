@@ -21,3 +21,4 @@
 - [Auth0-only admin review traps](auth0-only-admin-review-traps.md) — #137: load_dotenv defeats live 503 probes; tautological `or` asserts; require_admin now unconditional on image routes
 - [Reliability batch review traps](reliability-batch-review-traps.md) — PUB-047/PUB-061: flush() sleep(0) is load-bearing; _drain_pending keeps failures and continues; claim wait_for can orphan a lease; drain deadline between client timeout and aclose budget
 - [PUB-048 auth/library review traps](pub048-auth-library-review-traps.md) — require_admin must re-verify the header; voice-profile guard order inverted on purpose; per-key head_object fakes; 3-of-12 AC2 params fail pre-fix
+- [Caption eval harness review traps](caption-eval-harness-review-traps.md) — PUB-049: 0.01 bar is zero tolerance at n=60; epsilon untested; GITHUB_TOKEN PRs skip caption-eval; missing bars skipped silently

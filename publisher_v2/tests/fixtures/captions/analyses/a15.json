@@ -1,0 +1,31 @@
+{
+  "description": "Two silhouettes in a doorway, neither touching",
+  "mood": "charged",
+  "tags": [
+    "silhouette",
+    "doorway",
+    "distance"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "silhouette",
+  "style": "backlit",
+  "lighting": "corridor light behind",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "doorway",
+  "aesthetic_terms": [
+    "backlit",
+    "charged"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "the door stop wedged with a folded receipt",
+  "sensory_detail": [],
+  "mood_note": null
+}

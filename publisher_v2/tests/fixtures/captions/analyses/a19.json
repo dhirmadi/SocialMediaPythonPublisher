@@ -1,0 +1,31 @@
+{
+  "description": "Steam on a bathroom mirror, a handprint wiped through it",
+  "mood": "private",
+  "tags": [
+    "steam",
+    "mirror",
+    "handprint"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "steam",
+  "style": "environmental",
+  "lighting": "fluorescent overhead",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "mirror",
+  "aesthetic_terms": [
+    "environmental",
+    "private"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "the handprint is left-handed",
+  "sensory_detail": [],
+  "mood_note": null
+}

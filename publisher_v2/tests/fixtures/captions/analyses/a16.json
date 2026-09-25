@@ -1,0 +1,31 @@
+{
+  "description": "A rope harness half-finished, the rest coiled on the floor",
+  "mood": "in-progress",
+  "tags": [
+    "harness",
+    "coil",
+    "unfinished"
+  ],
+  "nsfw": true,
+  "safety_labels": [
+    "adult"
+  ],
+  "sd_caption": null,
+  "subject": "harness",
+  "style": "process shot",
+  "lighting": "north-facing window",
+  "camera": "35mm prime",
+  "clothing_or_accessories": "coil",
+  "aesthetic_terms": [
+    "process",
+    "in-progress"
+  ],
+  "pose": null,
+  "composition": null,
+  "background": null,
+  "color_palette": null,
+  "alt_text": null,
+  "distinctive_detail": "the coil wound anticlockwise, unusually",
+  "sensory_detail": [],
+  "mood_note": null
+}
