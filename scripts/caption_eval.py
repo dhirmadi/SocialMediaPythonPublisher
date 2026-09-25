@@ -328,7 +328,9 @@ async def _generate_snapshot(generator: Any, fixtures: Path) -> dict[str, Any]:
     analyses = await asyncio.to_thread(load_analyses, fixtures)
     entries: list[dict[str, Any]] = []
     for name, analysis in analyses.items():
-        captions, _sd = await generator.generate_multi(analysis, specs, history=history)
+        # generate_multi returns (captions, AIUsage | None); the usage counter is
+        # not part of the snapshot, so it is dropped here.
+        captions, _usage = await generator.generate_multi(analysis, specs, history=history)
         entries.append({"analysis": name, "captions": dict(captions)})
     return {"entries": entries}
 

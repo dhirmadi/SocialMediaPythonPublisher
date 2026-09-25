@@ -83,7 +83,10 @@ jobs:
       # workspace, leaving the operator a score table in the log and nothing
       # else. Upload it instead.
       if: failure()
-      # SHA-pinned: third-party. This is tag v4 == v4.6.2.
+      # SHA-pinned although it is first-party (the `actions` org), unlike the
+      # checkout/setup steps above which follow the repo's tag convention: this
+      # step runs in the same job as the PR step's write credentials, so it is
+      # pinned to match that step. This is tag v4 == v4.6.2.
       uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
       with:
         name: caption-eval-report
