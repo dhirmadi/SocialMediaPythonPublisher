@@ -173,6 +173,36 @@ All findings from both reviewers were routed back and resolved; none was downgra
     made at any point**. The construction rules are documented in `fixtures/captions/README.md` and in
     a `construction` key inside the JSON itself.
 
+## Post-review corrections (found on the PR, after the subagent rounds)
+
+An independent review of the open PR found four defects that four earlier subagent review
+rounds and a manual verification pass all missed. Recorded here because the misses are as
+informative as the fixes:
+
+13. **The nightly could never have run.** `load_application_config` hard-requires
+    `STORAGE_PATHS`, `PUBLISHERS` and `OPENAI_SETTINGS`; the scheduled workflow supplies only
+    `OPENAI_API_KEY`, so every run would have died at the first step. `caption_eval.py` now
+    fills the same placeholders `scripts/caption_sample.py` already did, and reports which.
+    *Why it was missed:* every prior check ran in this repo, where a local `.env` masks it.
+14. **The secret redaction made that failure undiagnosable.** It withheld the real cause and
+    named `OPENAI_API_KEY`, which was not the problem. `ConfigurationError` names missing
+    variables and never quotes values, so it is surfaced; only the pydantic `ValidationError`,
+    which renders `input_value=...`, stays withheld. Redaction that hides the diagnosis is not
+    security.
+15. **The prompt was not production's prompt.** `PlatformCaptionStyle.hashtags` is a bool flag;
+    production resolves it as `hashtag_string if flag else ""`. Reading it as text rendered
+    `Include hashtags: True.` into the prompt. `examples` and `smart_hashtags` were dropped
+    too. All three now resolve as `CaptionSpec.for_platforms` resolves them, against documented
+    fixture constants (`FIXTURE_HASHTAG_STRING`, no voice profile, smart hashtags off).
+16. **The snapshot measured the pre-gate draft.** `_generate_snapshot` called the generator
+    directly, skipping `AIService.create_multi_caption_pair_from_analysis` — the #82 similarity
+    gate, the structure-directive rotation and the bounded regeneration. That systematically
+    under-reports the mechanism PUB-051/PUB-052 exist to evaluate. The nightly seam is now
+    `build_service()`. Cost: a tripped gate spends a second caption call for that image.
+
+The committed `snapshot.json` and `caption_eval_thresholds.json` are unchanged throughout —
+scoring never reads the specs — so the numbers above still stand.
+
 ## Follow-ups (not blockers for this item)
 
 - Re-baseline `caption_eval_thresholds.json` over three nightly runs, per spec Risks — item 6 above is
