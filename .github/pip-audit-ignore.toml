@@ -1,0 +1,10 @@
+# Accepted advisories pip-audit must skip. Every entry needs a reason and an
+# expiry date (ISO 8601, YYYY-MM-DD); the gate fails once `expires` has
+# passed, forcing a re-review instead of a silent permanent skip.
+#
+# [[ignore]]
+# id = "GHSA-xxxx-xxxx-xxxx"
+# reason = "Why this is accepted (no fix yet, code path unused, etc.)."
+# expires = "2026-12-31"
+#
+# There is nothing to ignore today. Validated by scripts/pip_audit_ignore.py.

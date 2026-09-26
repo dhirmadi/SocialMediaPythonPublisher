@@ -23,17 +23,17 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       with:
         fetch-depth: 0
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065  # v5.6.0
       with:
         python-version: '3.12'
 
     - name: Install uv
-      uses: astral-sh/setup-uv@v5
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
       with:
         enable-cache: true
 
@@ -41,31 +41,13 @@ jobs:
       run: |
         uv sync --group dev
 
-    - name: Run pip-audit (dependency vulnerabilities)
-      run: |
-        uv run pip-audit -f json -o pip-audit-report.json || true
-      continue-on-error: true
-
-    - name: Run Safety check (dependency vulnerabilities)
-      run: |
-        uv run safety check --json || true
-
-    - name: Run Bandit (code security issues)
-      run: |
-        uv run bandit -r . -f json -o bandit-report.json || true
-
-    - name: Upload security scan artifacts
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: security-scan-artifacts
-        path: |
-          bandit-report.json
-          pip-audit-report.json
-
     - name: Check for secrets in code
-      uses: trufflesecurity/trufflehog@main
+      uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85  # v3.97.9
       with:
+        # The action is a thin wrapper around `docker run`; without an explicit
+        # `version` it pulls `:latest`, so the scanner that decides pass/fail
+        # would float even though the action itself is SHA-pinned (PUB-055).
+        version: "3.97.9"
         extra_args: --only-verified
 
     - name: Verify .env not committed
@@ -90,6 +72,24 @@ jobs:
           grep -q "\.ini" .gitignore && echo "✅ .ini in .gitignore" || echo "⚠️  .ini not in .gitignore"
         fi
 
+    # Kept last so the cheap checks above still report while the advisory
+    # backlog stands (PUB-055).
+    - name: Run pip-audit (dependency vulnerabilities)
+      run: |
+        set -euo pipefail
+        IGNORE_ARGS=$(uv run python scripts/pip_audit_ignore.py)
+        uv export --frozen --no-emit-project --all-groups --no-hashes --format requirements-txt -o requirements-audit.txt
+        uvx --from 'pip-audit==2.10.1' pip-audit --no-deps --disable-pip -r requirements-audit.txt \
+          -f json -o pip-audit-report.json $IGNORE_ARGS
+
+    - name: Upload security scan artifacts
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
+      if: always()
+      with:
+        name: security-scan-artifacts
+        path: |
+          pip-audit-report.json
+
   dependency-review:
     runs-on: ubuntu-latest
     if: github.event_name == 'pull_request'
@@ -97,30 +97,32 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       with:
         fetch-depth: 0
 
     - name: Dependency Review
-      uses: actions/dependency-review-action@v3
+      uses: actions/dependency-review-action@cc4f6536e38d1126c5e3b0683d469a14f23bfea4  # v3 (3.1.5 release merge)
       with:
         fail-on-severity: moderate
 
   secret-scanning:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    env:
+      GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4.4.0
       with:
         fetch-depth: 0
 
     - name: GitGuardian scan
-      uses: GitGuardian/ggshield-action@v1
+      if: ${{ env.GITGUARDIAN_API_KEY != '' }}
+      uses: GitGuardian/ggshield-action@7f66d3be9c59a821dcf4f45ee5d929203a1a0b90  # v1.55.0
       env:
+        GITGUARDIAN_API_KEY: ${{ env.GITGUARDIAN_API_KEY }}
         GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
         GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
         GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-        GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
-      continue-on-error: true

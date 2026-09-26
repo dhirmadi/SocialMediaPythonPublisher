@@ -6,12 +6,12 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Not Started |
 | **Dependencies** | — |
 
 ## User Story
 
-As a platform maintainer, I want a vulnerable dependency, a bandit finding or a mutable action reference to fail CI, so that the dependency check done by hand in the 2026-09-21 review stays true without anyone repeating it.
+As a platform maintainer, I want a vulnerable dependency, a bandit finding, a leaked secret or a mutable action reference to fail CI, so that the dependency check done by hand in the 2026-09-21 review stays true without anyone repeating it.
 
 ## Problem
 
@@ -24,34 +24,222 @@ A deliberately vulnerable pin on a branch fails CI while `main` is green. No mut
 ## Scope
 
 **In scope:**
-- pip-audit blocking with an ignore file naming each accepted advisory, reason and expiry
-- bandit blocking at medium severity and confidence
-- `safety scan` or removal of safety as a duplicate (PR states which)
-- Every action pinned by commit SHA with the version in a comment
-- `.github/dependabot.yml`: weekly, pip and github-actions, grouped by minor and patch
-- `tests/test_ci_security_gates.py` parsing the workflows: no `|| true` or `continue-on-error` on security steps; every `uses:` is a 40-character SHA
+- pip-audit blocking, with `--ignore-vuln` flags for accepted advisories sourced from
+  `.github/pip-audit-ignore.toml` (see Implementation Notes for the exact schema and the
+  `scripts/pip_audit_ignore.py` helper that validates and reads it)
+- Remove the redundant `safety check` step from `security-scan.yml`, and prune `safety>=3.2.0`
+  from `pyproject.toml`'s dev dependency group in the same PR (a dependency nobody imports is the
+  same kind of decay this item exists to close off). `pip-audit` (OSV-backed, actively
+  maintained) is the one blocking dependency-vulnerability gate; `safety check` is deprecated and
+  its replacement (`safety scan`) needs a Safety CLI account, which this item does not introduce.
+  **This is a scope decision, not a de-duplication of identical coverage** — `safety` (Safety DB)
+  and `pip-audit` (OSV) cover different advisory sources, so dropping `safety` is a real (small,
+  deliberate) reduction in scanner coverage, called out here explicitly rather than smuggled in
+  under "de-duplication." It is made now, not left to the implementing PR, so the gate test has a
+  fixed target — flagged explicitly in Risks below rather than left implicit.
+  `SECURITY.md`'s existing "Security Scanning" contributor bullet (`pip install safety bandit;
+  safety check; bandit -r . ...`) currently recommends the exact commands being deleted from CI;
+  rewrite it in the same PR so the doc doesn't contradict its own rationale.
+- Bandit: **do not** re-add a bandit-blocking mechanism — `code-quality.yml`'s `pre-commit` job
+  (added by #229, see Change Log) already blocks on bandit findings against `publisher_v2/src`
+  and `scripts`, honoring the existing `# nosec` justifications, using bandit's default
+  severity/confidence (not `-ll`/`-ii` — that framing predates #229 and is stale). This item's
+  only bandit-related task is deleting `security-scan.yml`'s now-redundant, non-blocking
+  `bandit -r . ... || true` step so there is exactly one bandit gate, not two with different args
+  and different scan roots.
+- Every remaining `uses:` step in `security-scan.yml` and `secret-scan.yml` (the two files this
+  item's Problem section is about) pinned by 40-character commit SHA with the referenced tag in a
+  trailing comment (e.g. `uses: actions/checkout@<sha>  # v4.x.y`). Pin to the SHA of whichever
+  tag is **currently** referenced — do not bump major versions in this same change (e.g.
+  `dependency-review-action@v3` is several majors behind `@v5` at hardening time; upgrading it is
+  a separate, out-of-scope change, same principle as "changing which scanners run"). `code-
+  quality.yml` and `caption-eval-nightly.yml` are untouched by this item — the latter already
+  documents its own tag-vs-SHA policy and is out of scope here.
+- `trufflesecurity/trufflehog@main` (the two mutable refs named in Problem) pinned to a commit SHA
+  in both `security-scan.yml` and `secret-scan.yml`, same as every other action in those files.
+- GitGuardian's step in `security-scan.yml` loses `continue-on-error: true`, but gains a
+  presence-guard on `GITGUARDIAN_API_KEY` instead of running unconditionally. **`secrets.*` is
+  not a valid context in step-level `if:`** (GitHub's context-availability table excludes
+  `secrets` from `jobs.<job_id>.steps.if`; it is only readable from `env:` blocks) — the guard
+  must go through a job-level `env:` first:
+  ```yaml
+  secret-scanning:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GITGUARDIAN_API_KEY: ${{ secrets.GITGUARDIAN_API_KEY }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@<sha>  # v4.x.y
+        with:
+          fetch-depth: 0
+      - name: GitGuardian scan
+        if: ${{ env.GITGUARDIAN_API_KEY != '' }}
+        uses: GitGuardian/ggshield-action@<sha>  # v1.x.y
+        env:
+          GITGUARDIAN_API_KEY: ${{ env.GITGUARDIAN_API_KEY }}
+          GITHUB_PUSH_BEFORE_SHA: ${{ github.event.before }}
+          GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
+          GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+  ```
+  This repo currently has **no** `GITGUARDIAN_API_KEY` secret configured (confirmed via
+  `gh secret list` during hardening) — making the step unconditionally blocking would fail every
+  run on an auth error, not a real finding. The guard makes it skip cleanly when unconfigured and
+  block for real once the secret is added; see Risks.
+- `.github/dependabot.yml`: weekly, `pip` and `github-actions` ecosystems, each grouped by
+  `update-types: ["minor", "patch"]` (major bumps stay ungrouped so they get individual review)
+- `tests/test_ci_security_gates.py` parsing `security-scan.yml`/`secret-scan.yml`: no security
+  step carries `|| true` or `continue-on-error` (except the GitGuardian presence-guard, which is
+  an `if:`, not a `continue-on-error:`); every `uses:` in those two files is a 40-character SHA
+  with a version comment; `.github/dependabot.yml` has the weekly/grouped config described above
+- `publisher_v2/tests/test_pip_audit_ignore.py` covering `scripts/pip_audit_ignore.py`'s schema
+  validation and expiry check (see Implementation Notes)
 - `SECURITY.md` describes the gates and the ignore-list process
 
 **Out of scope:**
-- Changing which scanners run
+- Changing which scanners run, **except** removing `safety` (see the Scope bullet above and
+  Risks — this is a deliberate, called-out exception to this bullet, not something this bullet
+  silently permits)
+- Migrating to `safety scan` (would need a new `SAFETY_API_KEY` secret and account)
+- Bumping any action's major version, or `dependency-review-action`'s `fail-on-severity`
+- Touching `code-quality.yml` or `caption-eval-nightly.yml`
 - Coverage thresholds (done in #141)
 
 ## Acceptance Criteria
 
-- AC1: Given a branch pinning an old `jinja2`, when CI runs, then the pip-audit job fails; the run is linked in the PR body and the pin reverted
-- AC2: Given `main`, when CI runs, then every security job passes
-- AC3: Given the workflow files, when the gate test runs, then no security step carries `|| true` or `continue-on-error` and every `uses:` is a SHA
-- AC4: Given the Dependabot config, when a week passes, then grouped PRs for pip and actions are opened
-- AC5: Given an accepted advisory, when it is added to the ignore file, then it carries a reason and an expiry date, and the gate test fails on an expired entry
+AC1 and AC2 are verification steps, not `pytest` ACs — do not invent test names for them (same
+pattern as PUB-052's AC9/AC10, though the reason differs: PUB-052's are an owner's subjective
+judgment call that no code can substitute for; these are deterministic facts about a live
+GitHub Actions run — but automating them would mean either (a) mocking pip-audit's subprocess
+call, which would just re-assert AC3's static "no `|| true`" check under a different name without
+exercising pip-audit's real vulnerability database, or (b) giving the test suite network/
+subprocess access to a live runner, which the Mock boundaries table below deliberately rules out
+for this item's tests). They are proven once, live, as part of delivering this item's PR, not as
+a permanent regression test (a permanently-vulnerable pin would defeat its own purpose, and "CI
+is green on main" cannot be asserted from within the test suite that runs before the merge it
+describes).
+
+- AC1: Given a branch that pins a `jinja2` version with a known advisory (e.g. `jinja2==2.11.3`),
+  when CI runs on that branch, then the pip-audit job fails with that advisory in its output.
+  **Verification:** push the pin on a scratch branch/PR as part of implementing this item, link
+  the failing run's URL in the delivery PR body, then revert the pin before merge — do not leave
+  a permanently-vulnerable pin in history past that PR.
+- AC2: Given `main` after this item merges, when CI runs, then every job in `security-scan.yml`
+  and `secret-scan.yml` passes (GitGuardian's job passes by skipping cleanly per its presence
+  guard, since no `GITGUARDIAN_API_KEY` is configured yet — see Scope). **Verification:** check
+  the Actions run for the merge commit; link it in the delivery PR body.
+- AC3: Given `security-scan.yml` and `secret-scan.yml`, when
+  `publisher_v2/tests/test_ci_security_gates.py::test_no_security_step_swallows_a_failure` runs,
+  then it finds no `|| true` and no `continue-on-error: true` on any step in either file (the
+  GitGuardian step's `if: env.GITGUARDIAN_API_KEY != ''` guard does not count as either), and
+  finds no step invoking `safety`.
+- AC4: Given `security-scan.yml` and `secret-scan.yml`, when
+  `publisher_v2/tests/test_ci_security_gates.py::test_every_action_in_the_security_workflows_is_pinned_by_sha`
+  runs, then every `uses:` value in both files matches `<owner>/<repo>@<40-hex-char-sha>` and is
+  followed by a version comment on the same or next line.
+- AC5: Given `.github/dependabot.yml`, when
+  `publisher_v2/tests/test_ci_security_gates.py::test_dependabot_config_groups_weekly_pip_and_actions_updates`
+  parses it, then it declares `pip` and `github-actions` ecosystems, each with
+  `interval: "weekly"` and a `groups:` entry whose `update-types` includes `"minor"` and
+  `"patch"`.
+- AC6: Given an ignore-file entry (`.github/pip-audit-ignore.toml`, schema in Implementation
+  Notes), when `scripts/pip_audit_ignore.py`'s loader runs, then an entry missing `reason` or
+  `expires` raises, and `publisher_v2/tests/test_pip_audit_ignore.py::test_an_expired_entry_raises_instead_of_silently_passing`
+  proves that an entry whose `expires` date is in the past raises rather than being silently
+  applied; `test_pip_audit_ignore.py::test_unexpired_entries_yield_their_ignore_vuln_flags` proves
+  a valid, unexpired entry produces the corresponding `--ignore-vuln <id>` argument.
 
 ## Implementation Notes
 
 - Sub-issue #204, one PR.
-- Keep the existing `# nosec` justifications; bandit at `-ll` matches them.
+- The existing `# nosec` justifications (`config/orchestrator_client.py`, `config/schema.py`,
+  `web/service.py`, `web/app.py`, `services/ai.py`) are matched by the `pre-commit` job's bandit
+  hook (`.pre-commit-config.yaml`, `-r publisher_v2/src scripts`, default severity/confidence —
+  no `-ll`/`-ii`), not by anything this item adds. Do not add a second, differently-configured
+  bandit invocation; just delete `security-scan.yml`'s.
+
+### `.github/pip-audit-ignore.toml` schema and `scripts/pip_audit_ignore.py`
+
+TOML, array-of-tables, one `[[ignore]]` per accepted advisory:
+
+```toml
+# Accepted advisories pip-audit must skip. Every entry needs a reason and an
+# expiry date (ISO 8601, YYYY-MM-DD); the gate fails once `expires` has
+# passed, forcing a re-review instead of a silent permanent skip.
+
+[[ignore]]
+id = "GHSA-xxxx-xxxx-xxxx"
+reason = "Why this is accepted (no fix yet, code path unused, etc.)."
+expires = "2026-12-31"
+```
+
+Start the committed file with just the header comment and no `[[ignore]]` entries — the
+2026-09-21 review found nothing to ignore. A missing `ignore` key means zero entries, not a
+parse error.
+
+`scripts/pip_audit_ignore.py` (new, follows the existing `scripts/*.py` pattern, e.g.
+`scripts/caption_eval.py`):
+- `load_ignore_entries(path: Path, today: date | None = None) -> list[str]` — parses the TOML,
+  raises `ValueError` (naming the offending entry's `id`) if any entry is missing `id`, `reason`,
+  or `expires`, or if `today > expires` for any entry (default `today = date.today()`, injectable
+  for tests). Returns the `id`s of entries that are not expired.
+- CLI mode (`if __name__ == "__main__":`) prints `--ignore-vuln <id>` tokens (one per surviving
+  entry, space-separated) to stdout on success, and exits non-zero with the `ValueError` message
+  on stderr when validation fails — so the workflow step fails *before* pip-audit even runs if
+  the ignore file itself is stale.
+- Wire into `security-scan.yml`'s pip-audit step via command substitution, e.g.:
+  ```yaml
+  - name: Run pip-audit (dependency vulnerabilities)
+    run: |
+      IGNORE_ARGS=$(uv run python scripts/pip_audit_ignore.py)
+      uv run pip-audit -f json -o pip-audit-report.json $IGNORE_ARGS
+  ```
+- Test it the way `test_caption_sample_script.py` tests `scripts/caption_sample.py`:
+  `importlib.util.spec_from_file_location("pip_audit_ignore", REPO_ROOT / "scripts" /
+  "pip_audit_ignore.py")` — `scripts/` has no `__init__.py`, so it is not an importable package.
+
+### Files likely touched
+
+| Area | Files to modify | Files to create |
+|------|------------------|-------------------|
+| Workflows | `.github/workflows/security-scan.yml` (drop `safety`/bandit steps and `bandit-report.json` from the artifact upload path alongside them, pin every `uses:`, SHA-pin trufflehog, add `pip-audit-ignore` wiring, guard GitGuardian per the job-level `env:` pattern above) | `.github/dependabot.yml` |
+| Workflows | `.github/workflows/secret-scan.yml` (SHA-pin `actions/checkout` and `trufflehog`) | — |
+| Ignore gate | — | `.github/pip-audit-ignore.toml`, `scripts/pip_audit_ignore.py` |
+| Tests | — | `publisher_v2/tests/test_ci_security_gates.py`, `publisher_v2/tests/test_pip_audit_ignore.py` |
+| Deps | `pyproject.toml` (remove `safety>=3.2.0` from the dev group) | — |
+| Docs | `SECURITY.md` (describe the gates + ignore-list process; rewrite the "Security Scanning" contributor bullet that currently recommends `safety check`) | — |
+
+### Mock boundaries
+
+| External service | Mock strategy | Notes |
+|-------------------|----------------|-------|
+| None — `test_ci_security_gates.py` reads workflow/dependabot YAML as text/`yaml.safe_load` (PyYAML is already a dependency); no network, no subprocess against a real pip-audit/GitHub Actions run | — | Same pattern as `test_coverage_gate_config.py` |
+| `scripts/pip_audit_ignore.py` | Pure function over a `tmp_path` fixture TOML file; inject `today` explicitly rather than freezing real time | No `unittest.mock.patch` needed |
 
 ## Risks
 
-- The first blocking run may surface an advisory with no fix; the ignore file with expiry is the release valve, not `continue-on-error`.
+- The first blocking pip-audit run may surface an advisory with no fix; the ignore file with
+  expiry is the release valve, not `continue-on-error`.
+- `GITGUARDIAN_API_KEY` is not configured on this repo today. The presence-guard means the step
+  skips (not fails) until someone adds the secret — that is intentional, but if the user wants
+  GitGuardian blocking from day one, the secret must be added first (adding/rotating a production
+  secret is a gated action per `AGENTS.md` — the agent implementing this item does not invent or
+  set one).
+- `dependency-review-action` is pinned at `@v3` while `@v5` is current at hardening time; pinning
+  its `@v3` SHA preserves today's (already slightly stale) behavior rather than silently
+  upgrading it inside a security-hardening PR.
+- Removing the `safety` step is a real (small) reduction in scanner coverage, not a pure
+  de-duplication — `safety` (Safety DB) and `pip-audit` (OSV) draw from different advisory
+  sources. The operational reason (deprecated CLI command; `safety scan` needs an account this
+  item doesn't want to introduce) is sound, but it is a scope decision the user should see stated
+  plainly, not just infer from a Scope-bullet parenthetical: **if you'd rather keep a
+  Safety-DB-backed gate, say so before implementation** — the alternative is migrating to
+  `safety scan` with a `SAFETY_API_KEY`, which is a bigger, out-of-scope change (new secret, new
+  account).
+- `code-quality.yml`'s `pre-commit` job (added by #229) is, in substance, also a security gate
+  now (bandit, detect-secrets, gitleaks all run there) and is entirely tag-pinned, with zero SHA
+  pins. It is explicitly out of scope for this item (see Scope), but is the natural next place to
+  apply the same SHA-pinning policy.
 
 ## Success Metrics
 
@@ -65,3 +253,4 @@ A deliberately vulnerable pin on a branch fails CI while `main` is green. No mut
 ## Change Log
 
 - 2026-09-26 — Partially overtaken by #229, which added a blocking `pre-commit` job to `code-quality.yml` running all seventeen hooks. bandit now fails a build through that job, and detect-secrets, gitleaks and pydocstyle are enforced in CI for the first time (previously they ran only on clones where `pre-commit install` had been run, which was none). This does **not** close the item: `security-scan.yml`'s own `pip-audit`/`safety`/`bandit` steps are still `|| true`, the mutable `trufflehog@main` refs are unchanged, there is still no `.github/dependabot.yml`, and no test asserts the gates stay blocking. Re-scope the bandit bullet when this item is picked up — it is now about removing the `|| true` in `security-scan.yml` rather than making bandit block at all.
+- 2026-09-26 — Hardened for Claude Code handoff (`/product-harden`). Rescoped the bandit bullet per the entry above. Resolved several ambiguities the original draft left implicit: (1) `safety` is removed outright rather than migrated, a real (small) reduction in scanner coverage flagged in Risks, not just de-duplication; (2) SHA-pinning is scoped to `security-scan.yml`/`secret-scan.yml` only, matching the Problem section's own line-number citations — `code-quality.yml`/`caption-eval-nightly.yml` are untouched; (3) GitGuardian's step gets a job-level-`env:`-backed presence guard instead of unconditional blocking, since this repo has no `GITGUARDIAN_API_KEY` configured today; (4) the ignore-file (`.github/pip-audit-ignore.toml`) and its validator (`scripts/pip_audit_ignore.py`) now have a concrete schema and contract so AC6 is pytest-testable rather than prose; (5) AC1/AC2 are marked as one-time manual verification, not permanent tests, since they describe live-CI facts this item's own network-free test policy can't assert from within `pytest`. An adversarial `architect-reviewer` pass caught one implementation-blocking error in the first draft (the illustrative GitGuardian guard used `secrets.*` directly in a step-level `if:`, which GitHub Actions does not support there) and several visibility gaps (safety-removal needed louder flagging; `pyproject.toml`'s now-orphaned `safety` dev dependency and `SECURITY.md`'s contributor-facing `safety check` recommendation were unaddressed) — all applied above. See `PUB-055_handoff.md` for the Claude Code contract.

@@ -100,11 +100,11 @@ check: format lint type-check test
 
 # Security
 security:
-	@echo "Running safety check..."
-	uv run safety check || true
+	@echo "Running pip-audit (dependency vulnerabilities)..."
+	IGNORE_ARGS=$$(uv run python scripts/pip_audit_ignore.py) && uv export --frozen --no-emit-project --all-groups --no-hashes --format requirements-txt -o requirements-audit.txt && uvx --from 'pip-audit==2.10.1' pip-audit --no-deps --disable-pip -r requirements-audit.txt $$IGNORE_ARGS
 	@echo "Running bandit security scan..."
-	uv run bandit -r . -f json -o bandit-report.json || true
-	@echo "✅ Security scans complete - see bandit-report.json"
+	uv run pre-commit run bandit --all-files
+	@echo "✅ Security gates passed"
 
 check-secrets:
 	@echo "Checking for exposed secrets..."
@@ -126,7 +126,7 @@ clean:
 	find . -type f -name '*.pyd' -delete
 	find . -type f -name '.coverage' -delete
 	rm -rf htmlcov/ build/ dist/ *.egg-info
-	rm -f bandit-report.json
+	rm -f bandit-report.json pip-audit-report.json requirements-audit.txt
 	@echo "✅ Cleaned temporary files"
 
 clean-all: clean

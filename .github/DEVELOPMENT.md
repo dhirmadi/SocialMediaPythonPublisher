@@ -335,15 +335,20 @@ logger.info(f"Using token {api_key}")  # NEVER DO THIS!
 ### Security Scanning
 
 ```bash
-# Check dependencies
-safety check
+# Check dependencies for known advisories (same gate as security-scan.yml)
+IGNORE_ARGS=$(uv run python scripts/pip_audit_ignore.py)
+uv export --frozen --no-emit-project --all-groups --no-hashes --format requirements-txt -o requirements-audit.txt
+uvx --from 'pip-audit==2.10.1' pip-audit --no-deps --disable-pip -r requirements-audit.txt $IGNORE_ARGS
 
-# Scan code for security issues
-bandit -r . -f json
+# Scan code for security issues (same gate as the pre-commit hook in CI)
+uv run pre-commit run bandit --all-files
 
 # Detect secrets
-detect-secrets scan
+uv run pre-commit run detect-secrets --all-files
 ```
+
+All three gates are blocking and are documented in `SECURITY.md`; accepted dependency
+advisories live in `.github/pip-audit-ignore.toml`.
 
 ---
 

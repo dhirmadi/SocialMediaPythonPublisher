@@ -113,17 +113,34 @@ Please provide:
 
 4. **Regular Updates**
    ```bash
-   # Keep dependencies updated
-   pip install --upgrade -r requirements.txt
+   # Keep dependencies updated (re-resolves and rewrites uv.lock)
+   uv lock --upgrade && uv sync --group dev
    ```
 
 5. **Security Scanning**
-   ```bash
-   # Run security checks
-   pip install safety bandit
-   safety check
-   bandit -r . -f json -o bandit-report.json
-   ```
+
+   CI enforces two blocking gates; both can be reproduced locally.
+
+   - **Dependency vulnerabilities** — `security-scan.yml` runs `pip-audit` (OSV-backed) as a
+     blocking step. It fails the build on any advisory that is not listed in
+     `.github/pip-audit-ignore.toml`:
+     ```bash
+     IGNORE_ARGS=$(uv run python scripts/pip_audit_ignore.py)
+     uv export --frozen --no-emit-project --all-groups --no-hashes --format requirements-txt -o requirements-audit.txt
+     uvx --from 'pip-audit==2.10.1' pip-audit --no-deps --disable-pip -r requirements-audit.txt $IGNORE_ARGS
+     ```
+   - **Code security (bandit)** — run by the `pre-commit` hook, which `code-quality.yml` also
+     runs in CI. It honours the existing `# nosec` justifications:
+     ```bash
+     uv run pre-commit run bandit --all-files
+     ```
+
+   **Accepting an advisory (the ignore list).** If an advisory has no fix or does not apply,
+   add an `[[ignore]]` entry to `.github/pip-audit-ignore.toml`. Every entry needs an `id`, a
+   `reason` and an `expires` date — see that file's header comment for the exact schema.
+   `scripts/pip_audit_ignore.py` validates the file and **fails the build once an entry's
+   `expires` date has passed**, so an accepted advisory gets re-reviewed instead of becoming a
+   permanent silent skip. Entries are reviewed like any other change, in a PR.
 
 ### For Contributors
 
