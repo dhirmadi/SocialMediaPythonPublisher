@@ -107,10 +107,10 @@ _UNUSED_ENV_PLACEHOLDERS: dict[str, str] = {
     "STORAGE_PATHS": '{"root": "/unused"}',
     "PUBLISHERS": '[{"type": "telegram", "channel_id": "@unused"}]',
     "DROPBOX_APP_KEY": "unused",
-    "DROPBOX_APP_SECRET": "unused",
+    "DROPBOX_APP_SECRET": "unused",  # pragma: allowlist secret
     "DROPBOX_REFRESH_TOKEN": "unused",
     "TELEGRAM_BOT_TOKEN": "unused",
-    "EMAIL_PASSWORD": "unused",
+    "EMAIL_PASSWORD": "unused",  # pragma: allowlist secret
     "OPENAI_SETTINGS": "{}",
 }
 
