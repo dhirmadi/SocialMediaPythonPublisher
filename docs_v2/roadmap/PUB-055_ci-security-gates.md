@@ -61,3 +61,7 @@ A deliberately vulnerable pin on a branch fails CI while `main` is green. No mut
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issue [#204](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/204)
 - Prior fixes #78 (CI actually failing), #141 (coverage gate), #166 (pre-commit toolchain)
+
+## Change Log
+
+- 2026-09-26 — Partially overtaken by #229, which added a blocking `pre-commit` job to `code-quality.yml` running all seventeen hooks. bandit now fails a build through that job, and detect-secrets, gitleaks and pydocstyle are enforced in CI for the first time (previously they ran only on clones where `pre-commit install` had been run, which was none). This does **not** close the item: `security-scan.yml`'s own `pip-audit`/`safety`/`bandit` steps are still `|| true`, the mutable `trufflehog@main` refs are unchanged, there is still no `.github/dependabot.yml`, and no test asserts the gates stay blocking. Re-scope the bandit bullet when this item is picked up — it is now about removing the `|| true` in `security-scan.yml` rather than making bandit block at all.
