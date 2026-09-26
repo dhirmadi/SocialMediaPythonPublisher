@@ -568,6 +568,7 @@ class OrchestratorConfigSource:
             archive=bool(ct.archive) if ct and ct.archive is not None else True,
             debug=bool(ct.debug) if ct and ct.debug is not None else False,
             voice_profile=ct.voice_profile if ct else None,
+            voice_profile_tags=ct.voice_profile_tags if ct else None,
         )
 
         # #97 stage 1: library flag resolved centrally (env override, else managed presence)

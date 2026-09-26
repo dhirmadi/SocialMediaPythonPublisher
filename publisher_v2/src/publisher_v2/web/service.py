@@ -12,6 +12,7 @@ credentials behind them are resolved on first use.
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -54,7 +55,7 @@ from publisher_v2.services.ai import (  # noqa: E402
     CaptionGeneratorOpenAI,
     NullAIService,
     VisionAnalyzerOpenAI,
-    truncate_voice_profile_to_budget,
+    sample_voice_examples,
 )
 from publisher_v2.services.managed_storage import ManagedStorage  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
@@ -120,18 +121,38 @@ def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
     return generated
 
 
-def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
-    """Return voice examples to inject into caption prompts (PUB-029).
+def _voice_matching_active(config: ApplicationConfig) -> bool:
+    """True when a caption prompt for this tenant would actually carry voice examples.
 
-    None when voice matching is disabled or the profile is empty/unset; otherwise
-    a token-budget-truncated list (deterministic: order preserved, drop from end).
+    Callers check this *before* building a seed: computing one costs a sha256 over
+    the whole image, and on the default tenant (matching off) the result would be
+    thrown away. Mirrors the guard at ``core/workflow.py``'s call site.
     """
     if not getattr(config.features, "voice_matching_enabled", False):
+        return False
+    return bool(getattr(config.content, "voice_profile", None))
+
+
+def _select_voice_examples(
+    config: ApplicationConfig,
+    seed_source: str,
+    platform_tags: dict[str, list[str]] | None = None,
+    platforms: list[str] | None = None,
+) -> list[str] | None:
+    """Return voice examples to inject into caption prompts (PUB-029/PUB-050).
+
+    None when voice matching is disabled or the profile is empty/unset; otherwise
+    the per-image sample for ``seed_source``, token-budget truncated.
+    """
+    if not _voice_matching_active(config):
         return None
-    profile = getattr(config.content, "voice_profile", None)
-    if not profile:
-        return None
-    return truncate_voice_profile_to_budget(profile)
+    profile = config.content.voice_profile
+    return sample_voice_examples(
+        profile,
+        seed_source=seed_source,
+        platform_tags=platform_tags,
+        platforms=platforms,
+    )
 
 
 # #139: without a publish store there is no DB lease, so serialize per-image
@@ -792,7 +813,9 @@ class WebImageService:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text, source=filename)
                 cached_caption = self._select_cached_social_caption(view)
-                if cached_caption:
+                # PUB-051: with SD prompts on, an empty SD line is a miss so Analyze generates one.
+                sd_missing = getattr(self.config.openai, "sd_caption_enabled", True) and not view.get("sd_caption")
+                if cached_caption and not sd_missing:
                     log_json(
                         self.logger,
                         logging.INFO,
@@ -890,8 +913,25 @@ class WebImageService:
         # Generate per-platform captions + sd_caption via centralized AIService helper.
         sd_caption = None
         platform_captions_dict: dict[str, str] | None = None
-        # PUB-029: extract voice examples from config when voice matching is enabled.
-        voice_examples = _select_voice_examples(self.config)
+        # PUB-029/PUB-050: sample voice examples per image when voice matching is enabled.
+        # Guarded like `core/workflow.py`'s call site: the seed is a sha256 over the whole
+        # image, so the default tenant (matching off) must not pay for one nobody reads.
+        voice_examples = None
+        if _voice_matching_active(self.config):
+            # The vision_max_dimension > 0 branch already holds the image bytes; the
+            # presigned-URL path never downloads, so it seeds on the name instead.
+            # Hashing multi-MB bytes is ~10ms of CPU: off the event loop it goes.
+            if isinstance(analysis_source, bytes):
+                image_bytes = analysis_source
+                voice_seed = await asyncio.to_thread(lambda: hashlib.sha256(image_bytes).hexdigest())
+            else:
+                voice_seed = filename
+            voice_examples = _select_voice_examples(
+                self.config,
+                seed_source=voice_seed,
+                platform_tags=getattr(self.config.content, "voice_profile_tags", None),
+                platforms=list(specs.keys()),
+            )
 
         # Fetch caption history for anti-repetition
         caption_history: dict[str, list[str]] | None = None
@@ -966,27 +1006,38 @@ class WebImageService:
         sidecar_written = False
         # PUB-051: captions are persisted even without an SD prompt (empty first line).
         if (sd_caption or caption or platform_captions_dict) and not self.config.content.debug:
-            from publisher_v2.services.sidecar import generate_and_upload_sidecar
+            from publisher_v2.services.sidecar import generate_and_upload_sidecar, read_existing_sd_line
 
+            # PUB-051: no new SD prompt this run keeps the one the sidecar already has.
+            kept_sd = (
+                None
+                if sd_caption
+                else await read_existing_sd_line(
+                    self.storage, self.config.storage_paths.image_folder, filename, correlation_id
+                )
+            )
             if sd_from_vision:
                 model_version = getattr(ai.analyzer, "model", None) or ""
             elif sd_caption:
                 model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
             else:
                 model_version = getattr(getattr(ai, "generator", None), "model", None) or ""
+            if kept_sd is not None:
+                model_version = kept_sd.model_version or model_version
             try:
                 await generate_and_upload_sidecar(
                     storage=self.storage,
                     config=self.config,
                     filename=filename,
                     analysis=analysis,
-                    sd_caption=sd_caption or "",
+                    sd_caption=sd_caption or (kept_sd.sd_caption if kept_sd else ""),
                     model_version=str(model_version),
                     sha256="",  # Optional here
                     correlation_id=correlation_id,
                     log_prefix="web_sidecar_upload",
                     platform_captions=platform_captions_dict,
                     caption_angles=angles or None,
+                    sd_caption_version=(kept_sd.sd_caption_version or None) if kept_sd else None,
                 )
                 sidecar_written = True
             except Exception:  # noqa: S110 — error already logged in helper  # nosec B110

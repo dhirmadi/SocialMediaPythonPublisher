@@ -94,12 +94,12 @@ Final numbers are from the last full run; see the verdicts below.
 
 ## Subagent Verdicts
 
-- `code-reviewer`: four passes, all PASS WITH NITS. Every warning was fixed. The final delta pass left only nits:
+- `code-reviewer`: the Lead's own critical PR review found the angle-starvation bug and the SD-prompt coupling. A full pre-merge review was BLOCKED on merge drift from main (8 PUB-050 tests); that is resolved by the merge and the adapted tests, and a final pass on the merged tree follows. Earlier: four passes, all PASS WITH NITS. Every warning was fixed. The final delta pass left only nits:
   - the app.py preview heuristic, recorded under decisions below;
   - an extra content-free `sidecar_metadata_json_invalid` log on a malformed sidecar;
   - one docstring line over 120 characters;
   - a partial custom static dir now inherits the packaged `vision.sd_caption`, which is intended.
-- `security-auditor`: four passes, all PASS. Fixed along the way:
+- `security-auditor`: the pre-merge audit passed and found two sidecar data-integrity issues, both fixed with tests: a run without an SD prompt would blank an existing one, and an override publish would move the social caption into line 1. Earlier: four passes, all PASS. Fixed along the way:
   - sidecar line injection;
   - first-occurrence-only marker redaction;
   - line breaks joining words and letting markers slip past redaction;
@@ -144,6 +144,8 @@ Final numbers are from the last full run; see the verdicts below.
 - **JSON retry:** it stacks with `@_ai_retry` and the fallback. In the worst case a chain makes 6 vision calls, 12 in pathological cases, where it made 3 and 6 before. The normal path is still one call.
 - **`update_sidecar_with_caption`:** returns a NamedTuple instead of a float. The only production caller is the workflow.
 - **`app.py` preview `model_version`:** uses a heuristic (sd enabled plus a multi-capable service). It is wrong only for a generator without multi support that also returns an empty SD prompt.
+- **Angle history depth (fixed after the Lead's PR review):** a three-deep `window_size` against a six-angle pool cycled through only four angles, and `atmosphere`/`direct_address` were never used. Stored angles are now read `angle_history_depth(window_size) = max(window_size, len(CONTENT_ANGLES))` deep in the workflow, web Analyze and the harness. Caption-text history stays at `window_size`; web Analyze now also uses `window_size` for text (previously 8), so its similarity gate compares against 3 captions.
+- **Sidecar without an SD prompt:** the sidecar is written whenever captions were generated, so retry reuse (AC7), the web cache and angle recording also work with `sd_caption_enabled=False` or when vision omits the SD prompt. Line 1 is empty in that case, or keeps an earlier SD prompt (never blanked). `sd_caption_version` is omitted when there is no SD prompt. An override publish never moves the social caption into line 1 (the old fallback was removed). With SD prompts on, web Analyze treats an empty cached SD line as a cache miss and regenerates. Consequence: tenants with SD prompts off now get a `.txt` sidecar per processed image.
 - **Delivered as one PR closing #191, #192 and #194**, not three. #191 cannot ship alone (the sd_caption sequencing constraint), and the pre-commit hook blocks commits whose tests are red, so the changes cannot be split into green commits.
 - **Approved scope growth:**
   - User-approved on 2026-09-25: `web/service.py` and the `scripts/` changes.
@@ -171,6 +173,21 @@ Final numbers are from the last full run; see the verdicts below.
   - `test_nightly_snapshot_records_angles_per_entry`
   - `test_nightly_report_includes_angle_distribution`
 
+## Tests added in the pre-merge round
+
+- `test_production_window_rotation_uses_every_angle_over_twenty_runs`
+- `test_web_analyze_reads_angle_history_as_deep_as_the_pool`
+- `test_nightly_angle_window_is_at_least_the_pool_size`
+- `test_partial_retry_reuses_captions_when_sd_caption_disabled`
+- `test_web_analyze_writes_sidecar_without_sd_prompt`
+- `test_sidecar_without_sd_prompt_round_trips_metadata`
+- `test_sidecar_without_sd_prompt_is_never_written_in_preview_dry_or_debug`
+- `test_sidecar_write_without_new_sd_prompt_keeps_the_existing_one`
+- `test_override_publish_never_moves_the_social_caption_into_the_sd_slot`
+- `test_web_cache_regenerates_when_sd_enabled_and_cached_sd_line_empty`
+- `test_ac3_holds_with_pub050_sampled_voice_examples`
+- Changed: `TestUpdateSidecarWithCaption::test_creates_minimal_sidecar_when_none_exists` now expects an empty line 1, not the social caption.
+
 ## Open questions and follow-ups
 
 - **AC3 spec gap: resolved.** The spec was clarified on 2026-09-26. The 500-token bound applies to the test fixture only.
@@ -180,5 +197,6 @@ Final numbers are from the last full run; see the verdicts below.
   - `test_heavy_tenant_user_message_stays_under_600_tokens` guards against further growth. The spec and PUB-029's budget contradict each other.
 - **Tells priming:** the 18 "instead of Y" lines quote each tell verbatim, as the spec requires. AC9 will show whether quoting them primes the model to use them.
 - **Vision rate limiter: resolved.** Added on the owner's instruction (2026-09-26). Every vision create call, including the JSON retry and the fallback pass, now acquires the shared `AIService` limiter (`test_vision_calls_acquire_the_shared_rate_limiter`). At a very low `ai_rate_per_minute`, limiter waits count toward the #84 AI-stage deadline.
-- **Merge with PUB-050:** its work in progress touches `services/ai.py`, `core/workflow.py` and `web/service.py`, and its voice sampling feeds the AC3 size.
+- **Merge with PUB-050: done.** `origin/main` (with PUB-050 #226, #227, #229, #230) was merged into the branch. The 8 PUB-050 tests that assumed the old 3-tuple and old caption-call shape were adapted to the shared fakes; their voice-sampling assertions are unchanged. AC3 was re-checked with PUB-050's sampled voice examples: worst case 471 tokens (`test_ac3_holds_with_pub050_sampled_voice_examples`).
+- **Follow-up (pre-existing, not fixed here):** sidecars that an override publish wrote before this change may already hold the social caption on line 1 (the removed `sd_caption or published_caption` fallback). They are corrected the next time the sidecar is rewritten; no migration sweeps old files.
 - **Out of scope:** `scripts/vision_token_benchmark.py` sends `vision.user` only, so it no longer asks for `sd_caption`.

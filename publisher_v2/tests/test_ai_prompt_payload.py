@@ -560,6 +560,32 @@ async def test_user_message_under_500_tokens_with_history_and_six_examples(monke
     assert len(prompt) / 4 < 500, f"user message is {len(prompt) / 4:.0f} tokens (len/4)"
 
 
+async def test_ac3_holds_with_pub050_sampled_voice_examples(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC3 on the production voice path: examples come from PUB-050's ``sample_voice_examples``.
+
+    Production no longer hands the whole profile to the caption call; the workflow and web
+    Analyze pass this image's per-seed sample. The bound must hold for every sample the
+    AC3 profile can yield — including the full six-example draw, the worst case.
+    """
+    import hashlib
+
+    from publisher_v2.services.ai import sample_voice_examples
+
+    specs = _pub051_specs()
+    history = _pub051_history(list(specs), per_platform=8)
+    seeds = [hashlib.sha256(f"image-{i}".encode()).hexdigest() for i in range(12)]
+
+    sizes: set[int] = set()
+    for seed in seeds:
+        sampled = sample_voice_examples(list(_PUB051_VOICE), seed_source=seed, platforms=list(specs))
+        sizes.add(len(sampled))
+        (prompt,) = await _pub051_prompts(monkeypatch, specs, history, voice_examples=sampled)
+
+        assert sampled and all(example in prompt for example in sampled), "the sampled examples never reached it"
+        assert len(prompt) / 4 < 500, f"seed {seed[:8]}: user message is {len(prompt) / 4:.0f} tokens (len/4)"
+    assert 6 in sizes, f"no seed drew the full six-example sample, so the worst case went untested: {sizes}"
+
+
 async def test_analysis_prose_contains_no_hex_colour_or_snake_case_tag(monkeypatch: pytest.MonkeyPatch) -> None:
     """AC3 + Scope: analysis rendered as prose; color_palette, tags and aesthetic_terms dropped."""
     import re

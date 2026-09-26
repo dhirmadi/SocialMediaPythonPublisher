@@ -880,6 +880,8 @@ async def api_get_voice_profile(
     return VoiceProfileResponse(
         voice_profile=config.content.voice_profile,
         enabled=config.features.voice_matching_enabled,
+        persisted=False,
+        orchestrator_field="content.voice_profile",
     )
 
 
@@ -937,6 +939,8 @@ async def api_set_voice_profile(
     return VoiceProfileResponse(
         voice_profile=service.config.content.voice_profile,
         enabled=service.config.features.voice_matching_enabled,
+        persisted=False,
+        orchestrator_field="content.voice_profile",
     )
 
 

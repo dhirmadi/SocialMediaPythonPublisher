@@ -227,3 +227,36 @@ class TestVoiceProfileStrictMode:
         allowed = _admin(managed_admin_client)
         monkeypatch.delenv("WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE", raising=False)
         assert "injected line." not in (allowed.get("/api/config/voice-profile").json()["voice_profile"] or [])
+
+
+# ---------------------------------------------------------------------------
+# PUB-050 AC5 (#190): the setter is process-local and must say so, on both verbs.
+# The cron publisher is a different process, so an operator who only ever sees
+# a 200 here has no way to learn their edit dies with this worker — the response
+# names the orchestrator field that would make it survive a restart.
+# ---------------------------------------------------------------------------
+
+
+class TestVoiceProfileReportsPersistence:
+    def test_get_voice_profile_reports_not_persisted(self, managed_admin_client: TestClient) -> None:
+        client = _admin(managed_admin_client)
+
+        res = client.get("/api/config/voice-profile")
+
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["persisted"] is False, "GET claimed the in-memory profile is persisted"
+        assert body["orchestrator_field"] == "content.voice_profile"
+
+    def test_post_voice_profile_reports_not_persisted(self, managed_admin_client: TestClient) -> None:
+        client = _admin(managed_admin_client)
+
+        res = client.post(
+            "/api/config/voice-profile",
+            json={"voice_profile": ["My voice line.", "Another line."]},
+        )
+
+        assert res.status_code == 200, res.text
+        body = res.json()
+        assert body["persisted"] is False, "POST claimed the saved profile reached the orchestrator"
+        assert body["orchestrator_field"] == "content.voice_profile"

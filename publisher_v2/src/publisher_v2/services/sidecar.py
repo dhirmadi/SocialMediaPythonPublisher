@@ -41,6 +41,7 @@ async def generate_and_upload_sidecar(
     caption_edited: bool = False,
     platform_captions: dict[str, str] | None = None,
     caption_angles: dict[str, str] | None = None,
+    sd_caption_version: str | None = None,
 ) -> float:
     """Generate and upload a caption sidecar file.
 
@@ -49,6 +50,8 @@ async def generate_and_upload_sidecar(
     Analyze calls can serve the real caption instead of the SD prompt.
     ``caption_angles`` (PUB-051): platform -> the content-angle key each of
     those captions was written under; metadata only, never shown as a caption.
+    ``sd_caption_version`` (PUB-051): the version recorded for a kept SD prompt;
+    None means "v1.0" when there is an SD prompt and nothing otherwise.
 
     Returns:
         float: Duration of the operation in milliseconds.
@@ -66,7 +69,8 @@ async def generate_and_upload_sidecar(
             image_file=filename,
             sha256=sha256,
             created_iso=created_iso,
-            sd_caption_version="v1.0" if sd_caption else "",  # PUB-051: no SD prompt, no SD version
+            # PUB-051: no SD prompt, no SD version; a kept SD prompt keeps its recorded version.
+            sd_caption_version=sd_caption_version if sd_caption_version is not None else ("v1.0" if sd_caption else ""),
             model_version=model_version,
             dropbox_file_id=file_meta.file_id,
             dropbox_rev=file_meta.revision,
@@ -126,6 +130,45 @@ async def generate_and_upload_sidecar(
             sidecar_write_ms=duration,
         )
         raise
+
+
+class ExistingSdLine(NamedTuple):
+    """PUB-051: an SD prompt already on a sidecar's line 1, with the metadata recorded for it."""
+
+    sd_caption: str
+    sd_caption_version: str
+    model_version: str
+
+
+async def read_existing_sd_line(
+    storage: StorageProtocol,
+    folder: str,
+    filename: str,
+    correlation_id: str | None = None,
+) -> ExistingSdLine | None:
+    """PUB-051: the SD prompt on ``filename``'s existing sidecar, or None when there is none.
+
+    A run that writes a sidecar with no new SD prompt keeps this one rather than
+    blanking line 1. Fail-safe: a read or parse failure returns None and logs a
+    content-free warning.
+    """
+    try:
+        blob = await storage.download_sidecar_if_exists(folder, filename)
+        if not blob:
+            return None
+        view = rehydrate_sidecar_view(blob.decode("utf-8", errors="replace"), source=filename)
+    except Exception:
+        log_json(logger, logging.WARNING, "sidecar_sd_line_read_failed", image=filename, correlation_id=correlation_id)
+        return None
+    sd_line = str(view.get("sd_caption") or "").strip()
+    if not sd_line:
+        return None
+    meta = view.get("metadata") or {}
+    return ExistingSdLine(
+        sd_caption=sd_line,
+        sd_caption_version=str(meta.get("sd_caption_version") or ""),
+        model_version=str(meta.get("model_version") or ""),
+    )
 
 
 class SidecarCaptionUpdate(NamedTuple):
@@ -201,8 +244,9 @@ async def update_sidecar_with_caption(
         meta["caption_edited"] = str(caption_edited)
         meta["caption_updated_at"] = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
-        final_sd_caption = sd_caption or published_caption
-        content = build_caption_sidecar(final_sd_caption, meta)
+        # PUB-051: line 1 is the SD prompt slot. It keeps the existing SD prompt or
+        # stays empty; the social caption is never moved into it.
+        content = build_caption_sidecar(sd_caption or "", meta)
 
         await storage.write_sidecar_text(folder, filename, content)
 

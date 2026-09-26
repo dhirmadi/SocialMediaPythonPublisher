@@ -65,12 +65,12 @@ def delete_client_and_s3(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iter
         "PUBLISHERS": json.dumps([{"type": "telegram", "channel_id": "@chan"}]),
         "TELEGRAM_BOT_TOKEN": "tg",
         "OPENAI_SETTINGS": "{}",
-        "OPENAI_API_KEY": "sk-test",
-        "WEB_SESSION_SECRET": "test-secret",
+        "OPENAI_API_KEY": "sk-test",  # pragma: allowlist secret
+        "WEB_SESSION_SECRET": "test-secret",  # pragma: allowlist secret
         "WEB_SECURE_COOKIES": "false",
         "AUTH0_DOMAIN": "test.auth0.com",
         "AUTH0_CLIENT_ID": "cid",
-        "AUTH0_CLIENT_SECRET": "csecret",
+        "AUTH0_CLIENT_SECRET": "csecret",  # pragma: allowlist secret
         "FEATURE_LIBRARY": "true",
         "FEATURE_DELETE": "true",
     }

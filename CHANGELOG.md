@@ -15,7 +15,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vision `sensory_detail`/`mood_note` written under an owner-voice section (tenant persona when set) with a senses pool seeded from the image hash; a non-JSON vision reply is retried once before the fallback
 - Default caption persona rewritten as a person; `caption.rules` gives a "write X instead of Y" line for every tell in `DEFAULT_TELLS_LEXICON`; each platform style is a speaker-to-audience stance
 - Caption history records only platforms that published successfully, with their angle (also for reused and unedited-override captions via the sidecar's new `caption_angles`); a partial-publish retry reuses the sidecar's `caption_generated` and makes no AI calls
+- Angle history is read `max(caption_history.window_size, len(CONTENT_ANGLES))` deep so every angle rotates (a 3-deep window cycled through only four of six); caption-text history stays at `window_size`, and web Analyze now uses `window_size` too (was 8)
+- The sidecar is written whenever captions were generated, even without an SD prompt (empty line 1, or the earlier SD prompt kept); an override publish no longer moves the social caption into the SD line; web Analyze regenerates when SD prompts are on and the cached SD line is empty
+- Vision calls (including the JSON retry and fallback) now share the `AIService` rate limiter; `scripts/caption_eval.py --nightly` threads angles across fixtures and reports their distribution
 - Security: the sidecar's `sd_caption` line is flattened to one line; analysis-field sanitisation redacts every injection-marker occurrence
+- Security: line breaks are treated as spaces before injection-marker redaction
+
+### Added - PUB-050: Owner Voice Corpus in Every Caption Prompt
+- `content.voice_profile_tags` (`dict[str, list[str]] | None`): maps a platform name to the subset of `voice_profile` examples preferred for that platform. Plumbed through `ContentConfig`, `OrchestratorContent`, `_build_app_config_v2` and the `CONTENT_SETTINGS` env loader, and added to `REDACT_KEYS` — it carries the same sensitive operator text as `voice_profile`
+- `services/ai.py`: new pure `sample_voice_examples(...)` deterministically samples four to six owner examples per image, seeded by the image's content hash (cron) or a hash of the image bytes, else the filename (web), then applies the existing 500-token budget. Replaces the flat `truncate_voice_profile_to_budget(...)` call in `core/workflow.py` and `web/service.py` — the same image now always gets the same examples, different images get different ones, instead of every prompt carrying one identical block
+- Tag preference is a **union** across every currently-enabled platform, because one shared prompt covers all of them; a tag whose text is absent from `voice_profile` is ignored rather than raising. A tenant with all three platforms enabled and a generously-tagged corpus will see little preference effect — documented as an accepted limit of the shared-prompt architecture, not a defect
+- `GET`/`POST /api/config/voice-profile` now return `persisted: false` and `orchestrator_field: "content.voice_profile"`, and the voice-profile editor says so after a save: the setter is process-local and does not survive a restart
+- `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md` §8.1 documents the field, the sampling algorithm, both seed sources and the union semantics
+- Backward compatible: a config with `voice_profile` and no `voice_profile_tags` gets uniform seeded sampling with no platform preference
+
+### Added - PUB-049: Caption Evaluation Harness
+- `utils/caption_metrics.py`: nine offline caption-diversity metrics (opener/closer 3-gram share, sentence/word-count variance, two-sentence-plus-emoji rhythm share, tells-lexicon hit rate, distinct-1/distinct-2, TF-IDF bigram cosine to history, vision-field content-word overlap) — no new runtime dependency, TF-IDF hand-rolled
+- `scripts/caption_eval.py`: `--offline` (zero network calls, scores the committed snapshot against checked-in thresholds, <10s), `--nightly` (regenerates the snapshot through the real publish pipeline and writes the diff/score table to disk), and `--generate-thresholds` (derives `caption_eval_thresholds.json` from a snapshot with a documented margin)
+- New `caption-eval` CI job in `.github/workflows/code-quality.yml` fails the build when a metric regresses past its threshold
+- New `.github/workflows/caption-eval-nightly.yml` (`schedule`/`workflow_dispatch` only) regenerates the snapshot and opens a PR with the diff, scoring keylessly before opening so a regression fails the run instead of a red PR
+- `utils/captions.py`: `_words` promoted to public `words()`, plus shared `word_ngrams()`, so `trigram_jaccard` and the new metrics share one tokenizer
+- `scripts/caption_sample.py`: retired the trigram-only "Delta" column and "Mean similarity to the previous image" section in favor of the harness's tells-rate/TF-IDF-cosine deltas
+- Demonstrates the metric gap the item exists to close: a constructed six-caption clone set is flagged by the new metrics (tells rate 1.00, TF-IDF cosine 0.0544) while `trigram_jaccard` stays at 0.0323, under its 0.45 gate threshold
 
 ### Added - PUB-046: Email Caption Length Control
 - Few-shot `examples` and word-count `guidance` added to the email platform prompt (`ai_prompts.yaml`)

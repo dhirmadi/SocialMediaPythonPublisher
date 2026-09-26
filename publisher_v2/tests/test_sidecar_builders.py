@@ -554,13 +554,17 @@ def test_sidecar_sd_caption_line_is_flattened_to_one_line() -> None:
     assert injected == {}, f"sd_caption injected metadata keys: {injected}"
 
 
-def test_sidecar_without_sd_prompt_round_trips_metadata() -> None:
+async def test_sidecar_without_sd_prompt_round_trips_metadata() -> None:
     """PUB-051 follow-up: a sidecar with no SD prompt has an empty first line and still round-trips.
 
     Decided: generated captions are persisted even without an SD prompt, so the
     AC7 partial retry can reuse them. The empty first line must read back as no
     SD prompt (None or empty), never as a caption (#80), with the metadata intact.
+    The real writer must not stamp an ``sd_caption_version`` on a sidecar that has
+    no SD prompt to version.
     """
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.sidecar import generate_and_upload_sidecar
     from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
 
     meta = {
@@ -582,3 +586,18 @@ def test_sidecar_without_sd_prompt_round_trips_metadata() -> None:
     assert view["caption_generated"] == meta["caption_generated"]
     assert view["caption_angles"] == meta["caption_angles"]
     assert view["metadata"]["image_file"] == "a.jpg"
+
+    storage = _FakeSidecarStorage()
+    await generate_and_upload_sidecar(
+        storage=storage,  # type: ignore[arg-type]
+        config=_config(),
+        filename="a.jpg",
+        analysis=ImageAnalysis(description="d", mood="m", tags=["t"]),
+        sd_caption="",
+        model_version="gpt-4o-mini",
+        platform_captions=meta["caption_generated"],
+    )
+    assert storage.written is not None
+    written = rehydrate_sidecar_view(storage.written)
+    assert not written["sd_caption"], written["sd_caption"]
+    assert "sd_caption_version" not in written["metadata"], "no SD prompt, so no SD prompt version"

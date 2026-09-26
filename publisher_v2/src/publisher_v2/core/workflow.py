@@ -632,12 +632,18 @@ class WorkflowOrchestrator:
                             exc_info=True,
                         )
 
-                # PUB-029: extract voice examples (truncated to budget) when feature enabled.
+                # PUB-029/PUB-050: sample this image's voice examples when the feature is
+                # enabled. Seeded per image so the same image always gets the same lines.
                 voice_examples = None
                 if self.config.features.voice_matching_enabled and self.config.content.voice_profile:
-                    from publisher_v2.services.ai import truncate_voice_profile_to_budget
+                    from publisher_v2.services.ai import sample_voice_examples
 
-                    voice_examples = truncate_voice_profile_to_budget(self.config.content.voice_profile)
+                    voice_examples = sample_voice_examples(
+                        self.config.content.voice_profile,
+                        seed_source=(selected_content_hash or selected_hash),
+                        platform_tags=self.config.content.voice_profile_tags,
+                        platforms=list(specs.keys()),
+                    )
 
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):
@@ -692,8 +698,16 @@ class WorkflowOrchestrator:
                 # with no SD prompt (empty first line), so a partial retry can reuse them.
                 has_generated = bool(sd_caption or caption or platform_captions)
                 if has_generated and not self.config.content.debug and not dry_publish and not preview_mode:
-                    from publisher_v2.services.sidecar import generate_and_upload_sidecar
+                    from publisher_v2.services.sidecar import generate_and_upload_sidecar, read_existing_sd_line
 
+                    # PUB-051: no new SD prompt this run keeps the one the sidecar already has.
+                    kept_sd = (
+                        None
+                        if sd_caption
+                        else await read_existing_sd_line(
+                            self.storage, self.config.storage_paths.image_folder, selected_image, correlation_id
+                        )
+                    )
                     if sd_from_vision:
                         model_version = getattr(self.ai_service.analyzer, "model", None) or ""
                     elif sd_caption:
@@ -702,6 +716,8 @@ class WorkflowOrchestrator:
                         )
                     else:
                         model_version = getattr(getattr(self.ai_service, "generator", None), "model", None) or ""
+                    if kept_sd is not None:
+                        model_version = kept_sd.model_version or model_version
                     # Error already logged inside helper; suppress to continue workflow.
                     # sidecar_write_ms will remain None in workflow_timing on failure.
                     with contextlib.suppress(Exception):
@@ -711,13 +727,14 @@ class WorkflowOrchestrator:
                                 config=self.config,
                                 filename=selected_image,
                                 analysis=analysis,  # analysis is guaranteed non-None by the guard above
-                                sd_caption=sd_caption or "",
+                                sd_caption=sd_caption or (kept_sd.sd_caption if kept_sd else ""),
                                 model_version=str(model_version),
                                 sha256=selected_hash,
                                 correlation_id=correlation_id,
                                 log_prefix="sidecar_upload",
                                 platform_captions=platform_captions,
                                 caption_angles=angles or None,
+                                sd_caption_version=(kept_sd.sd_caption_version or None) if kept_sd else None,
                             )
                         )
             else:

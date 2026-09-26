@@ -413,7 +413,8 @@ class TestUpdateSidecarWithCaption:
 
         assert storage.written_content is not None
         sd_caption, meta = parse_sidecar_text(storage.written_content)
-        assert sd_caption == "My manual caption"
+        # Line 1 is the SD prompt read by training pipelines (#80) -- a social caption must never land there.
+        assert sd_caption is None
         assert meta is not None
         assert meta["caption"] == "My manual caption"
         assert meta["caption_edited"] == "True"
