@@ -928,11 +928,19 @@ def build_platform_block(
     them in one trailing Constraints line. ``directive`` (when given) is the one
     content-angle directive for this platform in this call (PUB-051), so a
     regeneration never carries two. ``topics`` (PUB-051) are plain-word hashtag
-    topics, rendered only for a smart-hashtags platform.
+    topics, rendered only for a smart-hashtags platform; when given, the hashtag
+    instruction points the model at that Topics line.
     """
     if spec.smart_hashtags:
         ht = "Generate 3-8 lowercase hashtags at the end"
-        ht += f", seeds included: {spec.hashtags}." if spec.hashtags else "."
+        if topics and spec.hashtags:
+            # AC9 follow-up: without this the model appended only the seeds. No 3-8 floor
+            # here: seeds plus a per-image minimum could not both fit under the cap.
+            ht = f"Generate lowercase hashtags at the end, 8 max in total: seeds {spec.hashtags}, then from Topics."
+        elif topics:
+            ht += ", for this image, from Topics."
+        else:
+            ht += f", seeds included: {spec.hashtags}." if spec.hashtags else "."
     else:
         ht = f"Include hashtags: {spec.hashtags}." if spec.hashtags else "No hashtags."
     lines = [f"{index}. {name}: {spec.style}. {ht}"]
