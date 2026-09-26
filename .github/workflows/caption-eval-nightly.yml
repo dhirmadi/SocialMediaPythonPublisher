@@ -34,7 +34,7 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
       with:
         # Keeps the token out of .git/config on the runner while the script
         # runs, which is what makes the comment below literally true. The PR
