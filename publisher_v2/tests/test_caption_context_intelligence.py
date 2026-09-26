@@ -1214,3 +1214,110 @@ async def test_override_publish_reads_the_sidecar_once(monkeypatch, tmp_path) ->
     assert meta is not None and meta.get("caption_submitted"), "setup: update_sidecar_with_caption did not run"
     assert angles == {"telegram": "craft", "instagram": None}, angles
     assert reads == ["a.jpg"], f"the sidecar was downloaded {len(reads)} times during one override publish"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: the sidecar is written even without an SD prompt.
+#
+# Decided rule: when AI captions were generated and the run is not preview,
+# dry-publish or debug, the sidecar is written with an empty first line, so the
+# AC7 reuse and ``caption_angles`` survive ``sd_caption_enabled=False`` (or a
+# vision reply without ``sd_caption``). Spec Desired Outcome: "a partial retry
+# costs zero OpenAI calls when the sidecar holds the captions".
+# ---------------------------------------------------------------------------
+
+
+async def test_partial_retry_reuses_captions_when_sd_caption_disabled(monkeypatch, tmp_path) -> None:
+    """AC7 with ``sd_caption_enabled=False``: run 1 still leaves a sidecar, and the retry makes zero AI calls."""
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        openai_config,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base
+    from publisher_v2.db.publish_store import PublishStore
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        fake = FakeOpenAI(["telegram", "email"])
+        install_fake_openai(monkeypatch, fake)
+        cfg = openai_config(sd_caption_enabled=False)
+        telegram = ScriptedPublisher("telegram", [True])
+        email = ScriptedPublisher("email", [False, True])
+        storage = SidecarStorage(["a.jpg"])
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, email=True, openai=cfg),
+            storage,
+            real_ai_service(cfg),
+            [telegram, email],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+            publish_store=PublishStore(factory),
+        )
+
+        first = await orchestrator.execute()
+        assert first.partial is True
+        assert "a.jpg" in storage.sidecars, "run 1 wrote no sidecar because there was no SD prompt"
+        view = rehydrate_sidecar_view(storage.sidecars["a.jpg"])
+        assert not view["sd_caption"], f"an SD prompt was written with sd_caption_enabled=False: {view['sd_caption']!r}"
+        assert set(view["caption_generated"] or {}) == {"telegram", "email"}
+        assert set(view["caption_angles"]) == {"telegram", "email"}
+        calls_after_first = len(fake.calls)
+
+        second = await orchestrator.execute()
+
+        assert second.success is True
+        assert len(fake.calls) == calls_after_first, "the retry paid for vision/caption again"
+        assert len(email.captions) == 2
+        assert email.captions[1] == email.captions[0]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("mode", ["preview", "dry_publish", "debug"])
+async def test_sidecar_without_sd_prompt_is_never_written_in_preview_dry_or_debug(mode, monkeypatch, tmp_path) -> None:
+    """Guard: writing the no-SD-prompt sidecar must not leak into preview, dry-publish or debug runs."""
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        openai_config,
+        pipeline_config,
+        real_ai_service,
+    )
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    fake = FakeOpenAI(["telegram"])
+    install_fake_openai(monkeypatch, fake)
+    cfg = openai_config(sd_caption_enabled=False)
+    config = pipeline_config(telegram=True, openai=cfg)
+    if mode == "debug":
+        config.content.debug = True
+    storage = SidecarStorage(["a.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        config, storage, real_ai_service(cfg), [ScriptedPublisher("telegram", [True])], tenant="t1"
+    )
+
+    await orchestrator.execute(
+        select_filename="a.jpg", preview_mode=mode == "preview", dry_publish=mode == "dry_publish"
+    )
+
+    assert fake.caption_calls, "setup: no captions were generated, so the guard proves nothing"
+    assert storage.sidecars == {}, f"{mode} run wrote a sidecar"
+    assert storage.sidecars_written == 0, f"{mode} run wrote a sidecar"

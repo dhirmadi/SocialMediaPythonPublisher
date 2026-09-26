@@ -38,6 +38,7 @@ if TYPE_CHECKING:
     from publisher_v2.services.usage_meter import UsageMeter
 
 from publisher_v2.utils.captions import (
+    angle_history_depth,
     format_caption,
 )
 from publisher_v2.utils.logging import elapsed_ms, log_json, now_monotonic
@@ -601,12 +602,15 @@ class WorkflowOrchestrator:
                 if self._caption_store is not None:
                     try:
                         # PUB-051: the stored angle of each row feeds the content-angle rotation.
+                        # Angles are read at least as deep as the pool; caption text stays at window_size.
                         db_rows = await self._caption_store.fetch_recent_with_angles_by_platform(
                             self._tenant,
                             platforms=list(specs.keys()),
-                            limit=history_cfg.window_size,
+                            limit=angle_history_depth(history_cfg.window_size),
                         )
-                        db_history = {p: [text for text, _a in rows] for p, rows in db_rows.items()}
+                        db_history = {
+                            p: [text for text, _a in rows][: history_cfg.window_size] for p, rows in db_rows.items()
+                        }
                         history_angles = {p: [a for _t, a in rows] for p, rows in db_rows.items()}
                         caption_history = db_history
                         history_count = sum(len(v) for v in db_history.values()) if db_history else 0
@@ -684,15 +688,20 @@ class WorkflowOrchestrator:
                     log_json(self.logger, logging.INFO, "sd_caption_from_vision", correlation_id=correlation_id)
                 if analysis and sd_caption:
                     analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
-                if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
+                # PUB-051: the sidecar is written whenever captions were generated, even
+                # with no SD prompt (empty first line), so a partial retry can reuse them.
+                has_generated = bool(sd_caption or caption or platform_captions)
+                if has_generated and not self.config.content.debug and not dry_publish and not preview_mode:
                     from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
                     if sd_from_vision:
                         model_version = getattr(self.ai_service.analyzer, "model", None) or ""
-                    else:
+                    elif sd_caption:
                         model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(
                             self.ai_service.generator, "model", ""
                         )
+                    else:
+                        model_version = getattr(getattr(self.ai_service, "generator", None), "model", None) or ""
                     # Error already logged inside helper; suppress to continue workflow.
                     # sidecar_write_ms will remain None in workflow_timing on failure.
                     with contextlib.suppress(Exception):
@@ -702,7 +711,7 @@ class WorkflowOrchestrator:
                                 config=self.config,
                                 filename=selected_image,
                                 analysis=analysis,  # analysis is guaranteed non-None by the guard above
-                                sd_caption=sd_caption,
+                                sd_caption=sd_caption or "",
                                 model_version=str(model_version),
                                 sha256=selected_hash,
                                 correlation_id=correlation_id,

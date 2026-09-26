@@ -61,6 +61,7 @@ from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import AIServiceError, ConfigurationError  # noqa: E402
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis  # noqa: E402
 from publisher_v2.utils import caption_metrics as metrics  # noqa: E402
+from publisher_v2.utils.captions import angle_history_depth  # noqa: E402
 
 # Metrics whose bar is crossed by rising, and those crossed by falling (AC4).
 MAX_METRICS: tuple[str, ...] = (
@@ -422,7 +423,7 @@ async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
 
     PUB-051: each fixture is captioned as if the previous fixtures had just been
     published. The angles each one gets are prepended per platform to a running
-    ``history_angles`` (most-recent-first, capped at the caption-history window),
+    ``history_angles`` (most-recent-first, capped at ``angle_history_depth`` of the caption-history window),
     so the content-angle rotation is exercised the way sequential publishes
     exercise it. The caption-text history stays the fixed fixture history, which
     keeps the scores comparable with the PUB-049 baseline.
@@ -431,7 +432,7 @@ async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
     specs = await asyncio.to_thread(build_specs, sorted(history) or ["telegram"])
     analyses = await asyncio.to_thread(load_analyses, fixtures)
     static = await asyncio.to_thread(get_static_config)
-    window = static.ai_prompts.caption_history.window_size
+    depth = angle_history_depth(static.ai_prompts.caption_history.window_size)
     history_angles: dict[str, list[str | None]] = {platform: [] for platform in specs}
     entries: list[dict[str, Any]] = []
     for name, analysis in analyses.items():
@@ -440,7 +441,7 @@ async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
             analysis, specs, history=history, history_angles={p: list(a) for p, a in history_angles.items()}
         )
         for platform, angle in angles.items():
-            history_angles[platform] = [angle, *history_angles.get(platform, [])][:window]
+            history_angles[platform] = [angle, *history_angles.get(platform, [])][:depth]
         entries.append({"analysis": name, "captions": dict(captions), "angles": dict(angles)})
     return {"entries": entries}
 

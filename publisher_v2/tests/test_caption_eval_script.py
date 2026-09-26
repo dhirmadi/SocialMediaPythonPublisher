@@ -688,13 +688,19 @@ def test_nightly_threads_angles_across_fixtures_like_sequential_publishes(
     Production stores the angle of every published caption and the next run
     rotates away from it. The harness must simulate that: after each fixture the
     angles it got are prepended per platform to a running ``history_angles``,
-    most-recent-first, capped at the caption-history window. The caption TEXT
-    history stays the fixed fixture history, so scores stay comparable with the
-    PUB-049 baseline.
+    most-recent-first, capped at ``max(window_size, len(CONTENT_ANGLES))``. The
+    caption TEXT history stays the fixed fixture history, so scores stay
+    comparable with the PUB-049 baseline.
+
+    Cap updated by the PUB-051 critique follow-up (angle starvation): it was
+    ``window_size``, and a window of 3 against a pool of 6 cycled through only
+    the first four angles. Decided: the angle history is read at least as deep
+    as the pool, in the workflow, web Analyze and this harness alike.
     """
     from publisher_v2.config.static_loader import get_static_config
+    from publisher_v2.utils.captions import CONTENT_ANGLES
 
-    window = get_static_config().ai_prompts.caption_history.window_size
+    window = max(get_static_config().ai_prompts.caption_history.window_size, len(CONTENT_ANGLES))
     mod, recorder, _out = _run_nightly_with_angle_recorder(tmp_path, monkeypatch)
     fixture_history = mod.load_history(FIXTURES)
 
@@ -720,6 +726,31 @@ def test_nightly_threads_angles_across_fixtures_like_sequential_publishes(
             assert angle != recorder.returned_angles[index - 1][platform], (
                 f"fixtures {index - 1} and {index} both got {angle!r} on {platform}; the pool allows rotation"
             )
+
+
+def test_nightly_angle_window_is_at_least_the_pool_size(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """PUB-051 critique follow-up: the harness keeps ``max(window_size, len(CONTENT_ANGLES))`` angles per platform.
+
+    Once enough fixtures have run, each call sees that many stored angles, and
+    over the 20 fixtures every platform uses every angle in the pool — a window
+    of ``window_size`` (3) against six angles starved two of them.
+    """
+    from publisher_v2.config.static_loader import get_static_config
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    depth = max(get_static_config().ai_prompts.caption_history.window_size, len(CONTENT_ANGLES))
+    mod, recorder, _out = _run_nightly_with_angle_recorder(tmp_path, monkeypatch)
+    platforms = sorted(mod.load_history(FIXTURES))
+
+    assert len(recorder.received) == 20
+    last = recorder.received[-1]["history_angles"] or {}
+    for platform in platforms:
+        assert len(last.get(platform) or []) == depth, (
+            f"{platform}: the last fixture saw {len(last.get(platform) or [])} stored angles, expected {depth}"
+        )
+        used = {angles[platform] for angles in recorder.returned_angles}
+        missing = sorted(set(CONTENT_ANGLES) - used)
+        assert not missing, f"{platform}: angles never used over 20 fixtures: {missing}"
 
 
 def test_nightly_snapshot_records_angles_per_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:

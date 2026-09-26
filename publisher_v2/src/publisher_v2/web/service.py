@@ -68,6 +68,7 @@ from publisher_v2.services.storage_protocol import (  # noqa: E402
     ThumbnailSize,
 )
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
+from publisher_v2.utils.captions import angle_history_depth  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 
@@ -806,7 +807,7 @@ class WebImageService:
                         tags=[],
                         nsfw=False,
                         caption=cached_caption,
-                        sd_caption=view.get("sd_caption"),
+                        sd_caption=view.get("sd_caption") or None,
                         sidecar_written=False,
                         cached=True,
                         platform_captions=_generated_captions(view),
@@ -899,10 +900,12 @@ class WebImageService:
         angles: dict[str, str] = {}
         if self._caption_store is not None:
             try:
+                # Angles are read at least as deep as the pool; caption text stays at window_size.
+                window = get_static_config().ai_prompts.caption_history.window_size
                 rows = await self._caption_store.fetch_recent_with_angles_by_platform(
-                    self._tenant, platforms=list(specs.keys())
+                    self._tenant, platforms=list(specs.keys()), limit=angle_history_depth(window)
                 )
-                caption_history = {p: [text for text, _a in items] for p, items in rows.items()}
+                caption_history = {p: [text for text, _a in items][:window] for p, items in rows.items()}
                 history_angles = {p: [a for _t, a in items] for p, items in rows.items()}
             except Exception:
                 log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
@@ -961,20 +964,23 @@ class WebImageService:
 
         # Write sidecar (mimic workflow sidecar behaviour)
         sidecar_written = False
-        if sd_caption and not self.config.content.debug:
+        # PUB-051: captions are persisted even without an SD prompt (empty first line).
+        if (sd_caption or caption or platform_captions_dict) and not self.config.content.debug:
             from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
             if sd_from_vision:
                 model_version = getattr(ai.analyzer, "model", None) or ""
-            else:
+            elif sd_caption:
                 model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
+            else:
+                model_version = getattr(getattr(ai, "generator", None), "model", None) or ""
             try:
                 await generate_and_upload_sidecar(
                     storage=self.storage,
                     config=self.config,
                     filename=filename,
                     analysis=analysis,
-                    sd_caption=sd_caption,
+                    sd_caption=sd_caption or "",
                     model_version=str(model_version),
                     sha256="",  # Optional here
                     correlation_id=correlation_id,

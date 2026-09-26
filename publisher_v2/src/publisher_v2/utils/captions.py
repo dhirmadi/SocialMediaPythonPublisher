@@ -350,6 +350,15 @@ CONTENT_ANGLES: dict[str, str] = {
 }
 
 
+def angle_history_depth(window_size: int) -> int:
+    """How many stored angles per platform the rotation reads (PUB-051).
+
+    At least the pool size, so a caption-history window smaller than the pool
+    cannot starve the least recently used angles.
+    """
+    return max(window_size, len(CONTENT_ANGLES))
+
+
 def pick_content_angle(
     history_angles: Sequence[str | None],
     exclude: frozenset[str] = frozenset(),

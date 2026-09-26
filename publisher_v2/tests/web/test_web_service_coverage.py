@@ -535,3 +535,132 @@ async def test_sidecar_records_caption_angles_next_to_caption_generated(
     assert set(recorded) == set(meta["caption_generated"]), (recorded, meta["caption_generated"])
     assert all(v in CONTENT_ANGLES for v in recorded.values()), recorded
     assert recorded == returned_angles, "caption_angles must be the angles the kept captions were written under"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: angle history is read as deep as the pool.
+#
+# Decided rule: web Analyze, like the workflow, reads stored angles
+# ``max(window_size, len(CONTENT_ANGLES))`` rows deep, while the caption-TEXT
+# history handed to the caption stage stays capped at ``window_size``.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_web_analyze_reads_angle_history_as_deep_as_the_pool(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The angle-history fetch reaches at least ``len(CONTENT_ANGLES)`` rows; the text history stays at window_size."""
+    from caption_pipeline_fakes import FakeOpenAI, SidecarStorage, install_fake_openai, pipeline_config, real_ai_service
+
+    from publisher_v2.config.static_loader import get_static_config
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    window = get_static_config().ai_prompts.caption_history.window_size
+    pool = list(CONTENT_ANGLES)
+    depth = max(window, len(pool))
+    engine, factory = await _memory_session_factory()
+    try:
+        store = CaptionStore(factory)
+        # More stored rows than either bound, oldest first, each with a stored angle.
+        for i in range(depth + 3):
+            await store.save_captions_batch(
+                tenant="t1",
+                captions_by_platform={"telegram": f"Stored caption number {i}, hemp and a bare wall."},
+                angles_by_platform={"telegram": pool[i % len(pool)]},
+            )
+        limits: list[int] = []
+        real_fetch = store.fetch_recent_with_angles_by_platform
+
+        async def _recording_fetch(*args, **kwargs):
+            limits.append(kwargs.get("limit", 8))
+            return await real_fetch(*args, **kwargs)
+
+        monkeypatch.setattr(store, "fetch_recent_with_angles_by_platform", _recording_fetch)
+
+        fake = FakeOpenAI(["telegram"])
+        install_fake_openai(monkeypatch, fake)
+        ai = real_ai_service()
+        calls = _spy_multi_caption(ai)
+        svc = _bare_web_service(pipeline_config(telegram=True), SidecarStorage(["a.jpg"]), ai, store, ["a.jpg"])
+
+        await svc.analyze_and_caption("a.jpg", force_refresh=True)
+
+        assert limits, "web Analyze never read the stored angles"
+        assert all(limit >= len(pool) for limit in limits), (
+            f"angle history fetched {limits} deep; it must reach the pool size {len(pool)}"
+        )
+        assert len(calls) == 1
+        kwargs, _result = calls[0]
+        stored_angles = [a for a in (kwargs.get("history_angles") or {}).get("telegram", []) if a is not None]
+        assert len(stored_angles) >= len(pool), f"rotation saw only {len(stored_angles)} stored angles"
+        history = kwargs.get("history") or {}
+        for platform, texts in history.items():
+            assert len(texts) <= window, (
+                f"{platform}: caption-text history is {len(texts)} deep; it must stay at window_size={window}"
+            )
+    finally:
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: the sidecar is written even without an SD prompt.
+#
+# Decided rule: when AI captions were generated (and the run is not preview,
+# dry-publish or debug) the sidecar is written with an empty first line, so
+# ``caption_generated`` and ``caption_angles`` survive. Spec Desired Outcome:
+# "a partial retry costs zero OpenAI calls when the sidecar holds the captions".
+# The web cache must not treat the empty first line as an SD prompt, and (#80)
+# web never returns the SD prompt as a caption.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_web_analyze_writes_sidecar_without_sd_prompt(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    """``sd_caption_enabled=False``: web Analyze still writes a sidecar holding ``caption_generated`` and angles."""
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        SidecarStorage,
+        install_fake_openai,
+        openai_config,
+        pipeline_config,
+        real_ai_service,
+    )
+
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    platforms = ["telegram", "instagram"]
+    fake = FakeOpenAI(platforms)
+    install_fake_openai(monkeypatch, fake)
+    cfg = openai_config(sd_caption_enabled=False)
+    ai = real_ai_service(cfg)
+    calls = _spy_multi_caption(ai)
+    storage = SidecarStorage(["a.jpg"])
+    config = pipeline_config(telegram=True, instagram=True, openai=cfg)
+    svc = _bare_web_service(config, storage, ai, None, ["a.jpg"])
+
+    response = await svc.analyze_and_caption("a.jpg", force_refresh=True)
+
+    assert len(calls) == 1
+    generated, _sd, _usages, returned_angles = calls[0][1]
+    assert response.sd_caption in (None, ""), f"SD prompt returned with sd_caption_enabled=False: {response.sd_caption}"
+    assert response.sidecar_written is True, "web Analyze wrote no sidecar because there was no SD prompt"
+    assert "a.jpg" in storage.sidecars, "no sidecar written"
+    text = storage.sidecars["a.jpg"]
+    assert text.splitlines()[0].strip() == "", f"first line should be an empty SD prompt, got {text.splitlines()[0]!r}"
+    view = rehydrate_sidecar_view(text)
+    assert not view["sd_caption"], view["sd_caption"]
+    assert view["caption_generated"] == generated
+    assert view["caption_angles"] == returned_angles
+    assert set(view["caption_angles"]) == set(platforms)
+    assert set(view["caption_angles"].values()) <= set(CONTENT_ANGLES)
+
+    # The cache path reads it back: a social caption is served, no SD prompt, no AI call.
+    calls_before = len(fake.calls)
+    cached = await svc.analyze_and_caption("a.jpg")
+    assert cached.cached is True, "a sidecar holding caption_generated should be a cache hit"
+    assert len(fake.calls) == calls_before
+    assert not cached.sd_caption, f"an empty SD line was served as an SD prompt: {cached.sd_caption!r}"
+    assert cached.caption in generated.values(), "the cache must serve a generated social caption (#80)"
+    assert cached.platform_captions == generated

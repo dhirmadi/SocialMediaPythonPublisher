@@ -398,3 +398,87 @@ async def test_regeneration_offender_avoids_the_other_platforms_current_angle(mo
     assert new != other, f"the offender's retry angle collides with instagram's current angle {other!r}"
     retry = _angles_in(user_text(fake.caption_calls[1]))
     assert retry == Counter({new: 1, other: 1}), f"retry prompt angles {dict(retry)} != returned {angles}"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: angle starvation under the production window.
+#
+# Decided rule: the angle history is read at least as deep as the pool —
+# ``max(window_size, len(CONTENT_ANGLES))`` rows per platform — so the LRU can
+# see every angle it has used. The caption-TEXT history handed to the prompt
+# stays capped at ``window_size``. With the old ``limit=window_size`` (3) and a
+# pool of six, the rotation cycled through only the first four angles forever.
+# ---------------------------------------------------------------------------
+
+
+def _disjoint_caption_text(call_number: int, platform: str) -> str:
+    """Captions sharing no word with any other call, so the similarity gate never regenerates.
+
+    A regeneration re-picks the offender's angle; keeping the gate quiet means
+    every stored angle is the plain rotation pick under test.
+    """
+    return " ".join(f"w{call_number}x{platform}x{i}" for i in range(8)) + "."
+
+
+async def test_production_window_rotation_uses_every_angle_over_twenty_runs(
+    monkeypatch: pytest.MonkeyPatch, session_factory: async_sessionmaker[AsyncSession]
+) -> None:
+    """Twenty real publishes, three platforms, shipped ``window_size``: every platform uses every angle twice.
+
+    Real WorkflowOrchestrator, AIService and CaptionStore; only OpenAI, storage
+    and the publishers are faked. Also pins that the caption-text history the
+    caption stage receives stays capped at ``window_size`` per platform.
+    """
+    from publisher_v2.config.static_loader import get_static_config
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    window = get_static_config().ai_prompts.caption_history.window_size
+    platforms = ["telegram", "instagram", "email"]
+    store = CaptionStore(session_factory)
+    fake = FakeOpenAI(platforms, caption_text=_disjoint_caption_text)
+    install_fake_openai(monkeypatch, fake)
+    ai = real_ai_service()
+
+    received_history: list[dict[str, list[str]] | None] = []
+    real_multi = ai.create_multi_caption_pair_from_analysis
+
+    async def _spy(*args, **kwargs):
+        history = kwargs.get("history")
+        received_history.append({p: list(v) for p, v in history.items()} if isinstance(history, dict) else history)
+        return await real_multi(*args, **kwargs)
+
+    ai.create_multi_caption_pair_from_analysis = _spy  # type: ignore[method-assign]
+
+    images = [f"img{i:02d}.jpg" for i in range(20)]
+    orchestrator = WorkflowOrchestrator(
+        pipeline_config(telegram=True, instagram=True, email=True),
+        SidecarStorage(images),
+        ai,
+        [ScriptedPublisher(p, [True]) for p in platforms],
+        tenant="t1",
+        caption_store=store,
+    )
+
+    for image in images:
+        result = await orchestrator.execute(select_filename=image)
+        assert result.success, result.error
+
+    assert len(fake.caption_calls) == 20, "setup: the similarity gate regenerated; angles are not plain rotation picks"
+    async with session_factory() as session:
+        rows = (await session.execute(select(CaptionHistory).order_by(CaptionHistory.id))).scalars().all()
+    for platform in platforms:
+        used = Counter(r.angle for r in rows if r.platform == platform)
+        assert sum(used.values()) == 20, f"{platform}: expected 20 stored rows, got {dict(used)}"
+        starved = {k: used.get(k, 0) for k in CONTENT_ANGLES if used.get(k, 0) < 2}
+        assert not starved, (
+            f"{platform}: angles used fewer than twice over 20 runs with window_size={window}: {starved}; "
+            f"distribution {dict(used)}"
+        )
+
+    assert len(received_history) == 20
+    for run, history in enumerate(received_history):
+        for platform, texts in (history or {}).items():
+            assert len(texts) <= window, (
+                f"run {run} {platform}: caption-text history is {len(texts)} deep; it must stay at window_size={window}"
+            )

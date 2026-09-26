@@ -552,3 +552,33 @@ def test_sidecar_sd_caption_line_is_flattened_to_one_line() -> None:
     assert metadata["caption"] == "A plain caption"
     injected = {k: v for k, v in metadata.items() if "INJECTED" in str(v)}
     assert injected == {}, f"sd_caption injected metadata keys: {injected}"
+
+
+def test_sidecar_without_sd_prompt_round_trips_metadata() -> None:
+    """PUB-051 follow-up: a sidecar with no SD prompt has an empty first line and still round-trips.
+
+    Decided: generated captions are persisted even without an SD prompt, so the
+    AC7 partial retry can reuse them. The empty first line must read back as no
+    SD prompt (None or empty), never as a caption (#80), with the metadata intact.
+    """
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    meta = {
+        "image_file": "a.jpg",
+        "caption_generated": {"telegram": "Cold floorboards, warm hands.", "email": "One frayed end."},
+        "caption_angles": {"telegram": "craft", "email": "moment"},
+    }
+
+    text = build_caption_sidecar("", meta)
+
+    lines = text.splitlines()
+    assert lines[0] == "", f"first line should be the empty SD prompt, got {lines[0]!r}"
+    assert lines[1] == ""
+    assert lines[2] == "# ---"
+    view = rehydrate_sidecar_view(text)
+    assert not view["sd_caption"], view["sd_caption"]
+    assert view["caption"] is None, "the empty SD line must never be served as a caption"
+    assert view["has_sidecar"] is True
+    assert view["caption_generated"] == meta["caption_generated"]
+    assert view["caption_angles"] == meta["caption_angles"]
+    assert view["metadata"]["image_file"] == "a.jpg"

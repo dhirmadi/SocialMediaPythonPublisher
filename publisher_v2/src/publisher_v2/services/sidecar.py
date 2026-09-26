@@ -66,7 +66,7 @@ async def generate_and_upload_sidecar(
             image_file=filename,
             sha256=sha256,
             created_iso=created_iso,
-            sd_caption_version="v1.0",
+            sd_caption_version="v1.0" if sd_caption else "",  # PUB-051: no SD prompt, no SD version
             model_version=model_version,
             dropbox_file_id=file_meta.file_id,
             dropbox_rev=file_meta.revision,
