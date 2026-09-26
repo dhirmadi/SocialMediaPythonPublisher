@@ -69,7 +69,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](archive/PUB-047_reliability-batch.md) | P0 | S | — | Done |
 | PUB-048 | Web UI | [Auth and Library Uniformity](archive/PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Done |
 | PUB-049 | AI | [Caption Evaluation Harness](archive/PUB-049_caption-evaluation-harness.md) | P0 | M | — | Done |
-| PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Implementation Complete |
+| PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](archive/PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Done |
 | PUB-051 | AI | [Caption Prompt and Register Repair](PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Proposal |
 | PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
 | PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | M | PUB-047 | Proposal |
@@ -82,6 +82,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-060 | Foundation | [Test and Docs Hygiene](PUB-060_test-and-docs-hygiene.md) | P2 | M | PUB-059 | Proposal |
 | PUB-061 | Foundation | [Storage-Ops Drain Deadline — Stop Under-Billing a Slow-but-Alive Orchestrator](archive/PUB-061_storage-ops-drain-deadline.md) | P2 | XS | PUB-047 | Done |
 | PUB-063 | Foundation | [Distinguish "absent" from "could not tell" in head_object](PUB-063_head-object-fail-open.md) | P1 | S | PUB-048 | Proposal |
+| PUB-064 | AI | [Make the Caption Harness Exercise the Voice Path](PUB-064_harness-voice-path-coverage.md) | P1 | S | PUB-049, PUB-050 | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |

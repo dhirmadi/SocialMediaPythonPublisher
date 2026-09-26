@@ -1,6 +1,6 @@
 # PUB-050 — Owner Voice Corpus in Every Caption Prompt: Implementation Summary
 
-**Status:** Implementation Complete
+**Status:** Done — merged to main in #226
 **Date:** 2026-09-25 – 2026-09-26
 
 ## Files Changed

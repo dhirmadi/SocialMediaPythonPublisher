@@ -77,7 +77,7 @@ An offline harness that runs in CI without a key in under ten seconds, scores a 
 ## Related
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issue [#189](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/189); absorbs [#146](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/146)
-- [PUB-035: Caption Context Intelligence](archive/PUB-035_caption-context-intelligence.md) — introduced the history window this measures against
+- [PUB-035: Caption Context Intelligence](PUB-035_caption-context-intelligence.md) — introduced the history window this measures against
 - `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md` §6 ("keep a small golden set"), which this finally implements
 
 ## Change Log

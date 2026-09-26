@@ -6,7 +6,7 @@
 | **Category** | AI |
 | **Priority** | P0 |
 | **Effort** | M |
-| **Status** | Implementation Complete |
+| **Status** | Done |
 | **Dependencies** | PUB-049 |
 
 ## User Story
@@ -74,8 +74,8 @@ Every cron and web caption prompt for the tenant contains four to six owner-writ
 ## Related
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#190](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/190), [#179](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/179)
-- [PUB-029: Brand Voice Matching](archive/PUB-029_brand-voice-matching.md) — introduced `voice_profile`
-- [PUB-039: AI Caption Feature Flags & Voice Profile](archive/PUB-039_ai-caption-feature-flags.md) — the orchestrator field
+- [PUB-029: Brand Voice Matching](PUB-029_brand-voice-matching.md) — introduced `voice_profile`
+- [PUB-039: AI Caption Feature Flags & Voice Profile](PUB-039_ai-caption-feature-flags.md) — the orchestrator field
 - Prior fix #131 (voice matching default)
 
 ## Change Log
