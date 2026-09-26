@@ -48,6 +48,50 @@ jobs:
       run: |
         uv run mypy publisher_v2/src --ignore-missing-imports
 
+  pre-commit:
+    # Enforces .pre-commit-config.yaml in CI, not only on whichever machines
+    # happen to have run `pre-commit install`. Four of its hooks —
+    # detect-secrets, gitleaks, pydocstyle and an actually-gating bandit — run
+    # nowhere else: the bandit step in security-scan.yml is `|| true`, so it
+    # uploads a report rather than failing a build. Until this job existed, a
+    # clone without the git hook installed was subject to none of them, and the
+    # config described a posture the repo did not have.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install uv
+      uses: astral-sh/setup-uv@v5
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      run: |
+        uv sync --group dev
+
+    - name: Cache pre-commit hook environments
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/pre-commit
+        key: pre-commit-${{ runner.os }}-py3.12-${{ hashFiles('.pre-commit-config.yaml') }}
+
+    - name: Run every pre-commit hook
+      # --show-diff-on-failure makes a formatting or baseline failure readable
+      # from the log alone. Note detect-secrets rewrites .secrets.baseline to
+      # correct drifted line numbers and then fails; if this job goes red on
+      # that file, run `uv run pre-commit run detect-secrets --all-files`
+      # locally, stage the result, and commit it. Do not hand-edit the baseline.
+      run: |
+        uv run pre-commit run --all-files --show-diff-on-failure
+
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 25
