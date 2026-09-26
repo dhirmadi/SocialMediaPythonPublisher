@@ -931,3 +931,40 @@ async def test_condensed_caption_is_cleaned_too(monkeypatch: pytest.MonkeyPatch,
     assert not re.match(_SUBJECT_LABEL_RE, email, re.IGNORECASE), f"subject label survived condense: {email!r}"
     assert "neither of us fixed it" in email, f"the condensed body was lost: {email!r}"
     assert len(email) <= 240
+
+
+def test_smart_hashtag_instruction_points_at_topics_when_present() -> None:
+    """PUB-051 AC9 follow-up: with a Topics line, the hashtag instruction asks for hashtags drawn from Topics.
+
+    Without it the model appended only the seed hashtags. The seeds stay in the instruction when set;
+    a platform with no topics keeps the old wording, which never mentions Topics.
+    """
+    from publisher_v2.services.ai import build_platform_block
+
+    seeds = "#ropeart #jute"
+    topics = ["window light", "wooden floor"]
+    with_seeds = CaptionSpec(platform="instagram", style="s", hashtags=seeds, max_length=2200, smart_hashtags=True)
+    no_seeds = CaptionSpec(platform="instagram", style="s", hashtags="", max_length=2200, smart_hashtags=True)
+
+    def hashtag_instruction(block: str) -> str:
+        # The header line is "N. <platform>: <style>. <hashtag instruction>"; the Topics line sits below it.
+        header, _, _ = block.partition("\n")
+        prefix = "1. instagram: s. "
+        assert header.startswith(prefix), f"unexpected block header: {header!r}"
+        instruction = header[len(prefix) :]
+        assert "hashtag" in instruction.lower(), f"no hashtag instruction in header: {header!r}"
+        return instruction
+
+    block = build_platform_block(1, "instagram", with_seeds, topics=topics)
+    assert "   Topics: window light, wooden floor" in block.splitlines()
+    instruction = hashtag_instruction(block)
+    assert "Topics" in instruction, f"hashtag instruction ignores the Topics line: {instruction!r}"
+    assert seeds in instruction, f"seed hashtags dropped from the instruction: {instruction!r}"
+
+    instruction = hashtag_instruction(build_platform_block(1, "instagram", no_seeds, topics=topics))
+    assert "Topics" in instruction, f"hashtag instruction ignores the Topics line: {instruction!r}"
+
+    for spec in (with_seeds, no_seeds):
+        block = build_platform_block(1, "instagram", spec, topics=None)
+        assert "Topics" not in block, f"no topics given, yet the block mentions Topics: {block!r}"
+        hashtag_instruction(block)

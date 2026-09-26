@@ -56,9 +56,11 @@ caption:
   # PUB-051 AC9 follow-up: generic craft rules drawn from the owner's style guide
   # (#179). Tenant-neutral; anything subject-specific belongs in the tenant persona.
   rules: >
-    CRAFT: open with a concrete noun or a short plain statement, never a scene-setting clause.
-    Never open with I chose, The way, Notice, Look, Here's or Just. Anchor at least one concrete detail from the
-    frame and one thing that happened in the room. No em dashes. No similes. Vary the ending: a plain statement,
+    CRAFT: open by naming a physical object visible in this photo, never an abstract noun or a scene-setting
+    clause. Never open with I chose, I decided, The decision, The camera, The room, The warmth, The sound, The weight,
+    The way, Notice, Look, Here's or Just. Anchor at least one concrete detail from the
+    frame and one thing that happened in the room. Write in the present tense. Short sentences; one idea each, no
+    'and' chains. No em dashes. No similes: never 'like a' or 'as if'. Vary the ending: a plain statement,
     a direct question to the reader, or a short instruction. Never invite the reader to picture themselves in the
     scene.
     BANNED CONSTRUCTIONS (never use): rhetorical-question openers; "step into"; strings of trailing emoji;
