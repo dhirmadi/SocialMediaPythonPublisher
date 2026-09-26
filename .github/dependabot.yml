@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      python-dependencies:
+        update-types: ["minor", "patch"]
+  # The `pip` ecosystem cannot read `uv.lock`, and every direct dependency in
+  # `pyproject.toml` is a bare `>=` lower bound, so it bumps nothing on its own.
+  # The `uv` ecosystem is what actually updates the lockfile (PUB-055).
+  - package-ecosystem: "uv"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      uv-dependencies:
+        update-types: ["minor", "patch"]
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    groups:
+      github-actions:
+        update-types: ["minor", "patch"]

@@ -255,7 +255,8 @@ coverage.xml
 # Security scan results
 .bandit
 bandit-report.*
-safety-report.*
+pip-audit-report.*
+requirements-audit.txt
 
 # ----------------------------------------------------------------------------
 # IDE / Editor artifacts (VSCode, JetBrains)

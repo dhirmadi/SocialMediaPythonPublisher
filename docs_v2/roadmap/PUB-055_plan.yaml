@@ -1,0 +1,74 @@
+version: 1
+roadmap_id: PUB-055
+summary: >
+  Make the CI security gates blocking: pip-audit fails for real (with an expiry-checked
+  ignore file), the redundant safety/bandit steps are deleted, every action in
+  security-scan.yml and secret-scan.yml is SHA-pinned, GitGuardian gets a presence guard
+  instead of continue-on-error, and dependabot opens weekly grouped PRs. Tests assert the
+  gates stay blocking.
+
+repo_constraints:
+  allowed:
+    - .github/workflows/security-scan.yml
+    - .github/workflows/secret-scan.yml
+    - .github/dependabot.yml
+    - .github/pip-audit-ignore.toml
+    - scripts/pip_audit_ignore.py
+    - publisher_v2/tests/test_ci_security_gates.py
+    - publisher_v2/tests/test_pip_audit_ignore.py
+    - pyproject.toml
+    - uv.lock
+    - SECURITY.md
+    - docs_v2/roadmap/PUB-055_*.md
+  excluded:
+    - .github/workflows/code-quality.yml
+    - .github/workflows/caption-eval-nightly.yml
+    - code_v1/**
+    - docs_v1/**
+    - publisher_v2/src/**   # no runtime code in this item
+
+acceptance_criteria:
+  AC1: manual verification only (vulnerable jinja2 pin on scratch branch fails pip-audit job)
+  AC2: manual verification only (green Actions run on the merge commit)
+  AC3: test_no_security_step_swallows_a_failure
+  AC4: test_every_action_in_the_security_workflows_is_pinned_by_sha
+  AC5: test_dependabot_config_groups_weekly_pip_and_actions_updates
+  AC6: test_an_expired_entry_raises_instead_of_silently_passing
+  AC6b: test_unexpired_entries_yield_their_ignore_vuln_flags
+
+tasks:
+  - id: T1
+    phase: red
+    owner: test-engineer
+    files:
+      - publisher_v2/tests/test_ci_security_gates.py
+      - publisher_v2/tests/test_pip_audit_ignore.py
+    notes: exact function names from the handoff table; no network, no subprocess
+  - id: T2
+    phase: green
+    owner: developer
+    files:
+      - scripts/pip_audit_ignore.py
+      - .github/pip-audit-ignore.toml
+      - .github/dependabot.yml
+      - .github/workflows/security-scan.yml
+      - .github/workflows/secret-scan.yml
+  - id: T3
+    phase: green
+    owner: developer
+    files: [pyproject.toml, uv.lock, SECURITY.md]
+    notes: drop safety>=3.2.0 from dev group, uv sync --group dev, rewrite SECURITY.md bullet
+  - id: T4
+    phase: review
+    owner: code-reviewer + security-auditor
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage: ">=85% overall (fail_under=85); scripts/ is outside the coverage source"
+  safety_checks:
+    - no secret values added, invented, or logged
+    - GitGuardian degrades to a clean skip when GITGUARDIAN_API_KEY is absent
+    - no action major-version bumps while SHA-pinning

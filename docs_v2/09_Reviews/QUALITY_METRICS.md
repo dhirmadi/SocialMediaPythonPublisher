@@ -193,14 +193,14 @@ Examples:
 | Lint | `uv run ruff check .` | 0 violations |
 | Type Check | `uv run mypy` | 0 errors |
 | Formatting | `uv run ruff format --check .` | Clean |
+| Security Scan | `uv run pre-commit run bandit --all-files` | 0 findings (default severity & confidence) |
+| Dependency Audit | `pip-audit` (see `SECURITY.md`) | 0 un-accepted advisories; the current backlog is tracked, not yet zero |
 
 ### 6.2 Post-Merge Checks (Non-Blocking)
 
 | Check | Command | Target |
 |-------|---------|--------|
 | Coverage Report | HTML generation | Archive for trends |
-| Security Scan | `bandit -r` | 0 high/critical |
-| Dependency Audit | `safety check` | 0 vulnerabilities |
 
 ---
 
