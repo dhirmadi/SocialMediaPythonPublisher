@@ -713,7 +713,7 @@ _INJECTION_MARKERS = (
 _INJECTION_RE = re.compile("|".join(re.escape(m) for m in _INJECTION_MARKERS), re.IGNORECASE)
 
 
-def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
+def _sanitize_analysis_field(s: str | None, max_len: int) -> str | None:
     """Sanitize a free-text field from the Vision model.
 
     Applied before re-interpolating the field into a caption prompt.
@@ -726,7 +726,7 @@ def _sanitize_analysis_field(s: str | None, max_len: int = 50) -> str | None:
       - turning whitespace (line breaks, tabs, NBSP) into spaces and dropping other control characters,
       - replacing known instruction-injection markers,
       - collapsing whitespace,
-      - capping length.
+      - capping length to ``max_len``, which every caller must pass explicitly (#171).
     """
     if s is None:
         return None
