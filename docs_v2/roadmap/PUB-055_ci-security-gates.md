@@ -126,12 +126,21 @@ describes).
   **Verification:** push the pin on a scratch branch/PR as part of implementing this item, link
   the failing run's URL in the delivery PR body, then revert the pin before merge — do not leave
   a permanently-vulnerable pin in history past that PR.
+  **Verified 2026-09-26 (PR #237, closed unmerged, branch deleted):**
+  [run 36262301101](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36262301101)
+  — `Found 6 known vulnerabilities in 1 package`, exit 1. Note the suggested `jinja2==2.11.3` is
+  **unresolvable in this repo**: a transitive requirement demands `jinja2>=3.1.0`, so `uv lock`
+  refuses and nothing reaches CI. `urllib3==2.6.2` (PYSEC-2026-141/142/1996) was substituted. Any
+  known-vulnerable, *resolvable* pin satisfies this AC — do not retry the jinja2 pin.
 - AC2: Given `main` after this item merges, when CI runs, then every job in `security-scan.yml`
   and `secret-scan.yml` passes. **Corrected 2026-09-26:** this AC originally expected GitGuardian
   to pass *by skipping*, because hardening recorded no `GITGUARDIAN_API_KEY`. A key is in fact
   configured (it passed in 2s on PR #235), so that step genuinely runs and must pass on its own
   merits — a stricter outcome than the original wording, and the intended end state.
   **Verification:** check the Actions run for the merge commit; link it in the delivery PR body.
+  **Verified 2026-09-26:** merge commit `c8febb9` — `Security Scan`, `Secret scan` and
+  `Code Quality` all succeeded
+  ([run 36262537037](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36262537037)).
 - AC3: Given `security-scan.yml` and `secret-scan.yml`, when
   `publisher_v2/tests/test_ci_security_gates.py::test_no_security_step_swallows_a_failure` runs,
   then it finds no `|| true` and no `continue-on-error: true` on any step in either file (the
@@ -266,3 +275,40 @@ parse error.
   pip-audit was not a declared dependency); `Makefile` was added to scope as the last live
   `safety` caller; and a `uv` Dependabot ecosystem was added alongside the spec-mandated `pip`
   one, which cannot read `uv.lock`. AC1/AC2 are verified live against PR #236.
+
+## Post-merge findings (2026-09-26)
+
+Three things the live runs exposed that the spec had wrong or could not have known.
+
+### The workflow was disabled, so nothing in it ran at all
+
+`Security Scan` was in state `disabled_inactivity`, last run 2026-07-27. GitHub auto-disables a
+workflow carrying a `schedule:` trigger after roughly 60 days of repository inactivity, and it
+disables the **whole workflow**, not just the cron. Re-enabled with `gh workflow enable
+security-scan.yml`, which is the only reason this item's verification runs exist.
+
+So the Problem section understates the situation. There were **three independent reasons** pip-audit
+could never fail, any one of them sufficient on its own:
+
+1. the workflow was disabled entirely;
+2. `pip-audit` was never a declared dependency, so the step would have died on a missing binary;
+3. `|| true` plus `continue-on-error: true` would have swallowed the result anyway.
+
+**Known limitation.** `test_ci_security_gates.py` asserts the workflow *file* is correct and would
+have passed happily throughout those two dormant months. Enablement is repository state, not file
+content, so no test in this repo can detect a recurrence. The weekly scheduled run is the canary: if
+it stops appearing in the Actions list, the workflow has been auto-disabled again.
+
+### AC5's `pip` ecosystem is inert
+
+Dependabot's `pip` updater cannot read `uv.lock`, and every direct dependency in `pyproject.toml` is
+a bare `>=` floor that any release already satisfies, so it can bump nothing. A `uv` entry was added
+alongside it and GitHub does accept that ecosystem name. AC5 and
+`test_dependabot_config_groups_weekly_pip_and_actions_updates` still mandate `pip`; the criterion
+should be amended to assert the ecosystem that actually maintains the lock. Tracked in PUB-066.
+
+### Both Python updaters then failed for an unrelated, pre-existing reason
+
+`pip` and `uv` abort on `/requirements.txt not found` — a dangling `-r` in a stale
+`requirements-dev.txt` that predates the uv migration. This item's success metric (advisory to
+Dependabot PR within a week) is therefore unmet for Python packages until PUB-066 lands.
