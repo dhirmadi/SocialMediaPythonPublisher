@@ -222,3 +222,16 @@ def test_sanitize_analysis_field_treats_line_breaks_as_spaces_before_redacting(s
     assert zero_width is not None
     assert "ignore previous" not in zero_width.lower()
     assert "[redacted]" in zero_width
+
+
+def test_sanitize_analysis_field_requires_an_explicit_cap() -> None:
+    """#171: ``max_len`` has no default, so no caller can silently fall back to the pre-#81 cap of 50."""
+    from publisher_v2.services.ai import _sanitize_analysis_field
+
+    param = inspect.signature(_sanitize_analysis_field).parameters["max_len"]
+    assert param.default is inspect.Parameter.empty, (
+        f"max_len must be required (#171), but defaults to {param.default!r}"
+    )
+
+    with pytest.raises(TypeError):
+        _sanitize_analysis_field("x")  # type: ignore[call-arg]
