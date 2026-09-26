@@ -1,6 +1,6 @@
 # PUB-051 — Caption Prompt and Register Repair: Implementation Summary
 
-**Status:** Implementation complete. AC9 (live harness) still pending before merge.
+**Status:** Done (merged via PR #228)
 **Date:** 2026-09-26
 **Branch:** `feat/pub-051-caption-prompt-and-register-repair`, in worktree `SocialMediaPythonPublisher-pub051`
 
@@ -67,11 +67,11 @@
 - [x] **AC6:** `test_senses_pool_prompt_text_differs_by_image_seed`, `test_caption_facing_fields_stay_out_of_sidecar_after_vision_restructure`
 - [x] **AC7:** `test_partial_retry_makes_zero_additional_ai_calls`, `test_caption_history_holds_one_row_per_successfully_published_platform_only`
 - [x] **AC8:** `test_non_json_vision_reply_retried_once_at_same_resolution_before_fallback`
-- [x] **AC9 (verification, human-run):** the harness `--nightly` ran live on 2026-09-26, 5 runs on this branch against 5 runs on current `main` (same fixtures and model). The committed `snapshot.json` is a synthetic bootstrap (hand-shaped captions, PUB-049), so it is not a real baseline; `main`'s own live output is. Means (main → PUB-051):
+- [~] **AC9 (verification, human-run): met for opener share and tells rate; TF-IDF "does not rise" not demonstrated (see deviations).** the harness `--nightly` ran live on 2026-09-26, 5 runs on this branch against 5 runs on current `main` (same fixtures and model). The committed `snapshot.json` is a synthetic bootstrap (hand-shaped captions, PUB-049), so it is not a real baseline; `main`'s own live output is. Means (main → PUB-051):
 
   | Metric | main | PUB-051 | |
   |---|---|---|---|
-  | opener/closer 3-gram share | 0.303 | **0.213** | −30%, under the 30% success bar |
+  | opener/closer 3-gram share | 0.303 | **0.213** | mean −30%; per-run max 0.300 vs main's 0.433 (the success metric asks for a max under 30%: at the bar, not under) |
   | tells-lexicon hit rate | 0.077 | **0.040** | about halved |
   | two-sentence+emoji rhythm | 0.023 | 0.003 | |
   | vision-field overlap | 0.256 | 0.135 | |
@@ -88,7 +88,7 @@ Final numbers are from the last full run; see the verdicts below.
 - Format: ✅
 - Lint: ✅
 - Type check: ✅ (65 files)
-- Tests: 1862 passed, 1 skipped, 0 failed, in random order.
+- Tests: 1924 passed, 1 skipped, 0 failed, in random order (two runs).
 - Coverage: 93% overall.
 
 | Module | Coverage |
@@ -161,6 +161,8 @@ Final numbers are from the last full run; see the verdicts below.
 - **Opener hygiene (from live AC9 runs):** the multi-caption prompt carries "An angle is the subject, not its first words." and "Each caption opens differently."; email replies have any `Subject:` label stripped and are joined to one line; em dashes are removed from every caption; stances carry no scene or time phrase.
 - **CRAFT rules, informed by the owner's style guide (#179), kept tenant-neutral:** open with a concrete noun or short plain statement (never I chose / The way / Notice / Look / Here's / Just); anchor a concrete detail and one thing that happened in the room; no em dashes; no similes; vary the ending (statement, direct question, short instruction); never invite the reader into the scene. The rope-specific voice (dominance, consent, care) is documented as a tenant `system_prompt` example; the owner's 20 example captions belong in `content.voice_profile` (platform-orchestrator#223).
 - **Follow-up (PUB-049 harness, not this item):** the committed `snapshot.json`/thresholds are a synthetic bootstrap. Live output from both `main` and this branch misses several min-direction bars (distinct-1 ≈0.3 vs 0.445), so a live nightly regeneration would fail its offline scoring until the bars are re-derived from a real snapshot (`--generate-thresholds`, a deliberate human step). The nightly workflow also has no `OPENAI_API_KEY` repo secret.
+- **AC9 deviations for the owner to acknowledge:** (1) the baseline is `main`'s own live output over 5 runs, not the committed PUB-049 snapshot, which is a synthetic bootstrap and not model output; (2) TF-IDF cosine to history rose 0.0052 → 0.0058 (+11%). The run ranges overlap and the difference is not significant at n=5 (t≈1.4), but "does not rise" is not demonstrated. The rise tracks concrete nouns shared with the synthetic history.
+- **Tested vs prompt copy:** the CRAFT rules and the Light-last prose order are prompt wording and are not pinned by tests (the spec asks tests to assert structure); their effect is measured only by the live harness.
 - **Delivered as one PR closing #191, #192 and #194**, not three. #191 cannot ship alone (the sd_caption sequencing constraint), and the pre-commit hook blocks commits whose tests are red, so the changes cannot be split into green commits.
 - **Approved scope growth:**
   - User-approved on 2026-09-25: `web/service.py` and the `scripts/` changes.

@@ -138,17 +138,46 @@ def _is_short_limit_value(max_length: int) -> bool:
 # PUB-051 AC9 follow-up: the email caption sometimes came back as a whole email
 # ("Subject: ...\n\n<body>"). A leading label is dropped; subject text and body are kept.
 _SUBJECT_LABEL_RE = re.compile(r"^\s*subject(?:\s+line)?\s*:\s*", re.IGNORECASE)
-_EM_DASH_RE = re.compile(r"[ \t]*—+[ \t]*")
+_DASH_JOIN_PUNCT = ",.;:!?"
+
+
+def _join_dash_line(line: str) -> str:
+    """Remove the em dashes from one line, touching only the text at each dash site.
+
+    Each run of dashes splits the line; spaces/tabs are trimmed only at the split
+    edges. Neighbours are joined with ", " when both are non-empty, without the comma
+    when either side already has punctuation there. A dash at a line edge is dropped.
+    Plain string operations only, so the cost is linear in the line length.
+    """
+    parts = re.split("—+", line)
+    pieces = [parts[0].rstrip(" \t")]
+    has_text = bool(pieces[0])
+    for part in parts[1:]:
+        right = part.strip(" \t")
+        if not has_text:
+            # dash at the line start: drop it along with any comma it leaves behind
+            right = right.lstrip(",;: \t")
+            pieces = [right]
+        elif not right:
+            continue  # dash at the line end (or between two dashes): drop it
+        elif right[0] in _DASH_JOIN_PUNCT:
+            pieces.append(right)
+        elif pieces[-1][-1] in _DASH_JOIN_PUNCT:
+            pieces.extend((" ", right))
+        else:
+            pieces.extend((", ", right))
+        has_text = has_text or bool(right)
+    return "".join(pieces)
 
 
 def _strip_em_dashes(text: str) -> str:
-    """Replace em dashes with commas (the rules ask for none; the model still writes them)."""
+    """Replace em dashes with commas (the rules ask for none; the model still writes them).
+
+    Only the dash sites change; punctuation elsewhere in the caption is left alone.
+    """
     if "—" not in text:
         return text
-    text = _EM_DASH_RE.sub(", ", text)
-    text = re.sub(r"^[ \t]*,[ \t]*", "", text, flags=re.MULTILINE)  # a line that opened on a dash
-    text = re.sub(r"[ \t]*,[ \t]*$", "", text, flags=re.MULTILINE)  # a line that ended on one
-    return re.sub(r",[ \t]*([.,;:!?])", r"\1", text)  # a dash next to other punctuation
+    return "\n".join(_join_dash_line(line) if "—" in line else line for line in text.split("\n"))
 
 
 def _as_single_line(text: str) -> str:
@@ -165,7 +194,13 @@ def _as_single_line(text: str) -> str:
 
 
 def _clean_caption(text: str, max_length: int) -> str:
-    """Post-process one model caption: no em dashes; a short-limit (email) caption is one unlabelled line."""
+    """Post-process one model caption.
+
+    Em dashes are removed for every platform. On any short-limit platform
+    (``max_length <= SHORT_LIMIT_THRESHOLD``, i.e. 300; email is the usual one) the
+    caption is also made one line: a leading ``Subject:`` label is dropped and the
+    lines are joined by single spaces.
+    """
     text = _strip_em_dashes(text.strip())
     if _is_short_limit_value(max_length):
         text = _as_single_line(text)
@@ -1473,6 +1508,7 @@ class CaptionGeneratorOpenAI:
             self._log_condense_failed(spec, original_len, reason="exception", error=str(exc))
             return self._truncate_and_log(caption, spec, original_len)
 
+        condensed = _clean_caption(condensed or "", spec.max_length)
         if condensed and len(condensed) <= spec.max_length:
             log_json(
                 logger,

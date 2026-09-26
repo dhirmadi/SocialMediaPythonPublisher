@@ -115,6 +115,8 @@ Instruction:
 
 Post‑Processing:
 - Trim whitespace
+- Remove em dashes from every caption (PUB-051), rewriting only at the dash site
+- Short-limit platforms (`max_length <= 300`, e.g. the FetLife email subject): strip a leading `Subject:`/`Subject line:` label and join lines into one line (PUB-051); the condense pass output is cleaned the same way
 - Enforce length (truncate with unicode ellipsis if needed)
 - Normalize spacing before hashtags
 

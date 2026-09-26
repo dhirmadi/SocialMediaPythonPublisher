@@ -6,7 +6,7 @@
 | **Category** | AI |
 | **Priority** | P0 |
 | **Effort** | M |
-| **Status** | In Progress |
+| **Status** | Done |
 | **Dependencies** | PUB-049 |
 
 ## User Story
@@ -89,10 +89,11 @@ Exactly one content angle per platform per call, rotating across runs from an ex
 ## Related
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#191](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/191), [#192](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/192), [#194](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/194)
-- [PUB-025: Platform-Adaptive Captions](archive/PUB-025_platform-adaptive-captions.md), [PUB-035: Caption Context Intelligence](archive/PUB-035_caption-context-intelligence.md), [PUB-041: Vision Cost Optimization & Richer Caption Inputs](archive/PUB-041_vision-cost-optimization.md), [PUB-046: Email Caption Length Control](archive/PUB-046_email-caption-length-control.md)
+- [PUB-025: Platform-Adaptive Captions](PUB-025_platform-adaptive-captions.md), [PUB-035: Caption Context Intelligence](PUB-035_caption-context-intelligence.md), [PUB-041: Vision Cost Optimization & Richer Caption Inputs](PUB-041_vision-cost-optimization.md), [PUB-046: Email Caption Length Control](PUB-046_email-caption-length-control.md)
 - Prior fixes #79, #81, #82, #138; open [#171](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/171) (dead sanitizer default) closes here
 
 ## Change Log
 
 - 2026-09-25 — Spec hardened for Claude Code handoff (`/product-harden`). Independent architect review ran ([transcript](b69abc32-a6bb-4c7e-ab15-dc59a00d423f)); all five Must-fix findings applied: pinned the `#191`/`#192` `sd_caption` sequencing constraint (a real regression window, not just a nit), specified the fate of the now-dead `CaptionGeneratorOpenAI` SD-prompt resolution logic, pinned `web/service.py` as a second caller of both changing contracts (added a new sibling fetch method instead of breaking the existing one), gave AC5 an implementation-independent marker string so tests can be written before the persona-vs-two-call design choice is made, and corrected a factually wrong claim that vision calls are already rate-limited (they are not — flagged as a pre-existing, out-of-scope risk instead of silently expanding this item's scope). Should-improve findings applied: dropped the cross-item PUB-050 seed-helper coupling in favor of independent one-line duplication, named the angle-tracking plumbing needed inside the similarity-gate regeneration path, and added a one-line caveat that the token count is a proxy formula, not a live tokenizer. Also independently found and fixed during my own audit (before the architect pass): AC1's unspecified angle-pool values, AC2/AC3/AC4's testability gaps (undefined token-measurement method, incorrect `response_format` terminology), AC5/AC6's compound/ambiguous claims, AC7's vague fix description (now pinned to the exact `enabled_publishers`-filtering bug), AC9's non-testable-as-pytest status (reframed as a verification step, mirroring the PUB-049 precedent), and the DRY opportunity to reuse PUB-049's `DEFAULT_TELLS_LEXICON` as the source for the `caption.rules` rewrite.
 - 2026-09-26 — AC3 clarified during implementation (owner instruction "address all findings"): the 500-token bound is fixture-relative, since PUB-029's voice budget alone can exceed it; heavy profiles get a <600 regression guard. No scope change.
+- 2026-09-26 — Delivered in PR #228 (closes #191, #192, #194). See `PUB-051_summary.md` for decisions, the AC9 live-harness results and the TF-IDF deviation.

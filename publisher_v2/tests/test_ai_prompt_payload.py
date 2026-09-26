@@ -823,3 +823,111 @@ async def test_multi_prompt_asks_platforms_to_open_differently(monkeypatch: pyte
 
     lines = [line for line in prompt.splitlines() if "opens differently" in line.lower()]
     assert len(lines) == 1, f"expected exactly one 'opens differently' instruction, found {len(lines)}"
+
+
+# The rules ask for no em dashes; the model still writes them, so every caption is
+# cleaned after parsing (``_clean_caption`` / ``_strip_em_dashes``). These pin the
+# cleanup itself: without them a mutation that disables it leaves the suite green.
+
+
+class _SequentialCompletions:
+    """Returns the queued responses in order (primary multi-caption call, then condense)."""
+
+    def __init__(self, responses: list[str]) -> None:
+        self._responses = list(responses)
+        self.calls: list[dict] = []
+
+    async def create(self, **kwargs) -> _Resp:
+        self.calls.append(kwargs)
+        return _Resp(self._responses.pop(0))
+
+
+async def _multi_with(monkeypatch: pytest.MonkeyPatch, responses: list[str], specs: dict[str, CaptionSpec]):
+    completions = _SequentialCompletions(responses)
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    result, _usage = await CaptionGeneratorOpenAI(_default_config()).generate_multi(_make_analysis(), specs)
+    return result, completions
+
+
+async def test_em_dashes_are_removed_from_every_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Spaced, unspaced, line-start and line-end em dashes all go; no comma artifacts; hashtags intact."""
+    telegram_raw = (
+        "— She opened on a dash.\n"
+        "The rope—soft and grey—sat loose.\n"
+        "She waited — then nothing —.\n"
+        "The light held there —\n"
+        "\n"
+        "#rope #portrait"
+    )
+    instagram_raw = "Right away — a hook.\n—And then more —\nIt ends — , quietly.\n\n#fineart #bnw"
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096),
+        "instagram": CaptionSpec(platform="instagram", style="s", hashtags="", max_length=2200),
+    }
+    result, _ = await _multi_with(
+        monkeypatch, [json.dumps({"telegram": telegram_raw, "instagram": instagram_raw})], specs
+    )
+
+    for platform, caption in result.items():
+        assert "—" not in caption, f"{platform}: em dash survived: {caption!r}"
+        assert ", ," not in caption and ",," not in caption, f"{platform}: doubled comma: {caption!r}"
+        assert ",." not in caption and ", ." not in caption, f"{platform}: comma before period: {caption!r}"
+        assert "  " not in caption, f"{platform}: double space: {caption!r}"
+        for line in caption.splitlines():
+            assert line == line.strip(), f"{platform}: line has edge whitespace: {line!r}"
+            assert not line.startswith(","), f"{platform}: line opens on a comma: {line!r}"
+            assert not line.endswith(","), f"{platform}: line ends on a comma: {line!r}"
+    assert result["telegram"].endswith("#rope #portrait"), f"hashtags changed: {result['telegram']!r}"
+    assert result["instagram"].endswith("#fineart #bnw"), f"hashtags changed: {result['instagram']!r}"
+    assert "The rope" in result["telegram"] and "soft and grey" in result["telegram"]
+
+
+async def test_em_dash_cleanup_does_not_touch_unrelated_punctuation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only the dash site changes; a pre-existing ", ..." elsewhere in the caption is kept exactly."""
+    raw = "She waited, ... then — nothing."
+    specs = {"telegram": CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096)}
+    result, _ = await _multi_with(monkeypatch, [json.dumps({"telegram": raw})], specs)
+
+    caption = result["telegram"]
+    assert "—" not in caption, f"em dash survived: {caption!r}"
+    assert caption.startswith("She waited, ... then"), f"punctuation away from the dash was rewritten: {caption!r}"
+    assert caption.endswith("nothing."), f"text after the dash was changed: {caption!r}"
+
+
+def test_em_dash_cleanup_is_linear_on_pathological_whitespace() -> None:
+    """A dash followed by a long whitespace run must not trigger quadratic regex backtracking."""
+    import time
+
+    from publisher_v2.services.ai import _clean_caption
+
+    text = "—x" + " " * 50_000 + "x"
+    start = time.perf_counter()
+    cleaned = _clean_caption(text, 4096)
+    elapsed = time.perf_counter() - start
+
+    assert "—" not in cleaned
+    assert elapsed < 0.5, f"_clean_caption took {elapsed:.2f}s on a 50k-space input"
+
+
+@pytest.mark.parametrize(
+    "condensed",
+    [
+        "Subject: A quiet moment\nThe cuff sat loose — neither of us fixed it.",
+        "The cuff sat loose—neither of us fixed it. What would you have done?",
+    ],
+)
+async def test_condensed_caption_is_cleaned_too(monkeypatch: pytest.MonkeyPatch, condensed: str) -> None:
+    """A short-limit caption that overshoots goes through condense; the condensed text is cleaned as well."""
+    import re
+
+    oversized = "The cuff sat loose on her wrist and neither of us fixed it. " * 6  # > 240 chars
+    assert len(oversized.strip()) > 240
+    specs = {"email": CaptionSpec(platform="email", style="s", hashtags="", max_length=240)}
+    result, completions = await _multi_with(monkeypatch, [json.dumps({"email": oversized}), condensed], specs)
+
+    assert len(completions.calls) == 2, "the fixture must reach the condense pass"
+    email = result["email"]
+    assert "—" not in email, f"em dash survived the condense pass: {email!r}"
+    assert not re.match(_SUBJECT_LABEL_RE, email, re.IGNORECASE), f"subject label survived condense: {email!r}"
+    assert "neither of us fixed it" in email, f"the condensed body was lost: {email!r}"
+    assert len(email) <= 240
