@@ -257,6 +257,16 @@ async def test_a_traversal_filename_cannot_escape_the_image_folder(library_uploa
 
 
 async def test_an_rfc2231_encoded_traversal_filename_is_sanitized_too(library_upload) -> None:
+    """An RFC 2231-encoded traversal filename cannot escape the image folder.
+
+    python-multipart >= 0.0.27 ignores the RFC 5987/2231 `filename*` parameter
+    outright -- RFC 7578 section 4.2 forbids it in `multipart/form-data`, and it
+    was removed as part of the header-parsing fixes (PYSEC-2026-3036/3037/3039/
+    3040) this repo pulled in. So the hostile bytes never reach
+    `_sanitize_filename` at all and the default name is used, which is a
+    stricter guarantee than decoding them and then stripping the path. The
+    assertion below changed with that upgrade; the property under test did not.
+    """
     from .conftest import UPLOAD_BOUNDARY
 
     payload = library_upload.png(8, 8)
@@ -272,7 +282,11 @@ async def test_an_rfc2231_encoded_traversal_filename_is_sanitized_too(library_up
     res = await library_upload.post(body)
 
     assert res.status_code == 200, res.text
-    assert res.json()["key"] == "tenant/instance/evil.png"
+    assert res.json()["key"] == "tenant/instance/upload.jpg"
+    # Pin the security property itself, so this cannot pass for the wrong reason:
+    # nothing attacker-controlled reaches the key, and it stays under the prefix.
+    assert "evil" not in res.json()["key"]
+    assert library_upload.s3.puts[0]["Key"] == "tenant/instance/upload.jpg"
 
 
 async def test_a_body_cut_before_the_terminator_is_rejected(library_upload) -> None:
