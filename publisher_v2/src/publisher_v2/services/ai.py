@@ -135,6 +135,43 @@ def _is_short_limit_value(max_length: int) -> bool:
     return max_length <= SHORT_LIMIT_THRESHOLD
 
 
+# PUB-051 AC9 follow-up: the email caption sometimes came back as a whole email
+# ("Subject: ...\n\n<body>"). A leading label is dropped; subject text and body are kept.
+_SUBJECT_LABEL_RE = re.compile(r"^\s*subject(?:\s+line)?\s*:\s*", re.IGNORECASE)
+_EM_DASH_RE = re.compile(r"[ \t]*—+[ \t]*")
+
+
+def _strip_em_dashes(text: str) -> str:
+    """Replace em dashes with commas (the rules ask for none; the model still writes them)."""
+    if "—" not in text:
+        return text
+    text = _EM_DASH_RE.sub(", ", text)
+    text = re.sub(r"^[ \t]*,[ \t]*", "", text, flags=re.MULTILINE)  # a line that opened on a dash
+    text = re.sub(r"[ \t]*,[ \t]*$", "", text, flags=re.MULTILINE)  # a line that ended on one
+    return re.sub(r",[ \t]*([.,;:!?])", r"\1", text)  # a dash next to other punctuation
+
+
+def _as_single_line(text: str) -> str:
+    """A short-limit caption as one line, ``Subject:`` label dropped, lines joined by single spaces.
+
+    A line that ends without punctuation (a bare subject) gets a period so it does
+    not run into the next sentence.
+    """
+    text = _SUBJECT_LABEL_RE.sub("", text, count=1)
+    lines = [" ".join(line.split()) for line in text.splitlines()]
+    lines = [line for line in lines if line]
+    joined = [line if i == len(lines) - 1 or line[-1] in ".!?,;:…" else f"{line}." for i, line in enumerate(lines)]
+    return " ".join(joined)
+
+
+def _clean_caption(text: str, max_length: int) -> str:
+    """Post-process one model caption: no em dashes; a short-limit (email) caption is one unlabelled line."""
+    text = _strip_em_dashes(text.strip())
+    if _is_short_limit_value(max_length):
+        text = _as_single_line(text)
+    return text.strip()
+
+
 def _multi_call_max_tokens(specs: dict[str, CaptionSpec]) -> int:
     """Token budget for a multi-platform call, scaled to the enabled platforms (#79).
 
@@ -700,11 +737,11 @@ def _analysis_prose(analysis: ImageAnalysis, max_field_len: int) -> str:
         clean(analysis.mood_note),
         clean(analysis.distinctive_detail),
         clean(analysis.description),
-        f"Light: {clean(analysis.lighting)}" if clean(analysis.lighting) else "",
         f"Pose: {clean(analysis.pose)}" if clean(analysis.pose) else "",
         f"Setting: {clean(analysis.background)}" if clean(analysis.background) else "",
         f"Wearing: {clean(analysis.clothing_or_accessories)}" if clean(analysis.clothing_or_accessories) else "",
         f"Mood: {clean(analysis.mood)}" if clean(analysis.mood) else "",
+        f"Light: {clean(analysis.lighting)}" if clean(analysis.lighting) else "",
     ]
     sentences: list[str] = []
     used = 0
@@ -1215,7 +1252,7 @@ class CaptionGeneratorOpenAI:
             if short:
                 create_kwargs["max_tokens"] = SHORT_LIMIT_MAX_TOKENS_SINGLE
             resp = await self.client.chat.completions.create(**create_kwargs)
-            content = (resp.choices[0].message.content or "").strip()
+            content = _clean_caption(resp.choices[0].message.content or "", spec.max_length)
             if not content:
                 raise AIServiceError("Empty caption generated")
             # PUB-046: For short-limit platforms, try AI condense on overshoot before
@@ -1280,7 +1317,7 @@ class CaptionGeneratorOpenAI:
             resp = await self.client.chat.completions.create(**create_kwargs)
             content = (resp.choices[0].message.content or "{}").strip()
             data = json.loads(content)
-            caption = str(data.get("caption", "")).strip()
+            caption = _clean_caption(str(data.get("caption", "")), spec.max_length)
             sd_caption = str(data.get("sd_caption", "")).strip()
             if not caption:
                 raise AIServiceError("Empty caption in single-call response")
@@ -1367,11 +1404,21 @@ class CaptionGeneratorOpenAI:
                         block_examples.append(example)
         voice_block = build_voice_examples_block(block_examples)
         analysis_prose = build_analysis_context(analysis, prose=True)
+        # PUB-051 AC9 follow-up: angle text was echoed as the opening words, and
+        # platforms written in one call opened alike.
+        notes = []
+        if directives:
+            notes.append("An angle is the subject, not its first words.")
+        if len(specs) > 1:
+            notes.append("Each caption opens differently.")
+        notes_block = "\n".join(notes)
 
         prompt = (
             f"{role_prompt}\n\n"
             + (f"{voice_block}\n\n" if voice_block else "")
-            + f"{platforms_block}\n\n"
+            + f"{platforms_block}\n"
+            + (f"{notes_block}\n" if notes_block else "")
+            + "\n"
             + (f"{history_block}\n\n" if history_block else "")
             + (f"Photo: {analysis_prose}\n\n" if analysis_prose else "")
             + f"{constraints}\n"
@@ -1390,7 +1437,7 @@ class CaptionGeneratorOpenAI:
             val = data.get(platform)
             if val is None:
                 raise AIServiceError(f"Missing platform '{platform}' in LLM response")
-            caption_text = str(val).strip()
+            caption_text = _clean_caption(str(val), spec.max_length)
             if len(caption_text) > spec.max_length:
                 if _is_short_limit_value(spec.max_length):
                     caption_text = await self._handle_overshoot(caption_text, spec)

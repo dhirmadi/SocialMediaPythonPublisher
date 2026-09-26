@@ -723,3 +723,103 @@ async def test_heavy_tenant_user_message_stays_under_600_tokens(
     assert all(example in prompt for example in _PUB051_LONG_VOICE)
     assert all(tag in prompt for tag in _PUB051_SEED_HASHTAGS.split())
     assert len(prompt) / 4 < 600, f"user message is {len(prompt) / 4:.0f} tokens (len/4)"
+
+
+# ---------- PUB-051 AC9 follow-up: structural opener fixes ----------
+# The AC9 live harness run showed opener/closer 3-gram share rising above main
+# (0.40 vs 0.27). Causes: the email caption came back as a whole email with a
+# "Subject:" header; angle and stance text was echoed as the opening words
+# ("After the session…", "The air in…"); platforms in one call opened alike.
+
+_SUBJECT_LABEL_RE = r"^\s*subject(\s+line)?\s*:"
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        "Subject: A quiet moment\nThe cuff sat a little loose on her wrist and neither of us fixed it.",
+        "SUBJECT:A quiet moment\n\nThe cuff sat a little loose on her wrist and neither of us fixed it.",
+        "  subject:   A quiet moment\nThe cuff sat a little loose on her wrist and neither of us fixed it.",
+        "Subject line: A quiet moment\nThe cuff sat a little loose on her wrist and neither of us fixed it.",
+        "subject LINE :  A quiet moment\r\nThe cuff sat a little loose on her wrist and neither of us fixed it.",
+    ],
+)
+async def test_email_caption_label_and_line_breaks_are_stripped(monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
+    """A short-limit (email) caption is one line with no leading ``Subject:`` / ``Subject line:`` label.
+
+    The model sometimes writes a whole email (subject header, blank line, body). The parsed
+    result of ``generate_multi`` must be a single caption line; non-email platforms keep
+    their line breaks untouched.
+    """
+    import re
+
+    telegram_raw = "First line of the telegram post.\n\nSecond paragraph, kept as written."
+    response = json.dumps({"telegram": telegram_raw, "email": raw})
+    completions = _FakeCompletions(response)
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    specs = {
+        "telegram": CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096),
+        "email": CaptionSpec(platform="email", style="s", hashtags="", max_length=240),
+    }
+    assert len(raw) <= 240, "the fixture must not trigger the overshoot/condense path"
+
+    result, _usage = await CaptionGeneratorOpenAI(_default_config()).generate_multi(_make_analysis(), specs)
+
+    email = result["email"]
+    assert "\n" not in email and "\r" not in email, f"email caption still has line breaks: {email!r}"
+    assert not re.match(_SUBJECT_LABEL_RE, email, re.IGNORECASE), f"subject label survived: {email!r}"
+    assert email == email.strip()
+    assert "The cuff sat a little loose on her wrist" in email, f"the body was lost: {email!r}"
+    assert result["telegram"] == telegram_raw, "a non-email platform lost its line breaks"
+
+
+async def test_angle_directives_do_not_carry_opener_words(monkeypatch: pytest.MonkeyPatch) -> None:
+    """No content-angle directive carries ``after`` or ``before``, and the prompt says the angle is not the opening.
+
+    "Dwell on the moment before or after the shot" came back as "After the session…". The
+    multi-caption prompt also carries one fixed line: the angle is the subject, ``not its first words``.
+    """
+    import re
+
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    offending = {
+        key: text for key, text in CONTENT_ANGLES.items() if re.search(r"\b(after|before)\b", text, re.IGNORECASE)
+    }
+    assert offending == {}, f"angle directives carrying copyable opener words: {offending}"
+
+    specs = _pub051_specs()
+    (prompt,) = await _pub051_prompts(monkeypatch, specs, _pub051_history(list(specs)))
+
+    lines = [line for line in prompt.splitlines() if "not its first words" in line.lower()]
+    assert len(lines) == 1, f"expected exactly one 'not its first words' instruction, found {len(lines)}"
+
+
+def test_platform_stances_carry_no_scene_opener() -> None:
+    """No shipped ``platform_captions.*.style`` names a scene the model can open on.
+
+    The telegram stance "…, after a session" came back as "After the session…".
+    """
+    import re
+
+    from publisher_v2.config.static_loader import get_static_config
+
+    registry = get_static_config().ai_prompts.platform_captions
+    assert registry, "the shipped platform_captions registry is empty"
+    offending = {
+        name: style.style
+        for name, style in registry.items()
+        if re.search(r"\b(after|before|session)\b", style.style or "", re.IGNORECASE)
+    }
+    assert offending == {}, f"platform stances carrying a scene opener: {offending}"
+
+
+async def test_multi_prompt_asks_platforms_to_open_differently(monkeypatch: pytest.MonkeyPatch) -> None:
+    """With several platforms in one call, one fixed line asks that each caption ``opens differently``."""
+    specs = _pub051_specs()
+    assert len(specs) > 1
+
+    (prompt,) = await _pub051_prompts(monkeypatch, specs, _pub051_history(list(specs)))
+
+    lines = [line for line in prompt.splitlines() if "opens differently" in line.lower()]
+    assert len(lines) == 1, f"expected exactly one 'opens differently' instruction, found {len(lines)}"

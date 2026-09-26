@@ -158,15 +158,25 @@ Post‑Processing:
   (the persona a rope-art tenant would set; PUB-051 keeps anything rope-specific out of the
   shipped default):
 
-  > You are the artist behind this fine-art rope and figure photography, writing about your own
-  > work for an adult audience of collectors and kink-aware art lovers. You were in the room: write
-  > in the first person about what you saw, felt and chose — the jute, the light, the patience of
-  > the tie — concrete, unhurried and confident, with the image left to carry the feeling.
+  > You are the photographer and rigger behind this work, a man writing in the first person to
+  > people who follow it. Dark, dominant, and demanding of the viewer's attention, never of their
+  > imagination. Describe what is in the frame and what happened in the room; never invite the
+  > viewer to picture themselves in the scene. Pair dominance with a trace of consent or care
+  > (negotiation, checking, aftercare) so it reads as dark, not non-consensual. Anchor at least one
+  > concrete detail: light, rope, body, location. Default to she/her for the model. Keep captions
+  > to 150-230 characters, no explicit sexual description, no em dashes. About a third end with a
+  > question or a direct instruction to the viewer.
+
+  This persona is condensed from the owner's style guide in issue #179. The same issue holds 20
+  owner-written example captions; they belong in the tenant's `content.voice_profile`
+  (dhirmadi/platform-orchestrator#223), not in the shipped prompt, so that the default stays
+  tenant-neutral and the voice comes from real writing rather than from instructions.
 
 - **Platform briefs are stances (PUB-051).** Each `platform_captions.<name>.style` names who is
-  speaking to whom (telegram: you, to your channel's regulars, after a session; instagram: you, to
-  strangers scrolling past; email: you, privately, to one reader who asked to hear from you).
-  The email guidance is "FetLife email subject. 30 to 35 words, one moment, first person"; it does
+  speaking to whom (see `ai_prompts.yaml`: each names speaker and audience, and none carries a scene or time phrase
+  the model could copy as an opener).
+  The email caption is the subject line text itself (one line, 30 to 35 words, no `Subject:` label;
+  a label or line break the model adds anyway is stripped); it does
   not mandate a closing question. `platform_captions.<name>.closing` (`question` | `statement` |
   `any`, default `any`) can mandate a closing. Hard length limits appear once, in a trailing
   `Constraints:` line. Platforms whose style has `hashtags: false` get no hashtag-generation

@@ -67,7 +67,18 @@
 - [x] **AC6:** `test_senses_pool_prompt_text_differs_by_image_seed`, `test_caption_facing_fields_stay_out_of_sidecar_after_vision_restructure`
 - [x] **AC7:** `test_partial_retry_makes_zero_additional_ai_calls`, `test_caption_history_holds_one_row_per_successfully_published_platform_only`
 - [x] **AC8:** `test_non_json_vision_reply_retried_once_at_same_resolution_before_fallback`
-- [ ] **AC9:** not run. It needs `OPENAI_API_KEY`, which isn't available in this environment. Run `PYTHONPATH=publisher_v2/src uv run python scripts/caption_eval.py --nightly --out build/caption-eval` and paste the table into the PR.
+- [x] **AC9 (verification, human-run):** the harness `--nightly` ran live on 2026-09-26, 5 runs on this branch against 5 runs on current `main` (same fixtures and model). The committed `snapshot.json` is a synthetic bootstrap (hand-shaped captions, PUB-049), so it is not a real baseline; `main`'s own live output is. Means (main → PUB-051):
+
+  | Metric | main | PUB-051 | |
+  |---|---|---|---|
+  | opener/closer 3-gram share | 0.303 | **0.213** | −30%, under the 30% success bar |
+  | tells-lexicon hit rate | 0.077 | **0.040** | about halved |
+  | two-sentence+emoji rhythm | 0.023 | 0.003 | |
+  | vision-field overlap | 0.256 | 0.135 | |
+  | distinct-1 / distinct-2 | 0.299 / 0.742 | 0.327 / 0.795 | |
+  | TF-IDF bigram cosine to history | 0.0052 | 0.0058 | +11%, within run noise (ranges 0.0042–0.0060 vs 0.0051–0.0063, t≈1.4) |
+
+  Angle distribution over 20 images, per platform: every angle 3–4 times (uniform). The small TF-IDF rise comes from concrete nouns ("the light", "the floor", "the rope") shared with the synthetic history, which describes the same objects; concrete in-frame detail is the owner's stated style (#179). Getting there took three prompt iterations measured live: the first live run had opener share 0.40 because email replies carried a `Subject:` header and angle/stance wording was echoed as openers ("After the session…", "I chose to…", "Just out of…", "Look closely…").
 
 All 16 test names from the handoff exist exactly as named.
 
@@ -110,12 +121,13 @@ Final numbers are from the last full run; see the verdicts below.
 ## Decisions and deviations for the owner to acknowledge
 
 - **Angle pool:**
-  - `sensation` — Dwell on one physical sensation.
-  - `moment` — Dwell on the moment before or after the shot.
-  - `detail` — Dwell on one small detail most would miss.
-  - `craft` — Dwell on how it was made: one choice you made.
-  - `atmosphere` — Dwell on the room: its air, sound and light.
-  - `direct_address` — Speak to the reader directly, as if handing them the photo.
+  - `sensation` — Topic: one physical sensation.
+  - `moment` — Topic: what the camera did not see.
+  - `detail` — Topic: one overlooked detail.
+  - `craft` — Topic: a decision behind the picture.
+  - `atmosphere` — Topic: the sound and temperature of the space.
+  - `direct_address` — Topic: the reader, spoken to directly.
+  - Written as topic noun phrases with no verbs: the earlier "Dwell on …" texts were echoed as caption openers in live runs.
 - **Distinct angles within one call:** a deviation from AC1's literal "ties by pool order".
   - Without it, every platform got the same angle on every run. The Lead's critique confirmed this by running the code.
   - A platform can now take its second-oldest angle.
@@ -146,6 +158,9 @@ Final numbers are from the last full run; see the verdicts below.
 - **`app.py` preview `model_version`:** uses a heuristic (sd enabled plus a multi-capable service). It is wrong only for a generator without multi support that also returns an empty SD prompt.
 - **Angle history depth (fixed after the Lead's PR review):** a three-deep `window_size` against a six-angle pool cycled through only four angles, and `atmosphere`/`direct_address` were never used. Stored angles are now read `angle_history_depth(window_size) = max(window_size, len(CONTENT_ANGLES))` deep in the workflow, web Analyze and the harness. Caption-text history stays at `window_size`; web Analyze now also uses `window_size` for text (previously 8), so its similarity gate compares against 3 captions.
 - **Sidecar without an SD prompt:** the sidecar is written whenever captions were generated, so retry reuse (AC7), the web cache and angle recording also work with `sd_caption_enabled=False` or when vision omits the SD prompt. Line 1 is empty in that case, or keeps an earlier SD prompt (never blanked). `sd_caption_version` is omitted when there is no SD prompt. An override publish never moves the social caption into line 1 (the old fallback was removed). With SD prompts on, web Analyze treats an empty cached SD line as a cache miss and regenerates, but only when the sidecar holds no operator caption (`caption_submitted`, or `caption` with `caption_edited`); otherwise it is a cache hit as on main, so the operator's edits are never overwritten (`test_web_analyze_keeps_operator_captions_when_cached_sd_line_is_empty`). Consequence: tenants with SD prompts off now get a `.txt` sidecar per processed image.
+- **Opener hygiene (from live AC9 runs):** the multi-caption prompt carries "An angle is the subject, not its first words." and "Each caption opens differently."; email replies have any `Subject:` label stripped and are joined to one line; em dashes are removed from every caption; stances carry no scene or time phrase.
+- **CRAFT rules, informed by the owner's style guide (#179), kept tenant-neutral:** open with a concrete noun or short plain statement (never I chose / The way / Notice / Look / Here's / Just); anchor a concrete detail and one thing that happened in the room; no em dashes; no similes; vary the ending (statement, direct question, short instruction); never invite the reader into the scene. The rope-specific voice (dominance, consent, care) is documented as a tenant `system_prompt` example; the owner's 20 example captions belong in `content.voice_profile` (platform-orchestrator#223).
+- **Follow-up (PUB-049 harness, not this item):** the committed `snapshot.json`/thresholds are a synthetic bootstrap. Live output from both `main` and this branch misses several min-direction bars (distinct-1 ≈0.3 vs 0.445), so a live nightly regeneration would fail its offline scoring until the bars are re-derived from a real snapshot (`--generate-thresholds`, a deliberate human step). The nightly workflow also has no `OPENAI_API_KEY` repo secret.
 - **Delivered as one PR closing #191, #192 and #194**, not three. #191 cannot ship alone (the sd_caption sequencing constraint), and the pre-commit hook blocks commits whose tests are red, so the changes cannot be split into green commits.
 - **Approved scope growth:**
   - User-approved on 2026-09-25: `web/service.py` and the `scripts/` changes.

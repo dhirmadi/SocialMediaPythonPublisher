@@ -340,13 +340,15 @@ def trigram_jaccard(a: str, b: str) -> float:
 # PUB-051: the content-angle pool. Each directive names what the caption dwells
 # on, not how it opens. Ordered: order is the deterministic LRU tie-break. No
 # directive text may contain another, so a prompt can be counted structurally.
+# AC9 follow-up: no scene words (after/before) or nouns the model copies as an
+# opener ("air") -- "after the shot" came back as "After the session...".
 CONTENT_ANGLES: dict[str, str] = {
-    "sensation": "Dwell on one physical sensation.",
-    "moment": "Dwell on the moment before or after the shot.",
-    "detail": "Dwell on one small detail most would miss.",
-    "craft": "Dwell on how it was made: one choice you made.",
-    "atmosphere": "Dwell on the room: its air, sound and light.",
-    "direct_address": "Speak to the reader directly, as if handing them the photo.",
+    "sensation": "Topic: one physical sensation.",
+    "moment": "Topic: what the camera did not see.",
+    "detail": "Topic: one overlooked detail.",
+    "craft": "Topic: a decision behind the picture.",
+    "atmosphere": "Topic: the sound and temperature of the space.",
+    "direct_address": "Topic: the reader, spoken to directly.",
 }
 
 

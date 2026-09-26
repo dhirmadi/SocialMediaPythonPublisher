@@ -53,7 +53,14 @@ caption:
   # PUB-051: one "write X instead of Y" line per pattern in
   # utils/caption_metrics.DEFAULT_TELLS_LEXICON (same order; that list is the source
   # of truth for what counts as a tell — update both together).
+  # PUB-051 AC9 follow-up: generic craft rules drawn from the owner's style guide
+  # (#179). Tenant-neutral; anything subject-specific belongs in the tenant persona.
   rules: >
+    CRAFT: open with a concrete noun or a short plain statement, never a scene-setting clause.
+    Never open with I chose, The way, Notice, Look, Here's or Just. Anchor at least one concrete detail from the
+    frame and one thing that happened in the room. No em dashes. No similes. Vary the ending: a plain statement,
+    a direct question to the reader, or a short instruction. Never invite the reader to picture themselves in the
+    scene.
     BANNED CONSTRUCTIONS (never use): rhetorical-question openers; "step into"; strings of trailing emoji;
     ellipsis endings ("..."); generic engagement bait ("tag someone who...", "double tap if...").
     WRITE THIS INSTEAD:
@@ -75,7 +82,7 @@ caption:
     name both parts instead of "perfect blend of";
     give the actual day or place instead of "in today's world";
     say what changed instead of "game changer".
-  role: "One caption per platform for this photo, in your own voice."
+  role: "One caption per platform, in your own voice."
   # Used when only one platform is being written (the single-caption fallbacks).
   role_single: "Write one caption for the platform below about this photograph, in your own voice."
 
@@ -92,14 +99,15 @@ sd_caption:
     Respond strictly as JSON with keys caption, sd_caption.
 
 # Platform-specific caption styles for multi-platform generation (PUB-025)
-# PUB-051: each style names who is speaking to whom (a stance, not adjectives).
+# PUB-051: each style names who is speaking to whom (a stance, not adjectives). No scene
+# words (after/before/session): the model echoes them as openers (AC9 follow-up).
 platform_captions:
   telegram:
-    style: "you, to your channel's regulars, after a session"
+    style: "you, to your channel's regulars"
     max_length: 4096
     hashtags: false
   instagram:
-    style: "you, to strangers scrolling past; open on a visual detail; one emoji max"
+    style: "you, to strangers scrolling past; one emoji max"
     max_length: 2200
     hashtags: true
   email:
@@ -107,7 +115,7 @@ platform_captions:
     max_length: 240
     hashtags: false
     # #138: a length and register brief only — no mandated shape, no static examples.
-    guidance: "FetLife email subject. 30 to 35 words, one moment, first person."
+    guidance: "The caption is the FetLife subject line itself: one line, 30-35 words, first person, no label or greeting."
     closing: any
   generic:
     style: "you, speaking plainly to anyone who sees the image"

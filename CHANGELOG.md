@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Vision calls (including the JSON retry and fallback) now share the `AIService` rate limiter; `scripts/caption_eval.py --nightly` threads angles across fixtures and reports their distribution
 - Security: the sidecar's `sd_caption` line is flattened to one line; analysis-field sanitisation redacts every injection-marker occurrence
 - Security: line breaks are treated as spaces before injection-marker redaction
+- Caption openers: angles are topic noun phrases, the prompt asks each caption to open differently and not to start with its angle's words, email replies lose any `Subject:` label and line breaks, em dashes are removed, and `caption.rules` gains CRAFT guidance drawn from the owner's style guide (#179). Live harness (5 runs each vs main): opener share 0.30 → 0.21, tells rate 0.077 → 0.040
 
 ### Added - PUB-050: Owner Voice Corpus in Every Caption Prompt
 - `content.voice_profile_tags` (`dict[str, list[str]] | None`): maps a platform name to the subset of `voice_profile` examples preferred for that platform. Plumbed through `ContentConfig`, `OrchestratorContent`, `_build_app_config_v2` and the `CONTENT_SETTINGS` env loader, and added to `REDACT_KEYS` — it carries the same sensitive operator text as `voice_profile`
