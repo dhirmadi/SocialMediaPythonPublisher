@@ -75,7 +75,7 @@ class _FakeClient:
 
 def _default_config() -> OpenAIConfig:
     return OpenAIConfig(
-        api_key="sk-test",
+        api_key="sk-test",  # pragma: allowlist secret
         vision_model="gpt-4o",
         caption_model="gpt-4o-mini",
         sd_caption_enabled=True,
