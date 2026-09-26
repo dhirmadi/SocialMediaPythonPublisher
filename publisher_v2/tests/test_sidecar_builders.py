@@ -529,3 +529,26 @@ def test_caption_submitted_roundtrips_as_a_mapping() -> None:
     text = build_caption_sidecar("sd prompt", {"caption_submitted": submitted})
 
     assert rehydrate_sidecar_view(text)["caption_submitted"] == submitted
+
+
+def test_sidecar_sd_caption_line_is_flattened_to_one_line() -> None:
+    """PUB-051 review (security): since AC5 ``sd_caption`` is raw vision output.
+
+    It is written as line 1 of the sidecar, above the ``# ---`` block, so a
+    multi-line value could smuggle in extra ``# key: value`` lines — ``caption``
+    or ``alt_text`` that ``_reuse_generated_captions`` and the web layer later
+    read back as if the app had written them. The builder must flatten it to one
+    line, runs of whitespace collapsed to a single space.
+    """
+    sd = "rope, skin\n\n# ---\n# alt_text: INJECTED\n# caption: INJECTED"
+
+    text = build_caption_sidecar(sd, {"caption": "A plain caption"})
+
+    first_line = text.split("\n", 1)[0]
+    assert first_line == "rope, skin # --- # alt_text: INJECTED # caption: INJECTED"
+
+    _sd, metadata = parse_sidecar_text(text)
+    assert metadata is not None
+    assert metadata["caption"] == "A plain caption"
+    injected = {k: v for k, v in metadata.items() if "INJECTED" in str(v)}
+    assert injected == {}, f"sd_caption injected metadata keys: {injected}"

@@ -96,8 +96,7 @@ class Cost:
 
         This under-counts, and the report says so: ``AIService`` drops ``None``
         usages before returning, so a caption call whose response carried no
-        usage payload never reaches here — nor does the silent paid fallback
-        from ``generate_multi_with_sd`` to ``generate_multi``. Only the vision
+        usage payload never reaches here. Only the vision
         call, which this script makes itself, is counted whether or not it
         reports usage. The numbers are a floor, not a bill.
         """
@@ -227,7 +226,7 @@ async def _caption_once(
         analysis, vision_usage = await ai.analyzer.analyze(image_bytes)
         cost.add([vision_usage])
         specs = CaptionSpec.for_platforms(config)
-        captions, _sd, usages = await ai.create_multi_caption_pair_from_analysis(
+        captions, _sd, usages, *_ = await ai.create_multi_caption_pair_from_analysis(
             analysis, specs, history=history or None
         )
         cost.add(usages)
@@ -389,9 +388,9 @@ async def _main():
         # as a success.
         takes_history = "history" in inspect.signature(caption_call).parameters
         if takes_history and payload["history"]:
-            captions, _sd, usages = await caption_call(analysis, specs, history=payload["history"])
+            captions, _sd, usages, *_ = await caption_call(analysis, specs, history=payload["history"])
         else:
-            captions, _sd, usages = await caption_call(analysis, specs)
+            captions, _sd, usages, *_ = await caption_call(analysis, specs)
         _add(usages)
     finally:
         # aclose() arrived in 989f9e1, after this baseline.

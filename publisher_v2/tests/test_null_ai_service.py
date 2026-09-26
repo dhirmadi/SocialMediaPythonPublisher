@@ -28,10 +28,12 @@ class TestNullGenerator:
             await NullAIService.generator.generate_multi(_analysis(), [])
 
     async def test_the_sd_entry_points_raise_too(self) -> None:
-        """sd_caption_enabled defaults to True, so these are what a mis-gated run calls first."""
+        """sd_caption_enabled defaults to True, so this is what a mis-gated single-platform run calls first.
+
+        PUB-051 review: generate_multi_with_sd is deleted (no production caller after AC4),
+        so the single-platform generate_with_sd is the only sd entry point left.
+        """
         from publisher_v2.services.ai import NullAIService
 
         with pytest.raises(AIServiceError):
             await NullAIService.generator.generate_with_sd(_analysis(), None)
-        with pytest.raises(AIServiceError):
-            await NullAIService.generator.generate_multi_with_sd(_analysis(), [])

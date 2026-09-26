@@ -152,7 +152,8 @@ class WorkflowOrchestrator:
 
         if use_metadata:
             list_start = now_monotonic()
-            images_with_hashes = await self.storage.list_images_with_hashes(image_folder)
+            # A copy: the shuffle below must not reorder a list the storage owns.
+            images_with_hashes = list(await self.storage.list_images_with_hashes(image_folder))
             dropbox_list_ms = elapsed_ms(list_start)
             if not images_with_hashes:
                 return _ImageSelection("", b"", "", "", dropbox_list_ms, None, error="No images found")
@@ -243,7 +244,8 @@ class WorkflowOrchestrator:
         else:
             # Legacy path: list_images + SHA256-only dedup
             list_start = now_monotonic()
-            images = await self.storage.list_images(image_folder)
+            # A copy: the shuffle below must not reorder a list the storage owns.
+            images = list(await self.storage.list_images(image_folder))
             dropbox_list_ms = elapsed_ms(list_start)
             if not images:
                 return _ImageSelection("", b"", "", "", dropbox_list_ms, None, error="No images found")
@@ -347,6 +349,11 @@ class WorkflowOrchestrator:
         publish_targets: list[Publisher] = []
         lease_claimed_at = 0.0
         skip_ai_stage = False
+        # PUB-051 AC7: captions a previous partial run generated, reused on its retry.
+        reused_captions: dict[str, str] | None = None
+        reused_analysis: ImageAnalysis | None = None
+        reused_angles: dict[str, str] = {}
+        angles: dict[str, str] = {}
         temp_link = ""
         # #84: re-anchored just before vision runs; initialized here for scope.
         ai_stage_deadline = now_monotonic() + self._settings.ai_stage_timeout_seconds
@@ -467,9 +474,22 @@ class WorkflowOrchestrator:
                 # Nothing left to publish: skip the AI stage entirely (it only
                 # feeds the publish + sidecar path for this run).
                 skip_ai_stage = not publish_targets
+                # PUB-051 AC7: a retry of a partial publish (some platforms already
+                # posted) reads the captions the first run wrote to the sidecar
+                # instead of paying for vision and captioning again.
+                already_posted = any(r.success for r in publish_results.values())
+                wants_ai_captions = not caption_override and not any(
+                    c and c.strip() for c in (caption_overrides or {}).values()
+                )
+                if publish_targets and already_posted and wants_ai_captions:
+                    reuse = await self._reuse_generated_captions(
+                        selected_image, [p.platform_name for p in publish_targets], correlation_id
+                    )
+                    if reuse is not None:
+                        reused_captions, reused_analysis, reused_angles = reuse
 
             # 3. Analyze image with vision AI (feature-gated)
-            if self.config.features.analyze_caption_enabled and not skip_ai_stage:
+            if self.config.features.analyze_caption_enabled and not skip_ai_stage and reused_captions is None:
                 if not preview_mode:
                     log_json(
                         self.logger,
@@ -510,7 +530,13 @@ class WorkflowOrchestrator:
                     logging.INFO,
                     "feature_analyze_caption_skipped",
                     correlation_id=correlation_id,
-                    reason="nothing left to publish" if skip_ai_stage else "FEATURE_ANALYZE_CAPTION=false",
+                    reason=(
+                        "nothing left to publish"
+                        if skip_ai_stage
+                        else "captions reused from sidecar"
+                        if reused_captions is not None
+                        else "FEATURE_ANALYZE_CAPTION=false"
+                    ),
                 )
 
             # 4. Generate caption from analysis (feature-gated)
@@ -544,16 +570,29 @@ class WorkflowOrchestrator:
                     ai_skipped=True,
                     correlation_id=correlation_id,
                 )
+            elif reused_captions is not None:
+                # Publishers still get the alt text and tags the first run recorded.
+                analysis = reused_analysis
+                platform_captions = dict(reused_captions)
+                # The angles the first run recorded, so this run's history rows keep them.
+                angles = {p: a for p, a in reused_angles.items() if p in platform_captions}
+                caption = next(iter(platform_captions.values()), "")
+                log_json(
+                    self.logger,
+                    logging.INFO,
+                    "caption_reused_from_sidecar",
+                    platforms=list(platform_captions),
+                    correlation_id=correlation_id,
+                )
             elif self.config.features.analyze_caption_enabled and not skip_ai_stage:
                 if analysis is None:
                     raise AIServiceError("Vision analysis is None but caption generation is enabled")
                 if not preview_mode:
                     log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
                 caption_start = now_monotonic()
-                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                    log_json(self.logger, logging.INFO, "sd_caption_start", correlation_id=correlation_id)
                 # PUB-035: Fetch caption history for context intelligence
                 caption_history: dict[str, list[str]] | list[str] | None = None
+                history_angles: dict[str, list[str | None]] | None = None
                 history_cfg = get_static_config().ai_prompts.caption_history
                 # Caption history is DB-only post-cleanup. When no caption_store
                 # is configured we pass None — the storage-scan fallback was
@@ -561,11 +600,14 @@ class WorkflowOrchestrator:
                 # and added 8 extra GETs per publish on the hot path.
                 if self._caption_store is not None:
                     try:
-                        db_history = await self._caption_store.fetch_recent_by_platform(
+                        # PUB-051: the stored angle of each row feeds the content-angle rotation.
+                        db_rows = await self._caption_store.fetch_recent_with_angles_by_platform(
                             self._tenant,
                             platforms=list(specs.keys()),
                             limit=history_cfg.window_size,
                         )
+                        db_history = {p: [text for text, _a in rows] for p, rows in db_rows.items()}
+                        history_angles = {p: [a for _t, a in rows] for p, rows in db_rows.items()}
                         caption_history = db_history
                         history_count = sum(len(v) for v in db_history.values()) if db_history else 0
                         log_json(
@@ -600,9 +642,14 @@ class WorkflowOrchestrator:
                             platform_captions,
                             sd_caption,
                             caption_usages,
+                            angles,
                         ) = await asyncio.wait_for(
                             self.ai_service.create_multi_caption_pair_from_analysis(
-                                analysis, specs, history=caption_history, voice_examples=voice_examples
+                                analysis,
+                                specs,
+                                history=caption_history,
+                                voice_examples=voice_examples,
+                                history_angles=history_angles,
                             ),
                             timeout=max(0.05, ai_stage_deadline - now_monotonic()),
                         )
@@ -630,22 +677,22 @@ class WorkflowOrchestrator:
                         platform_count=len(platform_captions),
                         correlation_id=correlation_id,
                     )
-                if self.config.openai.sd_caption_enabled and self.config.openai.sd_caption_single_call_enabled:
-                    log_json(
-                        self.logger,
-                        logging.INFO,
-                        "sd_caption_complete",
-                        has_sd=bool(sd_caption),
-                        correlation_id=correlation_id,
-                    )
+                # PUB-051: the SD prompt now comes from the neutral vision call.
+                sd_from_vision = not sd_caption and self.config.openai.sd_caption_enabled and bool(analysis.sd_caption)
+                if sd_from_vision:
+                    sd_caption = analysis.sd_caption
+                    log_json(self.logger, logging.INFO, "sd_caption_from_vision", correlation_id=correlation_id)
                 if analysis and sd_caption:
                     analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
                 if sd_caption and not self.config.content.debug and not dry_publish and not preview_mode:
                     from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
-                    model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(
-                        self.ai_service.generator, "model", ""
-                    )
+                    if sd_from_vision:
+                        model_version = getattr(self.ai_service.analyzer, "model", None) or ""
+                    else:
+                        model_version = getattr(self.ai_service.generator, "sd_caption_model", None) or getattr(
+                            self.ai_service.generator, "model", ""
+                        )
                     # Error already logged inside helper; suppress to continue workflow.
                     # sidecar_write_ms will remain None in workflow_timing on failure.
                     with contextlib.suppress(Exception):
@@ -661,6 +708,7 @@ class WorkflowOrchestrator:
                                 correlation_id=correlation_id,
                                 log_prefix="sidecar_upload",
                                 platform_captions=platform_captions,
+                                caption_angles=angles or None,
                             )
                         )
             else:
@@ -754,6 +802,9 @@ class WorkflowOrchestrator:
                 any_success = self.config.content.debug if self.config.features.publish_enabled else False
                 all_success = any_success
 
+            # PUB-051: the sidecar view the override update read, reused for the override angles.
+            override_sidecar_view: dict[str, Any] | None = None
+            override_sidecar_update_failed = False
             # PUB-035: Update sidecar with published caption when caption_override was used
             if (
                 any_success
@@ -765,18 +816,23 @@ class WorkflowOrchestrator:
             ):
                 from publisher_v2.services.sidecar import update_sidecar_with_caption
 
-                with contextlib.suppress(Exception):
-                    sidecar_write_ms = int(
-                        await update_sidecar_with_caption(
-                            storage=self.storage,
-                            folder=self.config.storage_paths.image_folder,
-                            filename=selected_image,
-                            published_caption=caption,
-                            caption_edited=True,
-                            correlation_id=correlation_id,
-                            published_platform_captions=platform_captions or None,
-                        )
+                try:
+                    update = await update_sidecar_with_caption(
+                        storage=self.storage,
+                        folder=self.config.storage_paths.image_folder,
+                        filename=selected_image,
+                        published_caption=caption,
+                        caption_edited=True,
+                        correlation_id=correlation_id,
+                        published_platform_captions=platform_captions or None,
                     )
+                except Exception:
+                    # Error already logged inside the helper; the history save below
+                    # records NULL override angles rather than reading the sidecar again.
+                    override_sidecar_update_failed = True
+                else:
+                    sidecar_write_ms = int(update.duration_ms)
+                    override_sidecar_view = update.prior_view
 
             # Save published (formatted) captions to DB for caption history
             if (
@@ -792,10 +848,17 @@ class WorkflowOrchestrator:
                 try:
                     source = "manual_override" if (caption_override or overrides) else "ai_generated"
                     # Build the actual published text per platform (after format_caption)
-                    # and track truncation info for GH #73 monitoring.
+                    # and track truncation info for GH #73 monitoring. PUB-051 AC7: only
+                    # platforms this run published successfully — a failed platform's
+                    # caption was never seen, and an already-posted one is on record.
                     published_captions: dict[str, str] = {}
                     truncation_info: dict[str, tuple[bool, int | None]] = {}
-                    for p in enabled_publishers:
+                    published_now = [
+                        p
+                        for p in publish_targets
+                        if publish_results.get(p.platform_name) and publish_results[p.platform_name].success
+                    ]
+                    for p in published_now:
                         raw = platform_captions.get(p.platform_name, caption)
                         formatted = format_caption(
                             p.platform_name, raw, smart_hashtags=self.config.features.smart_hashtags_enabled
@@ -804,6 +867,14 @@ class WorkflowOrchestrator:
                         if len(formatted) < len(raw):
                             truncation_info[p.platform_name] = (True, len(raw))
 
+                    if caption_override or overrides:
+                        # PUB-051: an override the operator left unedited keeps the generated angle.
+                        angles = self._override_angles(
+                            override_sidecar_view,
+                            override_sidecar_update_failed,
+                            {p: platform_captions.get(p, caption) for p in published_captions},
+                            correlation_id,
+                        )
                     caption_model = getattr(getattr(self.ai_service, "generator", None), "model", None)
                     saved = await self._caption_store.save_captions_batch(
                         tenant=self._tenant,
@@ -814,6 +885,7 @@ class WorkflowOrchestrator:
                         caption_source=source,
                         model_version=str(caption_model) if caption_model else None,
                         truncation_info=truncation_info or None,
+                        angles_by_platform={p: a for p, a in angles.items() if p in published_captions} or None,
                     )
                     log_json(
                         self.logger,
@@ -1102,6 +1174,77 @@ class WorkflowOrchestrator:
                 )
                 variants[platform] = tmp_path
         return variants
+
+    async def _read_sidecar_view(self, filename: str) -> dict[str, Any] | None:
+        """The rehydrated sidecar view of ``filename``, or None when it has no sidecar. May raise."""
+        from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+        blob = await self.storage.download_sidecar_if_exists(self.config.storage_paths.image_folder, filename)
+        if not blob:
+            return None
+        return rehydrate_sidecar_view(blob.decode("utf-8", errors="replace"), source=filename)
+
+    def _override_angles(
+        self,
+        view: dict[str, Any] | None,
+        read_failed: bool,
+        published: dict[str, str],
+        correlation_id: str,
+    ) -> dict[str, str]:
+        """PUB-051: the sidecar angle of each published override the operator left unedited.
+
+        ``view`` is the sidecar view ``update_sidecar_with_caption`` already read
+        (None when there was no sidecar, or the update did not run), so this makes
+        no storage call of its own. An override equal (after ``strip()``) to the
+        sidecar's ``caption_generated[platform]`` keeps ``caption_angles[platform]``;
+        any other platform gets no angle. When that read failed there are no angles
+        and a content-free warning is logged.
+        """
+        if read_failed:
+            log_json(self.logger, logging.WARNING, "caption_override_angles_failed", correlation_id=correlation_id)
+            return {}
+        if view is None:
+            return {}
+        generated = view.get("caption_generated") or {}
+        recorded: dict[str, str] = view.get("caption_angles") or {}
+        return {
+            p: recorded[p]
+            for p, text in published.items()
+            if p in recorded and isinstance(generated.get(p), str) and generated[p].strip() == text.strip()
+        }
+
+    async def _reuse_generated_captions(
+        self, filename: str, platforms: list[str], correlation_id: str
+    ) -> tuple[dict[str, str], ImageAnalysis, dict[str, str]] | None:
+        """PUB-051 AC7: the captions an earlier run generated for ``platforms``, from its sidecar.
+
+        Returns ``(captions, analysis, angles)`` only when the sidecar's ``caption_generated``
+        covers every platform; ``analysis`` is rebuilt from the sidecar metadata so
+        publishers still get alt text and tags, and ``angles`` is the sidecar's
+        ``caption_angles``. Read-only; any problem returns None and the run pays
+        for a fresh AI stage as before.
+        """
+        try:
+            view = await self._read_sidecar_view(filename)
+            if view is None:
+                return None
+        except Exception:
+            log_json(self.logger, logging.WARNING, "caption_reuse_failed", correlation_id=correlation_id)
+            return None
+        generated = view.get("caption_generated") or {}
+        captions = {p: generated[p] for p in platforms if isinstance(generated.get(p), str) and generated[p].strip()}
+        if len(captions) != len(platforms):
+            return None
+        meta = view.get("metadata") or {}
+        tags = meta.get("tags")
+        alt_text = meta.get("alt_text")
+        analysis = ImageAnalysis(
+            description="",
+            mood="",
+            tags=[str(t) for t in tags] if isinstance(tags, list) else [],
+            alt_text=alt_text if isinstance(alt_text, str) and alt_text.strip() else None,
+        )
+        return captions, analysis, dict(view.get("caption_angles") or {})
 
     def _build_publisher_context(self, analysis: ImageAnalysis | None) -> dict[str, Any] | None:
         if analysis is None:

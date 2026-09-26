@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - PUB-051: Caption Prompt and Register Repair
+- Structure-directive rotation replaced by a content-angle pool (`CONTENT_ANGLES`) rotated least-recently-used over a new stored `angle` column (`pv2_caption_history.angle`, additive Alembic migration 004); platforms in one call get distinct angles while the pool allows; the similarity-gate retry never reuses the rejected angle
+- Caption prompt slimmed: no closing-pattern line, at most two openings to avoid (emoji/hashtags stripped), analysis rendered as a short prose paragraph without colour palette, tags or aesthetic terms; smart-hashtag platforms get up to five plain-word topics
+- Caption call samples at temperature 0.9, `frequency_penalty` 0.3, `presence_penalty` 0.6 and requests platform keys only
+- `sd_caption` now comes from the neutral-register vision call (gpt-4o), not the caption completion; `sd_caption_single_call_enabled` and the `sd_caption_*` overrides no longer affect the multi-platform path
+- Vision `sensory_detail`/`mood_note` written under an owner-voice section (tenant persona when set) with a senses pool seeded from the image hash; a non-JSON vision reply is retried once before the fallback
+- Default caption persona rewritten as a person; `caption.rules` gives a "write X instead of Y" line for every tell in `DEFAULT_TELLS_LEXICON`; each platform style is a speaker-to-audience stance
+- Caption history records only platforms that published successfully, with their angle (also for reused and unedited-override captions via the sidecar's new `caption_angles`); a partial-publish retry reuses the sidecar's `caption_generated` and makes no AI calls
+- Security: the sidecar's `sd_caption` line is flattened to one line; analysis-field sanitisation redacts every injection-marker occurrence
+
 ### Added - PUB-046: Email Caption Length Control
 - Few-shot `examples` and word-count `guidance` added to the email platform prompt (`ai_prompts.yaml`)
 - Caption length instructions switched from character counts to word counts for platforms with `max_length <= 300` — LLMs follow word limits far more reliably than character limits

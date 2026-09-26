@@ -251,7 +251,8 @@ def _escape_line_breaks(rendered: str) -> str:
 def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
     r"""Compose the sidecar file content.
 
-    - First line: sd_caption
+    - First line: sd_caption, flattened to one line (every whitespace run, line
+      breaks included, becomes one space) so it cannot inject `# key: value` lines
     - Blank line
     - '# ---'
     - '# key: value' lines; arrays and objects encoded as JSON (#134: a dict via str()
@@ -267,7 +268,7 @@ def build_caption_sidecar(sd_caption: str, metadata: dict[str, Any]) -> str:
       existing sidecars keep their current shape.
     """
     lines: list[str] = []
-    lines.append(sd_caption.strip())
+    lines.append(" ".join(sd_caption.split()))
     lines.append("")  # blank line
     lines.append("# ---")
     for key, value in metadata.items():
@@ -336,57 +337,45 @@ def trigram_jaccard(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-# Ordered registry: order is the deterministic tie-break for least-recently-used.
-STRUCTURE_DIRECTIVES: dict[str, str] = {
-    "declarative": "Open with a plain declarative statement.",
-    "fragment": "Open with a short sensory fragment (no full sentence needed).",
-    "second_person": "Address the viewer directly in second person.",
-    "observation": "Write a quiet observation; no questions anywhere in the caption.",
-    "short_line": "Write a single line under 12 words.",
+# PUB-051: the content-angle pool. Each directive names what the caption dwells
+# on, not how it opens. Ordered: order is the deterministic LRU tie-break. No
+# directive text may contain another, so a prompt can be counted structurally.
+CONTENT_ANGLES: dict[str, str] = {
+    "sensation": "Dwell on one physical sensation.",
+    "moment": "Dwell on the moment before or after the shot.",
+    "detail": "Dwell on one small detail most would miss.",
+    "craft": "Dwell on how it was made: one choice you made.",
+    "atmosphere": "Dwell on the room: its air, sound and light.",
+    "direct_address": "Speak to the reader directly, as if handing them the photo.",
 }
 
 
-def classify_caption_structure(caption: str) -> str:
-    """Best-effort mapping of a caption to a STRUCTURE_DIRECTIVES key.
+def pick_content_angle(
+    history_angles: Sequence[str | None],
+    exclude: frozenset[str] = frozenset(),
+    avoid: frozenset[str] = frozenset(),
+) -> str:
+    """Pick the content-angle key least recently used in ``history_angles`` (PUB-051).
 
-    Approximate by design — it only needs to be stable enough for the
-    least-recently-used rotation in ``pick_structure_directive``.
+    ``history_angles`` holds the stored ``angle`` of each history row,
+    most-recent-first. ``None`` (a row written before the column existed) and
+    keys no longer in the pool count as never used. Never-used keys win, in pool
+    order; otherwise the key used furthest back wins. ``exclude`` removes keys
+    that would contradict the platform brief; excluding everything falls back to
+    the whole pool rather than failing. ``avoid`` is a soft preference (keys
+    already taken by other platforms in the same call): the first key in LRU
+    order that is not avoided wins, and when every candidate is avoided the plain
+    LRU pick is returned.
     """
-    stripped = caption.strip().strip('"')
-    words = _words(stripped)
-    lowered = stripped.lower()
-    if lowered.startswith(("you ", "your ", "you'")):
-        return "second_person"
-    first_sentence = re.split(r"[.!?\n]", stripped, maxsplit=1)[0]
-    if len(_words(first_sentence)) <= 4:
-        return "fragment"
-    if len(words) < 8 and "\n" not in stripped:
-        return "short_line"
-    sentence_count = len([s for s in re.split(r"[.!?\n]+", stripped) if s.strip()])
-    if "?" not in stripped and sentence_count >= 2:
-        return "observation"
-    return "declarative"
-
-
-def pick_structure_directive(history: list[str], exclude: frozenset[str] = frozenset()) -> str:
-    """Pick the structural directive least recently used in ``history`` (#82).
-
-    ``history`` is ordered most-recent-first (as fetched from the DB). The
-    directive whose structure appears furthest back (or not at all) wins;
-    registry order breaks ties deterministically. ``exclude`` (#138) removes
-    directive keys that would contradict the platform brief.
-    """
-    candidates = [k for k in STRUCTURE_DIRECTIVES if k not in exclude] or list(STRUCTURE_DIRECTIVES)
+    candidates = [k for k in CONTENT_ANGLES if k not in exclude] or list(CONTENT_ANGLES)
     last_used: dict[str, int] = {}
-    for idx, caption in enumerate(history):
-        key = classify_caption_structure(caption)
-        if key not in last_used:
+    for idx, key in enumerate(history_angles):
+        if key in CONTENT_ANGLES and key not in last_used:
             last_used[key] = idx  # smaller idx == more recent
     never_used = [k for k in candidates if k not in last_used]
-    if never_used:
-        return STRUCTURE_DIRECTIVES[never_used[0]]
-    key = max(candidates, key=lambda k: last_used[k])
-    return STRUCTURE_DIRECTIVES[key]
+    used = sorted((k for k in candidates if k in last_used), key=lambda k: -last_used[k])
+    ranked = never_used + used
+    return next((k for k in ranked if k not in avoid), ranked[0])
 
 
 def caption_opening(caption: str, word_count: int = 6) -> str:
@@ -394,11 +383,15 @@ def caption_opening(caption: str, word_count: int = 6) -> str:
     return " ".join(caption.strip().strip('"').split()[:word_count])
 
 
-def caption_closing_pattern(caption: str) -> str:
-    """Classify how a caption closes: question | statement | fragment."""
-    stripped = caption.strip().strip('"')
-    if stripped.endswith("?"):
-        return "question"
-    if stripped.endswith((".", "!")):
-        return "statement"
-    return "fragment"
+_HASHTAG_RE = re.compile(r"#\w+", re.UNICODE)
+# Pictographs, dingbats, arrows/symbols blocks, variation selectors and the ZWJ.
+_EMOJI_RE = re.compile("[\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\ufe00-\ufe0f\u200d\U0001f000-\U0001faff]")
+
+
+def strip_emoji_and_hashtags(caption: str) -> str:
+    """PUB-051: a history caption without its emoji and hashtags, whitespace collapsed.
+
+    Constraints are derived from the words; an opening such as "🌿 #shibari
+    Window light" must not teach the model to avoid an emoji.
+    """
+    return " ".join(_EMOJI_RE.sub(" ", _HASHTAG_RE.sub(" ", caption)).split())

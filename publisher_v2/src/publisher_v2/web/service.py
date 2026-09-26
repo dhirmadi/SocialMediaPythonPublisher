@@ -894,20 +894,29 @@ class WebImageService:
 
         # Fetch caption history for anti-repetition
         caption_history: dict[str, list[str]] | None = None
+        # PUB-051: each platform's stored angles (most-recent-first) feed the angle rotation.
+        history_angles: dict[str, list[str | None]] | None = None
+        angles: dict[str, str] = {}
         if self._caption_store is not None:
             try:
-                caption_history = await self._caption_store.fetch_recent_by_platform(
+                rows = await self._caption_store.fetch_recent_with_angles_by_platform(
                     self._tenant, platforms=list(specs.keys())
                 )
+                caption_history = {p: [text for text, _a in items] for p, items in rows.items()}
+                history_angles = {p: [a for _t, a in items] for p, items in rows.items()}
             except Exception:
                 log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
 
         try:
             caption_budget = max(0.05, ai_stage_deadline - time.monotonic())
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
-                platform_captions_dict, sd_caption, caption_usages = await asyncio.wait_for(
+                platform_captions_dict, sd_caption, caption_usages, angles = await asyncio.wait_for(
                     ai.create_multi_caption_pair_from_analysis(
-                        analysis, specs, history=caption_history, voice_examples=voice_examples
+                        analysis,
+                        specs,
+                        history=caption_history,
+                        voice_examples=voice_examples,
+                        history_angles=history_angles,
                     ),
                     timeout=caption_budget,
                 )
@@ -939,6 +948,13 @@ class WebImageService:
             if self._usage_meter and fallback_usages:
                 await self._usage_meter.emit_all(fallback_usages)
 
+        # PUB-051: the SD prompt now comes from the vision call; the caption stage
+        # only supplies one on the single-platform fallback path.
+        sd_enabled = getattr(self.config.openai, "sd_caption_enabled", True)
+        sd_from_vision = not sd_caption and sd_enabled and bool(analysis.sd_caption)
+        if sd_from_vision:
+            sd_caption = analysis.sd_caption
+
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:
             analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
@@ -948,7 +964,10 @@ class WebImageService:
         if sd_caption and not self.config.content.debug:
             from publisher_v2.services.sidecar import generate_and_upload_sidecar
 
-            model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
+            if sd_from_vision:
+                model_version = getattr(ai.analyzer, "model", None) or ""
+            else:
+                model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
             try:
                 await generate_and_upload_sidecar(
                     storage=self.storage,
@@ -961,6 +980,7 @@ class WebImageService:
                     correlation_id=correlation_id,
                     log_prefix="web_sidecar_upload",
                     platform_captions=platform_captions_dict,
+                    caption_angles=angles or None,
                 )
                 sidecar_written = True
             except Exception:  # noqa: S110 — error already logged in helper  # nosec B110

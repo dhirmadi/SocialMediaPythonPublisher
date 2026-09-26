@@ -289,7 +289,11 @@ class TestAnalyzeAndCaptionSidecarWriteException:
             service.ai_service.create_caption_pair_from_analysis = AsyncMock(return_value=("caption", "sd_caption", []))  # type: ignore[method-assign, union-attr]
             ai = service.ai_service
             ai.create_multi_caption_pair_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-                return_value=({"generic": "caption"}, "sd_caption", [])
+                return_value=({"generic": "caption"}, "sd_caption", [], {})  # PUB-051: + angles
+            )
+            # Keep a multi-path failure from reaching the real OpenAI client via the fallback.
+            ai.create_caption_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
+                side_effect=AssertionError("caption-only fallback ran; the multi-caption path failed")
             )
 
             # Mock sidecar generation to fail - the import is inside the method
@@ -333,3 +337,201 @@ class TestListImages:
 
             assert result["filenames"] == ["apple.jpg", "mango.jpg", "zebra.jpg"]
             assert result["count"] == 3
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: the web Analyze path feeds the angle rotation and
+# records the chosen angles in the sidecar, like the workflow does.
+#
+# Real AIService, CaptionStore (SQLite in memory) and WorkflowOrchestrator; only
+# OpenAI (recording fake), storage and publishers are faked.
+# ---------------------------------------------------------------------------
+
+
+def _bare_web_service(config, storage, ai_service, caption_store, images: list[str], tenant: str = "t1"):
+    """A WebImageService without __init__ (which loads env/config), wired to the given parts."""
+    import logging
+
+    from publisher_v2.config.runtime_settings import RuntimeSettings
+    from publisher_v2.web.service import WebImageService
+
+    svc = WebImageService.__new__(WebImageService)
+    svc._settings = RuntimeSettings()
+    svc.logger = logging.getLogger("test")
+    svc._usage_meter = None
+    svc._storage_ops_meter = None
+    svc._caption_store = caption_store
+    svc._publish_store = None
+    svc._tenant = tenant
+    svc._runtime = None
+    svc._config_source = None
+    svc._ai_unavailable_until = None
+    svc.config = config
+    svc.storage = storage
+    svc.ai_service = ai_service
+    svc._get_cached_images = AsyncMock(return_value=list(images))  # type: ignore[method-assign]
+    return svc
+
+
+def _spy_multi_caption(service) -> list[tuple[dict, tuple]]:
+    """Record each create_multi_caption_pair_from_analysis call's kwargs and result, delegating to the real one."""
+    calls: list[tuple[dict, tuple]] = []
+    real = service.create_multi_caption_pair_from_analysis
+
+    async def _spy(*args, **kwargs):
+        result = await real(*args, **kwargs)
+        calls.append((kwargs, result))
+        return result
+
+    service.create_multi_caption_pair_from_analysis = _spy
+    return calls
+
+
+async def _memory_session_factory():
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.db.models import Base
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    return engine, async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+
+
+@pytest.mark.asyncio
+async def test_web_analyze_passes_stored_angles_to_the_rotation(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Web Analyze reads each platform's stored angles and hands them to the rotation as ``history_angles``."""
+    from caption_pipeline_fakes import FakeOpenAI, SidecarStorage, install_fake_openai, pipeline_config, real_ai_service
+
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    pool = list(CONTENT_ANGLES)
+    engine, factory = await _memory_session_factory()
+    try:
+        store = CaptionStore(factory)
+        # Oldest first: a legacy row with no angle, then two rows with stored angles.
+        await store.save_captions_batch(tenant="t1", captions_by_platform={"telegram": "Legacy row, no angle."})
+        await store.save_captions_batch(
+            tenant="t1",
+            captions_by_platform={"telegram": "Frayed ends and a bare wall."},
+            angles_by_platform={"telegram": pool[3]},
+        )
+        await store.save_captions_batch(
+            tenant="t1",
+            captions_by_platform={"telegram": "Hemp, a kettle, the long second wrap."},
+            angles_by_platform={"telegram": pool[1]},
+        )
+
+        fake = FakeOpenAI(["telegram"])
+        install_fake_openai(monkeypatch, fake)
+        ai = real_ai_service()
+        calls = _spy_multi_caption(ai)
+        svc = _bare_web_service(pipeline_config(telegram=True), SidecarStorage(["a.jpg"]), ai, store, ["a.jpg"])
+
+        await svc.analyze_and_caption("a.jpg", force_refresh=True)
+
+        assert len(calls) == 1, "web Analyze did not go through create_multi_caption_pair_from_analysis"
+        kwargs, _result = calls[0]
+        history_angles = kwargs.get("history_angles")
+        assert history_angles, "web Analyze passed no history_angles to the rotation"
+        stored = [a for a in history_angles.get("telegram", []) if a is not None]
+        assert stored == [pool[1], pool[3]], f"expected the stored angles most-recent-first, got {history_angles}"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_web_analyze_survives_history_fetch_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A caption-history read that raises does not break web Analyze: captions still come back,
+    and the rotation gets no stored angles (``history_angles`` None or empty).
+    """
+    from caption_pipeline_fakes import FakeOpenAI, SidecarStorage, install_fake_openai, pipeline_config, real_ai_service
+
+    from publisher_v2.db.caption_store import CaptionStore
+
+    engine, factory = await _memory_session_factory()
+    try:
+        store = CaptionStore(factory)
+        fetches: list[object] = []
+
+        async def _boom(*args, **kwargs):
+            fetches.append((args, kwargs))
+            raise RuntimeError("database unavailable")
+
+        monkeypatch.setattr(store, "fetch_recent_with_angles_by_platform", _boom)
+
+        fake = FakeOpenAI(["telegram"])
+        install_fake_openai(monkeypatch, fake)
+        ai = real_ai_service()
+        calls = _spy_multi_caption(ai)
+        svc = _bare_web_service(pipeline_config(telegram=True), SidecarStorage(["a.jpg"]), ai, store, ["a.jpg"])
+
+        response = await svc.analyze_and_caption("a.jpg", force_refresh=True)
+
+        assert fetches, "setup: web Analyze never tried to read the caption history"
+        assert response.caption, "web Analyze returned no caption after the history read failed"
+        assert len(calls) == 1, "web Analyze fell off the multi-caption path after the history read failed"
+        kwargs, result = calls[0]
+        assert not kwargs.get("history_angles"), f"expected no history_angles, got {kwargs.get('history_angles')}"
+        assert not kwargs.get("history"), f"expected no caption history, got {kwargs.get('history')}"
+        assert result[0].get("telegram"), f"no telegram caption generated: {result[0]}"
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["workflow", "web"])
+async def test_sidecar_records_caption_angles_next_to_caption_generated(
+    path: str, monkeypatch: pytest.MonkeyPatch, tmp_path
+) -> None:
+    """The sidecar an analyze/caption stage writes carries ``caption_angles`` (platform -> angle key).
+
+    It sits next to ``caption_generated`` and names the angle each generated
+    caption was actually written under (the one the caption stage returned).
+    """
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+
+    from publisher_v2.services.sidecar_parser import parse_sidecar_text
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    platforms = ["telegram", "instagram"]
+    fake = FakeOpenAI(platforms)
+    install_fake_openai(monkeypatch, fake)
+    ai = real_ai_service()
+    calls = _spy_multi_caption(ai)
+    storage = SidecarStorage(["a.jpg"])
+    config = pipeline_config(telegram=True, instagram=True)
+
+    if path == "workflow":
+        from publisher_v2.core.workflow import WorkflowOrchestrator
+
+        orchestrator = WorkflowOrchestrator(
+            config, storage, ai, [ScriptedPublisher(p, [True]) for p in platforms], tenant="t1"
+        )
+        result = await orchestrator.execute(select_filename="a.jpg")
+        assert result.success, result.error
+    else:
+        svc = _bare_web_service(config, storage, ai, None, ["a.jpg"])
+        response = await svc.analyze_and_caption("a.jpg", force_refresh=True)
+        assert response.sidecar_written is True
+
+    assert len(calls) == 1
+    returned_angles = calls[0][1][3]
+    assert "a.jpg" in storage.sidecars, "no sidecar written"
+    _sd, meta = parse_sidecar_text(storage.sidecars["a.jpg"])
+    assert meta is not None
+    assert isinstance(meta.get("caption_generated"), dict), "setup: caption_generated missing from the sidecar"
+    recorded = meta.get("caption_angles")
+    assert isinstance(recorded, dict), f"sidecar has no caption_angles map: {sorted(meta)}"
+    assert set(recorded) == set(meta["caption_generated"]), (recorded, meta["caption_generated"])
+    assert all(v in CONTENT_ANGLES for v in recorded.values()), recorded
+    assert recorded == returned_angles, "caption_angles must be the angles the kept captions were written under"

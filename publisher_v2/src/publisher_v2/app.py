@@ -177,7 +177,18 @@ async def main_async() -> int:
             # Show caption sidecar content (sd_caption + metadata)
             if result.image_analysis and getattr(result.image_analysis, "sd_caption", None):
                 created_iso = datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-                model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
+                # PUB-051: same rule as the workflow's ``sd_from_vision``. The multi-platform
+                # generator returns no sd_caption, so with SD prompts enabled the analysis's
+                # sd_caption came from the vision call and the sidecar names its model.
+                sd_from_vision = (
+                    bool(getattr(cfg.openai, "sd_caption_enabled", False))
+                    and hasattr(ai_service, "create_multi_caption_pair_from_analysis")
+                    and hasattr(generator, "generate_multi")
+                )
+                if sd_from_vision:
+                    model_version = getattr(analyzer, "model", None) or ""
+                else:
+                    model_version = getattr(generator, "sd_caption_model", None) or getattr(generator, "model", "")
                 file_meta = await storage.get_file_metadata(cfg.storage_paths.image_folder, result.image_name)
                 phase1 = build_metadata_phase1(
                     image_file=result.image_name,

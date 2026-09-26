@@ -93,9 +93,21 @@ class _FakeCompletions:
     async def create(self, **kwargs: Any) -> SimpleNamespace:
         messages = kwargs.get("messages") or []
         user = messages[-1]["content"] if messages else ""
+        is_json_call = (kwargs.get("response_format") or {}).get("type") == "json_object"
         if isinstance(user, list):  # vision call carries an image part
-            content = json.dumps({"description": "Rope on skin", "mood": "intimate", "tags": ["rope"], "nsfw": False})
-        elif "sd_caption" in str(user):
+            # PUB-051 AC5: sd_caption now comes from the vision call, so the fake vision reply carries it.
+            content = json.dumps(
+                {
+                    "description": "Rope on skin",
+                    "mood": "intimate",
+                    "tags": ["rope"],
+                    "nsfw": False,
+                    "sd_caption": "rope, skin",
+                }
+            )
+        elif is_json_call:
+            # PUB-051 AC4: the caption call asks for platform keys only (no sd_caption), so route on its
+            # shape — the one text-only json_object request — not on an "sd_caption" mention.
             content = json.dumps(self._owner.multi_payload)
         else:
             content = EMAIL_CAPTION
@@ -185,7 +197,8 @@ def real_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[None]:
         monkeypatch.setenv(key, value)
     for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH", "INSTA_PASSWORD"):
         monkeypatch.delenv(key, raising=False)
-    _FakeOpenAI.multi_payload = {"telegram": TELEGRAM_CAPTION, "email": EMAIL_CAPTION, "sd_caption": "rope, skin"}
+    # PUB-051 AC4: the caption reply carries the enabled platforms only; sd_caption is the vision call's (AC5).
+    _FakeOpenAI.multi_payload = {"telegram": TELEGRAM_CAPTION, "email": EMAIL_CAPTION}
     _FakeBot.sent = []
     _FakeSMTP.subjects = []
 

@@ -8,7 +8,7 @@ import pytest
 
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.services.ai import AIService
-from publisher_v2.utils.captions import pick_structure_directive, trigram_jaccard
+from publisher_v2.utils.captions import trigram_jaccard
 
 
 class TestTrigramJaccard:
@@ -35,25 +35,11 @@ class TestTrigramJaccard:
         assert trigram_jaccard("Soft Rope, steady HANDS here", "soft rope steady hands here") == 1.0
 
 
-class TestStructureDirectiveRotation:
-    def test_returns_a_directive_string(self) -> None:
-        directive = pick_structure_directive([])
-        assert isinstance(directive, str) and directive
-
-    def test_rotates_after_history_grows(self) -> None:
-        history: list[str] = []
-        first = pick_structure_directive(history)
-        # Simulate a caption written under the first directive being added to
-        # history: the next pick must move on to a different directive.
-        history = ["This is a plain declarative statement about rope."]
-        second = pick_structure_directive(history)
-        assert second != first
-
-    def test_least_recently_used_wins(self) -> None:
-        # A question-heavy history should never pick something classified as
-        # recently used; deterministic for identical input.
-        history = ["You know this feeling well.", "Quiet lines. Nothing more."]
-        assert pick_structure_directive(history) == pick_structure_directive(history)
+# PUB-051 AC1: TestStructureDirectiveRotation tested pick_structure_directive, which the
+# spec deletes along with classify_caption_structure (it reverse-classified caption text
+# and so returned the same directive on every run). Replaced by the stored-angle rotation
+# tests in test_caption_angle_rotation.py (pick_content_angle LRU/tie-break/exclusions and
+# the three AC1 tests).
 
 
 def _make_specs() -> dict[str, CaptionSpec]:
@@ -77,10 +63,9 @@ class _GateStubGenerator:
         self.calls: list[str | None] = []
         self._responses = [first, second]
 
-    async def generate_multi(
-        self, analysis, specs, history=None, voice_examples=None, diversity_clause=None, directives=None
-    ):
-        # #138: the regeneration now also passes per-platform ``directives``.
+    async def generate_multi(self, analysis, specs, history=None, voice_examples=None, diversity_clause=None, **kwargs):
+        # #138/PUB-051: the service also passes the per-platform angle selection; this
+        # stub does not care what that keyword is called.
         self.calls.append(diversity_clause)
         text = self._responses[min(len(self.calls) - 1, len(self._responses) - 1)]
         return dict.fromkeys(specs, text), None
@@ -94,7 +79,7 @@ class TestSimilarityGate:
         service = AIService(analyzer=None, generator=gen)  # type: ignore[arg-type]
 
         with caplog.at_level(logging.INFO, logger="publisher_v2.services.ai"):
-            captions, _sd, _usages = await service.create_multi_caption_pair_from_analysis(
+            captions, _sd, _usages, _angles = await service.create_multi_caption_pair_from_analysis(
                 _analysis(), _make_specs(), history=HISTORY
             )
 
@@ -112,7 +97,7 @@ class TestSimilarityGate:
         service = AIService(analyzer=None, generator=gen)  # type: ignore[arg-type]
 
         with caplog.at_level(logging.INFO, logger="publisher_v2.services.ai"):
-            captions, _sd, _usages = await service.create_multi_caption_pair_from_analysis(
+            captions, _sd, _usages, _angles = await service.create_multi_caption_pair_from_analysis(
                 _analysis(), _make_specs(), history=HISTORY
             )
 

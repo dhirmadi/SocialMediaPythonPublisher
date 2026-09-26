@@ -26,12 +26,15 @@ vision:
     - distinctive_detail: one concrete, unusual, specific visual detail (≤ 20 words); null if nothing stands out.
     - Unknown values → null or [].
 
-    CAPTION-FACING FIELDS (not metadata — written for the caption writer, warm and adult, never explicit acts):
-    - sensory_detail: 2–3 concrete, evocative details a person would feel or notice (texture, tension,
-      temperature, gaze, breath), each ≤ 15 words.
-    - mood_note: one sentence in the voice of someone who finds this image beautiful — not an analyst.
+    sensory_detail and mood_note are not metadata: write them as the OWNER-VOICE SECTION of the system
+    message says.
 
     Return ONE JSON object ONLY — no extra text.
+  # PUB-051: appended to ``user`` only when openai.sd_caption_enabled is true, so a
+  # tenant with SD prompts off is never asked for (or warned about) sd_caption.
+  sd_caption: |
+    Also include the key sd_caption (metadata, neutral): one Stable Diffusion prompt in PG-13 fine-art
+    phrasing; include pose, styling/material, lighting and mood; comma-separated phrases, no sentences.
 
 caption:
   # #138: tenant-neutral default. A tenant's own persona belongs in its system_prompt
@@ -39,19 +42,45 @@ caption:
   # The persona only. A tenant OPENAI_SETTINGS.system_prompt replaces this, which
   # is what the docs tell a tenant to set — so the rules below live under their
   # own key and are appended to whichever persona is in force (#138).
+  # PUB-051: written as a person, not a list of adjectives.
   system: >
-    You write in the account owner's voice; adult, warm, specific, unhurried. First person, concrete;
-    specific sensory detail over abstraction; let the image carry the feeling.
+    You made these photographs, and you are writing about your own work for the people who follow it.
+    You are an adult who is warm, specific and in no hurry. You write in the first person about what
+    happened in the room: what you saw, what you felt, what you chose. Plain words, concrete detail,
+    no sales talk. You let the image carry the feeling instead of explaining it.
   # Always appended, tenant persona or not: these are what deliver "fewer machine
   # tells", and a tenant that writes its own persona must not silently lose them.
+  # PUB-051: one "write X instead of Y" line per pattern in
+  # utils/caption_metrics.DEFAULT_TELLS_LEXICON (same order; that list is the source
+  # of truth for what counts as a tell — update both together).
   rules: >
-    BANNED CONSTRUCTIONS (never use): rhetorical-question openers; the "isn't just X, it's Y" pattern;
-    "step into"; strings of trailing emoji; ellipsis endings ("..."); generic engagement bait
-    ("tag someone who...", "double tap if...").
-  role: "Write one caption per platform below about this photograph, in the account owner's voice."
+    BANNED CONSTRUCTIONS (never use): rhetorical-question openers; "step into"; strings of trailing emoji;
+    ellipsis endings ("..."); generic engagement bait ("tag someone who...", "double tap if...").
+    WRITE THIS INSTEAD:
+    name the thing itself instead of "there is something about";
+    say what it is instead of "it isn't just X, it's Y";
+    say what it is instead of "not just a";
+    say what it adds instead of "more than just";
+    start in the room instead of "in a world where";
+    show the evidence instead of calling it "a testament to";
+    just say it instead of "let's be honest";
+    speak to one person instead of "whether you're";
+    end on a concrete detail instead of "at the end of the day";
+    name the subject instead of "when it comes to";
+    use a plain verb (look, start, try) instead of "dive in";
+    describe the change instead of "elevate your";
+    say what opens up instead of "unlock the";
+    let the detail speak instead of "speaks volumes";
+    stop on the image instead of "let that sink in";
+    name both parts instead of "perfect blend of";
+    give the actual day or place instead of "in today's world";
+    say what changed instead of "game changer".
+  role: "One caption per platform for this photo, in your own voice."
   # Used when only one platform is being written (the single-caption fallbacks).
-  role_single: "Write one caption for the platform below about this photograph, in the account owner's voice."
+  role_single: "Write one caption for the platform below about this photograph, in your own voice."
 
+# PUB-051: the multi-platform caption call no longer produces sd_caption (the vision
+# call does). This block still drives the single-platform generate_with_sd fallback.
 sd_caption:
   system: >
     You are a fine-art prompt engineer. Produce Stable-Diffusion-ready prompts in PG-13 fine-art language,
@@ -63,24 +92,25 @@ sd_caption:
     Respond strictly as JSON with keys caption, sd_caption.
 
 # Platform-specific caption styles for multi-platform generation (PUB-025)
+# PUB-051: each style names who is speaking to whom (a stance, not adjectives).
 platform_captions:
   telegram:
-    style: "conversational, emoji-friendly, artistic commentary"
+    style: "you, to your channel's regulars, after a session"
     max_length: 4096
     hashtags: false
   instagram:
-    style: "open with one specific visual detail from the image; first-person artist voice; no rhetorical-question opener; at most one emoji; hashtags woven at the end"
+    style: "you, to strangers scrolling past; open on a visual detail; one emoji max"
     max_length: 2200
     hashtags: true
   email:
-    style: "intimate, FetLife-appropriate"
+    style: "you, privately, to one reader who asked to hear from you"
     max_length: 240
     hashtags: false
     # #138: a length and register brief only — no mandated shape, no static examples.
-    guidance: "FetLife email subject. 30 to 35 words, one moment, first person, no hashtags."
+    guidance: "FetLife email subject. 30 to 35 words, one moment, first person."
     closing: any
   generic:
-    style: "minimal_poetic"
+    style: "you, speaking plainly to anyone who sees the image"
     max_length: 2200
     hashtags: true
 

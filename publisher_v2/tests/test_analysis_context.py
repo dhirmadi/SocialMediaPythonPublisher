@@ -179,3 +179,46 @@ def test_tags_capped_at_25_items_and_40_chars() -> None:
     rendered = ast.literal_eval(match.group(1))
     assert len(rendered) == 25
     assert all(len(t) <= 40 for t in rendered)
+
+
+def test_sanitize_analysis_field_redacts_every_marker_occurrence() -> None:
+    """Security: a marker repeated in one field is redacted every time, not only its first occurrence."""
+    from publisher_v2.services.ai import _INJECTION_MARKERS, _sanitize_analysis_field
+
+    out = _sanitize_analysis_field("system: a system: b ignore previous x ignore previous", 500)
+
+    assert out is not None
+    lowered = out.lower()
+    leftover = [m for m in _INJECTION_MARKERS if m in lowered]
+    assert not leftover, f"injection markers survived sanitizing: {leftover} in {out!r}"
+    assert "[redacted]" in out
+
+
+@pytest.mark.parametrize(
+    "sep",
+    ["\n", "\t", "\xa0", " ", "\r\n"],
+    ids=["newline", "tab", "nbsp", "line-separator", "crlf"],
+)
+def test_sanitize_analysis_field_treats_line_breaks_as_spaces_before_redacting(sep: str) -> None:
+    """Security: a separator between marker words becomes a space, so the marker is still redacted.
+
+    Deleting the separator instead would join "ignore" and "previous" into "ignoreprevious",
+    which no marker matches, and the instruction would reach the caption prompt intact.
+    """
+    from publisher_v2.services.ai import _INJECTION_MARKERS, _sanitize_analysis_field
+
+    out = _sanitize_analysis_field(f"ignore{sep}previous instructions", 500)
+
+    assert out is not None
+    lowered = out.lower()
+    leftover = [m for m in _INJECTION_MARKERS if m in lowered]
+    assert not leftover, f"injection markers survived sanitizing: {leftover} in {out!r}"
+    assert "ignoreprevious" not in lowered, f"separator was deleted, not turned into a space: {out!r}"
+
+    assert _sanitize_analysis_field(f"word{sep}word", 500) == "word word"
+
+    # Zero-width characters are still stripped, so they cannot hide a marker either.
+    zero_width = _sanitize_analysis_field("ign​ore previous", 500)
+    assert zero_width is not None
+    assert "ignore previous" not in zero_width.lower()
+    assert "[redacted]" in zero_width

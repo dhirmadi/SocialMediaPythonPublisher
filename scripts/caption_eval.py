@@ -107,10 +107,10 @@ _UNUSED_ENV_PLACEHOLDERS: dict[str, str] = {
     "STORAGE_PATHS": '{"root": "/unused"}',
     "PUBLISHERS": '[{"type": "telegram", "channel_id": "@unused"}]',
     "DROPBOX_APP_KEY": "unused",
-    "DROPBOX_APP_SECRET": "unused",
+    "DROPBOX_APP_SECRET": "unused",  # pragma: allowlist secret
     "DROPBOX_REFRESH_TOKEN": "unused",
     "TELEGRAM_BOT_TOKEN": "unused",
-    "EMAIL_PASSWORD": "unused",
+    "EMAIL_PASSWORD": "unused",  # pragma: allowlist secret
     "OPENAI_SETTINGS": "{}",
 }
 
@@ -424,9 +424,9 @@ async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
     analyses = await asyncio.to_thread(load_analyses, fixtures)
     entries: list[dict[str, Any]] = []
     for name, analysis in analyses.items():
-        # Returns (captions, sd_caption, usages); neither the SD caption nor the
-        # usage counters belong in the snapshot.
-        captions, _sd_caption, _usages = await service.create_multi_caption_pair_from_analysis(
+        # Returns (captions, sd_caption, usages, angles) since PUB-051 (three values
+        # before); none but the captions belong in the snapshot.
+        captions, _sd_caption, _usages, *_ = await service.create_multi_caption_pair_from_analysis(
             analysis, specs, history=history
         )
         entries.append({"analysis": name, "captions": dict(captions)})

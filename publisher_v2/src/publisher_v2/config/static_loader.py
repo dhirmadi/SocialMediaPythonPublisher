@@ -32,6 +32,10 @@ class AIVisionPrompts(BaseModel):
         default=None,
         description="User instructions for vision analysis",
     )
+    sd_caption: str | None = Field(
+        default=None,
+        description="PUB-051: sd_caption request appended to the user instructions when SD prompts are enabled",
+    )
 
 
 class AICaptionPrompts(BaseModel):
@@ -365,6 +369,18 @@ def _load_yaml(path: Path) -> dict[str, Any]:
         return {}
 
 
+_PACKAGED_STATIC_DIR = Path(__file__).with_name("static")
+
+
+def _packaged_vision_sd_caption(root: Path) -> str | None:
+    """Return the shipped ``vision.sd_caption`` text, or None when root is the packaged dir itself."""
+    if root.resolve() == _PACKAGED_STATIC_DIR.resolve():
+        return None
+    vision = _load_yaml(_PACKAGED_STATIC_DIR / "ai_prompts.yaml").get("vision")
+    value = vision.get("sd_caption") if isinstance(vision, dict) else None
+    return value if isinstance(value, str) else None
+
+
 def load_static_config(base_dir: str | None = None) -> StaticConfig:
     """Load static configuration from YAML files, falling back to safe defaults.
 
@@ -375,7 +391,7 @@ def load_static_config(base_dir: str | None = None) -> StaticConfig:
         root = Path(base_dir)
     else:
         env_dir = os.environ.get("PV2_STATIC_CONFIG_DIR")
-        root = Path(env_dir) if env_dir else Path(__file__).with_name("static")
+        root = Path(env_dir) if env_dir else _PACKAGED_STATIC_DIR
 
     ai_data = _load_yaml(root / "ai_prompts.yaml")
     platform_data = _load_yaml(root / "platform_limits.yaml")
@@ -383,8 +399,15 @@ def load_static_config(base_dir: str | None = None) -> StaticConfig:
     web_ui_data = _load_yaml(root / "web_ui_text.en.yaml")
     service_data = _load_yaml(root / "service_limits.yaml")
 
+    ai_prompts = AIPromptsConfig(**ai_data) if ai_data else AIPromptsConfig()
+    # PUB-051: a static dir written before vision.sd_caption existed has no such key.
+    # An absent key falls back to the packaged request text (single source); an explicit
+    # null stays None and opts out.
+    if "sd_caption" not in ai_prompts.vision.model_fields_set:
+        ai_prompts.vision.sd_caption = _packaged_vision_sd_caption(root)
+
     return StaticConfig(
-        ai_prompts=AIPromptsConfig(**ai_data) if ai_data else AIPromptsConfig(),
+        ai_prompts=ai_prompts,
         platform_limits=PlatformLimitsConfig(**platform_data) if platform_data else PlatformLimitsConfig(),
         preview_text=PreviewTextConfig(**preview_data) if preview_data else PreviewTextConfig(),
         web_ui_text=WebUITextConfig(**web_ui_data) if web_ui_data else WebUITextConfig(),

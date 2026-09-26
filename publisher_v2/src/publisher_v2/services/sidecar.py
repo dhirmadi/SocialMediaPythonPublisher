@@ -3,19 +3,19 @@
 A sidecar is the ``.txt`` file written beside each image; it carries the SD
 prompt, the per-platform captions and the provenance metadata (image identity,
 model version, Dropbox file id/rev) that caption history and later web Analyze
-calls read back. Both entry points return their duration in milliseconds and
-report failures through structured logs rather than raising, so a sidecar
+calls read back. Both entry points return their duration in milliseconds (the
+caption update alongside the sidecar view it read) and report failures through structured logs rather than raising, so a sidecar
 problem never aborts a publish.
 """
 
 import json
 import logging
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NamedTuple
 
 from publisher_v2.config.schema import ApplicationConfig
 from publisher_v2.core.models import ImageAnalysis
-from publisher_v2.services.sidecar_parser import parse_sidecar_text
+from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
 from publisher_v2.services.storage_protocol import StorageProtocol
 from publisher_v2.utils.captions import (
     build_caption_sidecar,
@@ -40,12 +40,15 @@ async def generate_and_upload_sidecar(
     caption_generated: str | None = None,
     caption_edited: bool = False,
     platform_captions: dict[str, str] | None = None,
+    caption_angles: dict[str, str] | None = None,
 ) -> float:
     """Generate and upload a caption sidecar file.
 
     ``platform_captions`` (#80): the per-platform social captions generated in
     this run; persisted as a ``caption_generated`` JSON dict so later web
     Analyze calls can serve the real caption instead of the SD prompt.
+    ``caption_angles`` (PUB-051): platform -> the content-angle key each of
+    those captions was written under; metadata only, never shown as a caption.
 
     Returns:
         float: Duration of the operation in milliseconds.
@@ -80,6 +83,8 @@ async def generate_and_upload_sidecar(
             caption_generated = json.dumps(platform_captions, ensure_ascii=False)
         if caption_generated:
             meta["caption_generated"] = caption_generated
+        if caption_angles:
+            meta["caption_angles"] = dict(caption_angles)
         if caption_edited:
             meta["caption_edited"] = str(caption_edited)
             # #147: this writes the SD prompt under the `caption` + `caption_edited`
@@ -123,6 +128,19 @@ async def generate_and_upload_sidecar(
         raise
 
 
+class SidecarCaptionUpdate(NamedTuple):
+    """Result of ``update_sidecar_with_caption``.
+
+    ``prior_view`` is the rehydrated view (``rehydrate_sidecar_view``) of the
+    sidecar as it was before this update, or None when there was none. PUB-051
+    reads the override angles from it, so an override publish downloads the
+    sidecar only once.
+    """
+
+    duration_ms: float
+    prior_view: dict[str, Any] | None
+
+
 async def update_sidecar_with_caption(
     storage: StorageProtocol,
     folder: str,
@@ -131,7 +149,7 @@ async def update_sidecar_with_caption(
     caption_edited: bool = True,
     correlation_id: str | None = None,
     published_platform_captions: dict[str, str] | None = None,
-) -> float:
+) -> SidecarCaptionUpdate:
     """Update an existing sidecar with the published caption.
 
     PUB-035: When a caption override is used, the published caption must be
@@ -140,7 +158,8 @@ async def update_sidecar_with_caption(
     If no sidecar exists, creates a minimal one with just the caption.
 
     Returns:
-        float: Duration of the operation in milliseconds.
+        SidecarCaptionUpdate: the duration in milliseconds and the view of the
+        sidecar as read before the update (None when none existed).
     """
     start_time = now_monotonic()
 
@@ -157,10 +176,13 @@ async def update_sidecar_with_caption(
 
         sd_caption: str | None = None
         meta: dict[str, Any] = {}
+        prior_view: dict[str, Any] | None = None
 
         if existing_data:
             text = existing_data.decode("utf-8", errors="replace")
-            sd_caption, parsed_meta = parse_sidecar_text(text, source=filename)
+            prior_view = rehydrate_sidecar_view(text, source=filename)
+            sd_caption = prior_view.get("sd_caption")
+            parsed_meta = prior_view.get("metadata")
             if parsed_meta:
                 meta = dict(parsed_meta)
 
@@ -193,7 +215,7 @@ async def update_sidecar_with_caption(
             correlation_id=correlation_id,
             sidecar_caption_update_ms=duration,
         )
-        return duration
+        return SidecarCaptionUpdate(duration, prior_view)
 
     except Exception as exc:
         duration = elapsed_ms(start_time)

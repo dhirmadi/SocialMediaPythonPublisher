@@ -593,9 +593,10 @@ class BaseDummyAI:
 
     async def create_multi_caption_pair_from_analysis(
         self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec], **kwargs: object
-    ) -> tuple[dict[str, str], str | None, list]:
+    ) -> tuple[dict[str, str], str | None, list, dict[str, str]]:
+        # PUB-051: (captions, sd_caption, usages, angles-by-platform).
         captions = {k: self._caption for k in specs}
-        return captions, self.generator._sd_caption, []
+        return captions, self.generator._sd_caption, [], {}
 
 
 @pytest.fixture

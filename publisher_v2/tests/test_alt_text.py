@@ -27,12 +27,18 @@ def test_imageanalysis_accepts_alt_text_value() -> None:
 
 
 def test_default_vision_prompts_include_alt_text() -> None:
-    from publisher_v2.services import ai as ai_mod
+    """PUB-051: asserted on the ai_prompts.yaml vision prompts — the ones the analyzer sends.
 
-    assert "alt_text" in ai_mod._DEFAULT_VISION_SYSTEM_PROMPT
-    assert "alt_text" in ai_mod._DEFAULT_VISION_USER_PROMPT
-    assert "125" in ai_mod._DEFAULT_VISION_SYSTEM_PROMPT
-    assert "screen readers" in ai_mod._DEFAULT_VISION_SYSTEM_PROMPT.lower()
+    The in-code ``_DEFAULT_VISION_*`` constants this used to read were dead (the YAML
+    always wins) and the spec removes them (Problem 6 / Scope).
+    """
+    from publisher_v2.config.static_loader import get_static_config
+
+    vision = get_static_config().ai_prompts.vision
+    prompt = f"{vision.system}\n{vision.user}"
+    assert "alt_text" in prompt
+    assert "125" in prompt
+    assert "screen readers" in prompt.lower()
 
 
 class _DummyMessage:
@@ -184,7 +190,7 @@ async def test_web_analyze_and_caption_returns_alt_text_when_enabled(monkeypatch
         analyzer = _Analyzer()
 
         async def create_multi_caption_pair_from_analysis(self, analysis: ImageAnalysis, specs, history=None):
-            return {"telegram": "cap"}, None, []
+            return {"telegram": "cap"}, None, [], {}  # PUB-051: angles are the fourth element
 
         async def create_caption_from_analysis(self, analysis: ImageAnalysis, spec):
             return "cap", []

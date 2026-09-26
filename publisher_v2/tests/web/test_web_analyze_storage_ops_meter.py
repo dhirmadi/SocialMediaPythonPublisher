@@ -39,7 +39,12 @@ def _make_service(monkeypatch: pytest.MonkeyPatch):
     analysis = ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[])
     service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
     service.ai_service.create_multi_caption_pair_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        return_value=({"generic": "fresh AI caption"}, "fresh sd", [])
+        return_value=({"generic": "fresh AI caption"}, "fresh sd", [], {})  # PUB-051: + angles
+    )
+    # No real OpenAI call if the multi path ever fails: the caption-only fallback is not mocked
+    # otherwise, and would reach the network with the test key.
+    service.ai_service.create_caption_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
+        side_effect=AssertionError("caption-only fallback ran; the multi-caption path failed")
     )
     return service
 

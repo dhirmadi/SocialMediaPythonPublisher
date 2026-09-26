@@ -229,9 +229,10 @@ class TestPerPlatformHistoryBlock:
         assert "Recent openings to avoid" in block
         assert "Cap A about the slow morning" in block
         assert "Cap A about the slow morning light in here" not in block
-        assert "closing pattern to avoid" in block.lower()
-        assert "DIFFERENT openings" in block
-        assert "Structure directive:" in block
+        # PUB-051: the closing-pattern line (AC2), the repeated "Use DIFFERENT openings"
+        # suffix (Problem 3) and the structure directive (AC1, replaced by the content
+        # angle — see test_caption_angle_rotation.py) are gone; their asserts were removed.
+        assert "closing pattern" not in block.lower()
 
     def test_build_platform_block_without_history(self) -> None:
         from publisher_v2.core.models import CaptionSpec
@@ -392,3 +393,70 @@ class TestDBHelpers:
         assert _normalize_database_url("postgres://u:p@h:5432/db").startswith("postgresql+asyncpg://")
         assert _normalize_database_url("postgresql://u:p@h:5432/db").startswith("postgresql+asyncpg://")
         assert _normalize_database_url("postgresql+asyncpg://u:p@h:5432/db") == "postgresql+asyncpg://u:p@h:5432/db"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051: the stored angle column, and history only for published platforms
+# ---------------------------------------------------------------------------
+
+
+class TestCaptionStoreAngles:
+    async def test_fetch_recent_with_angles_by_platform_round_trips_stored_angles(self, store: CaptionStore) -> None:
+        """Scope: angles_by_platform is stored; the sibling fetch returns (caption, angle), most-recent-first.
+
+        Rows written without an angle (legacy, pre-migration) read back as None.
+        """
+        await store.save_captions_batch(tenant="t1", captions_by_platform={"email": "Legacy", "telegram": "Legacy T"})
+        await store.save_captions_batch(
+            tenant="t1",
+            captions_by_platform={"email": "Newer", "telegram": "Newer T"},
+            angles_by_platform={"email": "moment", "telegram": "craft"},
+        )
+
+        result = await store.fetch_recent_with_angles_by_platform("t1", platforms=["email", "telegram"])
+
+        assert result["email"] == [("Newer", "moment"), ("Legacy", None)]
+        assert result["telegram"] == [("Newer T", "craft"), ("Legacy T", None)]
+        # The existing reader keeps its dict[str, list[str]] contract.
+        assert (await store.fetch_recent_by_platform("t1", platforms=["email"]))["email"] == ["Newer", "Legacy"]
+
+
+async def test_caption_history_holds_one_row_per_successfully_published_platform_only(
+    monkeypatch: pytest.MonkeyPatch, tmp_path, db_session_factory
+) -> None:
+    """AC7 (Problem 7): a platform whose publish failed gets no caption_history row.
+
+    Real WorkflowOrchestrator, real AIService over a fake OpenAI client, real
+    CaptionStore on SQLite; telegram publishes, email fails.
+    """
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy import select
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    install_fake_openai(monkeypatch, FakeOpenAI(["telegram", "email"]))
+    store = CaptionStore(db_session_factory)
+    orchestrator = WorkflowOrchestrator(
+        pipeline_config(telegram=True, email=True),
+        SidecarStorage(["a.jpg"]),
+        real_ai_service(),
+        [ScriptedPublisher("telegram", [True]), ScriptedPublisher("email", [False])],
+        tenant="t1",
+        caption_store=store,
+    )
+
+    result = await orchestrator.execute(select_filename="a.jpg")
+
+    assert result.publish_results["telegram"].success is True
+    assert result.publish_results["email"].success is False
+    async with db_session_factory() as session:
+        rows = (await session.execute(select(CaptionHistory))).scalars().all()
+    assert sorted(r.platform for r in rows) == ["telegram"], [r.platform for r in rows]
