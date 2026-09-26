@@ -33,6 +33,9 @@ class CaptionHistory(Base):
     caption_source: Mapped[str] = mapped_column(String(32), nullable=False, default="ai_generated")
     was_truncated: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     original_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # PUB-051: the content-angle key the caption was written under; NULL for rows
+    # written before migration 004 (the rotation treats those as "never used").
+    angle: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     __table_args__ = (Index("ix_pv2_caption_history_lookup", "tenant", "platform", created_at.desc()),)

@@ -10,6 +10,7 @@ Covers all four parts:
 from __future__ import annotations
 
 import json
+from collections import Counter
 from typing import Any
 
 import pytest
@@ -193,7 +194,8 @@ class TestCaptionHistoryPrompt:
         ]
         block = build_history_block(captions)
         assert "openings to avoid" in block.lower()
-        assert "closing pattern to avoid" in block.lower()
+        # PUB-051 AC2: the closing-pattern constraint is deleted (was: asserted present).
+        assert "closing pattern" not in block.lower()
         for full in captions:
             assert full not in block
 
@@ -411,7 +413,8 @@ class TestUpdateSidecarWithCaption:
 
         assert storage.written_content is not None
         sd_caption, meta = parse_sidecar_text(storage.written_content)
-        assert sd_caption == "My manual caption"
+        # Line 1 is the SD prompt read by training pipelines (#80) -- a social caption must never land there.
+        assert sd_caption is None
         assert meta is not None
         assert meta["caption"] == "My manual caption"
         assert meta["caption_edited"] == "True"
@@ -431,20 +434,17 @@ class TestHistoryAsConstraints:
         ]
         block = build_platform_block(1, "email", spec, platform_history=history)
         assert "openings to avoid" in block.lower()
-        assert "closing pattern to avoid" in block.lower()
+        # PUB-051 AC2: the closing-pattern constraint is deleted (was: asserted present).
+        assert "closing pattern" not in block.lower()
         for full in history:
             assert full not in block
-        # First six words of each opening are present as the avoid-list.
+        # The opening of each (of the two most recent) captions is present as the avoid-list.
         assert "Soft rope steady hands and a" in block
         assert "Did you see how the light" in block
 
-    def test_platform_block_includes_structure_directive(self) -> None:
-        from publisher_v2.core.models import CaptionSpec
-        from publisher_v2.services.ai import build_platform_block
-
-        spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
-        block = build_platform_block(1, "email", spec, platform_history=["An earlier caption line here."])
-        assert "Structure directive:" in block
+    # PUB-051 AC1: test_platform_block_includes_structure_directive asserted the
+    # "Structure directive:" line, which the content angle replaces; superseded by
+    # test_caption_angle_rotation.py::test_each_platform_receives_exactly_one_angle_per_call.
 
 
 # ---------------------------------------------------------------------------
@@ -496,13 +496,16 @@ class TestEmailPromptConsistency:
         # the plural this used to look for could never appear either way.
         assert "closing pattern to avoid" not in block.lower()
 
-    def test_any_closing_keeps_closing_pattern_constraint(self) -> None:
+    def test_any_closing_no_longer_emits_a_closing_pattern_constraint(self) -> None:
+        """PUB-051 AC2 (was test_any_closing_keeps_closing_pattern_constraint, which asserted the line
+        was present): with ``closing: any`` the "avoid: statement" line pushed a 30-word email toward
+        the question #138 removed, so it is never rendered."""
         from publisher_v2.services.ai import build_platform_block
 
         spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
         assert spec.closing == "any"
         block = build_platform_block(1, "email", spec, platform_history=["Was it the knot?"])
-        assert "closing pattern to avoid" in block.lower()
+        assert "closing pattern" not in block.lower()
 
 
 class _Msg:
@@ -529,7 +532,20 @@ class _RecordingCompletions:
         return _Resp(json.dumps(payload))
 
 
-async def test_regeneration_prompt_carries_exactly_one_directive_per_platform(monkeypatch) -> None:
+def _angle_hits(prompt: str) -> Counter[str]:
+    """PUB-051: which content-angle directives occur in a prompt, and how often."""
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    return Counter({key: prompt.count(text) for key, text in CONTENT_ANGLES.items() if prompt.count(text)})
+
+
+async def test_regeneration_prompt_carries_exactly_one_angle_per_platform(monkeypatch) -> None:
+    """PUB-051 AC1 (migrated from #138's ..._exactly_one_directive_per_platform).
+
+    The old version counted STRUCTURE_DIRECTIVES, re-derived the rejected draft's
+    structure with classify_caption_structure, and asserted the regeneration
+    clause's wording; all three are gone with the structure rotation.
+    """
     from publisher_v2.config.schema import OpenAIConfig
     from publisher_v2.core.models import ImageAnalysis
     from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
@@ -539,8 +555,8 @@ async def test_regeneration_prompt_carries_exactly_one_directive_per_platform(mo
         "email": ["Rope and light across her back tonight."],
     }
     completions = _RecordingCompletions(
-        first={"telegram": history["telegram"][0], "email": history["email"][0], "sd_caption": "x"},
-        second={"telegram": "Something else entirely.", "email": "Quiet, then the knot.", "sd_caption": "x"},
+        first={"telegram": history["telegram"][0], "email": history["email"][0]},
+        second={"telegram": "Something else entirely.", "email": "Quiet, then the knot."},
     )
     fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
     monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
@@ -549,74 +565,24 @@ async def test_regeneration_prompt_carries_exactly_one_directive_per_platform(mo
     specs = _real_specs(telegram=True, email=True)
     analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
 
-    await service.create_multi_caption_pair_from_analysis(analysis, specs, history=history)
+    _captions, _sd, _usages, angles = await service.create_multi_caption_pair_from_analysis(
+        analysis, specs, history=history
+    )
 
     assert len(completions.calls) == 2, "similarity gate should regenerate exactly once"
     retry_prompt = completions.calls[1]["messages"][-1]["content"]
-    from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
-
-    directive_hits = sum(retry_prompt.count(d) for d in STRUCTURE_DIRECTIVES.values())
-    assert directive_hits == len(specs), retry_prompt
-    assert retry_prompt.count("Structure directive:") == len(specs)
-
-    # #138: the offender's retry directive is picked with the rejected draft as
-    # the MOST RECENT entry, so it never asks for the structure that draft used.
-    # (It can legitimately repeat call 1's directive — when the draft's structure
-    # matches the history it was too similar to, the least-recently-used answer
-    # has not moved. What must not happen is being told to write the structure
-    # that was just rejected.)
-    from publisher_v2.utils.captions import classify_caption_structure
-
-    def _directive_for(prompt: str, platform: str) -> str:
-        block = prompt.split(f"{platform}:", 1)[1]
-        line = next(line for line in block.splitlines() if "Structure directive:" in line)
-        return line.split("Structure directive:", 1)[1].strip()
-
-    rejected_structure = classify_caption_structure(history["telegram"][0])
-    assert _directive_for(retry_prompt, "telegram") != STRUCTURE_DIRECTIVES[rejected_structure]
-
-    # The clause points at those directives rather than adding another one.
-    assert "Follow each platform's Structure directive" in retry_prompt
+    assert sum(_angle_hits(retry_prompt).values()) == len(specs), retry_prompt
+    assert _angle_hits(retry_prompt) == Counter(angles.values())
 
 
 class TestDirectivesFitThePlatform:
-    """#138 review: a structure directive must never contradict the platform brief."""
+    """#138 review: a directive must never contradict the platform brief.
 
-    def test_word_limited_platform_never_gets_short_line(self) -> None:
-        from publisher_v2.services.ai import build_platform_block
-        from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
-
-        spec = CaptionSpec(platform="email", style="s", hashtags="", max_length=240)
-        # Every other structure used recently -> plain LRU would pick short_line.
-        from publisher_v2.utils.captions import pick_structure_directive
-
-        history = [
-            "The light fell across the rope and her shoulders tonight slowly.",  # declarative
-            "Warm skin. Then the knot.",  # fragment
-            "You hold still while the rope settles in.",  # second_person
-            "Light falls across the wall today. The rope waits in her lap quietly.",  # observation
-        ]
-        assert pick_structure_directive(history) == STRUCTURE_DIRECTIVES["short_line"]
-        block = build_platform_block(1, "email", spec, platform_history=history)
-        assert STRUCTURE_DIRECTIVES["short_line"] not in block
-
-    def test_question_closing_never_gets_no_questions_directive(self) -> None:
-        from publisher_v2.services.ai import build_platform_block
-        from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES
-
-        spec = CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096, closing="question")
-        from publisher_v2.utils.captions import pick_structure_directive
-
-        # Every other structure used recently -> plain LRU would pick observation.
-        history = [
-            "The light fell across the rope and her shoulders tonight slowly.",  # declarative
-            "Warm skin. Then the knot.",  # fragment
-            "You hold still while the rope settles in.",  # second_person
-            "Rope settles on warm skin tonight",  # short_line
-        ]
-        assert pick_structure_directive(history) == STRUCTURE_DIRECTIVES["observation"]
-        block = build_platform_block(1, "telegram", spec, platform_history=history)
-        assert STRUCTURE_DIRECTIVES["observation"] not in block
+    PUB-051: test_word_limited_platform_never_gets_short_line and
+    test_question_closing_never_gets_no_questions_directive pinned the deleted
+    STRUCTURE_DIRECTIVES keys; the same contract against the new angle pool is
+    test_caption_angle_rotation.py::test_pick_content_angle_respects_platform_exclusions.
+    """
 
     def test_style_ignores_unknown_keys_and_strips_examples(self) -> None:
         assert PlatformCaptionStyle(style="s", some_future_key=1).style == "s"  # type: ignore[call-arg]
@@ -624,61 +590,70 @@ class TestDirectivesFitThePlatform:
         assert PlatformCaptionStyle(style="s", examples=["x"]).style == "s"  # type: ignore[call-arg]
 
 
-async def test_regeneration_gives_new_directive_only_to_offenders(monkeypatch) -> None:
-    """Non-offending platforms keep their call-1 directive; a platform without history gets none."""
+async def test_regeneration_gives_new_angle_only_to_offenders(monkeypatch) -> None:
+    """Non-offending platforms keep their call-1 angle.
+
+    PUB-051 AC1 changed one half of this #138 test: it asserted that a platform
+    without history gets NO directive; now every platform gets exactly one angle
+    in every call, history or not.
+    """
     from publisher_v2.config.schema import OpenAIConfig
     from publisher_v2.core.models import ImageAnalysis
     from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 
     history = {"telegram": ["Rope and light across her back tonight, slow and certain."]}
     completions = _RecordingCompletions(
-        first={"telegram": history["telegram"][0], "email": "Something new.", "sd_caption": "x"},
-        second={"telegram": "Different now.", "email": "Something new.", "sd_caption": "x"},
+        first={"telegram": history["telegram"][0], "email": "Something new."},
+        second={"telegram": "Different now.", "email": "Something new."},
     )
     fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
     monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
     cfg = OpenAIConfig(api_key="sk-test")
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
     specs = _real_specs(telegram=True, email=True)
-    await service.create_multi_caption_pair_from_analysis(
+    _captions, _sd, _usages, angles = await service.create_multi_caption_pair_from_analysis(
         ImageAnalysis(description="d", mood="m", tags=["t"]), specs, history=history
     )
+    first_prompt = completions.calls[0]["messages"][-1]["content"]
     retry_prompt = completions.calls[1]["messages"][-1]["content"]
-    email_block = retry_prompt.split("2. email:")[1].split("Image analysis:")[0]
-    assert "Structure directive" not in email_block
+    assert _angle_hits(retry_prompt) == Counter(angles.values()), "one angle per platform, email included"
+    assert angles["email"] in _angle_hits(first_prompt), "the non-offender's angle changed on the retry"
 
 
-async def test_regeneration_directive_respects_platform_exclusions(monkeypatch) -> None:
-    """An email offender whose history + draft would LRU-pick short_line gets another directive on retry."""
+async def test_single_platform_regeneration_prompt_carries_the_one_returned_angle(monkeypatch) -> None:
+    """A lone offender's retry prompt carries exactly one angle, and it is the angle returned.
+
+    Renamed from test_regeneration_angle_respects_platform_exclusions (PUB-051
+    critique): its final assert checked the retry angle against
+    ``excluded_directives``, which is empty for every platform now, so it could
+    not fail. The exclusion contract itself is pinned by
+    test_caption_angle_rotation.py::test_pick_content_angle_respects_platform_exclusions.
+    """
     from publisher_v2.config.schema import OpenAIConfig
     from publisher_v2.core.models import ImageAnalysis
     from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
-    from publisher_v2.utils.captions import STRUCTURE_DIRECTIVES, pick_structure_directive
 
-    draft = "The light fell across the rope and her shoulders tonight slowly."  # declarative
+    draft = "The light fell across the rope and her shoulders tonight slowly."
     history = {
         "email": [
-            "Warm skin. Then the knot.",  # fragment
-            "You hold still while the rope settles in.",  # second_person
-            "Light falls across the wall today. The rope waits in her lap quietly.",  # observation
+            "Warm skin. Then the knot.",
+            "You hold still while the rope settles in.",
+            "Light falls across the wall today. The rope waits in her lap quietly.",
             draft,
         ]
     }
-    assert pick_structure_directive([draft, *history["email"]]) == STRUCTURE_DIRECTIVES["short_line"]
-    completions = _RecordingCompletions(
-        first={"email": draft, "sd_caption": "x"}, second={"email": "Something else.", "sd_caption": "x"}
-    )
+    completions = _RecordingCompletions(first={"email": draft}, second={"email": "Something else."})
     fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
     monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
     cfg = OpenAIConfig(api_key="sk-test")
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
-    await service.create_multi_caption_pair_from_analysis(
-        ImageAnalysis(description="d", mood="m", tags=["t"]), _real_specs(email=True), history=history
+    specs = _real_specs(email=True)
+    _captions, _sd, _usages, angles = await service.create_multi_caption_pair_from_analysis(
+        ImageAnalysis(description="d", mood="m", tags=["t"]), specs, history=history
     )
     assert len(completions.calls) == 2
-    retry_prompt = completions.calls[1]["messages"][-1]["content"]
-    assert STRUCTURE_DIRECTIVES["short_line"] not in retry_prompt
-    assert retry_prompt.count("Structure directive:") == 1
+    retry_hits = _angle_hits(completions.calls[1]["messages"][-1]["content"])
+    assert retry_hits == Counter({angles["email"]: 1}), retry_hits
 
 
 class TestAStaleStaticConfigDirDoesNotStopTheApp:
@@ -744,109 +719,606 @@ class TestAStaleStaticConfigDirDoesNotStopTheApp:
             get_static_config.cache_clear()
 
 
-class TestTheClosingAvoidListLeavesAnOption:
-    """#138: there are three closing patterns in all (question, statement, fragment).
-
-    Listing every closing seen in the history left the model one option with two
-    entries and none with three — an instruction it cannot satisfy, sitting next
-    to a structure directive telling it to open with a statement.
-    """
-
-    @staticmethod
-    def _spec() -> CaptionSpec:
-        return CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
-
-    def test_only_the_most_recent_closing_is_named(self) -> None:
-        from publisher_v2.services.ai import build_platform_block
-
-        history = ["A statement ending.", "Was it the knot?", "a trailing fragment"]
-
-        block = build_platform_block(1, "email", self._spec(), platform_history=history)
-
-        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
-        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
-        assert named == ["fragment"], line
-
-    def test_the_flat_history_block_caps_it_too(self) -> None:
-        from publisher_v2.services.ai import build_history_block
-
-        block = build_history_block(["A statement ending.", "Was it the knot?", "a trailing fragment"])
-
-        line = next(line for line in block.splitlines() if "closing pattern to avoid" in line.lower())
-        named = [p for p in ("question", "statement", "fragment") if p in line.lower()]
-        assert named == ["fragment"], line
+# PUB-051 AC2: TestTheClosingAvoidListLeavesAnOption (#138 capped the closing-avoid list
+# to the most recent pattern) is removed — there is no closing-pattern line any more;
+# see test_ai_prompt_payload.py::test_no_closing_pattern_line_is_ever_rendered.
 
 
 def test_the_rejected_draft_counts_as_the_most_recent_caption() -> None:
-    """#138: the similarity gate picks the offender's retry directive from
-    ``[rejected_draft, *history]`` — the draft first, because history is
-    most-recent-first and `pick_structure_directive` rotates on recency.
+    """#138, migrated to PUB-051's stored-angle rotation: the gate picks the offender's
+    retry angle from ``[rejected_angle, *history_angles]`` — the draft first, because
+    history is most-recent-first and ``pick_content_angle`` rotates on recency.
 
-    Appending it instead makes it the *oldest* entry, which is exactly backwards:
-    the structure just rejected becomes the least-recently-used one and is handed
-    straight back as the instruction for the retry.
+    Appending it instead makes it the *oldest* entry, and the angle just rejected
+    becomes the least-recently-used one and is handed straight back. (The end-to-end
+    version is test_caption_angle_rotation.py::test_regeneration_picks_a_different_angle_than_the_rejected_draft,
+    which replaces test_the_gate_picks_the_retry_directive_with_the_draft_first.)
     """
-    from publisher_v2.utils.captions import pick_structure_directive
+    from publisher_v2.utils.captions import CONTENT_ANGLES, pick_content_angle
 
-    # Every structure key is used once, so recency (not "never used") decides.
-    history = [
-        "The rope holds her weight without complaint tonight. That patience costs something real.",
-        "Notice how the rope holds.",
-        "You can see the knot from here and can feel how long that took to tie tonight.",
-        "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
-        "short line",
-    ]
-    rejected = "short line"
+    pool = list(CONTENT_ANGLES)
+    # Every key used once; the oldest is pool[0], so that is what the draft was written under.
+    history = [*pool[1:], pool[0]]
+    rejected = pick_content_angle(history)
+    assert rejected == pool[0]
 
-    as_most_recent = pick_structure_directive([rejected, *history])
-    as_oldest = pick_structure_directive([*history, rejected])
+    as_most_recent = pick_content_angle([rejected, *history])
+    as_oldest = pick_content_angle([*history, rejected])
 
-    assert as_most_recent != as_oldest
-    assert as_oldest == "Open with a short sensory fragment (no full sentence needed)."
-    assert as_most_recent == "Open with a plain declarative statement."
+    assert as_oldest == rejected
+    assert as_most_recent != rejected
 
 
-async def test_the_gate_picks_the_retry_directive_with_the_draft_first(monkeypatch) -> None:
-    """#138 end to end: the rejected draft is the MOST RECENT entry when the
-    offender's retry directive is chosen.
+# ---------------------------------------------------------------------------
+# PUB-051 AC7: a partial-publish retry reads the sidecar instead of re-paying AI
+# ---------------------------------------------------------------------------
 
-    The helper test above pins `pick_structure_directive`'s recency semantics;
-    this one pins the gate's argument order, which is the line whose comment
-    makes the claim. It needs a history that uses every structure key (so
-    recency, not "never used", decides) and a draft whose own structure is the
-    one that would otherwise be picked.
+
+async def test_partial_retry_makes_zero_additional_ai_calls(monkeypatch, tmp_path) -> None:
+    """AC7: telegram publishes, email fails; the retry publishes email with the caption
+    the first run generated, read from the sidecar's ``caption_generated`` — and makes
+    no OpenAI call at all. Real WorkflowOrchestrator, AIService, PublishStore and
+    CaptionStore; only OpenAI, storage and the publishers are fakes.
     """
-    from publisher_v2.config.schema import OpenAIConfig
-    from publisher_v2.core.models import ImageAnalysis
-    from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-    history = {
-        "telegram": [
-            "The rope holds her weight without complaint tonight. That patience costs something real.",
-            "Notice how the rope holds.",
-            "You can see the knot from here and can feel how long that took to tie tonight.",
-            "This is a long plain declarative sentence about the light falling across her shoulders tonight.",
-            "short line",
-        ]
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base, CaptionHistory
+    from publisher_v2.db.publish_store import PublishStore
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        fake = FakeOpenAI(["telegram", "email"])
+        install_fake_openai(monkeypatch, fake)
+        telegram = ScriptedPublisher("telegram", [True])
+        email = ScriptedPublisher("email", [False, True])
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, email=True),
+            SidecarStorage(["a.jpg"]),
+            real_ai_service(),
+            [telegram, email],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+            publish_store=PublishStore(factory),
+        )
+
+        first = await orchestrator.execute()
+        assert first.partial is True
+        calls_after_first = len(fake.calls)
+        assert len(fake.caption_calls) == 1
+
+        second = await orchestrator.execute()
+
+        assert second.success is True
+        assert len(fake.calls) == calls_after_first, "the retry paid for vision/caption again"
+        assert len(fake.caption_calls) == 1, "caption completion ran more than once across both runs"
+        assert fake.vision_calls and all(fake.calls.index(c) < calls_after_first for c in fake.vision_calls)
+        # Email got the very caption run 1 generated for it (not a re-generation).
+        assert len(email.captions) == 2
+        assert email.captions[1] == email.captions[0]
+        assert telegram.captions and len(telegram.captions) == 1
+
+        async with factory() as session:
+            rows = (await session.execute(select(CaptionHistory))).scalars().all()
+        assert sorted(r.platform for r in rows) == ["email", "telegram"], "one row per platform that published"
+    finally:
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: angles recorded when captions are reused or
+# overridden, and _reuse_generated_captions' fall-back branches.
+# ---------------------------------------------------------------------------
+
+
+class _PartialPublishRig:
+    """Real orchestrator/AIService/PublishStore/CaptionStore; fake OpenAI, storage and publishers.
+
+    Run 1 publishes telegram and fails email, leaving a partial publish and a sidecar.
+    """
+
+    def __init__(self, monkeypatch, tmp_path) -> None:
+        self.monkeypatch = monkeypatch
+        self.tmp_path = tmp_path
+
+    async def __aenter__(self) -> _PartialPublishRig:
+        from caption_pipeline_fakes import (
+            FakeOpenAI,
+            ScriptedPublisher,
+            SidecarStorage,
+            install_fake_openai,
+            pipeline_config,
+            real_ai_service,
+        )
+        from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+        from publisher_v2.core.workflow import WorkflowOrchestrator
+        from publisher_v2.db.caption_store import CaptionStore
+        from publisher_v2.db.models import Base
+        from publisher_v2.db.publish_store import PublishStore
+
+        self.monkeypatch.setenv("XDG_CACHE_HOME", str(self.tmp_path))
+        self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+        async with self.engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+        self.factory = async_sessionmaker(bind=self.engine, expire_on_commit=False, class_=AsyncSession)
+        self.fake = FakeOpenAI(["telegram", "email"])
+        install_fake_openai(self.monkeypatch, self.fake)
+        self.telegram = ScriptedPublisher("telegram", [True])
+        self.email = ScriptedPublisher("email", [False, True])
+        self.storage = SidecarStorage(["a.jpg"])
+        self.orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, email=True),
+            self.storage,
+            real_ai_service(),
+            [self.telegram, self.email],
+            tenant="t1",
+            caption_store=CaptionStore(self.factory),
+            publish_store=PublishStore(self.factory),
+        )
+        return self
+
+    async def __aexit__(self, *exc: object) -> None:
+        await self.engine.dispose()
+
+    def rewrite_sidecar_meta(self, **changes: Any) -> None:
+        """Rewrite a.jpg's sidecar with metadata keys set (a value of None removes the key)."""
+        from publisher_v2.services.sidecar_parser import parse_sidecar_text
+        from publisher_v2.utils.captions import build_caption_sidecar
+
+        sd, meta = parse_sidecar_text(self.storage.sidecars["a.jpg"])
+        assert sd and meta is not None, "setup: run 1 wrote no sidecar"
+        meta = dict(meta)
+        for key, value in changes.items():
+            if value is None:
+                meta.pop(key, None)
+            else:
+                meta[key] = value
+        self.storage.sidecars["a.jpg"] = build_caption_sidecar(sd, meta)
+
+    async def rows(self) -> list[Any]:
+        from sqlalchemy import select
+
+        from publisher_v2.db.models import CaptionHistory
+
+        async with self.factory() as session:
+            return list((await session.execute(select(CaptionHistory).order_by(CaptionHistory.id))).scalars().all())
+
+
+async def test_partial_retry_history_row_keeps_the_sidecar_angle(monkeypatch, tmp_path) -> None:
+    """AC7 retry: the history row for a platform whose caption was reused from the sidecar stores
+    the angle the sidecar's ``caption_angles`` recorded for it, not NULL.
+    """
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    async with _PartialPublishRig(monkeypatch, tmp_path) as rig:
+        first = await rig.orchestrator.execute()
+        assert first.partial is True
+        calls_after_first = len(rig.fake.calls)
+        # Pin the recorded angles so the assertion does not depend on which angle run 1 happened to pick.
+        recorded = {"telegram": "craft", "email": "atmosphere"}
+        assert set(recorded.values()) <= set(CONTENT_ANGLES)
+        rig.rewrite_sidecar_meta(caption_angles=recorded)
+
+        second = await rig.orchestrator.execute()
+
+        assert second.success is True
+        assert len(rig.fake.calls) == calls_after_first, "setup: the retry did not reuse the sidecar captions"
+        email_rows = [r for r in await rig.rows() if r.platform == "email"]
+        assert len(email_rows) == 1, email_rows
+        assert email_rows[0].angle == "atmosphere", f"retry row angle is {email_rows[0].angle!r}, not the sidecar's"
+
+
+async def test_partial_retry_falls_back_to_ai_when_sidecar_download_fails(monkeypatch, tmp_path) -> None:
+    """A retry whose sidecar read raises pays for a fresh AI stage and still publishes."""
+    async with _PartialPublishRig(monkeypatch, tmp_path) as rig:
+        first = await rig.orchestrator.execute()
+        assert first.partial is True
+        vision_before, captions_before = len(rig.fake.vision_calls), len(rig.fake.caption_calls)
+
+        async def _boom(folder: str, filename: str) -> bytes | None:
+            raise RuntimeError("sidecar download failed")
+
+        monkeypatch.setattr(rig.storage, "download_sidecar_if_exists", _boom)
+
+        second = await rig.orchestrator.execute()
+
+        assert second.success is True
+        assert len(rig.fake.vision_calls) == vision_before + 1, "no fresh vision call after the sidecar read failed"
+        # At least one: the similarity gate may regenerate against the row run 1 stored.
+        assert len(rig.fake.caption_calls) > captions_before, "no fresh caption call after the read failed"
+        assert len(rig.email.captions) == 2
+
+
+async def test_partial_retry_falls_back_to_ai_when_sidecar_lacks_a_platform(monkeypatch, tmp_path) -> None:
+    """A sidecar whose ``caption_generated`` does not cover every platform still to publish means a fresh AI stage."""
+    async with _PartialPublishRig(monkeypatch, tmp_path) as rig:
+        first = await rig.orchestrator.execute()
+        assert first.partial is True
+        vision_before, captions_before = len(rig.fake.vision_calls), len(rig.fake.caption_calls)
+        rig.rewrite_sidecar_meta(caption_generated={"telegram": "Only telegram was generated."})
+
+        second = await rig.orchestrator.execute()
+
+        assert second.success is True
+        assert len(rig.fake.vision_calls) == vision_before + 1, "a partial sidecar was reused instead of a fresh run"
+        assert len(rig.fake.caption_calls) > captions_before, "no fresh caption call for the missing platform"
+        assert len(rig.email.captions) == 2
+
+
+async def test_unedited_override_records_the_generated_angle_edited_one_does_not(monkeypatch, tmp_path) -> None:
+    """Web publish via ``caption_overrides``: an override equal to the sidecar's ``caption_generated[platform]``
+    (the operator did not edit it) records the sidecar's angle for that platform; an edited one records NULL.
+    """
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base, CaptionHistory
+    from publisher_v2.utils.captions import build_caption_sidecar
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    generated = {
+        "telegram": "Cold floorboards and warm hands, the harness finally sat right.",
+        "instagram": "One frayed end, left alone on purpose.",
     }
-    completions = _RecordingCompletions(
-        first={"telegram": "short line", "sd_caption": "x"},
-        second={"telegram": "Something else entirely, at length and with care.", "sd_caption": "x"},
+    storage = SidecarStorage(["a.jpg"])
+    storage.sidecars["a.jpg"] = build_caption_sidecar(
+        "sd prompt, fine art",
+        {"caption_generated": generated, "caption_angles": {"telegram": "craft", "instagram": "moment"}},
     )
-    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
-    cfg = OpenAIConfig(api_key="sk-test")
-    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        install_fake_openai(monkeypatch, FakeOpenAI(["telegram", "instagram"]))
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, instagram=True),
+            storage,
+            real_ai_service(),
+            [ScriptedPublisher("telegram", [True]), ScriptedPublisher("instagram", [True])],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+        )
 
-    await service.create_multi_caption_pair_from_analysis(
-        ImageAnalysis(description="d", mood="m", tags=["t"]), _real_specs(telegram=True), history=history
+        result = await orchestrator.execute(
+            select_filename="a.jpg",
+            caption_overrides={"telegram": generated["telegram"], "instagram": "The operator rewrote this one."},
+        )
+
+        assert result.success, result.error
+        async with factory() as session:
+            rows = (await session.execute(select(CaptionHistory))).scalars().all()
+        angles = {r.platform: r.angle for r in rows}
+        assert set(angles) == {"telegram", "instagram"}, angles
+        assert angles["telegram"] == "craft", f"unedited override lost the generated angle: {angles}"
+        assert angles["instagram"] is None, f"an edited override must not claim the generated angle: {angles}"
+    finally:
+        await engine.dispose()
+
+
+async def test_override_angle_lookup_failure_stores_null_and_warns(monkeypatch, tmp_path, caplog) -> None:
+    """``_override_angles`` fail-safe: a sidecar download that raises during the override
+    history save means the rows store NULL angles, a ``caption_override_angles_failed``
+    warning carrying no caption content is logged, and the publish still succeeds.
+    """
+    import logging
+
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base, CaptionHistory
+    from publisher_v2.utils.captions import build_caption_sidecar
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    generated = {
+        "telegram": "Cold floorboards and warm hands, the harness finally sat right.",
+        "instagram": "One frayed end, left alone on purpose.",
+    }
+    storage = SidecarStorage(["a.jpg"])
+    # A sidecar that WOULD yield angles for both unedited overrides, were it readable.
+    storage.sidecars["a.jpg"] = build_caption_sidecar(
+        "sd prompt, fine art",
+        {"caption_generated": generated, "caption_angles": {"telegram": "craft", "instagram": "moment"}},
+    )
+    sidecar_reads: list[str] = []
+
+    async def _boom(folder: str, filename: str) -> bytes | None:
+        sidecar_reads.append(filename)
+        raise RuntimeError("sidecar download failed")
+
+    monkeypatch.setattr(storage, "download_sidecar_if_exists", _boom)
+
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    caplog.set_level(logging.DEBUG)
+    try:
+        install_fake_openai(monkeypatch, FakeOpenAI(["telegram", "instagram"]))
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, instagram=True),
+            storage,
+            real_ai_service(),
+            [ScriptedPublisher("telegram", [True]), ScriptedPublisher("instagram", [True])],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+        )
+
+        result = await orchestrator.execute(select_filename="a.jpg", caption_overrides=dict(generated))
+
+        assert result.success, result.error
+        assert sidecar_reads, "setup: the override path never tried to read the sidecar"
+        async with factory() as session:
+            rows = (await session.execute(select(CaptionHistory))).scalars().all()
+        angles = {r.platform: r.angle for r in rows}
+        assert set(angles) == {"telegram", "instagram"}, f"history rows missing after a failed angle lookup: {angles}"
+        assert all(a is None for a in angles.values()), f"a failed lookup must store NULL angles: {angles}"
+
+        warnings = [
+            r
+            for r in caplog.records
+            if r.levelno == logging.WARNING and "caption_override_angles_failed" in r.getMessage()
+        ]
+        assert warnings, f"no caption_override_angles_failed warning logged: {caplog.text}"
+        assert not any("caption_history_save_failed" in r.getMessage() for r in caplog.records), caplog.text
+        for record in warnings:
+            message = record.getMessage()
+            for text in generated.values():
+                assert text not in message, f"the warning leaked caption content: {message}"
+            assert "sidecar download failed" not in message, f"the warning leaked the exception text: {message}"
+    finally:
+        await engine.dispose()
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 last round: override edge cases (W2, W3).
+# ---------------------------------------------------------------------------
+
+_OVERRIDE_GENERATED = {
+    "telegram": "Cold floorboards and warm hands, the harness finally sat right.",
+    "instagram": "One frayed end, left alone on purpose.",
+}
+_OVERRIDE_ANGLES = {"telegram": "craft", "instagram": "moment"}
+
+
+async def _run_override_publish(monkeypatch, tmp_path, overrides: dict[str, str], storage: Any = None):
+    """One web-style ``caption_overrides`` publish of a.jpg through the real orchestrator and a real CaptionStore.
+
+    a.jpg's sidecar starts out carrying ``_OVERRIDE_GENERATED`` and ``_OVERRIDE_ANGLES``.
+    Returns ``(result, {platform: stored angle}, storage)``.
+    """
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy import select
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base, CaptionHistory
+    from publisher_v2.utils.captions import CONTENT_ANGLES, build_caption_sidecar
+
+    assert set(_OVERRIDE_ANGLES.values()) <= set(CONTENT_ANGLES)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    storage = storage or SidecarStorage(["a.jpg"])
+    storage.sidecars["a.jpg"] = build_caption_sidecar(
+        "sd prompt, fine art",
+        {"caption_generated": dict(_OVERRIDE_GENERATED), "caption_angles": dict(_OVERRIDE_ANGLES)},
+    )
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        install_fake_openai(monkeypatch, FakeOpenAI(["telegram", "instagram"]))
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, instagram=True),
+            storage,
+            real_ai_service(),
+            [ScriptedPublisher("telegram", [True]), ScriptedPublisher("instagram", [True])],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+        )
+        result = await orchestrator.execute(select_filename="a.jpg", caption_overrides=overrides)
+        async with factory() as session:
+            rows = (await session.execute(select(CaptionHistory))).scalars().all()
+        return result, {r.platform: r.angle for r in rows}, storage
+    finally:
+        await engine.dispose()
+
+
+async def test_whitespace_padded_unedited_override_still_records_the_angle(monkeypatch, tmp_path) -> None:
+    """W2: the web UI can hand back the generated caption with surrounding whitespace and newlines.
+
+    That is still an unedited override, so the sidecar's angle is recorded for it.
+    """
+    padded = f"\n  \t{_OVERRIDE_GENERATED['telegram']}  \n\n"
+    assert padded != _OVERRIDE_GENERATED["telegram"]
+
+    result, angles, _storage = await _run_override_publish(
+        monkeypatch, tmp_path, {"telegram": padded, "instagram": "The operator rewrote this one."}
     )
 
-    assert len(completions.calls) == 2, "the gate should have regenerated once"
-    retry = completions.calls[1]["messages"][-1]["content"]
-    line = next(line for line in retry.splitlines() if "Structure directive:" in line)
-    directive = line.split("Structure directive:", 1)[1].strip()
+    assert result.success, result.error
+    assert set(angles) == {"telegram", "instagram"}, angles
+    assert angles["telegram"] == "craft", f"a whitespace-padded unedited override lost its angle: {angles}"
+    assert angles["instagram"] is None, angles
 
-    assert directive == "Open with a plain declarative statement."
-    # Draft-last would hand back the structure the draft just used:
-    assert directive != "Open with a short sensory fragment (no full sentence needed)."
+
+async def test_override_publish_reads_the_sidecar_once(monkeypatch, tmp_path) -> None:
+    """W3: an override publish downloads the sidecar once — the read ``update_sidecar_with_caption``
+    already makes — and the unedited override's angle is still recorded from it.
+    """
+    from caption_pipeline_fakes import SidecarStorage
+
+    storage = SidecarStorage(["a.jpg"])
+    reads: list[str] = []
+    real_download = storage.download_sidecar_if_exists
+
+    async def _counting_download(folder: str, filename: str) -> bytes | None:
+        reads.append(filename)
+        return await real_download(folder, filename)
+
+    monkeypatch.setattr(storage, "download_sidecar_if_exists", _counting_download)
+
+    result, angles, storage = await _run_override_publish(
+        monkeypatch,
+        tmp_path,
+        {"telegram": _OVERRIDE_GENERATED["telegram"], "instagram": "The operator rewrote this one."},
+        storage=storage,
+    )
+
+    assert result.success, result.error
+    from publisher_v2.services.sidecar_parser import parse_sidecar_text
+
+    _sd, meta = parse_sidecar_text(storage.sidecars["a.jpg"])
+    assert meta is not None and meta.get("caption_submitted"), "setup: update_sidecar_with_caption did not run"
+    assert angles == {"telegram": "craft", "instagram": None}, angles
+    assert reads == ["a.jpg"], f"the sidecar was downloaded {len(reads)} times during one override publish"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 critique follow-up: the sidecar is written even without an SD prompt.
+#
+# Decided rule: when AI captions were generated and the run is not preview,
+# dry-publish or debug, the sidecar is written with an empty first line, so the
+# AC7 reuse and ``caption_angles`` survive ``sd_caption_enabled=False`` (or a
+# vision reply without ``sd_caption``). Spec Desired Outcome: "a partial retry
+# costs zero OpenAI calls when the sidecar holds the captions".
+# ---------------------------------------------------------------------------
+
+
+async def test_partial_retry_reuses_captions_when_sd_caption_disabled(monkeypatch, tmp_path) -> None:
+    """AC7 with ``sd_caption_enabled=False``: run 1 still leaves a sidecar, and the retry makes zero AI calls."""
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        openai_config,
+        pipeline_config,
+        real_ai_service,
+    )
+    from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+    from publisher_v2.db.caption_store import CaptionStore
+    from publisher_v2.db.models import Base
+    from publisher_v2.db.publish_store import PublishStore
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
+    try:
+        fake = FakeOpenAI(["telegram", "email"])
+        install_fake_openai(monkeypatch, fake)
+        cfg = openai_config(sd_caption_enabled=False)
+        telegram = ScriptedPublisher("telegram", [True])
+        email = ScriptedPublisher("email", [False, True])
+        storage = SidecarStorage(["a.jpg"])
+        orchestrator = WorkflowOrchestrator(
+            pipeline_config(telegram=True, email=True, openai=cfg),
+            storage,
+            real_ai_service(cfg),
+            [telegram, email],
+            tenant="t1",
+            caption_store=CaptionStore(factory),
+            publish_store=PublishStore(factory),
+        )
+
+        first = await orchestrator.execute()
+        assert first.partial is True
+        assert "a.jpg" in storage.sidecars, "run 1 wrote no sidecar because there was no SD prompt"
+        view = rehydrate_sidecar_view(storage.sidecars["a.jpg"])
+        assert not view["sd_caption"], f"an SD prompt was written with sd_caption_enabled=False: {view['sd_caption']!r}"
+        assert set(view["caption_generated"] or {}) == {"telegram", "email"}
+        assert set(view["caption_angles"]) == {"telegram", "email"}
+        calls_after_first = len(fake.calls)
+
+        second = await orchestrator.execute()
+
+        assert second.success is True
+        assert len(fake.calls) == calls_after_first, "the retry paid for vision/caption again"
+        assert len(email.captions) == 2
+        assert email.captions[1] == email.captions[0]
+    finally:
+        await engine.dispose()
+
+
+@pytest.mark.parametrize("mode", ["preview", "dry_publish", "debug"])
+async def test_sidecar_without_sd_prompt_is_never_written_in_preview_dry_or_debug(mode, monkeypatch, tmp_path) -> None:
+    """Guard: writing the no-SD-prompt sidecar must not leak into preview, dry-publish or debug runs."""
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        ScriptedPublisher,
+        SidecarStorage,
+        install_fake_openai,
+        openai_config,
+        pipeline_config,
+        real_ai_service,
+    )
+
+    from publisher_v2.core.workflow import WorkflowOrchestrator
+
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+    fake = FakeOpenAI(["telegram"])
+    install_fake_openai(monkeypatch, fake)
+    cfg = openai_config(sd_caption_enabled=False)
+    config = pipeline_config(telegram=True, openai=cfg)
+    if mode == "debug":
+        config.content.debug = True
+    storage = SidecarStorage(["a.jpg"])
+    orchestrator = WorkflowOrchestrator(
+        config, storage, real_ai_service(cfg), [ScriptedPublisher("telegram", [True])], tenant="t1"
+    )
+
+    await orchestrator.execute(
+        select_filename="a.jpg", preview_mode=mode == "preview", dry_publish=mode == "dry_publish"
+    )
+
+    assert fake.caption_calls, "setup: no captions were generated, so the guard proves nothing"
+    assert storage.sidecars == {}, f"{mode} run wrote a sidecar"
+    assert storage.sidecars_written == 0, f"{mode} run wrote a sidecar"

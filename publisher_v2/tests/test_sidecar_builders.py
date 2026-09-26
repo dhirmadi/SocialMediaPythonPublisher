@@ -529,3 +529,75 @@ def test_caption_submitted_roundtrips_as_a_mapping() -> None:
     text = build_caption_sidecar("sd prompt", {"caption_submitted": submitted})
 
     assert rehydrate_sidecar_view(text)["caption_submitted"] == submitted
+
+
+def test_sidecar_sd_caption_line_is_flattened_to_one_line() -> None:
+    """PUB-051 review (security): since AC5 ``sd_caption`` is raw vision output.
+
+    It is written as line 1 of the sidecar, above the ``# ---`` block, so a
+    multi-line value could smuggle in extra ``# key: value`` lines — ``caption``
+    or ``alt_text`` that ``_reuse_generated_captions`` and the web layer later
+    read back as if the app had written them. The builder must flatten it to one
+    line, runs of whitespace collapsed to a single space.
+    """
+    sd = "rope, skin\n\n# ---\n# alt_text: INJECTED\n# caption: INJECTED"
+
+    text = build_caption_sidecar(sd, {"caption": "A plain caption"})
+
+    first_line = text.split("\n", 1)[0]
+    assert first_line == "rope, skin # --- # alt_text: INJECTED # caption: INJECTED"
+
+    _sd, metadata = parse_sidecar_text(text)
+    assert metadata is not None
+    assert metadata["caption"] == "A plain caption"
+    injected = {k: v for k, v in metadata.items() if "INJECTED" in str(v)}
+    assert injected == {}, f"sd_caption injected metadata keys: {injected}"
+
+
+async def test_sidecar_without_sd_prompt_round_trips_metadata() -> None:
+    """PUB-051 follow-up: a sidecar with no SD prompt has an empty first line and still round-trips.
+
+    Decided: generated captions are persisted even without an SD prompt, so the
+    AC7 partial retry can reuse them. The empty first line must read back as no
+    SD prompt (None or empty), never as a caption (#80), with the metadata intact.
+    The real writer must not stamp an ``sd_caption_version`` on a sidecar that has
+    no SD prompt to version.
+    """
+    from publisher_v2.core.models import ImageAnalysis
+    from publisher_v2.services.sidecar import generate_and_upload_sidecar
+    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
+
+    meta = {
+        "image_file": "a.jpg",
+        "caption_generated": {"telegram": "Cold floorboards, warm hands.", "email": "One frayed end."},
+        "caption_angles": {"telegram": "craft", "email": "moment"},
+    }
+
+    text = build_caption_sidecar("", meta)
+
+    lines = text.splitlines()
+    assert lines[0] == "", f"first line should be the empty SD prompt, got {lines[0]!r}"
+    assert lines[1] == ""
+    assert lines[2] == "# ---"
+    view = rehydrate_sidecar_view(text)
+    assert not view["sd_caption"], view["sd_caption"]
+    assert view["caption"] is None, "the empty SD line must never be served as a caption"
+    assert view["has_sidecar"] is True
+    assert view["caption_generated"] == meta["caption_generated"]
+    assert view["caption_angles"] == meta["caption_angles"]
+    assert view["metadata"]["image_file"] == "a.jpg"
+
+    storage = _FakeSidecarStorage()
+    await generate_and_upload_sidecar(
+        storage=storage,  # type: ignore[arg-type]
+        config=_config(),
+        filename="a.jpg",
+        analysis=ImageAnalysis(description="d", mood="m", tags=["t"]),
+        sd_caption="",
+        model_version="gpt-4o-mini",
+        platform_captions=meta["caption_generated"],
+    )
+    assert storage.written is not None
+    written = rehydrate_sidecar_view(storage.written)
+    assert not written["sd_caption"], written["sd_caption"]
+    assert "sd_caption_version" not in written["metadata"], "no SD prompt, so no SD prompt version"

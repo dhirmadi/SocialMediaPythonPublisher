@@ -233,104 +233,21 @@ class TestPlatformStylesInPrompt:
         assert "question" in user_msg
 
 
-# --- AC13-15: SD caption integration ---
-
-
-class TestGenerateMultiWithSD:
-    @pytest.mark.asyncio
-    async def test_generate_multi_with_sd_returns_captions_plus_sd(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC13: generate_multi_with_sd returns per-platform captions plus one sd_caption."""
-        response = json.dumps(
-            {
-                "telegram": "t-caption",
-                "instagram": "i-caption",
-                "email": "e-caption",
-                "sd_caption": "fine-art portrait, soft light, calm mood",
-            }
-        )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
-
-        gen = CaptionGeneratorOpenAI(_default_config())
-        result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
-
-        assert result["telegram"] == "t-caption"
-        assert result["instagram"] == "i-caption"
-        assert result["email"] == "e-caption"
-        assert result["sd_caption"] == "fine-art portrait, soft light, calm mood"
-
-    @pytest.mark.asyncio
-    async def test_sd_caption_format_unchanged(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC14: SD caption content/format is unchanged from existing pattern."""
-        response = json.dumps(
-            {
-                "telegram": "t",
-                "instagram": "i",
-                "email": "e",
-                "sd_caption": "PG-13 fine-art, pose upright, soft directional lighting",
-            }
-        )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
-
-        gen = CaptionGeneratorOpenAI(_default_config())
-        result, _usage = await gen.generate_multi_with_sd(_make_analysis(), _make_specs())
-
-        sd = result["sd_caption"]
-        assert isinstance(sd, str)
-        assert len(sd) > 0
-
-    @pytest.mark.asyncio
-    async def test_sd_fallback_to_generate_multi(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC15: When SD fails, fallback to generate_multi returns (captions, None)."""
-        cfg = _default_config()
-        gen = CaptionGeneratorOpenAI(cfg)
-
-        # Make generate_multi_with_sd fail
-        async def _failing_sd(*args, **kwargs):
-            raise AIServiceError("SD generation failed")
-
-        # Make generate_multi succeed
-        async def _ok_multi(analysis, specs, **kwargs):
-            return {k: f"{k}-caption" for k in specs}, None
-
-        monkeypatch.setattr(gen, "generate_multi_with_sd", _failing_sd)
-        monkeypatch.setattr(gen, "generate_multi", _ok_multi)
-
-        analyzer = BaseDummyAnalyzer()
-        ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
-
-        specs = _make_specs()
-        captions, sd_caption, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
-
-        assert set(captions.keys()) == {"telegram", "instagram", "email"}
-        assert sd_caption is None
+# --- AC13-15 (PUB-025): SD caption integration ---
+# PUB-051 AC4/AC5 removed sd_caption from the caption-stage completion: it now comes
+# from the neutral vision call. TestGenerateMultiWithSD (AC13 captions+sd from one
+# completion, AC14 its sd format, AC15 fallback from the sd completion to
+# generate_multi) asserted exactly that removed behaviour and is deleted; the
+# replacement contract is test_caption_call_requests_platform_keys_only_no_sd_caption
+# below and the vision-stage tests in test_ai_vision_analysis_telemetry.py.
 
 
 # --- AIService.create_multi_caption_pair_from_analysis ---
 
 
 class TestCreateMultiCaptionPair:
-    @pytest.mark.asyncio
-    async def test_returns_captions_and_sd(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        cfg = _default_config()
-        gen = CaptionGeneratorOpenAI(cfg)
-
-        async def _fake_multi_sd(analysis, specs, **kwargs):
-            result = {k: f"{k}-cap" for k in specs}
-            result["sd_caption"] = "sd-text"
-            return result, None
-
-        monkeypatch.setattr(gen, "generate_multi_with_sd", _fake_multi_sd)
-
-        analyzer = BaseDummyAnalyzer()
-        ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
-
-        specs = _make_specs()
-        captions, sd, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
-
-        assert captions["telegram"] == "telegram-cap"
-        assert sd == "sd-text"
+    # PUB-051 AC4: test_returns_captions_and_sd (sd_caption returned from the caption
+    # stage's generate_multi_with_sd) asserted the removed behaviour and is deleted.
 
     @pytest.mark.asyncio
     async def test_sd_disabled_uses_generate_multi(self, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -350,7 +267,69 @@ class TestCreateMultiCaptionPair:
         ai = AIService(analyzer=analyzer, generator=gen)  # type: ignore[arg-type]
 
         specs = _make_specs()
-        captions, sd, _usages = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
+        # PUB-051: the per-platform angles are the fourth element of the return.
+        captions, sd, _usages, _angles = await ai.create_multi_caption_pair_from_analysis(_make_analysis(), specs)
 
         assert captions["telegram"] == "telegram-only"
         assert sd is None
+
+
+# --- PUB-051 AC4: the caption completion asks for platform keys only, at the new sampling values ---
+
+
+async def _drive_caption_call(monkeypatch: pytest.MonkeyPatch, response: dict[str, str]):
+    """Real AIService with the default (sd-enabled) config; returns (result, recorded calls)."""
+    from publisher_v2.services.ai import VisionAnalyzerOpenAI
+
+    completions = _FakeCompletions(json.dumps(response))
+    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    cfg = _default_config()
+    service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
+    result = await service.create_multi_caption_pair_from_analysis(_make_analysis(), _make_specs())
+    return result, completions.calls
+
+
+async def test_caption_call_requests_platform_keys_only_no_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC4: the prompt's key list and the parsed dict are the enabled platforms only.
+
+    The fake model volunteers an ``sd_caption`` anyway: it must be neither requested
+    nor parsed — sd_caption comes from the vision stage now (AC5).
+    """
+    specs = _make_specs()
+    result, calls = await _drive_caption_call(
+        monkeypatch, {"telegram": "t", "instagram": "i", "email": "e", "sd_caption": "volunteered"}
+    )
+
+    assert len(calls) == 1, "one caption completion; no separate sd_caption call on the caption path"
+    call = calls[0]
+    system = call["messages"][0]["content"]
+    user = call["messages"][-1]["content"]
+    assert "sd_caption" not in user
+    assert "sd_caption" not in system
+    for platform in specs:
+        assert f'"{platform}"' in user, f"{platform} missing from the requested keys"
+    assert call["response_format"] == {"type": "json_object"}
+
+    captions, sd_caption, _usages, angles = result
+    assert set(captions) == set(specs)
+    assert sd_caption is None, "the caption stage must not be a source of sd_caption"
+    assert set(angles) == set(specs)
+
+
+async def test_caption_call_sampling_params_match_configured_values(monkeypatch: pytest.MonkeyPatch) -> None:
+    """AC4 + Scope: temperature 0.9, frequency_penalty 0.3, presence_penalty 0.6 on the actual create() call."""
+    from publisher_v2.services.ai import (
+        CAPTION_FREQUENCY_PENALTY,
+        CAPTION_PRESENCE_PENALTY,
+        DEFAULT_CAPTION_TEMPERATURE,
+    )
+
+    assert (DEFAULT_CAPTION_TEMPERATURE, CAPTION_FREQUENCY_PENALTY, CAPTION_PRESENCE_PENALTY) == (0.9, 0.3, 0.6)
+
+    _result, calls = await _drive_caption_call(monkeypatch, {"telegram": "t", "instagram": "i", "email": "e"})
+
+    assert len(calls) == 1
+    call = calls[0]
+    assert call["temperature"] == DEFAULT_CAPTION_TEMPERATURE
+    assert call["frequency_penalty"] == CAPTION_FREQUENCY_PENALTY
+    assert call["presence_penalty"] == CAPTION_PRESENCE_PENALTY

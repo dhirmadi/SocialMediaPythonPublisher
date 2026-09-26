@@ -130,11 +130,9 @@ async def test_caption_generator_generate_with_sd_returns_usage_tuple() -> None:
     gen.sd_caption_model = "gpt-4o-mini"
     gen.sd_caption_system_prompt = "system"
     gen.sd_caption_role_prompt = "role"
-    # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
     gen.system_prompt = "system"
     gen.role_prompt = "role"
     gen.role_prompt_single = "role"
-    gen.sd_caption_brief = "sd brief"
 
     mock_client = AsyncMock()
     mock_client.chat.completions.create = AsyncMock(return_value=resp)
@@ -180,40 +178,8 @@ async def test_caption_generator_generate_multi_returns_usage_tuple() -> None:
     assert ai_usage.response_id == "cmpl-multi"
 
 
-@pytest.mark.asyncio
-async def test_caption_generator_generate_multi_with_sd_returns_usage_tuple() -> None:
-    """AC-B3: generate_multi_with_sd() returns (dict, AIUsage)."""
-    from publisher_v2.services.ai import CaptionGeneratorOpenAI
-
-    usage = _mock_usage(110, 65, 45)
-    resp = _mock_openai_response(
-        content=json.dumps({"telegram": "tg", "email": "em", "sd_caption": "sd"}), usage=usage, resp_id="cmpl-ms"
-    )
-
-    gen = CaptionGeneratorOpenAI.__new__(CaptionGeneratorOpenAI)
-    gen.model = "gpt-4o-mini"
-    gen.sd_caption_model = "gpt-4o-mini"
-    gen.sd_caption_system_prompt = "system"
-    gen.sd_caption_role_prompt = "role"
-    # #79: the multi+sd path now uses the copywriter prompts with an sd brief.
-    gen.system_prompt = "system"
-    gen.role_prompt = "role"
-    gen.role_prompt_single = "role"
-    gen.sd_caption_brief = "sd brief"
-
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    gen.client = mock_client
-
-    specs = {
-        "telegram": CaptionSpec(platform="telegram", style="minimal_poetic", hashtags="", max_length=2200),
-        "email": CaptionSpec(platform="email", style="descriptive", hashtags="", max_length=5000),
-    }
-    result = await gen.generate_multi_with_sd(_ANALYSIS, specs)
-    assert isinstance(result, tuple)
-    data, ai_usage = result
-    assert "telegram" in data
-    assert isinstance(ai_usage, AIUsage)
+# PUB-051 review: generate_multi_with_sd is deleted (AC4 left it without a production caller);
+# test_caption_generator_generate_multi_returns_usage_tuple above covers the multi path's usage tuple.
 
 
 # --- AC-B4: resp.usage is None → AIUsage is None ---

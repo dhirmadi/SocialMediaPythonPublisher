@@ -58,3 +58,22 @@ def test_parse_sidecar_keeps_invalid_json() -> None:
     assert sd == "sd text"
     assert meta is not None
     assert meta["caption"] == "custom caption"
+
+
+def test_rehydrated_caption_angles_keep_only_pool_keys() -> None:
+    """PUB-051 W2: ``caption_angles`` is read back validated — only string values that are pool keys survive.
+
+    A sidecar is operator-editable storage; a non-key, a non-string or an
+    oversized value must never reach the history rows or the rotation.
+    """
+    from publisher_v2.utils.captions import CONTENT_ANGLES, build_caption_sidecar
+
+    assert "craft" in CONTENT_ANGLES, "setup: 'craft' must be a pool key"
+    content = build_caption_sidecar(
+        "sd prompt, fine art",
+        {"caption_angles": {"telegram": "not_a_key", "email": 5, "instagram": "craft", "x": "y" * 100}},
+    )
+
+    view = rehydrate_sidecar_view(content)
+
+    assert view["caption_angles"] == {"instagram": "craft"}

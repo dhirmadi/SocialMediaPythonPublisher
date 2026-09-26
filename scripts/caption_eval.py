@@ -57,9 +57,11 @@ DEFAULT_THRESHOLDS = DEFAULT_FIXTURES / "caption_eval_thresholds.json"
 if str(REPO_ROOT / "publisher_v2" / "src") not in sys.path:
     sys.path.insert(0, str(REPO_ROOT / "publisher_v2" / "src"))
 
+from publisher_v2.config.static_loader import get_static_config  # noqa: E402
 from publisher_v2.core.exceptions import AIServiceError, ConfigurationError  # noqa: E402
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis  # noqa: E402
 from publisher_v2.utils import caption_metrics as metrics  # noqa: E402
+from publisher_v2.utils.captions import angle_history_depth  # noqa: E402
 
 # Metrics whose bar is crossed by rising, and those crossed by falling (AC4).
 MAX_METRICS: tuple[str, ...] = (
@@ -394,7 +396,7 @@ def build_service() -> Any:
 
     The snapshot has to measure what production publishes, not the draft before
     the machinery runs: ``create_multi_caption_pair_from_analysis`` is where the
-    #82 similarity gate, the structure-directive rotation and the one bounded
+    #82 similarity gate, the PUB-051 content-angle rotation and the one bounded
     regeneration live. Calling the generator directly would skip all of it and
     systematically under-report exactly the mechanism the prompt PRs added —
     ``scripts/caption_sample.py`` makes the same argument in its own docstring.
@@ -418,19 +420,51 @@ async def _generate_snapshot(service: Any, fixtures: Path) -> dict[str, Any]:
     snapshot are post-gate: the ones a publish would actually emit. A tripped
     gate costs a second caption call for that image, which is the nightly's
     budget to bear — an under-reported metric would be worse.
+
+    PUB-051: each fixture is captioned as if the previous fixtures had just been
+    published. The angles each one gets are prepended per platform to a running
+    ``history_angles`` (most-recent-first, capped at ``angle_history_depth`` of the caption-history window),
+    so the content-angle rotation is exercised the way sequential publishes
+    exercise it. The caption-text history stays the fixed fixture history, which
+    keeps the scores comparable with the PUB-049 baseline.
     """
     history = await asyncio.to_thread(load_history, fixtures)
     specs = await asyncio.to_thread(build_specs, sorted(history) or ["telegram"])
     analyses = await asyncio.to_thread(load_analyses, fixtures)
+    static = await asyncio.to_thread(get_static_config)
+    depth = angle_history_depth(static.ai_prompts.caption_history.window_size)
+    history_angles: dict[str, list[str | None]] = {platform: [] for platform in specs}
     entries: list[dict[str, Any]] = []
     for name, analysis in analyses.items():
-        # Returns (captions, sd_caption, usages); neither the SD caption nor the
-        # usage counters belong in the snapshot.
-        captions, _sd_caption, _usages = await service.create_multi_caption_pair_from_analysis(
-            analysis, specs, history=history
+        # Returns (captions, sd_caption, usages, angles) since PUB-051.
+        captions, _sd_caption, _usages, angles = await service.create_multi_caption_pair_from_analysis(
+            analysis, specs, history=history, history_angles={p: list(a) for p, a in history_angles.items()}
         )
-        entries.append({"analysis": name, "captions": dict(captions)})
+        for platform, angle in angles.items():
+            history_angles[platform] = [angle, *history_angles.get(platform, [])][:depth]
+        entries.append({"analysis": name, "captions": dict(captions), "angles": dict(angles)})
     return {"entries": entries}
+
+
+def format_angle_distribution(snapshot: dict[str, Any]) -> str:
+    """Per-platform counts of the content angle each kept caption was written under.
+
+    Entries without ``angles`` (snapshots from before PUB-051) contribute nothing.
+    """
+    counts: dict[str, dict[str, int]] = {}
+    for entry in snapshot.get("entries", []):
+        for platform, angle in (entry.get("angles") or {}).items():
+            per_platform = counts.setdefault(platform, {})
+            per_platform[angle] = per_platform.get(angle, 0) + 1
+    if not counts:
+        return "(no angles recorded)"
+    platforms = sorted(counts)
+    angle_names = sorted({angle for per_platform in counts.values() for angle in per_platform})
+    lines = ["| Angle | " + " | ".join(platforms) + " |", "|---|" + "---|" * len(platforms)]
+    for angle in angle_names:
+        row = [str(counts[platform].get(angle, 0)) for platform in platforms]
+        lines.append(f"| {angle} | " + " | ".join(row) + " |")
+    return "\n".join(lines)
 
 
 # --- modes ------------------------------------------------------------------
@@ -524,6 +558,10 @@ def run_nightly(fixtures: Path, out_dir: Path, thresholds_path: Path) -> int:
             "",
             "Thresholds are deliberately NOT regenerated here: re-baselining the bars",
             "is a separate, human-invoked `--generate-thresholds` run.",
+            "",
+            "## Angle distribution",
+            "",
+            format_angle_distribution(snapshot),
             "",
             "## Snapshot diff",
             "",

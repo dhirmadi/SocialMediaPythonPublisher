@@ -1,0 +1,76 @@
+version: 1
+roadmap_id: PUB-051
+summary: >-
+  Caption prompt and register repair: stored content-angle rotation, no closing-pattern line,
+  a sub-500-token user message with prose analysis, sd_caption moved to the neutral vision call,
+  an owner-persona vision register with a seeded senses pool, history saved only for published
+  platforms, sidecar-based partial retry, and one JSON-parse retry on the vision reply.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/utils/captions.py
+    - publisher_v2/src/publisher_v2/services/ai.py
+    - publisher_v2/src/publisher_v2/config/static/ai_prompts.yaml
+    - publisher_v2/src/publisher_v2/db/models.py
+    - publisher_v2/src/publisher_v2/db/caption_store.py
+    - publisher_v2/alembic/versions/004_add_caption_angle_column.py
+    - publisher_v2/src/publisher_v2/core/workflow.py
+    - publisher_v2/src/publisher_v2/web/service.py   # 4-tuple unpack + sidecar sd_caption falls back to analysis.sd_caption (user-approved 2026-09-25)
+    - scripts/caption_eval.py     # 4-tuple unpack (user-approved 2026-09-25)
+    - scripts/caption_sample.py   # 4-tuple unpack (user-approved 2026-09-25)
+    - publisher_v2/tests/**
+    - docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md
+    - docs_v2/roadmap/PUB-051_*
+    - publisher_v2/src/publisher_v2/services/sidecar.py         # caption_angles write (critique round, user: "address all findings")
+    - publisher_v2/src/publisher_v2/services/sidecar_parser.py  # caption_angles validated read (critique round)
+    - publisher_v2/src/publisher_v2/config/static_loader.py     # vision.sd_caption key (critique round)
+    - publisher_v2/src/publisher_v2/app.py                      # preview sidecar model_version (critique round)
+    - docs_v2/02_Specifications/SPECIFICATION.md
+    - docs_v2/roadmap/README.md
+    - CHANGELOG.md
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+    - pyproject.toml   # no new dependency (AC3 uses len(prompt) / 4)
+    - uv.lock
+
+acceptance_criteria:
+  AC1: One angle per platform per call, LRU over stored angle column, regeneration excludes rejected angle
+  AC2: No closing-pattern line ever; at most two openings-to-avoid per platform
+  AC3: User message < 500 tokens (len/4) with history + six-example profile; no hex colour / snake_case tag
+  AC4: Caption call requests platform keys only (no sd_caption); temperature 0.9, frequency 0.3, presence 0.6
+  AC5: sd_caption from the neutral-register vision call; OWNER_PERSONA_MARKER governs sensory_detail/mood_note
+  AC6: Senses-pool prompt text differs by image seed (sha256[:8]); caption-facing fields absent from sidecar
+  AC7: Partial retry makes zero AI calls (reads sidecar); caption_history holds rows only for succeeded platforms
+  AC8: Non-JSON vision reply retried once at same resolution/detail before fallback
+  AC9: Harness --nightly table in PR bodies (manual verification, no pytest)
+
+tasks:
+  - id: 1
+    phase: red
+    owner: test-engineer
+    description: Write the 16 handoff-named failing tests; replace TestStructureDirectiveRotation; update existing tests the spec contradicts (closing line, sd_caption in caption call, old sampling constants), each with a reason.
+  - id: 2
+    phase: green
+    owner: developer
+    description: >-
+      #191 angle pool + angle column/migration 004 + CaptionStore sibling fetch + prompt rewrite + sampling;
+      #192 vision two-call (or two-register) design, sd_caption on neutral call, senses pool, JSON retry, dead
+      _DEFAULT_VISION_* removal, SD-prompt resolution fate; #194 platform stances, history filter, sidecar retry.
+  - id: 3
+    phase: review
+    owner: code-reviewer
+    description: Full quality gates, spec/test-name traceability.
+  - id: 4
+    phase: review
+    owner: security-auditor
+    description: Preview-mode safety of sidecar retry path, no secrets, async hygiene of new vision call.
+
+quality_gates:
+  coverage_affected_min: 80   # utils/captions.py, services/ai.py, db/caption_store.py
+  coverage_overall_min: 85
+  safety:
+    - preview mode side-effect free
+    - no new runtime dependency
+    - angle column nullable, additive
+    - both create_multi_caption_pair_from_analysis callers updated together

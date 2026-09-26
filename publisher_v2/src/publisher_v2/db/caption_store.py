@@ -49,10 +49,13 @@ class CaptionStore:
         model_version: str | None = None,
         caption_source: str = "ai_generated",
         truncation_info: dict[str, tuple[bool, int | None]] | None = None,
+        angles_by_platform: dict[str, str] | None = None,
     ) -> int:
         """Insert one row per platform after a multi-platform publish.
 
         ``truncation_info`` maps platform -> (was_truncated, original_length).
+        ``angles_by_platform`` (PUB-051) maps platform -> the content-angle key the
+        caption was written under; platforms absent from it are stored with NULL.
         Returns the number of rows inserted.
 
         Also triggers retention pruning after the insert.
@@ -79,6 +82,7 @@ class CaptionStore:
                     caption_source=caption_source,
                     was_truncated=was_truncated,
                     original_length=original_length,
+                    angle=(angles_by_platform or {}).get(platform),
                 )
                 session.add(row)
                 rows_inserted += 1
@@ -104,6 +108,22 @@ class CaptionStore:
 
         Uses a single query with a window function to avoid N+1 round-trips.
         """
+        rows = await self.fetch_recent_with_angles_by_platform(tenant, platforms=platforms, limit=limit)
+        return {platform: [caption for caption, _angle in items] for platform, items in rows.items()}
+
+    async def fetch_recent_with_angles_by_platform(
+        self,
+        tenant: str,
+        platforms: list[str] | None = None,
+        limit: int = 8,
+    ) -> dict[str, list[tuple[str, str | None]]]:
+        """Fetch recent ``(caption, angle)`` pairs grouped by platform (PUB-051).
+
+        Same selection and ordering as ``fetch_recent_by_platform`` (most-recent-first,
+        up to ``limit`` per platform); ``angle`` is the stored content-angle key, or
+        None for rows written before the column existed. Stored values are returned
+        as-is: the rotation, not the store, decides what an unknown key means.
+        """
         from sqlalchemy import func as sa_func
 
         async with self._session_factory() as session:
@@ -117,7 +137,7 @@ class CaptionStore:
                 .label("rn")
             )
 
-            inner = select(CaptionHistory.platform, CaptionHistory.caption_text, row_num).where(
+            inner = select(CaptionHistory.platform, CaptionHistory.caption_text, CaptionHistory.angle, row_num).where(
                 CaptionHistory.tenant == tenant
             )
             if platforms:
@@ -125,15 +145,15 @@ class CaptionStore:
             inner_sq = inner.subquery()
 
             stmt = (
-                select(inner_sq.c.platform, inner_sq.c.caption_text)
+                select(inner_sq.c.platform, inner_sq.c.caption_text, inner_sq.c.angle)
                 .where(inner_sq.c.rn <= limit)
                 .order_by(inner_sq.c.platform, inner_sq.c.rn)
             )
             rows = await session.execute(stmt)
 
-            result: dict[str, list[str]] = {}
-            for platform, caption_text in rows:
-                result.setdefault(platform, []).append(caption_text)
+            result: dict[str, list[tuple[str, str | None]]] = {}
+            for platform, caption_text, angle in rows:
+                result.setdefault(platform, []).append((caption_text, angle))
 
         return result
 

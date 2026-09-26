@@ -6,7 +6,7 @@ Covers:
 - AC-03: Email style contains 'sentence' and 'question'.
 - AC-04: max_tokens=80 on generate() for email; absent for telegram.
 - AC-05: max_tokens=512 on generate_multi() when any spec is short-limit; absent otherwise.
-- AC-06: temperature=0.5 for short-limit; 0.7 otherwise.
+- AC-06: temperature=0.5 for short-limit; 0.7 otherwise (generate_multi: PUB-051 caption temperature).
 - AC-07: Condense pass replaces overshoot; smart_truncate fallback when condense still over.
 - AC-08: Condense exception swallowed -> smart_truncate fallback.
 - AC-09: caption_condensed / caption_condense_failed structured log events.
@@ -25,6 +25,9 @@ from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.config.static_loader import load_static_config
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.services.ai import (
+    CAPTION_FREQUENCY_PENALTY,
+    CAPTION_PRESENCE_PENALTY,
+    DEFAULT_CAPTION_TEMPERATURE,
     SHORT_LIMIT_MAX_TOKENS_SINGLE,
     SHORT_LIMIT_MAX_TOKENS_SINGLE_SD,
     SHORT_LIMIT_THRESHOLD,
@@ -72,7 +75,7 @@ class _FakeClient:
 
 def _default_config() -> OpenAIConfig:
     return OpenAIConfig(
-        api_key="sk-test",
+        api_key="sk-test",  # pragma: allowlist secret
         vision_model="gpt-4o",
         caption_model="gpt-4o-mini",
         sd_caption_enabled=True,
@@ -251,7 +254,7 @@ class TestTemperatureSelection:
         assert completions.calls[0]["temperature"] == 0.7
 
     @pytest.mark.asyncio
-    async def test_generate_multi_mixed_uses_temp_0_7(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_generate_multi_mixed_uses_default_caption_temperature(self, monkeypatch: pytest.MonkeyPatch) -> None:
         # #79 supersedes the any-short switch: one short platform must not
         # lower the temperature for the long platforms sharing the call.
         # (All-short calls keep 0.5 — see test_ai_prompt_payload.py.)
@@ -261,17 +264,27 @@ class TestTemperatureSelection:
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {"telegram": _telegram_spec(), "email": _email_spec()}
         await gen.generate_multi(_analysis(), specs)
-        assert completions.calls[0]["temperature"] == 0.7
+        # PUB-051 Scope: caption call temperature=0.9, frequency_penalty=0.3, presence_penalty=0.6.
+        assert DEFAULT_CAPTION_TEMPERATURE == 0.9
+        assert completions.calls[0]["temperature"] == DEFAULT_CAPTION_TEMPERATURE
+        assert completions.calls[0]["frequency_penalty"] == CAPTION_FREQUENCY_PENALTY == 0.3
+        assert completions.calls[0]["presence_penalty"] == CAPTION_PRESENCE_PENALTY == 0.6
 
     @pytest.mark.asyncio
-    async def test_generate_multi_long_only_uses_temp_0_7(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_generate_multi_long_only_uses_default_caption_temperature(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         resp = json.dumps({"telegram": "t"})
         completions = _SequentialFakeCompletions([resp])
         monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {"telegram": _telegram_spec()}
         await gen.generate_multi(_analysis(), specs)
-        assert completions.calls[0]["temperature"] == 0.7
+        # PUB-051 Scope: caption call temperature=0.9, frequency_penalty=0.3, presence_penalty=0.6.
+        assert DEFAULT_CAPTION_TEMPERATURE == 0.9
+        assert completions.calls[0]["temperature"] == DEFAULT_CAPTION_TEMPERATURE
+        assert completions.calls[0]["frequency_penalty"] == CAPTION_FREQUENCY_PENALTY == 0.3
+        assert completions.calls[0]["presence_penalty"] == CAPTION_PRESENCE_PENALTY == 0.6
 
 
 # ---------- AC-07/08/09: condense pass ----------
@@ -422,7 +435,10 @@ class TestTelegramPathRegression:
         }
         await gen.generate_multi(_analysis(), specs)
         call = completions.calls[0]
-        assert call["temperature"] == 0.7
+        # PUB-051 Scope: caption call temperature=0.9, frequency_penalty=0.3, presence_penalty=0.6.
+        assert call["temperature"] == DEFAULT_CAPTION_TEMPERATURE == 0.9
+        assert call["frequency_penalty"] == CAPTION_FREQUENCY_PENALTY == 0.3
+        assert call["presence_penalty"] == CAPTION_PRESENCE_PENALTY == 0.6
         # #79: multi calls always carry a platform-derived max_tokens budget.
         assert call.get("max_tokens") == (2200 + 2200) // 3 + 400
 

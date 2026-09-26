@@ -14,7 +14,6 @@ calling ``truncate_voice_profile_to_budget`` ships the whole profile and fails h
 from __future__ import annotations
 
 import io
-import json
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import Any
@@ -23,6 +22,7 @@ from unittest.mock import patch
 import dropbox
 import httpx
 import pytest
+from caption_pipeline_fakes import FakeOpenAI
 from PIL import Image
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
@@ -48,13 +48,9 @@ EMAIL_TAGGED: list[str] = PROFILE[3:6]
 
 HOST = "xxx.shibari.photo"
 
-# How the fake tells the multi-platform caption completion apart from the other
-# calls. `_build_multi_prompt` (services/ai.py) emits this header unconditionally,
-# above the platform blocks, so it survives changes to what the call *asks for* —
-# notably PUB-051 AC4, which drops `sd_caption` from this prompt's requested keys.
-# Branching on "sd_caption" would silently stop matching then, and these three
-# tests would fail looking like a sampler regression instead of a stale fake.
-MULTI_CAPTION_MARKER = "Generate captions for these platforms:"
+# Every platform key a caption completion may be asked for. The shared fake
+# answers with all of them; `_parse_platform_captions` reads only the enabled ones.
+CAPTION_PLATFORMS = ["telegram", "email", "instagram", "generic"]
 
 
 def _jpeg() -> bytes:
@@ -95,35 +91,6 @@ class _FakeDropbox:
     def files_move_v2(self, src: str, dst: str, **_kwargs: Any) -> None:
         if src in self.files:
             self.files[dst] = self.files.pop(src)
-
-
-class _FakeCompletions:
-    def __init__(self, owner: _FakeOpenAI) -> None:
-        self._owner = owner
-
-    async def create(self, **kwargs: Any) -> SimpleNamespace:
-        messages = kwargs.get("messages") or []
-        _FakeOpenAI.captured_messages.append(messages)
-        user = messages[-1]["content"] if messages else ""
-        if isinstance(user, list):  # vision call carries an image part
-            content = json.dumps({"description": "Rope on skin", "mood": "intimate", "tags": ["rope"], "nsfw": False})
-        elif MULTI_CAPTION_MARKER in str(user):
-            content = json.dumps(
-                {"telegram": "A telegram caption.", "email": "An email caption.", "sd_caption": "rope, skin"}
-            )
-        else:
-            content = "A caption."
-        return SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=content))], usage=None)
-
-
-class _FakeOpenAI:
-    captured_messages: list[list[dict[str, Any]]] = []
-
-    def __init__(self, *_args: Any, **_kwargs: Any) -> None:
-        self.chat = SimpleNamespace(completions=_FakeCompletions(self))
-
-    async def close(self) -> None:
-        return None
 
 
 def _source(config: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> OrchestratorConfigSource:
@@ -192,12 +159,18 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[
     """Posted-state files live under HOME; keep them out of the developer's real one."""
     monkeypatch.setenv("HOME", str(tmp_path))
     monkeypatch.delenv("DATABASE_URL", raising=False)
-    _FakeOpenAI.captured_messages = []
     yield
-    _FakeOpenAI.captured_messages = []
 
 
-async def _run(publishers: list[dict[str, Any]], content: dict[str, Any], monkeypatch: pytest.MonkeyPatch) -> Any:
+@pytest.fixture
+def fake_openai() -> FakeOpenAI:
+    # PUB-051 AC4/AC5: vision replies carry `sd_caption`; the JSON-mode caption call gets platform keys only.
+    return FakeOpenAI(CAPTION_PLATFORMS)
+
+
+async def _run(
+    publishers: list[dict[str, Any]], content: dict[str, Any], monkeypatch: pytest.MonkeyPatch, fake: FakeOpenAI
+) -> Any:
     """Run one real dry publish and return the resolved config (for the platform set)."""
     from publisher_v2.core.workflow import WorkflowOrchestrator
     from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
@@ -210,7 +183,7 @@ async def _run(publishers: list[dict[str, Any]], content: dict[str, Any], monkey
 
     with (
         patch("publisher_v2.services.storage.dropbox.Dropbox", _FakeDropbox),
-        patch("publisher_v2.services.ai.AsyncOpenAI", _FakeOpenAI),
+        patch("publisher_v2.services.ai.AsyncOpenAI", lambda *_a, **_kw: fake),
     ):
         storage = create_storage(cfg)
         ai_service = AIService(VisionAnalyzerOpenAI(cfg.openai), CaptionGeneratorOpenAI(cfg.openai))
@@ -219,20 +192,19 @@ async def _run(publishers: list[dict[str, Any]], content: dict[str, Any], monkey
         await ai_service.aclose()
 
     assert result.error is None, result.error
-    # Fail loudly if the fake stopped recognising the multi-platform caption call
-    # (see MULTI_CAPTION_MARKER) rather than letting it read as a sampler bug.
-    assert any(
-        isinstance(m.get("content"), str) and MULTI_CAPTION_MARKER in m["content"]
-        for messages in _FakeOpenAI.captured_messages
-        for m in messages
-    ), f"the fake never saw the multi-platform caption prompt; {MULTI_CAPTION_MARKER!r} is stale"
+    # Fail loudly if the fake never saw the multi-platform caption call, rather
+    # than letting a stale fake read as a sampler bug.
+    assert fake.caption_calls, "the fake never saw the multi-platform caption call"
+    assert all(c.get("response_format") == {"type": "json_object"} for c in fake.caption_calls), (
+        "the caption call is no longer JSON mode; the shared fake's routing is stale"
+    )
     return cfg
 
 
-def _voice_block_examples() -> list[str]:
+def _voice_block_examples(fake: FakeOpenAI) -> list[str]:
     """The numbered lines of the STYLE REFERENCES block the caption call carried."""
-    for messages in _FakeOpenAI.captured_messages:
-        for message in messages:
+    for call in fake.caption_calls:
+        for message in call.get("messages") or []:
             content = message.get("content")
             if isinstance(content, str) and "BEGIN VOICE EXAMPLES" in content:
                 body = content.split("BEGIN VOICE EXAMPLES", 1)[1].split("END VOICE EXAMPLES", 1)[0]
@@ -240,11 +212,13 @@ def _voice_block_examples() -> list[str]:
     raise AssertionError("no STYLE REFERENCES block reached the OpenAI caption call")
 
 
-async def test_workflow_run_prompt_contains_sampled_voice_examples(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_workflow_run_prompt_contains_sampled_voice_examples(
+    monkeypatch: pytest.MonkeyPatch, fake_openai: FakeOpenAI
+) -> None:
     """Untagged corpus: the prompt carries this image's sample, not the whole profile."""
-    await _run([TELEGRAM_PUBLISHER], {"voice_profile": PROFILE, "archive": False}, monkeypatch)
+    await _run([TELEGRAM_PUBLISHER], {"voice_profile": PROFILE, "archive": False}, monkeypatch, fake_openai)
 
-    sent = _voice_block_examples()
+    sent = _voice_block_examples(fake_openai)
     expected = sample_voice_examples(PROFILE, seed_source=CONTENT_HASH, platform_tags=None, platforms=["telegram"])
 
     assert sent == expected, "the prompt did not carry the per-image sample for this run's seed"
@@ -253,6 +227,7 @@ async def test_workflow_run_prompt_contains_sampled_voice_examples(monkeypatch: 
 
 async def test_workflow_run_prompt_prefers_tagged_examples_when_voice_profile_tags_set(
     monkeypatch: pytest.MonkeyPatch,
+    fake_openai: FakeOpenAI,
 ) -> None:
     """Single enabled platform with tags: only that platform's tagged lines are eligible."""
     tags = {"telegram": PROFILE[:6], "email": EMAIL_TAGGED}
@@ -260,26 +235,30 @@ async def test_workflow_run_prompt_prefers_tagged_examples_when_voice_profile_ta
         [TELEGRAM_PUBLISHER],
         {"voice_profile": PROFILE, "voice_profile_tags": tags, "archive": False},
         monkeypatch,
+        fake_openai,
     )
 
-    sent = _voice_block_examples()
+    sent = _voice_block_examples(fake_openai)
     expected = sample_voice_examples(PROFILE, seed_source=CONTENT_HASH, platform_tags=tags, platforms=["telegram"])
 
     assert sent == expected
     assert set(sent) <= set(PROFILE[:6]), f"an untagged example was sent for a telegram-only tenant: {sent}"
 
 
-async def test_workflow_run_prompt_unions_tags_when_two_platforms_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_workflow_run_prompt_unions_tags_when_two_platforms_enabled(
+    monkeypatch: pytest.MonkeyPatch, fake_openai: FakeOpenAI
+) -> None:
     """Two enabled platforms, disjoint tags: one shared prompt prefers the union of both."""
     tags = {"telegram": TELEGRAM_TAGGED, "email": EMAIL_TAGGED}
     cfg = await _run(
         [TELEGRAM_PUBLISHER, EMAIL_PUBLISHER],
         {"voice_profile": PROFILE, "voice_profile_tags": tags, "archive": False},
         monkeypatch,
+        fake_openai,
     )
     assert cfg.platforms.telegram_enabled and cfg.platforms.email_enabled, "both platforms must be enabled"
 
-    sent = _voice_block_examples()
+    sent = _voice_block_examples(fake_openai)
     expected = sample_voice_examples(
         PROFILE, seed_source=CONTENT_HASH, platform_tags=tags, platforms=["telegram", "email"]
     )

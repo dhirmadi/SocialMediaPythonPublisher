@@ -69,6 +69,7 @@ from publisher_v2.services.storage_protocol import (  # noqa: E402
     ThumbnailSize,
 )
 from publisher_v2.services.usage_meter import UsageMeter  # noqa: E402
+from publisher_v2.utils.captions import angle_history_depth  # noqa: E402
 from publisher_v2.utils.logging import log_json  # noqa: E402
 from publisher_v2.web.models import AnalysisResponse, CurationResponse, ImageResponse, PublishResponse  # noqa: E402
 
@@ -97,6 +98,11 @@ def _edited_scalar_caption(view: dict[str, Any]) -> str | None:
         return None
     caption = view.get("caption")
     return str(caption) if isinstance(caption, str) and caption.strip() else None
+
+
+def _has_operator_caption(view: dict[str, Any]) -> bool:
+    """PUB-051: the sidecar records an operator caption (a ``caption_submitted`` map or an edited ``caption``)."""
+    return bool(_platform_caption_dict(view, "caption_submitted")) or _edited_scalar_caption(view) is not None
 
 
 def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
@@ -812,7 +818,14 @@ class WebImageService:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text, source=filename)
                 cached_caption = self._select_cached_social_caption(view)
-                if cached_caption:
+                # PUB-051: with SD prompts on, an empty SD line is a miss so Analyze generates one —
+                # unless the sidecar holds an operator caption, which a regeneration would overwrite.
+                sd_missing = (
+                    getattr(self.config.openai, "sd_caption_enabled", True)
+                    and not view.get("sd_caption")
+                    and not _has_operator_caption(view)
+                )
+                if cached_caption and not sd_missing:
                     log_json(
                         self.logger,
                         logging.INFO,
@@ -827,7 +840,7 @@ class WebImageService:
                         tags=[],
                         nsfw=False,
                         caption=cached_caption,
-                        sd_caption=view.get("sd_caption"),
+                        sd_caption=view.get("sd_caption") or None,
                         sidecar_written=False,
                         cached=True,
                         platform_captions=_generated_captions(view),
@@ -932,20 +945,31 @@ class WebImageService:
 
         # Fetch caption history for anti-repetition
         caption_history: dict[str, list[str]] | None = None
+        # PUB-051: each platform's stored angles (most-recent-first) feed the angle rotation.
+        history_angles: dict[str, list[str | None]] | None = None
+        angles: dict[str, str] = {}
         if self._caption_store is not None:
             try:
-                caption_history = await self._caption_store.fetch_recent_by_platform(
-                    self._tenant, platforms=list(specs.keys())
+                # Angles are read at least as deep as the pool; caption text stays at window_size.
+                window = get_static_config().ai_prompts.caption_history.window_size
+                rows = await self._caption_store.fetch_recent_with_angles_by_platform(
+                    self._tenant, platforms=list(specs.keys()), limit=angle_history_depth(window)
                 )
+                caption_history = {p: [text for text, _a in items][:window] for p, items in rows.items()}
+                history_angles = {p: [a for _t, a in items] for p, items in rows.items()}
             except Exception:
                 log_json(self.logger, logging.DEBUG, "web_caption_history_fetch_failed", correlation_id=correlation_id)
 
         try:
             caption_budget = max(0.05, ai_stage_deadline - time.monotonic())
             if hasattr(ai, "create_multi_caption_pair_from_analysis"):
-                platform_captions_dict, sd_caption, caption_usages = await asyncio.wait_for(
+                platform_captions_dict, sd_caption, caption_usages, angles = await asyncio.wait_for(
                     ai.create_multi_caption_pair_from_analysis(
-                        analysis, specs, history=caption_history, voice_examples=voice_examples
+                        analysis,
+                        specs,
+                        history=caption_history,
+                        voice_examples=voice_examples,
+                        history_angles=history_angles,
                     ),
                     timeout=caption_budget,
                 )
@@ -977,28 +1001,53 @@ class WebImageService:
             if self._usage_meter and fallback_usages:
                 await self._usage_meter.emit_all(fallback_usages)
 
+        # PUB-051: the SD prompt now comes from the vision call; the caption stage
+        # only supplies one on the single-platform fallback path.
+        sd_enabled = getattr(self.config.openai, "sd_caption_enabled", True)
+        sd_from_vision = not sd_caption and sd_enabled and bool(analysis.sd_caption)
+        if sd_from_vision:
+            sd_caption = analysis.sd_caption
+
         # Attach sd_caption for downstream sidecar metadata builder
         if sd_caption:
             analysis = dataclasses.replace(analysis, sd_caption=sd_caption)
 
         # Write sidecar (mimic workflow sidecar behaviour)
         sidecar_written = False
-        if sd_caption and not self.config.content.debug:
-            from publisher_v2.services.sidecar import generate_and_upload_sidecar
+        # PUB-051: captions are persisted even without an SD prompt (empty first line).
+        if (sd_caption or caption or platform_captions_dict) and not self.config.content.debug:
+            from publisher_v2.services.sidecar import generate_and_upload_sidecar, read_existing_sd_line
 
-            model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
+            # PUB-051: no new SD prompt this run keeps the one the sidecar already has.
+            kept_sd = (
+                None
+                if sd_caption
+                else await read_existing_sd_line(
+                    self.storage, self.config.storage_paths.image_folder, filename, correlation_id
+                )
+            )
+            if sd_from_vision:
+                model_version = getattr(ai.analyzer, "model", None) or ""
+            elif sd_caption:
+                model_version = getattr(ai.generator, "sd_caption_model", None) or getattr(ai.generator, "model", "")
+            else:
+                model_version = getattr(getattr(ai, "generator", None), "model", None) or ""
+            if kept_sd is not None:
+                model_version = kept_sd.model_version or model_version
             try:
                 await generate_and_upload_sidecar(
                     storage=self.storage,
                     config=self.config,
                     filename=filename,
                     analysis=analysis,
-                    sd_caption=sd_caption,
+                    sd_caption=sd_caption or (kept_sd.sd_caption if kept_sd else ""),
                     model_version=str(model_version),
                     sha256="",  # Optional here
                     correlation_id=correlation_id,
                     log_prefix="web_sidecar_upload",
                     platform_captions=platform_captions_dict,
+                    caption_angles=angles or None,
+                    sd_caption_version=(kept_sd.sd_caption_version or None) if kept_sd else None,
                 )
                 sidecar_written = True
             except Exception:  # noqa: S110 — error already logged in helper  # nosec B110

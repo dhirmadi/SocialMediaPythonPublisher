@@ -708,3 +708,79 @@ class TestSDCaptionPreviewPath:
         # Verify sidecar preview was called with sd_caption
         assert len(sidecar_preview_called) == 1
         assert sidecar_preview_called[0][0] == "beautiful photograph, natural lighting"
+
+    @pytest.mark.asyncio
+    async def test_preview_sidecar_model_version_names_the_vision_model(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        mock_config,
+    ) -> None:
+        """PUB-051 N3: the multi-platform path takes sd_caption from the vision call, so the preview
+        sidecar's ``model_version`` names the analyzer's model, not the caption generator's SD model.
+        """
+        import dataclasses
+
+        analysis = dataclasses.replace(
+            ImageAnalysis(description="A test image", mood="neutral", tags=["test"], nsfw=False, safety_labels=[]),
+            sd_caption="kneeling figure, jute rope, window light",
+        )
+        result = SimpleNamespace(
+            success=True,
+            image_name="test.jpg",
+            image_folder="/Photos",
+            sha256="abc123",
+            source_url="https://example.com",
+            caption="Telegram caption",
+            caption_spec=CaptionSpec(platform="telegram", style="casual", hashtags="", max_length=4096),
+            image_analysis=analysis,
+            archived=False,
+            correlation_id="test-123",
+            publish_results={},
+            error=None,
+            platform_captions={"telegram": "Telegram caption", "instagram": "Instagram caption"},
+        )
+        mock_config.openai.sd_caption_enabled = True
+        monkeypatch.setattr(sys, "argv", ["app.py", "--preview"])
+
+        orchestrator = MagicMock()
+        orchestrator.execute = AsyncMock(return_value=result)
+        storage = MagicMock()
+        storage.get_file_metadata = AsyncMock(
+            return_value=FileMetadata(file_id="abc", revision="1", modified_at=None, size=None)
+        )
+        analyzer = MagicMock()
+        analyzer.model = "vision-model-under-test"
+        generator = MagicMock()
+        generator.model = "caption-model-under-test"
+        generator.sd_caption_model = "sd-caption-model-under-test"
+        ai_service = MagicMock(aclose=AsyncMock(), analyzer=analyzer, generator=generator)
+        # A real AIService always has the multi-platform path, which leaves sd_caption to vision.
+        ai_service.create_multi_caption_pair_from_analysis = AsyncMock()
+
+        rendered: list[dict] = []
+        monkeypatch.setattr("publisher_v2.app.load_application_config", lambda *a: mock_config)
+        monkeypatch.setattr("publisher_v2.app.create_storage", lambda cfg, **_kw: storage)
+        monkeypatch.setattr("publisher_v2.app.VisionAnalyzerOpenAI", lambda cfg: analyzer)
+        monkeypatch.setattr("publisher_v2.app.CaptionGeneratorOpenAI", lambda cfg: generator)
+        monkeypatch.setattr("publisher_v2.app.AIService", lambda a, g, **_kw: ai_service)
+        monkeypatch.setattr("publisher_v2.app.build_publishers", lambda cfg: [])
+        monkeypatch.setattr("publisher_v2.app.WorkflowOrchestrator", lambda *a, **kw: orchestrator)
+        for name in (
+            "print_config_summary",
+            "print_image_details",
+            "print_vision_analysis",
+            "print_caption",
+            "print_platform_preview",
+        ):
+            monkeypatch.setattr(f"publisher_v2.app.preview_utils.{name}", lambda **k: None)
+        monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_header", lambda: None)
+        monkeypatch.setattr("publisher_v2.app.preview_utils.print_preview_footer", lambda: None)
+        monkeypatch.setattr(
+            "publisher_v2.app.preview_utils.print_caption_sidecar_preview",
+            lambda sd_caption, metadata: rendered.append(dict(metadata)),
+        )
+
+        await main_async()
+
+        assert len(rendered) == 1, "setup: the sidecar preview was not rendered"
+        assert rendered[0].get("model_version") == "vision-model-under-test", rendered[0]

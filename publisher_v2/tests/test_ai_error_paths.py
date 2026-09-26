@@ -188,3 +188,72 @@ class TestStageDeadline:
         with pytest.raises(AIServiceError, match="ai stage timeout"):
             await orchestrator.execute()
         assert time.monotonic() - start < 5.0
+
+
+# ---------- PUB-051 AC8: one same-resolution retry for a non-JSON vision reply ----------
+
+
+@pytest.mark.asyncio
+async def test_non_json_vision_reply_retried_once_at_same_resolution_before_fallback(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """AC8: a reply that fails JSON parsing is retried exactly once with the same image payload
+    and detail, and only then falls through to the (different-resolution) fallback pass.
+
+    Distinct from ``@_ai_retry``: that decorator retries transient transport errors (and
+    backs off); a JSON-decode failure is not transient, so today it goes straight to the
+    fallback. "Exactly once" also rules out routing it through ``@_ai_retry`` (3 attempts).
+    Design-agnostic: counted per distinct system message, so a two-call vision stage
+    (neutral + owner persona) is judged call by call.
+    """
+    import asyncio
+
+    from caption_pipeline_fakes import (
+        FakeOpenAI,
+        default_vision_payload,
+        image_part,
+        jpeg_bytes,
+        openai_config,
+        system_text,
+    )
+
+    # No real backoff sleeps in this test, whatever path the code takes.
+    async def _no_sleep(*_a, **_kw) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+
+    def _payload(call_number: int, kwargs) -> str:
+        part = image_part(kwargs)
+        if part is not None and part.get("detail") == "low":
+            return "Sorry, I can't produce JSON for this one."
+        return default_vision_payload(call_number, kwargs)
+
+    cfg = openai_config(
+        vision_max_dimension=512,
+        vision_detail="low",
+        vision_fallback_enabled=True,
+        vision_fallback_max_dimension=1024,
+        vision_fallback_detail="high",
+    )
+    analyzer = VisionAnalyzerOpenAI(cfg)
+    fake = FakeOpenAI([], vision_payload=_payload)
+    monkeypatch.setattr(analyzer, "client", fake)
+
+    analysis, _usage = await analyzer.analyze(jpeg_bytes(1600, 1200, (90, 60, 40)))
+
+    calls = [c for c in fake.vision_calls if image_part(c) is not None]
+    first_fallback = next(i for i, c in enumerate(calls) if image_part(c)["detail"] == "high")
+    primary = calls[:first_fallback]
+    assert primary, "no primary-resolution attempt was made"
+    # Same resolution and detail on every pre-fallback attempt.
+    assert {image_part(c)["detail"] for c in primary} == {"low"}
+    assert len({image_part(c)["url"] for c in primary}) == 1, "the retry re-prepared the image at another size"
+    assert image_part(calls[first_fallback])["url"] != image_part(primary[0])["url"], "fallback is not a new size"
+    # Exactly one retry per vision call before falling through.
+    per_call = {}
+    for c in primary:
+        per_call[system_text(c)] = per_call.get(system_text(c), 0) + 1
+    assert set(per_call.values()) == {2}, f"attempts per vision call before fallback: {list(per_call.values())}"
+    # The fallback path still produced an analysis.
+    assert analysis.description

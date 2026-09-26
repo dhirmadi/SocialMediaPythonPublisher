@@ -107,7 +107,8 @@ class TestTelemetryReachesTheGateFromTheRealCaller:
         caplog.set_level(logging.INFO, logger="publisher_v2.services.ai")
         service.generator = _MultiGenerator()
 
-        captions, sd_caption, _usages = await service.create_multi_caption_pair_from_analysis(
+        # PUB-051: the per-platform angles are the fourth element of the return.
+        captions, sd_caption, _usages, _angles = await service.create_multi_caption_pair_from_analysis(
             _analysis(), {"telegram": _spec()}, history=history
         )
 

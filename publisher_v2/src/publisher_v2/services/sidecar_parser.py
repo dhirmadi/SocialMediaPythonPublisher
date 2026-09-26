@@ -5,7 +5,7 @@ import json
 import logging
 from typing import Any
 
-from publisher_v2.utils.captions import ENCODED_STRING_MARKER
+from publisher_v2.utils.captions import CONTENT_ANGLES, ENCODED_STRING_MARKER
 from publisher_v2.utils.logging import log_json
 
 logger = logging.getLogger("publisher_v2.services.sidecar_parser")
@@ -160,6 +160,14 @@ def parse_sidecar_text(text: str, source: str | None = None) -> tuple[str | None
     return sd_caption, meta
 
 
+def _caption_angles(metadata: dict[str, Any] | None) -> dict[str, str]:
+    """PUB-051: the ``caption_angles`` metadata map, keeping only string values that are ``CONTENT_ANGLES`` keys."""
+    raw = metadata.get("caption_angles") if isinstance(metadata, dict) else None
+    if not isinstance(raw, dict):
+        return {}
+    return {str(p): a for p, a in raw.items() if isinstance(a, str) and a in CONTENT_ANGLES}
+
+
 def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, Any]:
     """Construct a lightweight, cache-ready view from raw sidecar text.
 
@@ -176,6 +184,8 @@ def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, An
         which is always reported — by `parse_sidecar_text` when the value
         failed to decode, or here when it decoded into the wrong type or was
         never decodable at all)
+      - caption_angles: dict[str, str] (PUB-051: platform -> the content-angle key
+        its generated caption was written under; unknown keys are dropped)
       - metadata: Optional[dict[str, Any]]
       - has_sidecar: bool
 
@@ -250,6 +260,7 @@ def rehydrate_sidecar_view(text: str, source: str | None = None) -> dict[str, An
         "caption": caption,
         "caption_generated": caption_generated,
         "caption_submitted": caption_submitted,
+        "caption_angles": _caption_angles(metadata),
         "metadata": metadata,
         "has_sidecar": has_sidecar,
     }

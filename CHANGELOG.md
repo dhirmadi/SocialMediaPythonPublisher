@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - PUB-051: Caption Prompt and Register Repair
+- Structure-directive rotation replaced by a content-angle pool (`CONTENT_ANGLES`) rotated least-recently-used over a new stored `angle` column (`pv2_caption_history.angle`, additive Alembic migration 004); platforms in one call get distinct angles while the pool allows; the similarity-gate retry never reuses the rejected angle
+- Caption prompt slimmed: no closing-pattern line, at most two openings to avoid (emoji/hashtags stripped), analysis rendered as a short prose paragraph without colour palette, tags or aesthetic terms; smart-hashtag platforms get up to five plain-word topics
+- Caption call samples at temperature 0.9, `frequency_penalty` 0.3, `presence_penalty` 0.6 and requests platform keys only
+- `sd_caption` now comes from the neutral-register vision call (gpt-4o), not the caption completion; `sd_caption_single_call_enabled` and the `sd_caption_*` overrides no longer affect the multi-platform path
+- Vision `sensory_detail`/`mood_note` written under an owner-voice section (tenant persona when set) with a senses pool seeded from the image hash; a non-JSON vision reply is retried once before the fallback
+- Default caption persona rewritten as a person; `caption.rules` gives a "write X instead of Y" line for every tell in `DEFAULT_TELLS_LEXICON`; each platform style is a speaker-to-audience stance
+- Caption history records only platforms that published successfully, with their angle (also for reused and unedited-override captions via the sidecar's new `caption_angles`); a partial-publish retry reuses the sidecar's `caption_generated` and makes no AI calls
+- Angle history is read `max(caption_history.window_size, len(CONTENT_ANGLES))` deep so every angle rotates (a 3-deep window cycled through only four of six); caption-text history stays at `window_size`, and web Analyze now uses `window_size` too (was 8)
+- The sidecar is written whenever captions were generated, even without an SD prompt (empty line 1, or the earlier SD prompt kept); an override publish no longer moves the social caption into the SD line; web Analyze regenerates when SD prompts are on and the cached SD line is empty, unless the sidecar holds operator captions (then it is a cache hit, as before); a caption-generation rewrite does not carry a legacy social caption on line 1 forward as an SD prompt
+- Vision calls (including the JSON retry and fallback) now share the `AIService` rate limiter; `scripts/caption_eval.py --nightly` threads angles across fixtures and reports their distribution
+- Security: the sidecar's `sd_caption` line is flattened to one line; analysis-field sanitisation redacts every injection-marker occurrence
+- Security: line breaks are treated as spaces before injection-marker redaction
+- Caption openers: angles are topic noun phrases, the prompt asks each caption to open differently and not to start with its angle's words, email replies lose any `Subject:` label and line breaks, em dashes are removed, and `caption.rules` gains CRAFT guidance drawn from the owner's style guide (#179). Live harness (5 runs each vs main): opener share 0.30 → 0.21, tells rate 0.077 → 0.040
+
 ### Added - PUB-050: Owner Voice Corpus in Every Caption Prompt
 - `content.voice_profile_tags` (`dict[str, list[str]] | None`): maps a platform name to the subset of `voice_profile` examples preferred for that platform. Plumbed through `ContentConfig`, `OrchestratorContent`, `_build_app_config_v2` and the `CONTENT_SETTINGS` env loader, and added to `REDACT_KEYS` — it carries the same sensitive operator text as `voice_profile`
 - `services/ai.py`: new pure `sample_voice_examples(...)` deterministically samples four to six owner examples per image, seeded by the image's content hash (cron) or a hash of the image bytes, else the filename (web), then applies the existing 500-token budget. Replaces the flat `truncate_voice_profile_to_budget(...)` call in `core/workflow.py` and `web/service.py` — the same image now always gets the same examples, different images get different ones, instead of every prompt carrying one identical block
