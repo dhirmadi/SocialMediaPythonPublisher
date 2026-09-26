@@ -12,6 +12,7 @@ credentials behind them are resolved on first use.
 
 import asyncio
 import dataclasses
+import hashlib
 import json
 import logging
 import os
@@ -54,7 +55,7 @@ from publisher_v2.services.ai import (  # noqa: E402
     CaptionGeneratorOpenAI,
     NullAIService,
     VisionAnalyzerOpenAI,
-    truncate_voice_profile_to_budget,
+    sample_voice_examples,
 )
 from publisher_v2.services.managed_storage import ManagedStorage  # noqa: E402
 from publisher_v2.services.publishers import build_publishers  # noqa: E402
@@ -119,18 +120,38 @@ def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
     return generated
 
 
-def _select_voice_examples(config: ApplicationConfig) -> list[str] | None:
-    """Return voice examples to inject into caption prompts (PUB-029).
+def _voice_matching_active(config: ApplicationConfig) -> bool:
+    """True when a caption prompt for this tenant would actually carry voice examples.
 
-    None when voice matching is disabled or the profile is empty/unset; otherwise
-    a token-budget-truncated list (deterministic: order preserved, drop from end).
+    Callers check this *before* building a seed: computing one costs a sha256 over
+    the whole image, and on the default tenant (matching off) the result would be
+    thrown away. Mirrors the guard at ``core/workflow.py``'s call site.
     """
     if not getattr(config.features, "voice_matching_enabled", False):
+        return False
+    return bool(getattr(config.content, "voice_profile", None))
+
+
+def _select_voice_examples(
+    config: ApplicationConfig,
+    seed_source: str,
+    platform_tags: dict[str, list[str]] | None = None,
+    platforms: list[str] | None = None,
+) -> list[str] | None:
+    """Return voice examples to inject into caption prompts (PUB-029/PUB-050).
+
+    None when voice matching is disabled or the profile is empty/unset; otherwise
+    the per-image sample for ``seed_source``, token-budget truncated.
+    """
+    if not _voice_matching_active(config):
         return None
-    profile = getattr(config.content, "voice_profile", None)
-    if not profile:
-        return None
-    return truncate_voice_profile_to_budget(profile)
+    profile = config.content.voice_profile
+    return sample_voice_examples(
+        profile,
+        seed_source=seed_source,
+        platform_tags=platform_tags,
+        platforms=platforms,
+    )
 
 
 # #139: without a publish store there is no DB lease, so serialize per-image
@@ -889,8 +910,25 @@ class WebImageService:
         # Generate per-platform captions + sd_caption via centralized AIService helper.
         sd_caption = None
         platform_captions_dict: dict[str, str] | None = None
-        # PUB-029: extract voice examples from config when voice matching is enabled.
-        voice_examples = _select_voice_examples(self.config)
+        # PUB-029/PUB-050: sample voice examples per image when voice matching is enabled.
+        # Guarded like `core/workflow.py`'s call site: the seed is a sha256 over the whole
+        # image, so the default tenant (matching off) must not pay for one nobody reads.
+        voice_examples = None
+        if _voice_matching_active(self.config):
+            # The vision_max_dimension > 0 branch already holds the image bytes; the
+            # presigned-URL path never downloads, so it seeds on the name instead.
+            # Hashing multi-MB bytes is ~10ms of CPU: off the event loop it goes.
+            if isinstance(analysis_source, bytes):
+                image_bytes = analysis_source
+                voice_seed = await asyncio.to_thread(lambda: hashlib.sha256(image_bytes).hexdigest())
+            else:
+                voice_seed = filename
+            voice_examples = _select_voice_examples(
+                self.config,
+                seed_source=voice_seed,
+                platform_tags=getattr(self.config.content, "voice_profile_tags", None),
+                platforms=list(specs.keys()),
+            )
 
         # Fetch caption history for anti-repetition
         caption_history: dict[str, list[str]] | None = None

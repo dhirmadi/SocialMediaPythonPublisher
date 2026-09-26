@@ -288,6 +288,10 @@ class ContentConfig(BaseModel):
     archive: bool = Field(default=True, description="Archive after posting")
     debug: bool = Field(default=False, description="Debug mode")
     voice_profile: list[str] | None = Field(default=None, description="Operator example captions for few-shot tone")
+    voice_profile_tags: dict[str, list[str]] | None = Field(
+        default=None,
+        description="PUB-050: platform name -> subset of voice_profile preferred for that platform",
+    )
 
     @field_validator("voice_profile")
     @classmethod

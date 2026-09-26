@@ -139,3 +139,96 @@ Post‑Processing:
   entry, and that directive replaces the platform's original one: a prompt never carries two
   structure directives for the same platform (#138). Every run logs a `caption_similarity` event per platform
   (`platform`, `max_similarity`, `regenerated`) — preview mode included.
+
+### 8.1 Per-image sampling of the voice corpus (PUB-050)
+
+The STYLE REFERENCES block no longer carries the whole `content.voice_profile` in the same order
+on every call. `sample_voice_examples()` (`services/ai.py`) picks a **4–6 example** subset per
+image, so a ten-to-twenty-line corpus reads as a voice rather than as a fixed template.
+
+**Algorithm** (pure and deterministic):
+
+1. Dedup the profile, preserving first-seen order, as the candidate pool.
+2. If `content.voice_profile_tags` and the platform list are both non-empty, partition the pool
+   into `preferred` (tagged for at least one of those platforms) and `rest`, each preserving
+   **pool** order. Otherwise `preferred` is empty and `rest` is the whole pool.
+3. Seed `random.Random` with `int.from_bytes(sha256(seed_source).digest()[:8], "big")` and draw
+   `target = min(len(pool), rng.randint(4, 6))`.
+4. Shuffle `preferred`, then `rest`, with that same generator; take from `preferred` first, then
+   `rest`, until `target` items are collected.
+5. Apply the existing 500-token budget truncation (drop from the end). This is the one path that
+   can legitimately yield fewer than four examples, for an unusually long corpus.
+
+**How short is "reasonably short"?** Step 5 is a hard ~2000-character ceiling on the *whole*
+sample, so the corpus's average example length decides whether the 4–6 target survives it.
+Measured on a 12-item pool: examples averaging **under ~300 characters** never drop the result
+below four; at **~400 characters** every sample is capped at exactly four; at **500 characters or
+more** every sample returns fewer than four. Aim for examples in the 150–300 character range —
+that is also the length a real caption tends to be.
+
+**Determinism assumption (worth knowing before you rely on it).** Reproducibility here rests on
+`random.Random.randint` and `random.Random.shuffle` behaving identically across interpreters.
+CPython only *guarantees* that for `random()` and `getrandbits()`; `randint`/`shuffle` are
+explicitly excluded from its compatibility promise. Verified byte-identical on CPython 3.10, 3.11,
+3.12, 3.13 and 3.14a3 as of 2026-09, so there is no live problem — but a future CPython change to
+either method would silently re-roll every image's sample, with no error and no log line. If
+per-image stability ever has to be guaranteed across interpreter upgrades, the fix is to replace
+those two calls with arithmetic over `getrandbits`, not to pin the interpreter.
+
+**Seed sources** — same image, same examples; different images, different examples:
+
+| Call site | `seed_source` |
+|-----------|---------------|
+| `core/workflow.py` (cron publish / preview) | `selected_content_hash or selected_hash` |
+| `web/service.py::WebImageService.analyze_and_caption` | `sha256` of the image bytes when `openai.vision_max_dimension > 0` (the modern default), else the filename (the presigned-URL path never downloads the image) |
+
+**`content.voice_profile_tags`** is an optional `dict[str, list[str]]` mapping a platform name
+(`telegram` / `instagram` / `email`) to the subset of `voice_profile` strings preferred for that
+platform. A tag whose text is no longer in `voice_profile` is **ignored, never an error** — an
+edit that touches one list and not the other must not break caption generation. Omitting the
+field entirely keeps the previous behaviour: uniform seeded sampling with no platform preference.
+
+A **key** that names no currently-enabled platform (the classic case: the publisher *type*
+`fetlife` instead of the platform name `email`) buys the tenant nothing, so it is not silent: when
+*no* tag key matches any enabled platform, `sample_voice_examples` logs a `WARNING`
+`voice_profile_tags_matched_no_enabled_platform` carrying the tag key names **truncated to 32
+characters** (a plain prefix, no ellipsis) and the enabled platform names — never the tagged text.
+At most **10 keys** are listed, sorted; the payload's `tag_key_count` always carries the real
+number of keys, so a truncated list is recognisable as one and the true scale of the
+misconfiguration stays visible (`voice_profile_tags` has no size cap of its own).
+Expect to see a cut key in your logs: the keys are unvalidated free text, so an inverted mapping
+(`{"<a whole example caption>": ["telegram"]}`) would otherwise spill caption text into tenant
+logs once per image; 32 characters is far too short to carry a caption and far more than enough to
+name any real platform intact. It is diagnostic only — captioning continues normally on
+the untagged path. Note the asymmetry: a key that *does* match but whose listed **text** is no
+longer in `voice_profile` is ignored silently by design, and produces no log line.
+
+**Tag at least six examples per platform.** The target count is drawn *before* `preferred` is
+consulted (step 3 precedes step 4), so a tagged pool smaller than the largest possible target
+cannot fill every draw and the remainder is topped up from untagged examples. The leak rate is not
+an empirical curiosity — it is exactly `P(target > tagged)`, and `target` is uniform over {4, 5, 6}:
+**3 tagged → 100%**, **4 tagged → 2/3**, **5 tagged → 1/3**, **6 or more tagged → 0%**. (Measured
+over 2000 seeds on a 12-item pool: 100%, 67%, 34%, 0% — matching the arithmetic.) So
+"four to six examples" is *not* the number to tag: tagging four looks like it should be enough and
+leaks on two runs in three. Six per platform (or per union of enabled platforms — see below) is
+the point where preference is guaranteed.
+
+**Multi-platform semantics — do not overread the tags.** One shared prompt covers every enabled
+platform at once, so the workflow passes *all* currently-enabled platform names in one call.
+Tag preference is therefore the **union** of the examples tagged for any enabled platform, not
+per-platform differentiation: a tenant with telegram, instagram and email all enabled and a
+generously-tagged corpus will see little or no preference effect, because the union is close to
+the whole corpus. Tagging buys a real narrowing only for a tenant running a single platform, or
+one whose tags cover a small slice of the corpus. This is an accepted limitation of the
+shared-prompt architecture, not a defect.
+
+**Where to set both fields:** `content.voice_profile` and `content.voice_profile_tags` in the
+orchestrator runtime config (schema v2), or in the `CONTENT_SETTINGS` JSON environment variable
+for a standalone instance. Both are treated as sensitive free text and are listed in
+`config/loader.py`'s `REDACT_KEYS` for config-dump redaction — note that this is a narrow
+guarantee: `REDACT_KEYS` is consumed only by `_safe_log_config`, which has no production callers
+today and matches top-level keys only, so a nested `{"content": {...}}` dump would not be redacted
+by it. The one place the field is actually logged today is the unmatched-key warning above, which
+protects it directly by truncating keys and never logging values. `POST /api/config/voice-profile` edits the profile **for one process
+only** — it answers `persisted: false` and names `content.voice_profile` as the orchestrator
+field to set for the change to survive a restart or reach the cron publisher.

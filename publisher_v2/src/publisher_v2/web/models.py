@@ -134,6 +134,10 @@ class VoiceProfileResponse(BaseModel):
 
     voice_profile: list[str] | None = None
     enabled: bool = False
+    # PUB-050 AC5: this setter is process-local; there is no orchestrator
+    # write-back path, so the response says so and names the durable field.
+    persisted: bool = False
+    orchestrator_field: str = "content.voice_profile"
 
 
 class VoiceProfileUpdateRequest(BaseModel):

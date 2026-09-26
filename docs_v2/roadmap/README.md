@@ -68,8 +68,8 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | **Post-Review Plan 2026-09-21 (tracker #177)** ||||||
 | PUB-047 | Foundation | [Reliability Batch — R2 Retries, Listing Cost, Meter Flush, Postgres Bounds](archive/PUB-047_reliability-batch.md) | P0 | S | — | Done |
 | PUB-048 | Web UI | [Auth and Library Uniformity](archive/PUB-048_auth-and-library-uniformity.md) | P0 | S | — | Done |
-| PUB-049 | AI | [Caption Evaluation Harness](PUB-049_caption-evaluation-harness.md) | P0 | M | — | Proposal |
-| PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | S | PUB-049 | Proposal |
+| PUB-049 | AI | [Caption Evaluation Harness](archive/PUB-049_caption-evaluation-harness.md) | P0 | M | — | Done |
+| PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Implementation Complete |
 | PUB-051 | AI | [Caption Prompt and Register Repair](PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Proposal |
 | PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
 | PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | M | PUB-047 | Proposal |
