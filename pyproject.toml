@@ -14,6 +14,7 @@ dependencies = [
     # changes session persistence, which this repo's mocked tests cannot verify.
     # 2.6.9 is what the advisory fix requires; the major bump is its own change.
     "instagrapi>=2.6.9,<3",
+    "urllib3==2.6.2",  # TEMPORARY: PUB-055 AC1 proof, known-vulnerable pin. DO NOT MERGE.
     "openai>=1.7.2",
     "python-dotenv>=1.0.0",
     "tenacity>=8.2.0",
