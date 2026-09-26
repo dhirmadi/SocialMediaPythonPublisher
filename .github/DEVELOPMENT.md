@@ -29,18 +29,17 @@ This guide is for developers who want to contribute to or modify the Social Medi
 git clone https://github.com/yourusername/SocialMediaPythonPublisher.git
 cd SocialMediaPythonPublisher
 
-# 2. Create virtual environment
-python -m venv venv
+# 2. Create virtual environment (uv manages the project env at .venv/)
+uv venv
 
 # 3. Activate virtual environment
 # On macOS/Linux:
-source venv/bin/activate
+source .venv/bin/activate
 # On Windows:
-venv\Scripts\activate
+.venv\Scripts\activate
 
-# 4. Install dependencies
-pip install -r requirements.txt
-pip install -r requirements-dev.txt
+# 4. Install dependencies (the dev group is uv's default group)
+uv sync --group dev
 
 # 5. Set up pre-commit hooks
 pre-commit install
@@ -109,8 +108,6 @@ SocialMediaPythonPublisher/
 │   └── fixtures/
 │
 ├── publisher_v2/              # V2 application and tests (source of truth)
-├── requirements.txt            # Production dependencies
-├── requirements-dev.txt        # Development dependencies
 ├── .gitignore                  # Git ignore rules
 ├── .cursorignore              # Cursor ignore rules
 ├── .editorconfig              # Editor configuration
