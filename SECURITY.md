@@ -227,7 +227,7 @@ To receive security updates:
 git pull origin main
 
 # Update dependencies
-pip install --upgrade -r requirements.txt
+uv lock --upgrade && uv sync
 
 # Review CHANGELOG for security fixes
 ```

@@ -6,7 +6,7 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | XS |
-| **Status** | Not Started |
+| **Status** | Implementation Complete (AC3 pending live Dependabot run) |
 | **Dependencies** | PUB-055 (merged, #236) |
 
 ## User Story
