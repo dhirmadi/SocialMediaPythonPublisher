@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import hashlib
 import json
 import logging
@@ -318,6 +319,8 @@ class VisionAnalyzerOpenAI:
     # Class defaults so instances built without __init__ (test doubles) still read them.
     _sd_caption_enabled: bool = True
     _owner_persona: str | None = None
+    # PUB-051: set by AIService to its shared limiter; None for a standalone analyzer.
+    _rate_limiter: AsyncRateLimiter | None = None
 
     def __init__(self, config: OpenAIConfig):
         """Build the vision client and capture the resize/detail budget for each pass.
@@ -349,7 +352,9 @@ class VisionAnalyzerOpenAI:
         self._owner_persona = owner_persona_text(config)
 
     async def _create_vision_completion(self, messages: list[Any]) -> Any:
-        """One vision ``chat.completions.create`` call."""
+        """One vision ``chat.completions.create`` call, pacing on the shared limiter when one is wired in."""
+        if self._rate_limiter is not None:
+            await self._rate_limiter.acquire()
         try:
             return await self.client.chat.completions.create(
                 model=self.model,
@@ -1519,6 +1524,10 @@ class AIService:
         # PUB-046: share the limiter with the generator so its condense pass
         # acquires a slot instead of bypassing the rate budget.
         self.generator._rate_limiter = self._rate_limiter
+        # PUB-051: vision calls spend a slot from the same budget. Callers that
+        # never analyze may pass a bare placeholder that takes no attributes.
+        with contextlib.suppress(AttributeError):
+            self.analyzer._rate_limiter = self._rate_limiter
 
     async def create_caption_from_analysis(
         self, analysis: ImageAnalysis, spec: CaptionSpec

@@ -474,3 +474,102 @@ async def test_senses_seed_hashing_runs_off_the_event_loop(monkeypatch) -> None:
 
     assert fake.vision_calls, "setup: the analyzer made no vision call"
     assert ai_mod.senses_seed in offloaded, f"senses_seed ran on the event loop; offloaded: {offloaded}"
+
+
+# ---------------------------------------------------------------------------
+# PUB-051 follow-up: the vision analyzer shares AIService's rate limiter.
+# ---------------------------------------------------------------------------
+
+
+class _ScriptedVisionCompletions:
+    """Returns the scripted replies in order and records the limiter count at each call."""
+
+    def __init__(self, replies: list[str], limiters: list[Any]) -> None:
+        self._replies = list(replies)
+        self._limiters = limiters
+        self.acquires_seen_at_call: list[int] = []
+
+    async def create(self, *args: Any, **kwargs: Any) -> _FakeResp:
+        self.acquires_seen_at_call.append(sum(limiter.acquires for limiter in self._limiters))
+        return _FakeResp(self._replies.pop(0))
+
+
+async def test_vision_calls_acquire_the_shared_rate_limiter(monkeypatch) -> None:
+    """Every vision ``chat.completions.create`` — primary, JSON retry and fallback — acquires the shared limiter.
+
+    ``AIService`` builds one ``AsyncRateLimiter`` and, today, hands it to the
+    generator only; ``core/workflow.py`` calls ``ai_service.analyzer.analyze``
+    directly, so vision calls spend no slot at all. The limiter class is swapped
+    for a counting subclass BEFORE ``AIService`` is built, so whatever instance
+    the service wires in is the one counted, without assuming an attribute name.
+
+    Script: primary returns non-JSON, its JSON retry returns non-JSON (the pass
+    raises, and a JSON-decode failure is not retried by tenacity), then the
+    fallback pass returns valid JSON — three create calls in all.
+    """
+    import publisher_v2.services.ai as ai_mod
+    from publisher_v2.config.runtime_settings import RuntimeSettings
+    from publisher_v2.utils.rate_limit import AsyncRateLimiter
+
+    built: list[Any] = []
+
+    class _CountingLimiter(AsyncRateLimiter):
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            super().__init__(*args, **kwargs)
+            self.acquires = 0
+            built.append(self)
+
+        async def acquire(self) -> None:
+            self.acquires += 1
+            await super().acquire()
+
+    monkeypatch.setattr(ai_mod, "AsyncRateLimiter", _CountingLimiter)
+
+    valid = json.dumps({"description": "a lamp", "mood": "calm", "tags": ["lamp"], "nsfw": False})
+    config = OpenAIConfig(
+        api_key="sk-test",
+        vision_model="gpt-4.1-mini",
+        caption_model="gpt-4.1-mini",
+        vision_max_dimension=0,
+        vision_fallback_enabled=True,
+        vision_fallback_max_dimension=0,
+    )
+    analyzer = VisionAnalyzerOpenAI(config)
+    generator = type("StubGenerator", (), {})()  # never called; only receives the limiter
+    service = ai_mod.AIService(
+        analyzer=analyzer,
+        generator=generator,  # type: ignore[arg-type]
+        settings=RuntimeSettings(ai_rate_per_minute=100_000),
+    )
+    assert built, "setup: AIService built no rate limiter"
+    shared = built[-1]
+    completions = _ScriptedVisionCompletions(["not-json", "still not json", valid], [shared])
+    fake_client = type("Client", (), {})()
+    fake_client.chat = type("Chat", (), {})()
+    fake_client.chat.completions = completions
+    monkeypatch.setattr(analyzer, "client", fake_client)
+
+    analysis, _usage = await service.analyzer.analyze("http://example.com/image.jpg")
+
+    assert analysis.description == "a lamp", "setup: the fallback pass did not produce the analysis"
+    assert len(completions.acquires_seen_at_call) == 3, (
+        f"setup: expected primary + JSON retry + fallback, got {len(completions.acquires_seen_at_call)} calls"
+    )
+    assert completions.acquires_seen_at_call == [1, 2, 3], (
+        "each vision create call must be preceded by its own acquire of the shared AIService limiter; "
+        f"acquire count seen at each call: {completions.acquires_seen_at_call}"
+    )
+    assert shared.acquires == 3, f"the shared limiter was acquired {shared.acquires} times for 3 vision calls"
+
+    # A standalone analyzer, built without any AIService, has no limiter and must still work.
+    standalone = VisionAnalyzerOpenAI(config)
+    standalone_calls = _ScriptedVisionCompletions(["not-json", "still not json", valid], [])
+    standalone_client = type("Client", (), {})()
+    standalone_client.chat = type("Chat", (), {})()
+    standalone_client.chat.completions = standalone_calls
+    monkeypatch.setattr(standalone, "client", standalone_client)
+
+    standalone_analysis, _ = await standalone.analyze("http://example.com/image.jpg")
+
+    assert standalone_analysis.description == "a lamp"
+    assert len(standalone_calls.acquires_seen_at_call) == 3

@@ -634,3 +634,136 @@ def test_nightly_snapshot_goes_through_the_production_similarity_gate(
 
     assert duplicated not in telegram, "the pre-gate draft reached the snapshot; the similarity gate was bypassed"
     assert generator.calls > len(snapshot["entries"]), "no regeneration happened, so the gate never ran"
+
+
+# --- PUB-051 follow-up: the nightly rotates content angles like sequential publishes ---
+
+
+class _AngleRecordingService:
+    """Wraps the REAL AIService and records what each fixture's caption call received and returned.
+
+    The angles come from the real LRU rotation, so the test pins the harness's
+    threading of ``history_angles``, not a fake picker.
+    """
+
+    def __init__(self, service: Any) -> None:
+        import copy
+        import inspect
+
+        self._service = service
+        self._signature = inspect.signature(service.create_multi_caption_pair_from_analysis)
+        self._copy = copy.deepcopy
+        self.received: list[dict[str, Any]] = []
+        self.returned_angles: list[dict[str, str]] = []
+
+    async def create_multi_caption_pair_from_analysis(self, *args: Any, **kwargs: Any) -> Any:
+        bound = self._signature.bind(*args, **kwargs)
+        self.received.append(
+            {
+                "history": self._copy(bound.arguments.get("history")),
+                "history_angles": self._copy(bound.arguments.get("history_angles")),
+            }
+        )
+        result = await self._service.create_multi_caption_pair_from_analysis(*args, **kwargs)
+        self.returned_angles.append(dict(result[3]))
+        return result
+
+
+def _run_nightly_with_angle_recorder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> tuple[Any, Any, Path]:
+    monkeypatch.setenv("OPENAI_API_KEY", "test-key-not-used")
+    out_dir = tmp_path / "out"
+    mod = _module()
+    recorder = _AngleRecordingService(_service_around(_CannedGenerator()))
+    with patch.object(mod, "build_service", lambda: recorder):
+        code = mod.main(["--nightly", "--fixtures", str(FIXTURES), "--out", str(out_dir)])
+    assert code == 0
+    return mod, recorder, out_dir
+
+
+def test_nightly_threads_angles_across_fixtures_like_sequential_publishes(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Each fixture is captioned as if the previous fixtures had just been published.
+
+    Production stores the angle of every published caption and the next run
+    rotates away from it. The harness must simulate that: after each fixture the
+    angles it got are prepended per platform to a running ``history_angles``,
+    most-recent-first, capped at the caption-history window. The caption TEXT
+    history stays the fixed fixture history, so scores stay comparable with the
+    PUB-049 baseline.
+    """
+    from publisher_v2.config.static_loader import get_static_config
+
+    window = get_static_config().ai_prompts.caption_history.window_size
+    mod, recorder, _out = _run_nightly_with_angle_recorder(tmp_path, monkeypatch)
+    fixture_history = mod.load_history(FIXTURES)
+
+    assert len(recorder.received) == 20, "one caption call per fixture analysis"
+    for index, call in enumerate(recorder.received):
+        assert call["history"] == fixture_history, f"fixture {index}: the caption-text history must stay fixed"
+
+    first = recorder.received[0]["history_angles"]
+    assert not first or not any(first.values()), f"the first fixture has no prior publishes: {first}"
+
+    for index in range(1, len(recorder.received)):
+        received = recorder.received[index]["history_angles"]
+        assert received, f"fixture {index}: no history_angles passed; every image gets the same angle"
+        for platform in fixture_history:
+            expected = [recorder.returned_angles[i][platform] for i in range(index - 1, -1, -1)][:window]
+            assert received.get(platform) == expected, (
+                f"fixture {index} {platform}: history_angles must be the previous fixtures' angles, "
+                f"most-recent-first, capped at {window}; got {received.get(platform)}, expected {expected}"
+            )
+
+    for index in range(1, len(recorder.returned_angles)):
+        for platform, angle in recorder.returned_angles[index].items():
+            assert angle != recorder.returned_angles[index - 1][platform], (
+                f"fixtures {index - 1} and {index} both got {angle!r} on {platform}; the pool allows rotation"
+            )
+
+
+def test_nightly_snapshot_records_angles_per_entry(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Each snapshot entry carries the angle each platform's kept caption was written under, next to ``captions``."""
+    from publisher_v2.utils.captions import CONTENT_ANGLES
+
+    _mod, recorder, out_dir = _run_nightly_with_angle_recorder(tmp_path, monkeypatch)
+    snapshot = json.loads((out_dir / "snapshot.json").read_text())
+
+    assert len(snapshot["entries"]) == len(recorder.returned_angles) == 20
+    for entry, returned in zip(snapshot["entries"], recorder.returned_angles, strict=True):
+        assert "angles" in entry, f"{entry['analysis']}: snapshot entry has no 'angles'"
+        assert entry["angles"] == returned, f"{entry['analysis']}: recorded angles differ from the service's"
+        assert set(entry["angles"]) == set(entry["captions"]), f"{entry['analysis']}: one angle per captioned platform"
+        assert set(entry["angles"].values()) <= set(CONTENT_ANGLES)
+
+
+def test_nightly_report_includes_angle_distribution(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """``report.md`` carries an "Angle distribution" section with per-platform counts over the run.
+
+    Format-agnostic on purpose: for every platform and every angle it used,
+    some line of the section must name the angle and carry its count (a table
+    with angles as rows and platforms as columns satisfies this, as does one
+    row per platform/angle pair).
+    """
+    from collections import Counter
+
+    _mod, recorder, out_dir = _run_nightly_with_angle_recorder(tmp_path, monkeypatch)
+    report = (out_dir / "report.md").read_text()
+
+    lowered = report.lower()
+    assert "angle distribution" in lowered, "report.md has no 'Angle distribution' section"
+    start = lowered.index("angle distribution")
+    rest = report[start:]
+    next_heading = rest.find("\n## ", 1)
+    section = rest if next_heading == -1 else rest[:next_heading]
+    lines = section.splitlines()
+
+    platforms = sorted({p for angles in recorder.returned_angles for p in angles})
+    for platform in platforms:
+        assert platform in section, f"{platform} missing from the angle distribution"
+        counts = Counter(angles[platform] for angles in recorder.returned_angles)
+        assert sum(counts.values()) == 20
+        for angle, count in counts.items():
+            assert any(angle in line and str(count) in line for line in lines), (
+                f"{platform}: no line in the angle distribution names {angle!r} with its count {count}\n{section}"
+            )

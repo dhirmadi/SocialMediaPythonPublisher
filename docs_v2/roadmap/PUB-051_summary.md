@@ -77,7 +77,7 @@ Final numbers are from the last full run; see the verdicts below.
 - Format: ✅
 - Lint: ✅
 - Type check: ✅ (65 files)
-- Tests: 1858 passed, 1 skipped, 0 failed, in random order (final seed 1594126338).
+- Tests: 1862 passed, 1 skipped, 0 failed, in random order.
 - Coverage: 93% overall.
 
 | Module | Coverage |
@@ -130,7 +130,7 @@ Final numbers are from the last full run; see the verdicts below.
 - **SD prompt:** now written by gpt-4o instead of gpt-4o-mini.
   - `generate_multi_with_sd` and `sd_caption_brief` are deleted.
   - Kept for the single-platform fallback: `generate_with_sd`, the `sd_caption_*` override resolution and the YAML `sd_caption:` block.
-- **Config semantics change (orchestrator-owned fields):**
+- **Config semantics change (orchestrator-owned fields; filed as dhirmadi/platform-orchestrator#222):**
   - On the multi-platform path, `sd_caption_single_call_enabled`, `sd_caption_model`, `sd_caption_system_prompt` and `sd_caption_role_prompt` no longer have any effect.
   - Multi-platform captions now use `model`. A tenant that had set `sd_caption_model` had its captions written by that model; they are now written by `model`.
   - The wire contract is unchanged, but the orchestrator repo should document it.
@@ -161,14 +161,24 @@ Final numbers are from the last full run; see the verdicts below.
 - The web fake now routes on the call shape instead of the `"sd_caption"` substring.
 - The 4-tuple stubs fail loudly, instead of falling through to real OpenAI.
 
+## Harness (PUB-049) changes
+
+- `scripts/caption_eval.py --nightly` now threads `history_angles` across the 20 fixtures in order, as production does across successive publishes, capped at `caption_history.window_size`.
+- Snapshot entries now record `angles`.
+- `report.md` gains an `## Angle distribution` table, so the spec's "roughly uniform over 20 images" can be read directly.
+- Tests:
+  - `test_nightly_threads_angles_across_fixtures_like_sequential_publishes`
+  - `test_nightly_snapshot_records_angles_per_entry`
+  - `test_nightly_report_includes_angle_distribution`
+
 ## Open questions and follow-ups
 
-- **AC3 spec gap (spec question for the owner):**
+- **AC3 spec gap: resolved.** The spec was clarified on 2026-09-26. The 500-token bound applies to the test fixture only.
   - The under-500-tokens claim holds only on the spec's fixture of ~60-char voice examples.
   - `DEFAULT_VOICE_PROFILE_TOKEN_BUDGET` (500) lets the examples alone exceed 500.
   - A heavy fixture (120-char examples plus seed hashtags) measures about 570, and realistic 200-char email examples would reach about 690.
   - `test_heavy_tenant_user_message_stays_under_600_tokens` guards against further growth. The spec and PUB-029's budget contradict each other.
 - **Tells priming:** the 18 "instead of Y" lines quote each tell verbatim, as the spec requires. AC9 will show whether quoting them primes the model to use them.
-- **Vision rate limiter:** the vision analyzer still has none. This predates the item and is out of scope; it is a candidate follow-up.
+- **Vision rate limiter: resolved.** Added on the owner's instruction (2026-09-26). Every vision create call, including the JSON retry and the fallback pass, now acquires the shared `AIService` limiter (`test_vision_calls_acquire_the_shared_rate_limiter`). At a very low `ai_rate_per_minute`, limiter waits count toward the #84 AI-stage deadline.
 - **Merge with PUB-050:** its work in progress touches `services/ai.py`, `core/workflow.py` and `web/service.py`, and its voice sampling feeds the AC3 size.
 - **Out of scope:** `scripts/vision_token_benchmark.py` sends `vision.user` only, so it no longer asks for `sd_caption`.
