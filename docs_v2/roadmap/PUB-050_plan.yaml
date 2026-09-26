@@ -1,0 +1,107 @@
+version: 1
+roadmap_id: PUB-050
+summary: >-
+  Owner voice corpus in every caption prompt: a new content.voice_profile_tags schema field
+  plumbed through both loaders, and a deterministic per-image sample_voice_examples() that
+  replaces the flat truncate_voice_profile_to_budget() call at both production call sites,
+  so each image gets four to six owner-written examples that are stable for that image and
+  vary across images. The web voice-profile setter additionally reports, honestly, that it
+  is process-local.
+
+repo_constraints:
+  allowed:
+    - publisher_v2/src/publisher_v2/services/ai.py
+    - publisher_v2/src/publisher_v2/config/schema.py
+    - publisher_v2/src/publisher_v2/config/orchestrator_models.py
+    - publisher_v2/src/publisher_v2/config/source.py
+    - publisher_v2/src/publisher_v2/config/loader.py
+    - publisher_v2/src/publisher_v2/core/workflow.py
+    - publisher_v2/src/publisher_v2/web/service.py
+    - publisher_v2/src/publisher_v2/web/models.py
+    - publisher_v2/src/publisher_v2/web/app.py
+    - publisher_v2/src/publisher_v2/web/templates/index.html
+    - publisher_v2/tests/**
+    - docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md
+    - docs_v2/roadmap/PUB-050_*
+    - CHANGELOG.md
+  excluded:
+    - code_v1/**
+    - docs_v1/**
+    - publisher_v2/src/publisher_v2/core/models.py   # CaptionSpec.for_platforms() explicitly left as-is
+    - pyproject.toml   # no new dependency (hashlib + random are stdlib)
+    - uv.lock
+
+acceptance_criteria:
+  AC1: sample_voice_examples returns 4-6 examples from a 12-item profile, no duplicates, all drawn from the profile
+  AC2: Same seed returns an identical list in the same order; two chosen distinct seeds return different lists
+  AC3: With voice_profile_tags and a single platform whose tagged pool fills the target, every returned example is tagged for that platform; a tag whose text is absent from voice_profile is ignored, not an error; multiple enabled platforms union their tags
+  AC4: A real OrchestratorConfigSource + WorkflowOrchestrator run puts the sampled examples (not the full profile) in the prompt's STYLE REFERENCES block, for the untagged, single-platform-tagged and two-platform-disjoint-tag cases
+  AC5: GET and POST /api/config/voice-profile always return persisted=false and orchestrator_field="content.voice_profile"
+  AC6: PR-authoring process gate only (PUB-049 offline score table in the PR body) — explicitly NOT a pytest target
+
+tasks:
+  - id: 1
+    phase: red
+    owner: test-engineer
+    detail: >-
+      Create publisher_v2/tests/test_owner_voice_corpus.py (7 fns) and
+      test_owner_voice_corpus_workflow.py (3 fns); extend
+      tests/web/test_web_settings_voice_profile.py (2 fns). Exact names per the handoff table.
+      No AC6 test.
+  - id: 2
+    phase: green
+    owner: developer
+    detail: >-
+      Add sample_voice_examples() to services/ai.py implementing the roadmap's pinned algorithm
+      verbatim (dedup -> partition in pool order -> randint(4,6) -> shuffle preferred -> shuffle
+      rest -> take target -> truncate_voice_profile_to_budget).
+  - id: 3
+    phase: green
+    owner: developer
+    detail: >-
+      Plumb voice_profile_tags through ContentConfig, OrchestratorContent, _build_app_config_v2
+      and the CONTENT_SETTINGS env loader; add "voice_profile_tags" to REDACT_KEYS.
+  - id: 4
+    phase: green
+    owner: developer
+    detail: >-
+      Swap both call sites to sample_voice_examples — core/workflow.py (seed =
+      selected_content_hash or selected_hash, platforms = list(specs.keys())) and
+      web/service.py::_select_voice_examples (seed = sha256 of image bytes, else filename).
+  - id: 5
+    phase: green
+    owner: developer
+    detail: >-
+      Add persisted/orchestrator_field to VoiceProfileResponse, return them from both handlers,
+      and state process-locality in the #voice-profile-status copy.
+  - id: 6
+    phase: green
+    owner: developer
+    detail: Document the field, algorithm, seeds and multi-platform union semantics in AI_PROMPTS_AND_MODELS.md section 8.
+  - id: 7
+    phase: review
+    owner: code-reviewer + security-auditor
+    detail: Re-run all gates; audit redaction, auth, preview safety and the prompt-injection block.
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage:
+    overall_min: 85
+    per_module_min: 80
+    modules:
+      - publisher_v2/src/publisher_v2/services/ai.py
+      - publisher_v2/src/publisher_v2/core/workflow.py
+      - publisher_v2/src/publisher_v2/web/service.py
+      - publisher_v2/src/publisher_v2/web/app.py
+      - publisher_v2/src/publisher_v2/config/*.py
+
+safety_checks:
+  - Preview mode stays side-effect free; sampling changes only which examples are chosen.
+  - voice_profile_tags carries the same sensitive free text as voice_profile and must be in REDACT_KEYS
+    (_safe_log_config matches keys by exact lowercase equality, not substring).
+  - require_admin + require_auth unchanged in presence and order on both voice-profile verbs.
+  - Backward compatible: voice_profile with no voice_profile_tags behaves as uniform seeded sampling.
+  - CaptionSpec.for_platforms() left untouched, and not described as unreachable in any comment.

@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import hashlib
 import json
 import logging
+import random
 import time
 from typing import Any, Literal, cast
 
@@ -803,6 +805,24 @@ def truncate_history_to_budget(captions: list[str], max_tokens_budget: int) -> l
 # this leaves comfortable headroom for the rest of the prompt.
 DEFAULT_VOICE_PROFILE_TOKEN_BUDGET = 500
 
+# PUB-050: `voice_profile_tags` keys have no *content* validator — Pydantic
+# enforces `dict[str, list[str]]` at both config entry points, so a key is
+# always a `str`, but nothing constrains its length or whether it names a real
+# platform, which makes it arbitrary operator text. The unmatched-key warning
+# below fires precisely in the misconfiguration case, and the most plausible
+# misconfiguration is an inverted mapping ({"<a whole example caption>":
+# ["telegram"]}), so a logged key is cut to a short prefix: long enough to name
+# any real platform intact, far too short to carry a caption. Plain prefix, no
+# ellipsis.
+MAX_LOGGED_TAG_KEY_CHARS = 32
+
+# ...and `voice_profile_tags` itself has no size cap, unlike `voice_profile`
+# (max 20 entries, enforced by its validator). A map with hundreds of keys would
+# otherwise put every one of them on a single warning line, once per image,
+# indefinitely. Only the first few are needed to recognise the mistake; the
+# payload's `tag_key_count` still reports the real total.
+MAX_LOGGED_TAG_KEYS = 10
+
 
 def truncate_voice_profile_to_budget(
     examples: list[str] | tuple[str, ...],
@@ -827,6 +847,83 @@ def truncate_voice_profile_to_budget(
         result.append(ex)
         used += cost
     return result
+
+
+def sample_voice_examples(
+    examples: list[str] | tuple[str, ...] | None,
+    seed_source: str,
+    platform_tags: dict[str, list[str]] | None = None,
+    platforms: list[str] | None = None,
+    target_min: int = 4,
+    target_max: int = 6,
+    max_tokens_budget: int = DEFAULT_VOICE_PROFILE_TOKEN_BUDGET,
+) -> list[str]:
+    """Deterministically sample 4-6 owner voice examples for one image (PUB-050).
+
+    ``seed_source`` is the per-image seed string (the workflow uses
+    ``selected_content_hash or selected_hash``; the web path uses a hash of the
+    image bytes, else the filename), so the same image always gets the same
+    examples while different images get different ones.
+
+    When both ``platform_tags`` and ``platforms`` are supplied, examples tagged
+    for *any* of the given platforms are preferred over untagged ones — a union,
+    not per-platform differentiation, because one shared prompt covers every
+    enabled platform. A tag whose text is not in ``examples`` is ignored rather
+    than being an error.
+
+    The result is passed through :func:`truncate_voice_profile_to_budget`, which
+    can legitimately return fewer than ``target_min`` entries for unusually long
+    examples (the pre-existing drop-from-end degradation).
+    """
+    if not examples:
+        return []
+    pool = list(dict.fromkeys(examples))
+
+    preferred: list[str] = []
+    # Copy, not an alias: `rest` is shuffled in place below, and a future edit
+    # that reads `pool` afterwards must not silently get reordered data.
+    rest: list[str] = list(pool)
+    if platform_tags and platforms:
+        if not any(key in platforms for key in platform_tags):
+            # A key naming no enabled platform (e.g. the publisher *type*
+            # "fetlife" instead of the platform name "email") silently buys the
+            # tenant nothing. Log the key names only — truncated per key (see
+            # MAX_LOGGED_TAG_KEY_CHARS), capped in number (MAX_LOGGED_TAG_KEYS,
+            # with the real total in `tag_key_count`) — plus the enabled
+            # platforms. Never the tagged text: it is sensitive operator free
+            # text.
+            log_json(
+                logger,
+                logging.WARNING,
+                "voice_profile_tags_matched_no_enabled_platform",
+                # `str(key)`: Pydantic enforces dict[str, list[str]] on both
+                # ContentConfig and OrchestratorContent, so a non-string key
+                # cannot arrive from a real config — this is an API-robustness
+                # guard on a public function, not a live path. It keeps the
+                # diagnostic from being more brittle than the path it
+                # diagnoses (which just misses on the lookup), and keeps
+                # `sorted` from comparing mixed key types.
+                tag_keys=sorted(str(key)[:MAX_LOGGED_TAG_KEY_CHARS] for key in platform_tags)[:MAX_LOGGED_TAG_KEYS],
+                tag_key_count=len(platform_tags),
+                enabled_platforms=sorted(platforms),
+            )
+        tagged: set[str] = set()
+        for platform in platforms:
+            for text in platform_tags.get(platform) or []:
+                tagged.add(text)
+        if tagged:
+            # Partition preserves POOL order, so the order of `platforms` never
+            # influences the output.
+            preferred = [ex for ex in pool if ex in tagged]
+            rest = [ex for ex in pool if ex not in tagged]
+
+    seed = int.from_bytes(hashlib.sha256(seed_source.encode()).digest()[:8], "big")
+    rng = random.Random(seed)  # nosec B311 — seeded per-image sampling, not a secret; unpredictability breaks it
+    target = min(len(pool), rng.randint(target_min, target_max))
+    rng.shuffle(preferred)
+    rng.shuffle(rest)
+    selected = (preferred + rest)[:target]
+    return truncate_voice_profile_to_budget(selected, max_tokens_budget)
 
 
 def build_voice_examples_block(examples: list[str] | tuple[str, ...]) -> str:

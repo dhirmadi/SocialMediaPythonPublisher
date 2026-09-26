@@ -586,12 +586,18 @@ class WorkflowOrchestrator:
                             exc_info=True,
                         )
 
-                # PUB-029: extract voice examples (truncated to budget) when feature enabled.
+                # PUB-029/PUB-050: sample this image's voice examples when the feature is
+                # enabled. Seeded per image so the same image always gets the same lines.
                 voice_examples = None
                 if self.config.features.voice_matching_enabled and self.config.content.voice_profile:
-                    from publisher_v2.services.ai import truncate_voice_profile_to_budget
+                    from publisher_v2.services.ai import sample_voice_examples
 
-                    voice_examples = truncate_voice_profile_to_budget(self.config.content.voice_profile)
+                    voice_examples = sample_voice_examples(
+                        self.config.content.voice_profile,
+                        seed_source=(selected_content_hash or selected_hash),
+                        platform_tags=self.config.content.voice_profile_tags,
+                        platforms=list(specs.keys()),
+                    )
 
                 # Use multi-platform generation if available, fall back to single-caption
                 if hasattr(self.ai_service, "create_multi_caption_pair_from_analysis"):

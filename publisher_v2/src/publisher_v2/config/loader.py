@@ -6,7 +6,9 @@ after loading a ``.env`` file if present. INI configuration was removed in #97
 stage 4; ``--config`` is still accepted by the CLI but ignored.
 
 Values are validated on the way in — paths are checked for traversal, and
-anything matching ``REDACT_KEYS`` is masked before configuration is logged.
+``REDACT_KEYS`` names the sensitive keys that ``_safe_log_config`` masks in a
+config dict passed through it (top-level keys only; it is not a blanket
+guarantee that such values never reach a log).
 This module is the standalone path only; in orchestrator mode the runtime
 config comes from the orchestrator instead.
 """
@@ -49,6 +51,7 @@ REDACT_KEYS: set[str] = {
     "bot_token",
     "api_key",
     "voice_profile",
+    "voice_profile_tags",
 }
 
 
@@ -288,6 +291,8 @@ def _load_content_settings_from_env() -> dict | None:
     }
     if "voice_profile" in parsed:
         result["voice_profile"] = parsed["voice_profile"]
+    if "voice_profile_tags" in parsed:
+        result["voice_profile_tags"] = parsed["voice_profile_tags"]
     return result
 
 
@@ -613,6 +618,7 @@ def load_application_config(config_file_path: str | None = None, env_path: str |
                 archive=content_settings["archive"],
                 debug=content_settings["debug"],
                 voice_profile=content_settings.get("voice_profile"),
+                voice_profile_tags=content_settings.get("voice_profile_tags"),
             )
         else:
             # CONTENT_SETTINGS unset: schema defaults (INI [Content] removed, #97 stage 4)

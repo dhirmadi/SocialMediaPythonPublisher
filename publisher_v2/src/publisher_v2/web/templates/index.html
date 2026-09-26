@@ -2787,7 +2787,20 @@
             if (status) status.textContent = "Save failed: " + (detail.detail || res.status);
             return;
           }
-          if (status) status.textContent = `Saved ${lines.length} example(s).`;
+          // PUB-050 AC5: today the setter is process-local and the cron publisher is a
+          // different process, so say so and name the durable orchestrator field. Branch
+          // on the server's `persisted` rather than hard-coding that: it exists so this
+          // copy stops lying if the setter ever gains an orchestrator write-back path.
+          // A response without the field degrades to the process-local wording.
+          const saved = await res.json().catch(() => ({}));
+          const field = saved.orchestrator_field || "content.voice_profile";
+          if (status) {
+            status.textContent = saved.persisted
+              ? `Saved ${lines.length} example(s) to ${field} on the orchestrator ` +
+                `(persisted — this survives a restart and reaches the publisher).`
+              : `Saved ${lines.length} example(s) for this process only ` +
+                `(not persisted to the orchestrator — set ${field} there to survive a restart).`;
+          }
         } catch (err) {
           if (status) status.textContent = "Save error: " + err.message;
         }

@@ -158,8 +158,24 @@ class TestRedactKeys:
     """Tests for REDACT_KEYS constant."""
 
     def test_redact_keys_contains_expected_keys(self):
-        """REDACT_KEYS contains all expected sensitive key names."""
-        expected = {"password", "secret", "token", "refresh_token", "bot_token", "api_key", "voice_profile"}
+        """REDACT_KEYS contains all expected sensitive key names.
+
+        Exact equality on purpose: this is a change detector for a security
+        constant, so adding a key here must be a deliberate edit. PUB-050 added
+        ``voice_profile_tags`` — ``_safe_log_config`` matches keys by exact
+        lowercase equality, not substring, so the tags map would otherwise be
+        logged in the clear beside a redacted ``voice_profile``.
+        """
+        expected = {
+            "password",
+            "secret",
+            "token",
+            "refresh_token",
+            "bot_token",
+            "api_key",
+            "voice_profile",
+            "voice_profile_tags",
+        }
         assert expected == REDACT_KEYS
 
     def test_redact_keys_is_set(self):

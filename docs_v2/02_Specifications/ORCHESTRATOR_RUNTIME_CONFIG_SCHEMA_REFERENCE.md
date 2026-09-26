@@ -410,6 +410,7 @@ Policy:
 | `archive` | bool \| null | ❌ | `true` |
 | `debug` | bool \| null | ❌ | `false` |
 | `voice_profile` | array[string] \| null | ❌ | `null` |
+| `voice_profile_tags` | object \| null | ❌ | `null` |
 
 Notes:
 
@@ -418,6 +419,20 @@ Notes:
   Publisher exposes its own read/write UI for this field
   (`GET`/`POST /api/config/voice-profile`) — the orchestrator GUI does not need to surface it
   directly, but it is part of the `config.content` block returned by `/v1/runtime/by-host`.
+- `voice_profile_tags` (PUB-050): an object mapping a **platform name** to the subset of
+  `voice_profile` strings preferred for that platform when Publisher samples 4–6 examples per
+  image. Keys must be platform names matching Publisher's caption registry — `telegram`,
+  `instagram`, `email` — *not* publisher types (`fetlife` is the type; the platform is `email`).
+  Values are strings that must also appear in `voice_profile`; a tag whose text is absent from
+  `voice_profile` is **ignored, not an error**, so the two lists may be edited independently
+  without breaking caption generation. Preference is a **union** across every currently-enabled
+  platform, because one shared prompt covers all of them — it is not per-platform
+  differentiation. Tag at least six entries per platform: below that, the sample is topped up
+  from untagged examples on a large share of images. Unlike `voice_profile`, Publisher exposes
+  **no write UI** for this field, so the orchestrator is the only way to set it.
+- Both `voice_profile` and `voice_profile_tags` are additive-optional in both directions and need
+  no `schema_version` bump: every orchestrator model in Publisher sets `extra="allow"`, so an
+  older Publisher ignores the field and a newer one defaults it to `null`.
 
 ---
 

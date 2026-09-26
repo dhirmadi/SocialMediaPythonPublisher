@@ -179,6 +179,7 @@ class OrchestratorContent(BaseModel):
     archive: bool | None = None
     debug: bool | None = None
     voice_profile: list[str] | None = None
+    voice_profile_tags: dict[str, list[str]] | None = None
 
 
 class OrchestratorConfigV1(BaseModel):
