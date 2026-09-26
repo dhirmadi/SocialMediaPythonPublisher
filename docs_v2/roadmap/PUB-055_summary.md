@@ -24,7 +24,7 @@
 ## Acceptance Criteria
 
 - [ ] **AC1** — vulnerable pin fails the pip-audit job. **Not yet verified** — requires a live CI run; blocked on the prerequisite upgrade PR.
-- [ ] **AC2** — every job green on main after merge. **Not yet verified** — same reason; would currently fail on the pre-existing advisory backlog.
+- [ ] **AC2** — every job green on main after merge. **Not yet verified** — needs the live run. The backlog that would have failed it is cleared by PUB-065 (#235). Note the spec's expectation was wrong: it assumed GitGuardian would pass *by skipping* because no `GITGUARDIAN_API_KEY` was configured, but one is (it passed in 2s on #235), so that step genuinely runs and must pass on its merits. Spec corrected.
 - [x] **AC3** — `test_no_security_step_swallows_a_failure`
 - [x] **AC4** — `test_every_action_in_the_security_workflows_is_pinned_by_sha`
 - [x] **AC5** — `test_dependabot_config_groups_weekly_pip_and_actions_updates`

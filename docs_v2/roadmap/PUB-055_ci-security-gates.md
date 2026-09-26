@@ -6,7 +6,7 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Not Started |
+| **Status** | Implementation Complete |
 | **Dependencies** | — |
 
 ## User Story
@@ -82,10 +82,12 @@ A deliberately vulnerable pin on a branch fails CI while `main` is green. No mut
           GITHUB_PUSH_BASE_SHA: ${{ github.event.base }}
           GITHUB_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
   ```
-  This repo currently has **no** `GITGUARDIAN_API_KEY` secret configured (confirmed via
-  `gh secret list` during hardening) — making the step unconditionally blocking would fail every
-  run on an auth error, not a real finding. The guard makes it skip cleanly when unconfigured and
-  block for real once the secret is added; see Risks.
+  Hardening recorded **no** `GITGUARDIAN_API_KEY` secret on this repo (via `gh secret list`), on
+  the reasoning that making the step unconditionally blocking would fail every run on an auth
+  error rather than a real finding. **That was wrong** — the GitGuardian check ran and passed in
+  2s on PR #235 (2026-09-26), so a key *is* configured. The guard is still the right shape: it
+  blocks for real today, and degrades to a clean skip if the key is ever removed or rotated out.
+  Only the premise about the key's absence was incorrect; see Risks.
 - `.github/dependabot.yml`: weekly, `pip` and `github-actions` ecosystems, each grouped by
   `update-types: ["minor", "patch"]` (major bumps stay ungrouped so they get individual review)
 - `tests/test_ci_security_gates.py` parsing `security-scan.yml`/`secret-scan.yml`: no security
@@ -125,9 +127,11 @@ describes).
   the failing run's URL in the delivery PR body, then revert the pin before merge — do not leave
   a permanently-vulnerable pin in history past that PR.
 - AC2: Given `main` after this item merges, when CI runs, then every job in `security-scan.yml`
-  and `secret-scan.yml` passes (GitGuardian's job passes by skipping cleanly per its presence
-  guard, since no `GITGUARDIAN_API_KEY` is configured yet — see Scope). **Verification:** check
-  the Actions run for the merge commit; link it in the delivery PR body.
+  and `secret-scan.yml` passes. **Corrected 2026-09-26:** this AC originally expected GitGuardian
+  to pass *by skipping*, because hardening recorded no `GITGUARDIAN_API_KEY`. A key is in fact
+  configured (it passed in 2s on PR #235), so that step genuinely runs and must pass on its own
+  merits — a stricter outcome than the original wording, and the intended end state.
+  **Verification:** check the Actions run for the merge commit; link it in the delivery PR body.
 - AC3: Given `security-scan.yml` and `secret-scan.yml`, when
   `publisher_v2/tests/test_ci_security_gates.py::test_no_security_step_swallows_a_failure` runs,
   then it finds no `|| true` and no `continue-on-error: true` on any step in either file (the
@@ -254,3 +258,11 @@ parse error.
 
 - 2026-09-26 — Partially overtaken by #229, which added a blocking `pre-commit` job to `code-quality.yml` running all seventeen hooks. bandit now fails a build through that job, and detect-secrets, gitleaks and pydocstyle are enforced in CI for the first time (previously they ran only on clones where `pre-commit install` had been run, which was none). This does **not** close the item: `security-scan.yml`'s own `pip-audit`/`safety`/`bandit` steps are still `|| true`, the mutable `trufflehog@main` refs are unchanged, there is still no `.github/dependabot.yml`, and no test asserts the gates stay blocking. Re-scope the bandit bullet when this item is picked up — it is now about removing the `|| true` in `security-scan.yml` rather than making bandit block at all.
 - 2026-09-26 — Hardened for Claude Code handoff (`/product-harden`). Rescoped the bandit bullet per the entry above. Resolved several ambiguities the original draft left implicit: (1) `safety` is removed outright rather than migrated, a real (small) reduction in scanner coverage flagged in Risks, not just de-duplication; (2) SHA-pinning is scoped to `security-scan.yml`/`secret-scan.yml` only, matching the Problem section's own line-number citations — `code-quality.yml`/`caption-eval-nightly.yml` are untouched; (3) GitGuardian's step gets a job-level-`env:`-backed presence guard instead of unconditional blocking, since this repo has no `GITGUARDIAN_API_KEY` configured today; (4) the ignore-file (`.github/pip-audit-ignore.toml`) and its validator (`scripts/pip_audit_ignore.py`) now have a concrete schema and contract so AC6 is pytest-testable rather than prose; (5) AC1/AC2 are marked as one-time manual verification, not permanent tests, since they describe live-CI facts this item's own network-free test policy can't assert from within `pytest`. An adversarial `architect-reviewer` pass caught one implementation-blocking error in the first draft (the illustrative GitGuardian guard used `secrets.*` directly in a step-level `if:`, which GitHub Actions does not support there) and several visibility gaps (safety-removal needed louder flagging; `pyproject.toml`'s now-orphaned `safety` dev dependency and `SECURITY.md`'s contributor-facing `safety check` recommendation were unaddressed) — all applied above. See `PUB-055_handoff.md` for the Claude Code contract.
+- 2026-09-26 — Implemented (PR #236, stacked on #235). Two spec premises were corrected against
+  live evidence rather than left to mislead: AC2's GitGuardian expectation (a key *is* configured,
+  so the step blocks rather than skips), and the Scope note asserting the key's absence. Three
+  deviations are recorded in `PUB-055_summary.md`: pip-audit runs against a `uv export --frozen`
+  of the lock with a pinned tool version (the spec's `uv run pip-audit` could never have worked —
+  pip-audit was not a declared dependency); `Makefile` was added to scope as the last live
+  `safety` caller; and a `uv` Dependabot ecosystem was added alongside the spec-mandated `pip`
+  one, which cannot read `uv.lock`. AC1/AC2 are verified live against PR #236.
