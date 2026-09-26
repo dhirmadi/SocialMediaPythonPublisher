@@ -140,6 +140,15 @@ class ExistingSdLine(NamedTuple):
     model_version: str
 
 
+def _recorded_social_captions(view: dict[str, Any]) -> set[str]:
+    """PUB-051: the stripped social captions a sidecar records in ``caption`` and ``caption_submitted``."""
+    values: list[Any] = [view.get("caption")]
+    submitted = view.get("caption_submitted")
+    if isinstance(submitted, dict):
+        values.extend(submitted.values())
+    return {v.strip() for v in values if isinstance(v, str) and v.strip()}
+
+
 async def read_existing_sd_line(
     storage: StorageProtocol,
     folder: str,
@@ -161,7 +170,8 @@ async def read_existing_sd_line(
         log_json(logger, logging.WARNING, "sidecar_sd_line_read_failed", image=filename, correlation_id=correlation_id)
         return None
     sd_line = str(view.get("sd_caption") or "").strip()
-    if not sd_line:
+    if not sd_line or sd_line in _recorded_social_captions(view):
+        # A legacy override publish may have written a social caption into line 1: not an SD prompt.
         return None
     meta = view.get("metadata") or {}
     return ExistingSdLine(

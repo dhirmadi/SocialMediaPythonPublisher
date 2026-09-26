@@ -205,9 +205,17 @@ async def test_override_publish_never_moves_the_social_caption_into_the_sd_slot(
     assert not view["sd_caption"], view["sd_caption"]
 
     # Web Analyze on the sidecar the override publish left behind.
-    service = _web_service(monkeypatch, {FILENAME: written}, sd_enabled=web_sd_enabled)
+    sidecars = {FILENAME: written}
+    service = _web_service(monkeypatch, sidecars, sd_enabled=web_sd_enabled)
     result = await service.analyze_and_caption(FILENAME)
     assert result.sd_caption != OVERRIDE, "web Analyze served the operator's social caption as the SD prompt"
+
+    # The override is an operator caption: Analyze serves it from cache and never overwrites it,
+    # even with SD prompts on and an empty SD line (the #147 retry case).
+    assert result.cached is True, "an operator caption is on the sidecar, so Analyze must be a cache hit"
+    assert result.caption == OVERRIDE, f"Analyze did not serve the operator's override: {result.caption!r}"
+    service.ai_service.analyzer.analyze.assert_not_awaited()  # type: ignore[union-attr]
+    assert sidecars[FILENAME] == written, "Analyze rewrote the sidecar and dropped the operator's override"
 
 
 # --- 3. web cache: an empty SD line is a miss only when SD prompts are on ------
@@ -232,3 +240,79 @@ async def test_web_cache_regenerates_when_sd_enabled_and_cached_sd_line_empty(
         assert result.cached is True, "SD prompts are off, so an empty SD line is not a reason to regenerate"
         service.ai_service.analyzer.analyze.assert_not_awaited()  # type: ignore[union-attr]
         assert result.caption == CACHED_CAPTION
+
+
+# --- 4. an operator caption keeps an empty-SD-line sidecar a cache hit -------
+
+OPERATOR_TEXT = "Operator text"
+OPERATOR_SUBMITTED = {"telegram": "Operator's Telegram text", "email": "Operator's email text"}
+
+
+async def test_web_analyze_keeps_operator_captions_when_cached_sd_line_is_empty(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SD on, empty SD line, operator caption recorded: plain Analyze is a hit and never overwrites the edits."""
+    existing = _sidecar(
+        "",
+        caption=OPERATOR_TEXT,
+        caption_edited="True",
+        caption_submitted=dict(OPERATOR_SUBMITTED),
+        caption_generated={"telegram": "the AI's draft", "email": "the AI's email draft"},
+    )
+    sidecars = {FILENAME: existing}
+    service = _web_service(monkeypatch, sidecars, sd_enabled=True, vision_sd="a fresh vision SD prompt")
+
+    result = await service.analyze_and_caption(FILENAME)
+
+    assert result.cached is True, "the sidecar holds operator captions, so an empty SD line must not force a miss"
+    service.ai_service.analyzer.analyze.assert_not_awaited()  # type: ignore[union-attr]
+    service.ai_service.create_multi_caption_pair_from_analysis.assert_not_awaited()  # type: ignore[union-attr]
+    assert result.platform_captions == OPERATOR_SUBMITTED, result.platform_captions
+
+    assert sidecars[FILENAME] == existing, "Analyze rewrote a sidecar holding operator captions"
+    view = rehydrate_sidecar_view(sidecars[FILENAME])
+    assert view["caption"] == OPERATOR_TEXT
+    assert str(view["metadata"].get("caption_edited")) == "True"
+    assert view["caption_submitted"] == OPERATOR_SUBMITTED
+
+
+# --- 5. a legacy social caption on line 1 is not an SD prompt to keep ---------
+
+LEGACY_SOCIAL = "A social caption an old override publish wrote into line 1."
+
+
+def _legacy_sidecar(recorded_as: str) -> str:
+    """Line 1 holds a social caption, recorded in ``caption`` or in ``caption_submitted``."""
+    if recorded_as == "caption":
+        return _sidecar(LEGACY_SOCIAL, caption=LEGACY_SOCIAL, caption_generated={"telegram": "an older draft"})
+    return _sidecar(
+        LEGACY_SOCIAL,
+        caption="some other published text",
+        caption_submitted={"telegram": LEGACY_SOCIAL},
+        caption_generated={"telegram": "an older draft"},
+    )
+
+
+@pytest.mark.parametrize("recorded_as", ["caption", "caption_submitted"])
+@pytest.mark.parametrize("writer", ["workflow", "web_analyze"])
+async def test_keep_existing_sd_line_skips_a_legacy_social_caption_on_line_1(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, writer: str, recorded_as: str
+) -> None:
+    """No new SD prompt, line 1 equals a recorded social caption: the rewrite leaves line 1 empty."""
+    existing = _legacy_sidecar(recorded_as)
+
+    if writer == "workflow":
+        storage = await _workflow_run(monkeypatch, tmp_path, existing, vision_sd=False)
+        written = storage.sidecars[FILENAME]
+    else:
+        sidecars = {FILENAME: existing}
+        service = _web_service(monkeypatch, sidecars, sd_enabled=True, vision_sd=None)
+        result = await service.analyze_and_caption(FILENAME, force_refresh=True)
+        assert result.sidecar_written, "Analyze regenerated captions, so it must rewrite the sidecar"
+        assert result.sd_caption != LEGACY_SOCIAL, "Analyze served a legacy social caption as the SD prompt"
+        written = sidecars[FILENAME]
+
+    view = rehydrate_sidecar_view(written)
+    assert view["caption_generated"] != {"telegram": "an older draft"}, "the sidecar was not rewritten at all"
+    first_line = written.split("\n", 1)[0]
+    assert first_line == "", f"a legacy social caption was kept as the SD prompt: line 1 is {first_line!r}"

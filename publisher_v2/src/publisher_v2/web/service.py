@@ -100,6 +100,11 @@ def _edited_scalar_caption(view: dict[str, Any]) -> str | None:
     return str(caption) if isinstance(caption, str) and caption.strip() else None
 
 
+def _has_operator_caption(view: dict[str, Any]) -> bool:
+    """PUB-051: the sidecar records an operator caption (a ``caption_submitted`` map or an edited ``caption``)."""
+    return bool(_platform_caption_dict(view, "caption_submitted")) or _edited_scalar_caption(view) is not None
+
+
 def _generated_captions(view: dict[str, Any]) -> dict[str, str] | None:
     """#147: what the editors should show — what was submitted, else what the AI wrote.
 
@@ -813,8 +818,13 @@ class WebImageService:
                 text = blob.decode("utf-8", errors="ignore")
                 view = rehydrate_sidecar_view(text, source=filename)
                 cached_caption = self._select_cached_social_caption(view)
-                # PUB-051: with SD prompts on, an empty SD line is a miss so Analyze generates one.
-                sd_missing = getattr(self.config.openai, "sd_caption_enabled", True) and not view.get("sd_caption")
+                # PUB-051: with SD prompts on, an empty SD line is a miss so Analyze generates one —
+                # unless the sidecar holds an operator caption, which a regeneration would overwrite.
+                sd_missing = (
+                    getattr(self.config.openai, "sd_caption_enabled", True)
+                    and not view.get("sd_caption")
+                    and not _has_operator_caption(view)
+                )
                 if cached_caption and not sd_missing:
                     log_json(
                         self.logger,

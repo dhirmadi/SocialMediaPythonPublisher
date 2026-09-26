@@ -79,7 +79,9 @@ moves with the image on archive/curation). **Line 1 is the pure `sd_caption`** â
 pipelines that read only line 1 must never see anything else there. Since PUB-051 the sidecar is
 also written when captions were generated but no SD prompt exists (SD disabled, or vision omitted
 it): line 1 is then empty, or keeps the SD prompt an earlier run wrote â€” it is never blanked by a
-run without one and never holds a social caption. The metadata block carries `caption_generated`
+run without one and never holds a social caption (a legacy line 1 equal to the recorded
+`caption`/`caption_submitted` is dropped when captions are regenerated). With SD prompts on, web Analyze regenerates an
+empty-SD-line sidecar only when it holds no operator caption. The metadata block carries `caption_generated`
 and `caption_angles` (content-angle key per platform) for partial-retry reuse and angle history. When
 `captionfile.extended_metadata_enabled` is on, a `# ---` separator followed by `#`-prefixed
 metadata lines is appended below it (phase-1 identity fields always on when `sd_caption`
