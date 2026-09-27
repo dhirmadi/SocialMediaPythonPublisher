@@ -35,6 +35,10 @@ A `--nightly` run generates captions carrying a sampled STYLE REFERENCES block, 
 - Regenerating `snapshot.json` and `caption_eval_thresholds.json`, in the separate, deliberate step PUB-049 already defines for that (`--nightly`, then `--generate-thresholds`). PUB-049's own Scope requires these never be regenerated in the same PR as a snapshot change — honour that split here too.
 - A note in PUB-049's archived spec and in `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md` §8.1 recording that the harness now covers the voice path.
 
+**In scope (absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291), [#283](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/283)):**
+- One `scripts/_harness_env.py` for `_UNUSED_ENV_PLACEHOLDERS`/`_fill_unused_env`, today copied between `scripts/caption_eval.py` and `scripts/caption_sample.py`
+- One `analysis_from_vision_json(data)` in `services/ai.py`, used by `_analyze_core` and `scripts/vision_token_benchmark.py` (whose copy has drifted: it lacks `alt_text`, `distinctive_detail`, `sensory_detail`, `mood_note`, `sd_caption`); the benchmark moves off `generate_with_sd`, which PUB-058 deletes
+
 **Out of scope:**
 - Writing the real owner corpus (#179) — the fixture profile here is harness scaffolding, deliberately *not* the owner's voice, so a corpus edit never silently moves the CI bars.
 - Changing the metrics, thresholds policy or the sampler itself.
@@ -47,6 +51,8 @@ A `--nightly` run generates captions carrying a sampled STYLE REFERENCES block, 
 - AC3: Given two fixtures with different seeds, when their prompts are compared, then their voice blocks differ, proving the harness exercises per-image variation rather than one fixed block.
 - AC4: Given `--offline`, when it runs, then it still makes zero network calls and completes in under ten seconds (PUB-049 AC3 must not regress).
 - AC5: Given the sampler is reverted to the pre-PUB-050 flat `truncate_voice_profile_to_budget(...)`, when `--nightly` regenerates and scores, then at least one metric moves — i.e. the harness can now detect the class of change PUB-050 made. This is the acceptance criterion that the whole item exists for; verify it explicitly rather than assuming.
+- AC6: Given `src` and `scripts/`, when they are searched, then one vision-JSON-to-`ImageAnalysis` mapper and one env-placeholder helper exist, and `scripts/vision_token_benchmark.py` runs end to end.
+- AC7: Given this item ships, when its implementing PR merges, then [#283](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/283) is closed with `Closes #283` in the PR body.
 
 ## Implementation Notes
 
@@ -71,7 +77,9 @@ A `--nightly` run generates captions carrying a sampled STYLE REFERENCES block, 
 - [PUB-050: Owner Voice Corpus in Every Caption Prompt](archive/PUB-050_owner-voice-corpus.md) — shipped with AC6 open; this item is why it could not be closed, and supersedes that gate
 - PUB-052: Caption Candidate Selection — inherits the same measurement blindness until this lands
 - Corpus authoring is [#179](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/179), owner-authored content, not code
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): [#283](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/283) absorbed (Scope, AC6-AC7)
 
 ## Change Log
 
 - 2026-09-26 — Created while closing out PUB-050. The gap was found by an adversarial review pass and confirmed independently three times against `scripts/caption_eval.py:429` and `:164-177`.
+- 2026-09-27 — Absorbed #283 (harness scripts copy the env placeholders and the vision-JSON mapper; the benchmark copy has drifted) from the DRY review (#291); added AC6-AC7.

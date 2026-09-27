@@ -31,6 +31,11 @@ Every run requests three candidates and selects per platform by lowest tells sco
 - Condense pass on the selected candidate only
 - Model trial: two nightly runs (current model and the #182 model) on the same 20 analyses; blind reading by the owner; switch in the orchestrator payload if it wins
 
+**In scope (absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291)):** this item already rewrites the gate and the condense path, so it also removes their dead weight:
+- Drop the always-`None` `sd_caption` element from `create_multi_caption_pair_from_analysis`'s return and from `_apply_similarity_gate`; every caller stops unpacking it (part of [#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280))
+- Delete `excluded_directives` (always returns `frozenset()`) and its `exclude` parameter (part of [#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280))
+- The overshoot block "condense if short, else `smart_truncate` and log", pasted into `generate`, `generate_with_sd` and `_parse_platform_captions`, becomes one `_fit_to_length(caption, spec)` that always logs `event="caption_truncated"` (part of [#281](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/281))
+
 **Out of scope:**
 - Prompt wording (PUB-051)
 - Embedding-based similarity (a later item if TF-IDF proves insufficient)
@@ -46,6 +51,7 @@ Every run requests three candidates and selects per platform by lowest tells sco
 - AC7: Given the PUB-049 harness, when the PR body is written, then TF-IDF cosine to history drops against the PUB-051 result and tells rate does not rise
 - AC8: Given two nightly snapshots (current model, trial model), when the owner reads them blind, then the reading and the score tables are recorded on the trial issue and the decision is made from both
 - AC9: Given this item ships, when its implementing PR merges, then #193 and #195 are closed by that PR (`Closes #193`, `Closes #195` in its body) with the evidence, and #182 is closed once the trial model and budget it asks for are recorded in this spec
+- AC10: Given `src`, when it is searched, then `create_multi_caption_pair_from_analysis` returns no always-`None` element, `excluded_directives` does not exist, and exactly one function implements the overshoot condense-or-truncate step; every truncation it performs logs `event="caption_truncated"`. The implementing PR body says "Part of #280" and "Part of #281" (both are closed elsewhere).
 
 ## Implementation Notes
 
@@ -68,8 +74,10 @@ Every run requests three candidates and selects per platform by lowest tells sco
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#193](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/193), [#195](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/195), [#182](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/182)
 - [PUB-040: OpenAI Model Lifecycle Warnings](archive/PUB-040_model-lifecycle-warnings.md) — the model config this trial uses
 - Prior fixes #82 (similarity gate), #144 (telemetry gate)
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): parts of [#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280) and [#281](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/281) absorbed (Scope, AC10)
 
 ## Change Log
 
 - 2026-09-27 — Post-PUB-051 refresh: updated Status to Not Started (both dependencies now Done), refreshed Problem section with post-PUB-051 function names (`pick_content_angle` replaces `pick_structure_directive`, `CONTENT_ANGLES` replaces `STRUCTURE_DIRECTIVES`), updated line references to match current `ai.py` layout, noted that both web and cron now use `angle_history_depth(window_size)` but text window is still 3.
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.
+- 2026-09-27 — Absorbed parts of #280 (always-`None` `sd_caption` slot, `excluded_directives`) and #281 (overshoot block pasted three times) from the DRY/over-engineering review (#291); added scope block and AC10. Handoff gets a matching note.

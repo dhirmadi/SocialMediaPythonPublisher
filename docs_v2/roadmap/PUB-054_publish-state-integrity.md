@@ -34,6 +34,10 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - TTL floor extended with the sidecar and DB claim budgets (#200)
 - `CONFIGURATION.md` documents the decision and the outcomes
 
+**In scope (absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291)):**
+- The #199 rewrite of `utils/state.py` collapses the paired helpers (`load_posted_hashes`/`load_posted_content_hashes`, `save_posted_hash`/`save_posted_content_hash`) into `load_posted() -> (hashes, content_hashes)` and `save_posted(sha, content_hash)`: one lock, one read and one write per run (part of [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284))
+- While the claim and marks are edited for #200: a `_key(tenant, content_hash, platform)` helper replaces the five repeated WHERE clauses in `db/publish_store.py`; `_claim_publish_targets`' nested `nonlocal` closure and its unreachable `store is None` guard go (part of [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284))
+
 **Out of scope:**
 - Postgres timeouts and fail-closed claim (PUB-047)
 - Workflow stage extraction (PUB-058); this item adds the minimum to `_select_image` and the claim and does not restructure
@@ -47,6 +51,7 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - AC5: Given a run, when its status transitions are recorded, then they go `leased` → `publishing` → `published` (or `failed`) with the lease token fencing every mark
 - AC6: Given `RuntimeSettings`, when the lease TTL floor is computed, then it includes the sidecar and DB claim budgets and a configured TTL below it is raised to it with a warning
 - AC7: Given this item ships, when its implementing PRs merge, then #199 and #200 are closed with `Closes #N` in the PR body, and #181 is closed once the two contract answers this item depends on are recorded here and quoted on the issue
+- AC8: Given a run with a file-backed posted state, when its I/O is counted, then the state file is read once and written once; given `db/publish_store.py`, then the `(tenant, content_hash, platform)` predicate is built in one place. The PR body says "Part of #284" (PUB-058 closes it)
 
 ## Implementation Notes
 
@@ -69,7 +74,9 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#199](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/199), [#200](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/200), [#181](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/181)
 - [PUB-006: Core Workflow Dedup Performance](archive/PUB-006_core-workflow-dedup.md)
 - Prior fixes #85 (Postgres publish state), #139 (lease expiry)
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): posted-state and `PublishStore` parts of [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284) absorbed (Scope, AC8)
 
 ## Change Log
 
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.
+- 2026-09-27 — Absorbed the posted-state helper pairs and the repeated `PublishStore` WHERE clause / claim closure from #284 (DRY review #291); added AC8.

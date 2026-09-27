@@ -34,6 +34,12 @@ A `RunState` dataclass and seven stages (Select, Analyze, Caption, Sidecar, Leas
 - `test_layering.py`: core imports only protocols and `publishers.base`; utils imports only utils; config does not import core; lazy-import count ratchet (starts at the current count, may only fall)
 - Docs: `.claude/rules/architecture.md` describes the stage pipeline and working rule 3; `docs_v2/03_Architecture/ARCHITECTURE.md:11-19` layering claim rewritten to match the test; a new ADR for the stage pipeline
 
+**In scope (absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291)):**
+- The `_select_image` split deletes the legacy "SHA256-only" branch rather than carrying it: `supports_content_hashing()` leaves the protocol and both backends (only test dummies returned `False`; they return `(name, None)` hashes instead); an `_ImageSelection.fail(...)` constructor replaces the seven hand-spelled error selections ([#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284))
+- `RunState` carries `live = not debug and not dry_publish and not preview_mode`, computed once (today nine copies); the four `if not preview_mode: log_json(...)` guards go (preview already logs at WARNING) ([#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284))
+- Dead code deleted as its module moves: `WorkflowResult.dropbox_url`, `db.get_engine`, the in-place mode of `ensure_max_width` ([#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284))
+- The Caption stage calls `create_multi_caption_pair_from_analysis` directly: the `hasattr` probes in workflow and web, the single-platform SD path (`generate_with_sd`, `create_caption_pair_from_analysis`, the SD prompt branches in `AIService.__init__`, `SD_LONG_TEMPERATURE`, `SHORT_LIMIT_MAX_TOKENS_SINGLE_SD`, `_NullGenerator.generate_with_sd`, the SD block in `ai_prompts.yaml`) and the publisher's read of `sd_caption_single_call_enabled` are deleted (contract removal is PUB-057 step 5); the three timeout-to-`AIServiceError` wrappers become one `_within_deadline(coro, deadline)`; the keyed `build_analysis_context` and `_build_inline_hashtags_clause` merge into the prose renderer and one hashtag instruction, with a harness run in the PR because prompt text changes; the PR decides whether web's catch-all single-caption retry stays ([#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280))
+
 **Out of scope:**
 - Web app factory and routers (PUB-059)
 - Typed platform captions (PUB-059), though the stages should accept the new type when it lands
@@ -50,6 +56,9 @@ A `RunState` dataclass and seven stages (Select, Analyze, Caption, Sidecar, Leas
 - AC8: Given `core/`, when its imports are walked (module level and function level), then it imports no concrete service, only `services.*_protocol` modules and `services.publishers.base`
 - AC9: Given the lazy intra-package import ratchet, when the item is done, then it is in `test_layering.py` and its count is lower than when the item started
 - AC10: Given `.claude/rules/architecture.md` and `ARCHITECTURE.md`, when the item is done, then the rules file describes the stage pipeline and working rule 3, and the `ARCHITECTURE.md` layering claim matches what `test_layering.py` enforces
+- AC11: Given `src`, when it is searched, then `supports_content_hashing`, `generate_with_sd`, `create_caption_pair_from_analysis` and any `hasattr` probe on the AI service or generator are absent, and the live-run predicate is computed once
+- AC12: Given the PUB-049 harness, when the PR removing the single-platform path and merging the renderers is written, then its body records a live run (PUB-080 baseline) showing no regression
+- AC13: Given this item ships, when its implementing PRs merge, then [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284) and [#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280) are closed with `Closes #N` in the PR body (PUB-054 carries the posted-state part of #284, PUB-052 and PUB-057 the rest of #280)
 
 ## Implementation Notes
 
@@ -77,8 +86,10 @@ A `RunState` dataclass and seven stages (Select, Analyze, Caption, Sidecar, Leas
 - [ADR index](../03_Architecture/adr/README.md) — a new ADR for the stage pipeline is recorded with #207
 - Prior fixes #96 (layering restore), #85, #139, #143, #147 (branches added to `execute`); PUB-051 (sidecar reuse and override angles added to `execute`)
 - [#207](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/207) and [#208](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/208) folded into this spec on 2026-09-27; every requirement and acceptance criterion from both issues is captured above, and the issues can be closed as tracked here.
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284) and the code side of [#280](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/280) absorbed (Scope, AC11-AC13)
 
 ## Change Log
 
 - 2026-09-27 — Roadmap review: noted that line numbers and PUB-051 sidecar-preservation detail in Problem/Scope are implementation guidance that should be re-verified in the handoff, not hardcoded in the spec — they drift as prior items land.
 - 2026-09-27 — Folded in #207 and #208: added the `RunState` field list, the `finally` contents, the web stage mapping, the `config/exceptions.py` move with a one-release re-export, constructor-injected protocols in `services/*_protocol.py`, the ratchet rule, the docs deliverables (rules file, `ARCHITECTURE.md`, ADR), AC7-AC10, ordering and verification. Refreshed numbers from an AST audit at `main` 949b2d1 (`execute` 766 lines, `_select_image` 171, `_analyze_and_caption_impl` 275, `config/` imports `core.exceptions` in 5 files) and recorded PUB-051's additions to `execute` that the extraction must preserve.
+- 2026-09-27 — Absorbed #284 (dead legacy selection branch, nine live-run guards, dead aliases) and the code side of #280 (dead single-platform caption path and fallbacks) from the DRY review (#291); added AC11-AC13.
