@@ -6,8 +6,10 @@
 | **Category** | AI |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Done |
 | **Dependencies** | PUB-049, PUB-051 |
+| **Shipped date** | 2026-09-27 |
+| **Verified** | PR [#266](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/266), merge commit `2e20538` |
 
 ## User Story
 

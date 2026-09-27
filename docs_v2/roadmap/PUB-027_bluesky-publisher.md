@@ -7,7 +7,7 @@
 | **Priority** | P1 |
 | **Effort** | S |
 | **Status** | Not Started |
-| **Dependencies** | — |
+| **Dependencies** | PUB-059 |
 
 ## User Story
 

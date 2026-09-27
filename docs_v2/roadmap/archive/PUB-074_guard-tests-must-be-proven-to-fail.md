@@ -6,8 +6,14 @@
 | **Category** | Foundation |
 | **Priority** | P1 |
 | **Effort** | XS |
-| **Status** | Proposal |
+| **Status** | Superseded |
 | **Dependencies** | — |
+| **Archived date** | 2026-09-27 |
+
+> **Superseded 2026-09-27.** Folded into [PUB-079: Dependabot Correctness and Scope Batch](../PUB-079_dependabot-correctness-and-scope-batch.md)
+> as a prep step — its two doc-edit deliverables (`.claude/agents/code-reviewer.md` and
+> `.claude/rules/testing.md`) are now a prerequisite of PUB-079's guard-test work rather than a
+> standalone roadmap item. No scope changed.
 
 ## User Story
 

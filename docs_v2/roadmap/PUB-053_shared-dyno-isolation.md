@@ -5,7 +5,7 @@
 | **ID** | PUB-053 |
 | **Category** | Web UI |
 | **Priority** | P1 |
-| **Effort** | M |
+| **Effort** | L |
 | **Status** | Proposal |
 | **Dependencies** | PUB-047 |
 
