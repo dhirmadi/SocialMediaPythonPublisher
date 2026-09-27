@@ -33,6 +33,8 @@ Per the #178 decision, either the backend, its config and credential types, the 
 **In scope (if keeping):**
 - `WebImageService.object_storage: ObjectStorageProtocol | None` set at construction; ignores, `isinstance` and `hasattr` removed; `get_temporary_link` in a capability protocol
 
+- (either branch) `get_temporary_link` (#172): drop the `@_managed_retry` and `asyncio.to_thread` around a presign that makes no network request, or delete the method with the capability move in step 3
+
 **Out of scope:**
 - Config model consolidation beyond the Dropbox fields (PUB-057)
 
@@ -44,6 +46,7 @@ Per the #178 decision, either the backend, its config and credential types, the 
 - AC4 (removing): Given `uv.lock`, when it is searched, then `dropbox` is absent; given the protocols module, then one protocol remains
 - AC5 (keeping): Given `WebImageService`, when constructed with a Dropbox backend, then `object_storage` is `None` and the library routes answer 503 with a clear message
 - AC6: Given #113, when this item ships, then it is closed with the evidence
+- AC7: Given this item ships, when its implementing PRs merge, then #205, #178 (the recorded decision) and #172 (`get_temporary_link`'s pointless retry and thread hop, removed or moved behind a capability in step 3) are closed with `Closes #N` in the PR body, alongside #113 (AC6)
 
 ## Implementation Notes
 
@@ -64,3 +67,8 @@ Per the #178 decision, either the backend, its config and credential types, the 
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#205](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/205), [#178](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/178); closes [#113](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/113)
 - [PUB-015: Cloud Storage Adapter (Dropbox)](archive/PUB-015_cloud-storage-dropbox.md), [PUB-023: Storage Protocol Extraction](archive/PUB-023_storage-protocol-extraction.md), [PUB-024: Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md), [PUB-031: Managed Storage Migration & Admin Library](archive/PUB-031_managed-storage-migration-admin-library.md)
+- [#172](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/172) is closed by this item
+
+## Change Log
+
+- 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

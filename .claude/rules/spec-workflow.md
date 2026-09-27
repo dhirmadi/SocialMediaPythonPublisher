@@ -16,6 +16,7 @@ When implementing a roadmap item from a hardened spec:
 6. **Create summary per roadmap item.** Document files changed, ACs met, test results, and any implementation decisions in `docs_v2/roadmap/PUB-NNN_summary.md`.
 7. **Never deviate silently.** If you must deviate from the spec, document why in the summary and flag it for review.
 8. **Coverage gates are mandatory.** ≥80% on affected modules, ≥85% overall. Do not skip.
+9. **Close the issues the item resolves.** The spec's issue-closing AC names them; the PR body carries `Closes #N` for each, and `/verify` checks they closed. No issue may be left open after the item ships (see `.claude/skills/spec-format/SKILL.md`).
 
 ## Roadmap layout
 

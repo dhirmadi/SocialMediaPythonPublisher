@@ -41,6 +41,7 @@ a trailing comment, on the same terms PUB-055 established, and the stale comment
 - AC1: Every `uses:` value in `code-quality.yml` matches `<owner>/<repo>@<40-hex>` with a version
   comment on the same or next line, asserted by a pytest function named in this item's handoff.
 - AC2: No comment in `code-quality.yml` describes a step that no longer exists.
+- AC3: Given this item ships, when its PR merges, then #204 is closed with `Closes #204` in the PR body: SHA-pinning the remaining tag-pinned actions is the last open #204 criterion now that PUB-055 and PUB-066 have merged
 
 ## Notes
 
@@ -51,3 +52,8 @@ against 11 specific mutations. Prefer widening its file list to copying it.
 ## Related
 
 - Parent tracker [#243](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/243) · PUB-055 (#236) · #229
+- [#204](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/204) is closed by this item (its last open criterion)
+
+## Change Log
+
+- 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

@@ -58,6 +58,17 @@ For each acceptance criterion in the spec:
 - Verify the test passed
 - Report: AC description → test name → PASS/FAIL/NOT TESTED/NAME MISMATCH
 
+### 3b. Linked-issue check
+
+Read the spec's issue-closing AC (see `.claude/skills/spec-format/SKILL.md`, "The issue-closing
+rule"). For each issue it names:
+- Before merge: the PR body contains `Closes #N` (`gh pr view <pr> --json body`).
+- After merge: the issue is closed (`gh issue view N --json state`).
+
+A listed issue that is missing from the PR body or still open after merge is a **FAIL**, not a
+nit: it becomes a stale issue. If the spec lists resolved issues only in Related, with no closing
+AC, flag that as a spec gap.
+
 ### 4. Spec drift check
 
 Compare implementation against the spec:

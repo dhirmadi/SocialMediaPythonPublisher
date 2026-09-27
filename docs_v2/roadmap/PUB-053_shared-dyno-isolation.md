@@ -37,6 +37,8 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 - Nine small items, nine PRs (#202): stale ceiling, auth-block default, callback error allow-list, `STANDALONE_HOST`, storage outage not 404, publisher rebuild, prune and index, warn-once, `head_object`
 - HKDF per-purpose keys from `WEB_SESSION_SECRET`; SHA-256 digest on serializers; legacy Instagram sessions re-keyed on read (#203)
 
+- Library move: the missing move rate limit comes with #198; the per-move full listing invalidation (one storage LIST per move, #170) is replaced by a targeted invalidation of the source and destination entries
+
 **Out of scope:**
 - Posted-state tenancy and dedup (PUB-054)
 - CI gates (PUB-055)
@@ -52,6 +54,7 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 - AC6: Given the instagrapi client, when its session adapter is inspected, then a default timeout is mounted; given a hung fake publisher, when a thumbnail is generated concurrently, then it completes within its own duration
 - AC7: Given each of the nine small items, when its PR merges, then its named test passes through the real object and #168 is closed by the `head_object` PR
 - AC8: Given the cookie-purpose key version is bumped, when a stored Instagram session is read, then it is still decrypted and re-encrypted under the derived key
+- AC9: Given this item ships, when its implementing PRs merge, then each closes its issue with `Closes #N` in the PR body: #196, #197, #198, #201, #202, #203, #169 and #170, plus #168 through the `head_object` item of #202 (PUB-063 fixes only the web write guards and does not close #168)
 
 ## Implementation Notes
 
@@ -75,3 +78,8 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#196](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/196), [#197](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/197), [#198](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/198), [#201](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/201), [#202](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/202), [#203](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/203); closes [#168](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/168), [#169](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/169), [#170](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/170)
 - [PUB-018: Thumbnail Preview Optimization](archive/PUB-018_thumbnail-preview.md), [PUB-022: Orchestrator Schema V2 Integration](archive/PUB-022_orchestrator-schema-v2.md)
 - Prior fixes #77 (forwarded IP), #86 (tenant-safe thumbnail cache), #140 (thumbnail HEAD)
+- [#170](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/170) and [#169](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/169) are closed by this item (see the issue-closing AC)
+
+## Change Log
+
+- 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

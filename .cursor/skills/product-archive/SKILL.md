@@ -34,6 +34,8 @@ Example: `/product-archive docs_v2/roadmap/PUB-023_my-feature.md`
 - [ ] Item `PUB-NNN_slug.md` exists in `docs_v2/roadmap/` with acceptance criteria
 - [ ] Review record exists (from `/product-review-delivery`)
 - [ ] Tests pass: run `uv run pytest -v --tb=short` to confirm
+- [ ] Every issue in the spec's issue-closing AC is closed (`gh issue view N --json state`); if one is open, close it citing the merged PR, or stop and report why it cannot be
+- [ ] If the item's issues belong to a tracker issue (e.g. #177, #243), check whether the tracker still has open children; when none remain, close the tracker with a summary
 
 If any prerequisite is missing, stop and report what's needed.
 
