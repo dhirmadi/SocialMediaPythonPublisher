@@ -14,8 +14,12 @@ to reintroduce; both tests are hand-rolled matchers, so vacuity is the main revi
 **How to apply when reviewing changes near it:**
 - Mutation-proven real (2026-09-26): tracked `requirements-dev.txt` with `-r requirements.txt`,
   `-rreq...`, `--requirement=req...` all go red; untracked copy and `# -r ...` correctly pass.
-- AC2 matcher only sees lines *inside ``` fences* that also match `pip|uv pip install`. Blind to
-  unfenced prose, 4-space indented code blocks, `~~~` fences, and `install` split across lines.
+- AC2 matcher sees lines inside ``` or ~~~ fences (CommonMark same-char, >=-length closing) and
+  4-space/tab indented blocks, that also match `pip|uv pip install`. Hardened 2026-09-27: the old
+  single `inside = not inside` toggle meant one unbalanced fence silently inverted the rest of a
+  file. An unclosed fence at EOF now stays classified as code (fail loud). Still blind to unfenced
+  prose (deliberate: several roadmap docs cite the old command in inline backticks) and to `install`
+  split across lines.
 - `ARCHIVED_TREES = ("code_v1/", "docs_v1/")` is load-bearing for AC2: `docs_v1/DOCUMENTATION.md`
   still has `pip install -r requirements.txt` in a fence. It excludes only those prefixes.
 - Only tracked file is `code_v1/requirements.txt` (no `-r` lines); CI's `requirements-audit.txt` is

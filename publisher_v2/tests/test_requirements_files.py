@@ -56,16 +56,80 @@ def _strip_inline_comment(line: str) -> str:
     return re.split(r"\s#", line, maxsplit=1)[0]
 
 
-def _fenced_code_lines(text: str) -> list[tuple[int, str]]:
-    """1-indexed lines inside ``` fences, so prose mentioning a command is ignored."""
+# An opening/closing code fence: up to 3 leading spaces, then 3+ backticks or 3+ tildes.
+# More than 3 spaces of indent makes it an indented code block instead, never a fence.
+CODE_FENCE = re.compile(r"^ {0,3}(?P<delimiter>`{3,}|~{3,})(?P<info>.*)$")
+
+
+def _code_lines(text: str) -> list[tuple[int, str]]:
+    """1-indexed lines inside a code block, so prose or an inline `code span` is ignored.
+
+    Covers all three CommonMark code-block forms, because an install instruction is
+    just as real in any of them:
+
+    * a ``` fence,
+    * a ~~~ fence,
+    * a 4-space / tab indented block (which, per CommonMark, cannot interrupt a
+      paragraph, so it must be preceded by a blank line).
+
+    A fence is closed only by a fence of the *same* character that is at least as
+    long and carries no info string, so a ``` line inside a ~~~ block (or a longer
+    fence inside a shorter one) is content rather than a delimiter. The old
+    implementation toggled a single boolean on every ``` line, which meant one
+    unbalanced fence anywhere in a file silently inverted inside/outside for the rest
+    of that file and could mask real hits below it.
+
+    **Unclosed fence at EOF fails loud:** the trailing region stays classified as code
+    and is still scanned. That is the safe direction — the alternative (treating it as
+    prose) would let a malformed doc quietly opt out of the check.
+    """
     lines: list[tuple[int, str]] = []
-    inside = False
+    fence_char: str | None = None
+    fence_length = 0
+    in_indented_block = False
+    after_blank = True
+
     for number, line in enumerate(text.splitlines(), start=1):
-        if line.lstrip().startswith("```"):
-            inside = not inside
+        blank = not line.strip()
+        fence = CODE_FENCE.match(line)
+
+        if fence_char is not None:
+            delimiter = fence.group("delimiter") if fence else ""
+            closes = (
+                fence is not None
+                and delimiter[0] == fence_char
+                and len(delimiter) >= fence_length
+                and not fence.group("info").strip()
+            )
+            if closes:
+                fence_char = None
+            else:
+                lines.append((number, line))
+            after_blank = False
             continue
-        if inside:
+
+        if fence is not None:
+            fence_char = fence.group("delimiter")[0]
+            fence_length = len(fence.group("delimiter"))
+            after_blank = False
+            continue
+
+        indented = line.startswith("    ") or line.startswith("\t")
+        if in_indented_block:
+            # A blank line does not end an indented block; the next non-indented line does.
+            if blank or indented:
+                lines.append((number, line))
+                after_blank = blank
+                continue
+            in_indented_block = False
+        elif indented and after_blank:
+            in_indented_block = True
             lines.append((number, line))
+            after_blank = False
+            continue
+
+        after_blank = blank
+
     return lines
 
 
@@ -109,7 +173,7 @@ def test_the_docs_do_not_recommend_a_missing_requirements_file() -> None:
         if not doc.is_file():
             continue
         text = doc.read_text(encoding="utf-8")
-        for number, line in _fenced_code_lines(text):
+        for number, line in _code_lines(text):
             if not INSTALL_COMMAND.search(line):
                 continue
             for match in REQUIREMENT_FLAG.finditer(line):

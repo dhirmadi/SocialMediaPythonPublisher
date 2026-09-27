@@ -38,7 +38,7 @@ source .venv/bin/activate
 # On Windows:
 .venv\Scripts\activate
 
-# 4. Install dependencies (the dev group is uv's default group)
+# 4. Install dependencies (the project's deps plus the dev group)
 uv sync --group dev
 
 # 5. Set up pre-commit hooks

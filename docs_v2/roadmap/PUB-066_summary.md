@@ -103,8 +103,10 @@ The exclusion is a prefix match on those two paths only and swallows no live pat
 
 ### Open nits (not blocking, no action taken)
 
-- `test_requirements_files.py` only scans ```-fenced blocks: an install line in unfenced prose, a
-  4-space-indented block, or a `~~~` fence would pass. Acceptable for a hygiene guard.
+- AC2 still ignores unfenced prose. That is deliberate, not an oversight: several roadmap docs
+  (including this one) cite the old `pip install -r requirements-dev.txt` in inline backticks while
+  describing its removal, and flagging those would be a false positive. Fenced and indented blocks
+  are covered — see the post-review hardening above.
 - AC1 covers only `-r` / `--requirement`, per its literal wording; a dangling `-c` /
   `--constraint` (which Dependabot also follows) would reproduce the same abort. Widening the
   matcher is a spec amendment, not a review fix.
