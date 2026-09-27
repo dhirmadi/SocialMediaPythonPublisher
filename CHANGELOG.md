@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - PUB-080: Re-baseline the Caption Eval From Live Output
+- The caption-eval snapshot and thresholds now come from live `gpt-4o-mini` output (five nightly
+  runs on `main` @ `4e146ad`, 2026-09-27) instead of PUB-049's synthetic bootstrap, so the nightly
+  no longer fails its own scoring step on every run
+- `scripts/caption_eval.py --generate-thresholds` takes `--snapshot` more than once and sets each
+  bar to the worst score across the runs, with the unchanged 10% margin; `--offline` rejects more
+  than one snapshot. Bars at the mean would have failed all five baseline runs, because identical
+  runs vary far more than 10% (opener share 0.07–0.30)
+- The five runs are committed under `publisher_v2/tests/fixtures/captions/baseline_runs/`; a test
+  fails if any recorded run crosses the committed bars
+- **Verified live 2026-09-27:** post-merge nightly runs were green through scoring; after the repo
+  was set to let Actions open PRs, the nightly opened its first snapshot PR (#268)
+
 ### Fixed - PUB-066: Unblock Dependabot's Python Updaters
 - Removed the stale, hand-written `requirements-dev.txt`: its `-r requirements.txt` line pointed at
   a file deleted by the `uv` migration, and this dangling reference was the confirmed cause of

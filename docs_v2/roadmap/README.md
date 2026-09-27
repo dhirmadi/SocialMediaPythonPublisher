@@ -99,6 +99,9 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-078 | Ops | [CI Security-Gate Cleanup Batch](PUB-078_ci-security-gate-cleanup-batch.md) | P2 | S | PUB-055 | Proposal |
 | PUB-079 | Ops | [Dependabot Correctness and Scope Batch](PUB-079_dependabot-correctness-and-scope-batch.md) | P1 | M | PUB-055, PUB-066 | Proposal |
 | PUB-080 | AI | [Re-baseline the Caption Eval From Live Output](archive/PUB-080_caption-eval-live-baseline.md) | P1 | S | PUB-049, PUB-051 | Done |
+| PUB-081 | AI | [Publish Reuses the Sidecar Analysis When Every Caption Is Supplied](PUB-081_publish-reuses-analysis-with-overrides.md) | P2 | S | PUB-051 | Proposal |
+| PUB-082 | AI | [Consume the Orchestrator's Per-Instance Caption Overrides](PUB-082_runtime-platform-captions.md) | P1 | M | PUB-046, PUB-051 | Proposal |
+| PUB-083 | Web UI | [Close the Tenant Factory Shutdown Race](PUB-083_tenant-factory-shutdown-race.md) | P2 | S | — (before PUB-053 #197) | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
