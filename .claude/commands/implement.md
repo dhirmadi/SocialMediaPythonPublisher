@@ -22,6 +22,23 @@ If no path is provided, ask for the roadmap item path under `docs_v2/roadmap/`.
 
 ## Workflow
 
+### Step 0: Confirm Isolation
+
+`/implement` mutates `publisher_v2/src/` and `publisher_v2/tests/` directly — it should not run
+against the same checkout another agent or the user is actively editing.
+
+1. Run `git rev-parse --show-toplevel` and compare it to the repo root. If they differ, this
+   session is already in a dedicated worktree (e.g. started via `claude -w <name>`) — skip to
+   Step 1.
+2. If they match (this session is in the main checkout), stop and ask the user whether to proceed
+   there or restart the session with `claude -w <roadmap-id>` first. Do not silently start
+   implementation work in the main checkout without asking — a concurrent `/implement` or manual
+   edit elsewhere in the same tree will corrupt both.
+3. Once confirmed inside a dedicated worktree, check for a `.venv`: run `uv run python -c "import
+   publisher_v2"` and, if it fails, run `uv sync --group dev` before any other command. Each
+   worktree needs its own `.venv` — `uv`'s editable install records an absolute path, so sharing
+   a `.venv` with the main checkout or another worktree silently imports the wrong source tree.
+
 ### Step 1: Read the Contract
 
 1. Read the roadmap item spec: `docs_v2/roadmap/PUB-NNN_slug.md`
