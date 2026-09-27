@@ -6,8 +6,15 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Superseded |
 | **Dependencies** | PUB-066 |
+| **Archived date** | 2026-09-27 |
+
+> **Superseded 2026-09-27.** Merged into [PUB-079: Dependabot Correctness and Scope Batch](../PUB-079_dependabot-correctness-and-scope-batch.md)
+> along with PUB-072, PUB-073 and PUB-075 — all four surfaced from the same PUB-066 live run and touch
+> the same `dependabot.yml`/`test_ci_security_gates.py` surface, batched to reduce the number of
+> separately-tracked security roadmap items. No scope changed; see PUB-079 for the current AC set
+> (AC11-AC14 there trace to this item's AC1-AC4).
 
 ## User Story
 

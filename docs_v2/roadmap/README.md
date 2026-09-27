@@ -85,19 +85,87 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-064 | AI | [Make the Caption Harness Exercise the Voice Path](PUB-064_harness-voice-path-coverage.md) | P1 | S | PUB-049, PUB-050 | Proposal |
 | PUB-065 | Ops | [Dependency Security Upgrades](PUB-065_dependency-security-upgrades.md) | P1 | S | Blocks PUB-055 | Done |
 | PUB-066 | Ops | [Unblock Dependabot's Python Updaters](archive/PUB-066_dependabot-python-updaters.md) | P1 | XS | PUB-055 | Done |
-| PUB-067 | Ops | [SHA-Pin `code-quality.yml`](PUB-067_sha-pin-code-quality-workflow.md) | P2 | S | PUB-055 | Proposal |
-| PUB-068 | Ops | [Add `publisher_v2/alembic` to the Bandit Scan Roots](PUB-068_bandit-alembic-scan-root.md) | P3 | XS | PUB-055 | Proposal |
-| PUB-069 | Ops | [Single Source of Truth for the pip-audit Version Pin](PUB-069_pip-audit-version-single-source.md) | P3 | XS | PUB-055 | Proposal |
+| PUB-067 | Ops | [SHA-Pin `code-quality.yml`](archive/PUB-067_sha-pin-code-quality-workflow.md) | P2 | S | PUB-055 | Superseded by PUB-078 |
+| PUB-068 | Ops | [Add `publisher_v2/alembic` to the Bandit Scan Roots](archive/PUB-068_bandit-alembic-scan-root.md) | P3 | XS | PUB-055 | Superseded by PUB-078 |
+| PUB-069 | Ops | [Single Source of Truth for the pip-audit Version Pin](archive/PUB-069_pip-audit-version-single-source.md) | P3 | XS | PUB-055 | Superseded by PUB-078 |
 | PUB-070 | Foundation | [Migrate Off `TestClient`'s Per-Request `cookies=`](PUB-070_starlette-testclient-cookie-migration.md) | P2 | S | PUB-065 | Proposal |
 | PUB-071 | Ops | [Triage the `openai` 3.x Major Upgrade](PUB-071_triage-openai-3x.md) | P3 | M | PUB-065 | Proposal |
-| PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](PUB-072_dependabot-ecosystem-manifest-check.md) | P2 | XS | PUB-055, PUB-066 | Proposal |
-| PUB-073 | Ops | [Close the Requirements-Guard's Two Known Blind Spots](PUB-073_requirements-guard-completeness.md) | P2 | XS | PUB-066 | Proposal |
+| PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](archive/PUB-072_dependabot-ecosystem-manifest-check.md) | P2 | XS | PUB-055, PUB-066 | Superseded by PUB-079 |
+| PUB-073 | Ops | [Close the Requirements-Guard's Two Known Blind Spots](archive/PUB-073_requirements-guard-completeness.md) | P2 | XS | PUB-066 | Superseded by PUB-079 |
 | PUB-074 | Foundation | [Require Mutation Proof for Regression-Guard Tests in Review](PUB-074_guard-tests-must-be-proven-to-fail.md) | P1 | XS | — | Proposal |
-| PUB-075 | Ops | [Scope Dependabot to the Dependencies We Actually Maintain](PUB-075_dependabot-scope-to-live-tree.md) | P1 | S | PUB-066 | Proposal |
-| PUB-076 | Ops | [The `uv` Updater Cannot Resolve — `instagrapi` Pins `pydantic` Exactly](PUB-076_uv-resolution-instagrapi-pydantic.md) | P1 | S | PUB-066 | Proposal |
+| PUB-075 | Ops | [Scope Dependabot to the Dependencies We Actually Maintain](archive/PUB-075_dependabot-scope-to-live-tree.md) | P1 | S | PUB-066 | Superseded by PUB-079 |
+| PUB-076 | Ops | [The `uv` Updater Cannot Resolve — `instagrapi` Pins `pydantic` Exactly](archive/PUB-076_uv-resolution-instagrapi-pydantic.md) | P1 | S | PUB-066 | Superseded by PUB-079 |
+| PUB-077 | Ops | [Fit the DB Connection Pool into the Shared 20-Connection Postgres](PUB-077_db-pool-budget.md) | P1 | S | PUB-047 | Proposal |
+| PUB-078 | Ops | [CI Security-Gate Cleanup Batch](PUB-078_ci-security-gate-cleanup-batch.md) | P2 | S | PUB-055 | Proposal |
+| PUB-079 | Ops | [Dependabot Correctness and Scope Batch](PUB-079_dependabot-correctness-and-scope-batch.md) | P1 | M | PUB-055, PUB-066 | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
+
+## Recommended Execution Order (2026-09-27)
+
+Cross-cutting sequencing across every open (non-`Done`) item, set by product management on
+2026-09-27. This does **not** overwrite each item's own `Priority` field (P0-P3 stay as hardened) —
+it is the order to actually pull items into IMPLEMENT in, gated **security → stabilization →
+features**. Rationale: security closes real blast-radius and supply-chain gaps first; stabilization
+fixes active production/correctness risk and pays down the debt that gates the next platform;
+features ship last because two of the three are explicitly blocked on stabilization work landing
+(PUB-059) and the third has no blockers left.
+
+Items already `Done` (PUB-055, PUB-065, PUB-066, PUB-061) are excluded — they are shipped, just not
+yet moved to `archive/` (see Outstanding Issue below).
+
+### 1. Security (do first)
+
+Simplified from an earlier 12-row list on 2026-09-27: eight small, independent CI/Dependabot fixes
+had zero dependency on each other (only on already-`Done` items), so they're grouped below into
+**parallel lanes** by which files they touch, and the eight originals were merged into two tracked
+specs — [PUB-078](PUB-078_ci-security-gate-cleanup-batch.md) and
+[PUB-079](PUB-079_dependabot-correctness-and-scope-batch.md) — superseding
+PUB-067/068/069/072/073/075/076 (see each file's `Superseded` note; no scope was added or removed).
+
+**Lanes 1-4 have zero file overlap and can run fully concurrently, starting now.** Lanes 5 and 6 both
+edit `test_ci_security_gates.py`, so land them as two sequential PRs (either order) rather than in
+parallel with each other. The trailing item has no rush and blocks nothing.
+
+| Lane | ID | Item | Priority | Effort | Why here |
+|------|----|------|----------|--------|----------|
+| 1 (solo) | [PUB-063](PUB-063_head-object-fail-open.md) | `head_object` fail-open write guards | P1 | S | Active data-loss risk today: a transient 403/503 reads as "object absent" and an upload/move guard overwrites or destroys an existing image. Cheapest, highest-urgency fix in the whole roadmap. |
+| 2 (solo) | [PUB-074](PUB-074_guard-tests-must-be-proven-to-fail.md) | Mutation proof for regression-guard tests | P1 | XS | Docs/agent-instructions only — zero src or test overlap with anything else here. Land it early so every guard test written in the lanes below is held to the "proven to fail" bar from day one. |
+| 3 (solo) | [PUB-070](PUB-070_starlette-testclient-cookie-migration.md) | Migrate off `TestClient` per-request `cookies=` | P2 | S | Test-suite only. The negative auth assertions (`require_admin` returns 401/403) are what stands between an anonymous request and the admin API; fix the ambiguity before starlette resolves it for you. |
+| 4 (solo, internally parallel) | [PUB-053](PUB-053_shared-dyno-isolation.md) | Shared-dyno isolation (host lookups, thumbnails, rate limits, executors, keys) | P1 | M | The largest security batch: cross-tenant amplification, decode bombs, shared rate-limit buckets, hung Instagram threads starving storage, per-purpose key derivation. Already decomposed into 6 sub-issues (#196-#203) that are themselves parallelizable across engineers/agents. Closes #168-#170 too. |
+| 5 (batch, shares a file with lane 6) | [PUB-078](PUB-078_ci-security-gate-cleanup-batch.md) | CI security-gate cleanup (SHA-pin `code-quality.yml`, bandit's alembic gap, pip-audit version drift) | P2 | S | Three XS/S fixes finishing what PUB-055 started, all touching the same SHA-pin helper in `test_ci_security_gates.py` — one spec instead of three. Closes #204's last open criterion. |
+| 6 (batch, shares a file with lane 5) | [PUB-079](PUB-079_dependabot-correctness-and-scope-batch.md) | Dependabot correctness and scope (manifest check, requirements-guard gaps, live-tree scoping, `uv`/`pydantic` resolution) | P1 | M | Four fixes surfaced by the same PUB-066 live run, all editing `.github/dependabot.yml` and/or `test_ci_security_gates.py` — one spec instead of four. Directly unblocks `pydantic` security patches and kills PR-queue noise that could hide a real advisory. |
+| trailing (no rush) | [PUB-071](PUB-071_triage-openai-3x.md) | Triage the `openai` 3.x major | P3 | M | No advisory forces this; a deliberate hold with mypy friction. Doesn't block or get blocked by anything above — pick it up whenever. |
+
+### 2. Stabilization (do second)
+
+| Order | ID | Item | Priority | Effort | Why here / why this position |
+|-------|----|------|----------|--------|-------------------------------|
+| 1 | [PUB-077](PUB-077_db-pool-budget.md) | Fit the DB pool into the shared 20-connection Postgres | P1 | S | Not hypothetical — the orchestrator already hit `TooManyConnectionsError` once (#246) sharing this database. The control plane failing takes every tenant down. Highest-urgency stabilization item. |
+| 2 | [PUB-054](PUB-054_publish-state-integrity.md) | Publish state integrity (tenant-keyed state, dedup, lease) | P1 | M | Cross-tenant 409 leakage, "success with nothing published" loops, and double-post risk on crash. Also unblocks PUB-058 (dependency). |
+| 3 | [PUB-064](PUB-064_harness-voice-path-coverage.md) | Make the caption harness exercise the voice path | P1 | S | Cheap, isolated fix for a harness that is currently structurally blind to the PUB-050 feature it's supposed to be measuring — every caption-quality decision downstream (including PUB-052) is flying without instruments until this lands. |
+| 4 | [PUB-056](PUB-056_dropbox-removal-or-typing.md) | Dropbox removal or storage typing | P1 | M | Resolves the `type: ignore` / `isinstance` / `hasattr` scattered around the web layer; blocks PUB-057. |
+| 5 | [PUB-057](PUB-057_configuration-consolidation.md) | Configuration consolidation | P1 | L | One config model, one bool parser, a written precedence table. Needs PUB-056 first; blocks PUB-059. |
+| 6 | [PUB-058](PUB-058_workflow-stages-and-layering.md) | Workflow stages and layering | P1 | L | Turns a 766-line `execute()` into named stages the CLI and web path share. Needs PUB-054 first; blocks PUB-059. |
+| 7 | [PUB-059](PUB-059_web-factory-and-typed-captions.md) | Web app factory, routers, typed platform captions | P2 | M | Needs PUB-057 + PUB-058. Directly re-scopes PUB-027/PUB-030 to cheap, so it gates the features track below. |
+| 8 | [PUB-060](PUB-060_test-and-docs-hygiene.md) | Test and docs hygiene | P2 | M | Needs PUB-059 (removes several `conftest.py` resets it would otherwise fight). Last because it's cleanup of the state the items above leave behind, not a risk fix. |
+
+### 3. Features (do third)
+
+| Order | ID | Item | Priority | Effort | Why here / why this position |
+|-------|----|------|----------|--------|-------------------------------|
+| 1 | [PUB-052](PUB-052_caption-candidate-selection.md) | Caption candidate selection and model trial | P1 | S | No blockers left (PUB-049, PUB-051 both Done) — ready today, and depends on PUB-064 above being true for its own Success Metrics to mean anything. |
+| 2 | [PUB-027](PUB-027_bluesky-publisher.md) | Bluesky publisher | P1 | S | Blocked on PUB-059 (typed captions make this a cheap add instead of an eight-file change). Queue immediately behind PUB-052. |
+| 3 | [PUB-030](PUB-030_mastodon-fediverse-publisher.md) | Mastodon / Fediverse publisher | P1 | S | Same blocker as PUB-027; sibling item, same effort. |
+
+### Outstanding issue (flagged, not fixed here)
+
+PUB-055, PUB-065 and PUB-066 are marked `Done` in the index above but their files (including
+`PUB-055_handoff.md`, `PUB-055_plan.yaml`, `PUB-055_summary.md`) are still sitting in this directory
+rather than `archive/`. Per the lifecycle, `Done` items should have already gone through
+`/product-archive`. Not resolved as part of this prioritization pass — flagging for a follow-up
+archive sweep.
 
 ## Priority Definitions
 

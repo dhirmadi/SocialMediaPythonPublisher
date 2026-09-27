@@ -6,8 +6,15 @@
 | **Category** | Ops |
 | **Priority** | P2 |
 | **Effort** | XS |
-| **Status** | Proposal |
+| **Status** | Superseded |
 | **Dependencies** | PUB-066 |
+| **Archived date** | 2026-09-27 |
+
+> **Superseded 2026-09-27.** Merged into [PUB-079: Dependabot Correctness and Scope Batch](../PUB-079_dependabot-correctness-and-scope-batch.md)
+> along with PUB-072, PUB-075 and PUB-076 — all four surfaced from the same PUB-066 live run and touch
+> the same `dependabot.yml`/`test_ci_security_gates.py` surface, batched to reduce the number of
+> separately-tracked security roadmap items. No scope changed; see PUB-079 for the current AC set
+> (AC3-AC5 there trace to this item's AC1-AC4).
 
 ## User Story
 
@@ -33,7 +40,8 @@ changes what AC1/AC2 assert and so needs a spec, not a review fix:
 
 Those prose citations are shielded by `_code_lines`, which returns only lines inside a code block, so
 a backticked command in a paragraph is never scanned at all. (An earlier draft of this item claimed
-the trailing backtick in the capture was what protected them. That is wrong: `PUB-066_handoff.md:35`
+the trailing backtick in the capture was what protected them. That is wrong:
+`archive/PUB-066_handoff.md:35`
 captures a clean `requirements-dev.txt` — the token is followed by whitespace — and is skipped purely
 because its line is prose.) The constraint on gap 2 is therefore narrower than it looked: stripping
 trailing punctuation cannot start flagging prose, because prose lines never reach the matcher. It
@@ -54,8 +62,9 @@ its real filename — with no new false positive on prose that quotes the old co
 - Add fixture tests pinning the two directions gap 2's fix could break: a fenced `-r requirements.txt.`
   for an absent file must fail, and a fenced line quoting the old command for a file that exists must
   not.
-- Amend AC1/AC2 wording in `PUB-066_dependabot-python-updaters.md` to name constraints files, with a
-  pointer to this item.
+- Record the widened AC wording **here**, not in PUB-066. That item is `Done` and archived at
+  `archive/PUB-066_dependabot-python-updaters.md`; a delivered spec is a historical record and is not
+  edited to describe work done later. AC1/AC2 below supersede its wording for constraints files.
 
 **Out of scope:**
 - Scanning unfenced prose for install instructions. That stays excluded by design (see above).
@@ -74,8 +83,10 @@ its real filename — with no new false positive on prose that quotes the old co
   real filename rather than skipping it.
 - AC3: Given the punctuation-stripping change, when
   `test_the_docs_do_not_recommend_a_missing_requirements_file` runs against the tracked docs that
-  cite `pip install -r requirements-dev.txt` in prose backticks (`PUB-066_summary.md`,
-  `PUB-066_handoff.md`, and this item), then it still passes, and a fixture test asserts the
+  cite `pip install -r requirements-dev.txt` in prose backticks
+  (`archive/PUB-066_summary.md`, `archive/PUB-066_handoff.md`, and this item — note these moved into
+  `docs_v2/roadmap/archive/`, which the AC2 scan still covers, since only `code_v1/` and `docs_v1/`
+  are excluded), then it still passes, and a fixture test asserts the
   same command inside a fence for an absent file does fail — so the stripping is shown to widen
   matching without widening the scanned region.
 - AC4: Given each behaviour above, when it is implemented, then a mutation check is recorded showing
@@ -85,7 +96,7 @@ its real filename — with no new false positive on prose that quotes the old co
 
 `REQUIREMENT_FLAG` and `_is_requirements_name` are adjacent in
 `publisher_v2/tests/test_requirements_files.py`; the whole change is in that file plus the AC wording
-in PUB-066's spec. Strip only characters that cannot end a filename here (`.`, `,`, `)`, `` ` ``,
+in this item. Strip only characters that cannot end a filename here (`.`, `,`, `)`, `` ` ``,
 `'`, `"`, `;`, `:`), and do not strip a trailing character that leaves the name without its `.txt`.
 
 AC4 exists because PUB-066's first review passed a matcher that was partly vacuous — the git pathspec

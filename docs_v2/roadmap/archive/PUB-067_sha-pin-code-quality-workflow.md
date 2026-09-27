@@ -6,8 +6,14 @@
 | **Category** | Ops |
 | **Priority** | P2 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Superseded |
 | **Dependencies** | PUB-055 (merged, #236) |
+| **Archived date** | 2026-09-27 |
+
+> **Superseded 2026-09-27.** Merged into [PUB-078: CI Security-Gate Cleanup Batch](../PUB-078_ci-security-gate-cleanup-batch.md)
+> along with PUB-068 and PUB-069 — all three are small, independent fixes to the same PUB-055 tooling,
+> batched to reduce the number of separately-tracked security roadmap items. No scope changed; see
+> PUB-078 for the current AC set (AC1-AC3 there trace to this item's AC1-AC3).
 
 ## Problem
 
