@@ -54,7 +54,7 @@ def normalize_tags(raw: list[str], max_count: int) -> list[str]:
 _MAX_LEN = {
     "instagram": 2200,
     "telegram": 4096,
-    "email": 240,  # FetLife email path: keep within ~240 to avoid truncation
+    "email": 240,  # FetLife subject limit, measured 2026-09-27 (#146)
     "generic": 2200,
 }
 

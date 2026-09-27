@@ -57,16 +57,13 @@ def test_telegram_limits_agree_too() -> None:
 
 
 def test_the_email_limit_change_requires_recorded_evidence() -> None:
-    """The FetLife subject limit is an assumption from #79, not a measurement.
+    """The FetLife subject limit is 240, measured on 2026-09-27 (#146).
 
-    #146 asks the account owner to send one email with a 264-character subject
-    and record what FetLife displays. Changing the number without that evidence
-    is how 240 got here in the first place.
-
-    This pin is a reminder that the number is unverified — not evidence that it
-    is right. The three-way agreement test above is the one that catches a real
-    inconsistency; see docs_v2/09_Reviews/fetlife_subject_limit.md, which this
-    message points at and which now exists.
+    The account owner sent one email with a 264-character subject and FetLife
+    cut it at 240; docs_v2/09_Reviews/fetlife_subject_limit.md records how.
+    #79 had chosen 240 without measuring; changing it again needs a new
+    measurement recorded in that file, in the same commit. The three-way
+    agreement test above catches a real inconsistency between the locations.
     """
     evidence = Path(__file__).resolve().parents[2] / "docs_v2" / "09_Reviews" / "fetlife_subject_limit.md"
     assert evidence.is_file(), "the message below points operators at this file; it must exist"
