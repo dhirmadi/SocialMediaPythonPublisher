@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from caption_pipeline_fakes import make_app_config
+
 from publisher_v2.services.sidecar_parser import parse_sidecar_text
 from publisher_v2.services.storage_protocol import FileMetadata
 from publisher_v2.utils.captions import (
@@ -62,27 +64,11 @@ class _FakeSidecarStorage:
 async def test_sidecar_with_platform_captions_roundtrips_caption_generated() -> None:
     """#80: platform captions must be persisted as # caption_generated: JSON
     so later Analyze calls can serve the social caption instead of the SD prompt."""
-    from publisher_v2.config.schema import (
-        ApplicationConfig,
-        CaptionFileConfig,
-        ContentConfig,
-        DropboxConfig,
-        OpenAIConfig,
-        PlatformsConfig,
-        StoragePathConfig,
-    )
     from publisher_v2.core.models import ImageAnalysis
     from publisher_v2.services.sidecar import generate_and_upload_sidecar
     from publisher_v2.web.sidecar_parser import parse_sidecar_text
 
-    config = ApplicationConfig(
-        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-        storage_paths=StoragePathConfig(image_folder="/Photos", archive_folder="archive"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-        captionfile=CaptionFileConfig(extended_metadata_enabled=False),
-    )
+    config = make_app_config(content={"archive": True}, captionfile={"extended_metadata_enabled": False})
     storage = _FakeSidecarStorage()
     analysis = ImageAnalysis(description="d", mood="m", tags=["t"])
     platform_captions = {"telegram": "TG caption", "email": "Email caption?"}
@@ -136,24 +122,7 @@ class _InMemoryDropbox:
 
 
 def _config():
-    from publisher_v2.config.schema import (
-        ApplicationConfig,
-        CaptionFileConfig,
-        ContentConfig,
-        DropboxConfig,
-        OpenAIConfig,
-        PlatformsConfig,
-        StoragePathConfig,
-    )
-
-    return ApplicationConfig(
-        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-        storage_paths=StoragePathConfig(image_folder="/Photos", archive_folder="archive"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-        captionfile=CaptionFileConfig(extended_metadata_enabled=True),
-    )
+    return make_app_config(content={"archive": True}, captionfile={"extended_metadata_enabled": True})
 
 
 async def test_caption_edit_preserves_caption_generated(monkeypatch) -> None:

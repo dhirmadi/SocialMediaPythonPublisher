@@ -9,68 +9,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures (managed_app, admin_headers, admin_cookies: tests/web/conftest.py)
 # ---------------------------------------------------------------------------
 
-
-@pytest.fixture(autouse=True)
-def _clear_rate_limit():
-    """Clear rate limits between tests."""
-    from publisher_v2.web.routers.library import _delete_rate_limit, _upload_rate_limit
-
-    _upload_rate_limit.clear()
-    _delete_rate_limit.clear()
-    yield
-    _upload_rate_limit.clear()
-    _delete_rate_limit.clear()
-
-
-@pytest.fixture
-def managed_app(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, None]:
-    """TestClient with managed storage configured and admin auth set up."""
-    monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
-    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
-    monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
-    monkeypatch.setenv("WEB_DEBUG", "true")
-    monkeypatch.delenv("ORCHESTRATOR_BASE_URL", raising=False)
-
-    # Mock the service to have managed storage config
-    mock_service = MagicMock()
-    mock_service.config.managed = MagicMock()  # Not None → library available
-    mock_service.config.features.library_enabled = True
-    mock_service.config.storage_paths.image_folder = "tenant/instance"
-    mock_service.config.storage_paths.archive_folder = "archive"
-    mock_service.config.storage_paths.folder_keep = "keep"
-    mock_service.config.storage_paths.folder_remove = "reject"
-    mock_service.storage = MagicMock()
-    # #144: the move endpoint now verifies the name against the listing.
-    mock_service.ensure_known_image = AsyncMock(return_value=None)
-
-    from publisher_v2.web.app import app
-    from publisher_v2.web.dependencies import get_request_service
-
-    app.dependency_overrides[get_request_service] = lambda: mock_service
-
-    client = TestClient(app)
-    yield client
-
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def admin_headers() -> dict[str, str]:
-    """Auth headers for admin requests."""
-    return {"Authorization": "Bearer test-token"}
-
-
-@pytest.fixture
-def admin_cookies() -> dict[str, str]:
-    """Admin cookie for admin requests (signed value)."""
-    from publisher_v2.web.auth import mint_admin_cookie_value
-
-    return {"pv2_admin": mint_admin_cookie_value(host="testserver")}
+pytestmark = pytest.mark.usefixtures("_clear_rate_limit")
 
 
 @pytest.fixture
@@ -107,12 +49,8 @@ def dropbox_app(monkeypatch: pytest.MonkeyPatch) -> Generator[TestClient, None, 
 class TestListObjects:
     """AC9: List objects - managed returns paginated list, Dropbox returns 404."""
 
-    def test_list_objects_managed(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_list_objects_managed(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         """Managed instance returns object list."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         # PUB-032: default (no cursor) now uses buffered path
         with patch("publisher_v2.web.routers.library._list_objects_buffered", new_callable=AsyncMock) as mock_list:
             mock_list.return_value = {
@@ -132,11 +70,8 @@ class TestListObjects:
         assert "objects" in data
         assert len(data["objects"]) == 1
 
-    def test_list_objects_404_dropbox(
-        self, dropbox_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_list_objects_404_dropbox(self, dropbox_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         """Dropbox-only instance returns 404."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         res = dropbox_app.get(
             "/api/library/objects",
             headers=admin_headers,
@@ -145,12 +80,8 @@ class TestListObjects:
         assert res.status_code == 404
         assert "not available" in res.json()["detail"].lower()
 
-    def test_list_objects_paginated(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_list_objects_paginated(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         """Pagination cursor is returned (legacy cursor path)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         # PUB-032: cursor param triggers legacy path
         with patch("publisher_v2.web.routers.library._list_objects_from_storage", new_callable=AsyncMock) as mock_list:
             mock_list.return_value = {
@@ -241,11 +172,7 @@ def _real_png_bytes() -> bytes:
 class TestUpload:
     """AC10: Upload validates MIME/size, stores in managed storage."""
 
-    def test_upload_jpeg_success(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_upload_jpeg_success(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
             mock_upload.return_value = {"key": "tenant/instance/test.jpg", "size": 1024}
             res = managed_app.post(
@@ -258,11 +185,7 @@ class TestUpload:
         assert res.status_code == 200
         assert res.json()["key"] == "tenant/instance/test.jpg"
 
-    def test_upload_png_success(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_upload_png_success(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
             mock_upload.return_value = {"key": "tenant/instance/test.png", "size": 2048}
             res = managed_app.post(
@@ -275,11 +198,10 @@ class TestUpload:
         assert res.status_code == 200
 
     def test_upload_rejects_invalid_image_magic_bytes(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict
     ) -> None:
         """Sec H-3: client-supplied Content-Type is no longer trusted — magic
         bytes must match an allowed format or the upload is rejected."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         res = managed_app.post(
             "/api/library/upload",
             headers=admin_headers,
@@ -289,10 +211,8 @@ class TestUpload:
         assert res.status_code == 415
 
     def test_upload_rejects_disallowed_mime_415(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict
     ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         res = managed_app.post(
             "/api/library/upload",
             headers=admin_headers,
@@ -304,7 +224,6 @@ class TestUpload:
     def test_upload_rejects_oversize_413(
         self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("LIBRARY_MAX_UPLOAD_MB", "1")
 
         # 2 MB file exceeds 1 MB limit
@@ -326,11 +245,7 @@ class TestUpload:
 class TestUploadRateLimit:
     """AC11: Rate limit 10 uploads/minute per admin session."""
 
-    def test_upload_rate_limit_429(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_upload_rate_limit_429(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._upload_to_storage", new_callable=AsyncMock) as mock_upload:
             mock_upload.return_value = {"key": "tenant/instance/img.jpg", "size": 100}
 
@@ -363,10 +278,8 @@ class TestDelete:
     """AC12: Delete removes image and sidecar."""
 
     def test_delete_removes_image_and_sidecar(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
+        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict
     ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         with patch("publisher_v2.web.routers.library._delete_from_storage", new_callable=AsyncMock) as mock_del:
             mock_del.return_value = {"deleted": "img.jpg", "sidecar_deleted": True}
             res = managed_app.delete(
@@ -379,11 +292,7 @@ class TestDelete:
         assert res.json()["deleted"] == "img.jpg"
         assert res.json()["sidecar_deleted"] is True
 
-    def test_delete_404_not_found(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_delete_404_not_found(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._delete_from_storage", new_callable=AsyncMock) as mock_del:
             mock_del.side_effect = FileNotFoundError("Not found")
             res = managed_app.delete(
@@ -416,15 +325,11 @@ class TestDelete:
         # Restore for other tests
         svc.config.features.delete_enabled = True
 
-    def test_delete_rate_limit(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
+    def test_delete_rate_limit(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         """PUB-037/M4: DELETE returns 429 after exceeding rate limit."""
         from publisher_v2.web.routers.library import _delete_rate_limit
 
         _delete_rate_limit.clear()
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         with patch("publisher_v2.web.routers.library._delete_from_storage", new_callable=AsyncMock) as mock_del:
             mock_del.return_value = {"deleted": "img.jpg", "sidecar_deleted": False}
 
@@ -456,11 +361,7 @@ class TestDelete:
 class TestMove:
     """AC13: Move image + sidecar to target folder."""
 
-    def test_move_to_keep(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_move_to_keep(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._move_in_storage", new_callable=AsyncMock) as mock_move:
             mock_move.return_value = {"moved": "img.jpg", "destination": "keep"}
             res = managed_app.post(
@@ -474,11 +375,7 @@ class TestMove:
         assert res.json()["moved"] == "img.jpg"
         assert res.json()["destination"] == "keep"
 
-    def test_move_to_archive(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_move_to_archive(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         with patch("publisher_v2.web.routers.library._move_in_storage", new_callable=AsyncMock) as mock_move:
             mock_move.return_value = {"moved": "img.jpg", "destination": "archive"}
             res = managed_app.post(
@@ -490,11 +387,7 @@ class TestMove:
 
         assert res.status_code == 200
 
-    def test_move_invalid_target_400(
-        self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_move_invalid_target_400(self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict) -> None:
         res = managed_app.post(
             "/api/library/objects/img.jpg/move",
             headers=admin_headers,
@@ -504,59 +397,8 @@ class TestMove:
         assert res.status_code == 400
 
 
-# ---------------------------------------------------------------------------
-# AC14: Auth enforcement
-# ---------------------------------------------------------------------------
-
-
-class TestAuthEnforcement:
-    """AC14: All library endpoints require auth + admin."""
-
-    def test_endpoints_require_auth_401(self, managed_app: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-        """No auth header → 401."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
-        # Simple endpoints
-        res = managed_app.get("/api/library/objects")
-        assert res.status_code == 401
-        res = managed_app.delete("/api/library/objects/img.jpg")
-        assert res.status_code == 401
-
-        # Move needs JSON body
-        res = managed_app.post("/api/library/objects/img.jpg/move", json={"target_folder": "keep"})
-        assert res.status_code == 401
-
-        # Upload needs a file body
-        res = managed_app.post(
-            "/api/library/upload",
-            files={"file": ("test.jpg", b"\xff\xd8\xff", "image/jpeg")},
-        )
-        assert res.status_code == 401
-
-    def test_endpoints_require_admin_403(
-        self, managed_app: TestClient, admin_headers: dict, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """Auth present but no admin cookie → 403."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
-        res = managed_app.get("/api/library/objects", headers=admin_headers)
-        assert res.status_code == 403
-        res = managed_app.delete("/api/library/objects/img.jpg", headers=admin_headers)
-        assert res.status_code == 403
-
-        # Move needs JSON body
-        res = managed_app.post(
-            "/api/library/objects/img.jpg/move", headers=admin_headers, json={"target_folder": "keep"}
-        )
-        assert res.status_code == 403
-
-        # Upload needs a file body
-        res = managed_app.post(
-            "/api/library/upload",
-            headers=admin_headers,
-            files={"file": ("test.jpg", b"\xff\xd8\xff", "image/jpeg")},
-        )
-        assert res.status_code == 403
+# AC14 (every library endpoint requires auth + admin) runs over all admin routes in
+# test_route_auth_matrix.py.
 
 
 # ---------------------------------------------------------------------------
@@ -567,11 +409,7 @@ class TestAuthEnforcement:
 class TestFeaturesEndpoint:
     """AC20: Features endpoint reports library_enabled."""
 
-    def test_features_endpoint_includes_library_enabled(
-        self, managed_app: TestClient, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
+    def test_features_endpoint_includes_library_enabled(self, managed_app: TestClient) -> None:
         # #97 stage 1: endpoint reads the loader-populated flag directly
         # (managed_app fixture sets features.library_enabled = True)
         res = managed_app.get("/api/config/features")
@@ -593,7 +431,6 @@ class TestNoCredentials:
     def test_no_credentials_in_responses_or_logs(
         self, managed_app: TestClient, admin_headers: dict, admin_cookies: dict, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("R2_SECRET_ACCESS_KEY", "super_secret_key_12345")
 
         with patch("publisher_v2.web.routers.library._list_objects_buffered", new_callable=AsyncMock) as mock_list:

@@ -14,16 +14,12 @@ See: lbd.shibari.photo production incident 2026-03-10
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     EmailConfig,
     FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -100,19 +96,9 @@ class _DummyAI:
 
 
 def _make_config(*, email_password: str | None = None) -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-            archive_folder="archive",
-            folder_keep="keep",
-            folder_remove="remove",
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=True),
+    return make_app_config(
+        dropbox={"folder_keep": "keep", "folder_remove": "remove"},
+        platforms={"email_enabled": True},
         features=FeaturesConfig(
             publish_enabled=True,
             delete_enabled=True,
@@ -125,7 +111,6 @@ def _make_config(*, email_password: str | None = None) -> ApplicationConfig:
             smtp_server="smtp.example.com",
             smtp_port=587,
         ),
-        content=ContentConfig(hashtag_string="", archive=False, debug=False),
     )
 
 

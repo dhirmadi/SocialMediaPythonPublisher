@@ -9,20 +9,11 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 from PIL import Image
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 
@@ -31,33 +22,6 @@ def _png_bytes(width: int = 2000, height: int = 1000) -> bytes:
     with Image.new("RGB", (width, height), color="red") as img:
         img.save(buf, format="PNG")
     return buf.getvalue()
-
-
-class _DummyAnalyzer:
-    async def analyze(self, url_or_bytes: str | bytes) -> Any:
-        from publisher_v2.core.models import ImageAnalysis
-
-        return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None
-
-
-class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
-        return "hello world", None
-
-
-class _DummyAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
-        self.generator = _DummyGenerator()  # type: ignore[assignment]
-
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:
-                return None
-
-            async def __aexit__(self, exc_type, exc, tb) -> bool:
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _RecordingPublisher(Publisher):
@@ -83,18 +47,6 @@ class _RecordingPublisher(Publisher):
         return PublishResult(success=True, platform=self._name)
 
 
-def _config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=False, debug=False),
-    )
-
-
 async def test_each_publisher_gets_its_own_variant() -> None:
     source = _png_bytes(2000, 1000)
     storage = BaseDummyStorage(images=["test.jpg"], content=source)
@@ -105,7 +57,7 @@ async def test_each_publisher_gets_its_own_variant() -> None:
         _RecordingPublisher("email", received),
     ]
 
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers)
+    orchestrator = WorkflowOrchestrator(make_app_config(), storage, stub_ai_service(), publishers)
     result = await orchestrator.execute()
 
     assert result.success, result.error
@@ -127,7 +79,7 @@ async def test_source_temp_file_unchanged_and_variants_cleaned_up() -> None:
         _RecordingPublisher("email", received),
     ]
 
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers)
+    orchestrator = WorkflowOrchestrator(make_app_config(), storage, stub_ai_service(), publishers)
     result = await orchestrator.execute()
 
     assert result.success, result.error

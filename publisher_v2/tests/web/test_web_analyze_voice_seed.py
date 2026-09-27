@@ -19,8 +19,8 @@ implementation can satisfy at once:
 The file also pins that the seed is not computed at all when voice matching is
 off, since it would be thrown away.
 
-Stubs sit at the same seams as the neighbouring web-service tests
-(``test_web_analyze_storage_ops_meter``): the Dropbox client and the AI calls.
+Stubs sit at the same seams as the neighbouring web-service tests: the shared
+``analyze_service`` builder in tests/web/conftest.py (the Dropbox client and the AI calls).
 """
 
 from __future__ import annotations
@@ -28,13 +28,10 @@ from __future__ import annotations
 import contextlib
 import hashlib
 import json
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
-import pytest
-
-from publisher_v2.core.models import ImageAnalysis
 from publisher_v2.services.ai import sample_voice_examples
 
 FILENAME = "img.jpg"
@@ -46,12 +43,12 @@ IMAGE_B = b"image-bytes-B"
 
 
 def _make_service(
-    monkeypatch: pytest.MonkeyPatch,
+    analyze_service: Callable[..., Any],
     *,
     profile: list[str] | None = PROFILE,
     vision_max_dimension: int | None = None,
 ) -> Any:
-    """A real WebImageService with stubbed storage and AI.
+    """The shared ``analyze_service`` builder (tests/web/conftest.py), voice matching per ``profile``.
 
     ``profile`` defaults to the corpus above (voice matching on). Pass ``None``
     for the default tenant: no profile, so voice matching stays off.
@@ -62,43 +59,23 @@ def _make_service(
     if vision_max_dimension is not None:
         openai_settings["vision_max_dimension"] = vision_max_dimension
 
-    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
-    monkeypatch.setenv("PUBLISHERS", json.dumps([{"type": "telegram", "channel_id": "@chan"}]))
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "tg")
-    monkeypatch.setenv("OPENAI_SETTINGS", json.dumps(openai_settings))
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-    monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
-    monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-    monkeypatch.setenv("CONTENT_SETTINGS", json.dumps({"voice_profile": profile} if profile else {}))
-    monkeypatch.delenv("ORCHESTRATOR_BASE_URL", raising=False)
-
-    with patch("publisher_v2.services.storage.dropbox.Dropbox"):
-        from publisher_v2.web.service import WebImageService
-
-        service = WebImageService()
+    service = analyze_service(
+        env={
+            "PUBLISHERS": json.dumps([{"type": "telegram", "channel_id": "@chan"}]),
+            "TELEGRAM_BOT_TOKEN": "tg",
+            "OPENAI_SETTINGS": json.dumps(openai_settings),
+            "CONTENT_SETTINGS": json.dumps({"voice_profile": profile} if profile else {}),
+        },
+        listing=[FILENAME],
+        # PUB-051 AC4/AC5: a 4-tuple (captions, None, usages, angles); the SD prompt comes from vision, not here.
+        caption_result=({"telegram": "fresh AI caption"}, None, [], {"telegram": "moment"}),
+    )
 
     assert service.config.features.voice_matching_enabled is bool(profile), (
         "voice matching must follow the presence of a profile"
     )
     expected_dimension = 1024 if vision_max_dimension is None else vision_max_dimension
     assert service.config.openai.vision_max_dimension == expected_dimension, "the vision branch was not selected"
-
-    service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
-    service.storage.list_images = AsyncMock(return_value=[FILENAME])  # type: ignore[method-assign]
-    service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)  # type: ignore[method-assign]
-
-    analysis = ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[])
-    service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
-    # PUB-051 AC4/AC5: a 4-tuple (captions, None, usages, angles); the SD prompt comes from vision, not here.
-    service.ai_service.create_multi_caption_pair_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        return_value=({"telegram": "fresh AI caption"}, None, [], {"telegram": "moment"})
-    )
-    # No real OpenAI call if the multi path ever fails: the caption-only fallback would
-    # otherwise reach api.openai.com with the test key.
-    service.ai_service.create_caption_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        side_effect=AssertionError("caption-only fallback ran; the multi-caption path failed")
-    )
     return service
 
 
@@ -116,10 +93,10 @@ async def _voice_examples_for(service: Any, image_bytes: bytes) -> list[str] | N
 
 
 async def test_analyze_seeds_voice_examples_on_the_image_bytes_not_the_filename(
-    monkeypatch: pytest.MonkeyPatch,
+    analyze_service: Callable[..., Any],
 ) -> None:
     """Two different images under one filename must not share a voice sample."""
-    service = _make_service(monkeypatch)
+    service = _make_service(analyze_service)
 
     first = await _voice_examples_for(service, IMAGE_A)
     second = await _voice_examples_for(service, IMAGE_B)
@@ -139,10 +116,10 @@ async def test_analyze_seeds_voice_examples_on_the_image_bytes_not_the_filename(
 
 
 async def test_analyze_gives_the_same_image_the_same_voice_examples_every_time(
-    monkeypatch: pytest.MonkeyPatch,
+    analyze_service: Callable[..., Any],
 ) -> None:
     """The other half of the contract: stable per image, so a re-analyze is not a re-roll."""
-    service = _make_service(monkeypatch)
+    service = _make_service(analyze_service)
 
     first = await _voice_examples_for(service, IMAGE_A)
     again = await _voice_examples_for(service, IMAGE_A)
@@ -170,9 +147,7 @@ def _sha256_calls_over(payload: bytes) -> Iterator[list[bytes]]:
         yield seen
 
 
-async def test_analyze_does_not_hash_the_image_when_voice_matching_is_off(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_analyze_does_not_hash_the_image_when_voice_matching_is_off(analyze_service: Callable[..., Any]) -> None:
     """The default tenant must not pay for a seed nobody will use.
 
     Voice matching is off unless a profile is configured, and `_select_voice_examples`
@@ -184,7 +159,7 @@ async def test_analyze_does_not_hash_the_image_when_voice_matching_is_off(
     Deliberately behavioural: any fix works — hoisting the flag check, or making the
     seed lazy — as long as no digest of the image bytes is computed.
     """
-    service = _make_service(monkeypatch, profile=None)
+    service = _make_service(analyze_service, profile=None)
     service.storage.download_image = AsyncMock(return_value=IMAGE_A)
 
     with (
@@ -202,11 +177,9 @@ async def test_analyze_does_not_hash_the_image_when_voice_matching_is_off(
     )
 
 
-async def test_analyze_still_hashes_the_image_when_voice_matching_is_on(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_analyze_still_hashes_the_image_when_voice_matching_is_on(analyze_service: Callable[..., Any]) -> None:
     """Positive control: the laziness must not cost the bytes seed when it is needed."""
-    service = _make_service(monkeypatch)
+    service = _make_service(analyze_service)
     service.storage.download_image = AsyncMock(return_value=IMAGE_A)
 
     with (
@@ -224,7 +197,7 @@ async def test_analyze_still_hashes_the_image_when_voice_matching_is_on(
 
 
 async def test_analyze_seeds_on_the_filename_on_the_presigned_url_vision_path(
-    monkeypatch: pytest.MonkeyPatch,
+    analyze_service: Callable[..., Any],
 ) -> None:
     """``vision_max_dimension == 0``: no download happens, so the name is all there is.
 
@@ -233,7 +206,7 @@ async def test_analyze_seeds_on_the_filename_on_the_presigned_url_vision_path(
     bytes — asserting that is what makes the two tests a genuine discrimination
     between the branches rather than two tests one implementation could satisfy.
     """
-    service = _make_service(monkeypatch, vision_max_dimension=0)
+    service = _make_service(analyze_service, vision_max_dimension=0)
     expected = sample_voice_examples(PROFILE, seed_source=FILENAME, platform_tags=None, platforms=["telegram"])
 
     first = await _voice_examples_for(service, IMAGE_A)

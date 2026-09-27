@@ -133,26 +133,25 @@ def test_thumbnail_endpoint_500_on_error(client_with_mock):
     assert "internal error" in response.json()["detail"].lower()
 
 
-def test_thumbnail_endpoint_requires_admin_when_auto_view_disabled():
-    """Thumbnail requires admin when AUTO_VIEW is disabled."""
+def test_thumbnail_endpoint_requires_admin_when_auto_view_disabled(monkeypatch: pytest.MonkeyPatch):
+    """Thumbnail requires admin when AUTO_VIEW is disabled.
+
+    PUB-084 (#298): runs the real ``require_admin`` (Auth0 configured, no admin cookie) instead
+    of a patched one. The 401 this used to assert was the patch's own ``side_effect``; the real
+    guard answers 403 "Admin privileges required" (see web/test_route_auth_matrix.py).
+    """
     mock_service = MockWebImageService(auto_view_enabled=False)
+    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
 
     app.dependency_overrides[get_request_service] = lambda request=None: mock_service
 
-    # Also mock admin check functions
-    with patch("publisher_v2.web.app.is_admin_configured") as mock_admin_configured:
-        mock_admin_configured.return_value = True
-        with patch("publisher_v2.web.app.require_admin") as mock_require_admin:
-            from fastapi import HTTPException
-
-            mock_require_admin.side_effect = HTTPException(status_code=401, detail="Admin required")
-
-            with TestClient(app) as client:
-                response = client.get("/api/images/test.jpg/thumbnail")
-
-                assert response.status_code == 401
+    with TestClient(app) as client:
+        response = client.get("/api/images/test.jpg/thumbnail")
 
     app.dependency_overrides.clear()
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Admin privileges required"
 
 
 def test_thumbnail_endpoint_503_when_admin_not_configured():

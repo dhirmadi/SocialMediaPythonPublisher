@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Generator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock
 
@@ -12,8 +11,10 @@ from fastapi.testclient import TestClient
 from publisher_v2.config.runtime_settings import load_runtime_settings
 
 # ---------------------------------------------------------------------------
-# Fixtures
+# Fixtures (managed_app, library_service, admin_headers, admin_cookies: tests/web/conftest.py)
 # ---------------------------------------------------------------------------
+
+pytestmark = pytest.mark.usefixtures("_clear_rate_limit")
 
 
 def _make_s3_object(key: str, size: int, last_modified: datetime | str) -> dict:
@@ -23,65 +24,6 @@ def _make_s3_object(key: str, size: int, last_modified: datetime | str) -> dict:
         "Size": size,
         "LastModified": last_modified if isinstance(last_modified, datetime) else last_modified,
     }
-
-
-@pytest.fixture(autouse=True)
-def _clear_rate_limit():
-    """Clear the upload rate limit between tests."""
-    from publisher_v2.web.routers.library import _upload_rate_limit
-
-    _upload_rate_limit.clear()
-    yield
-    _upload_rate_limit.clear()
-
-
-@pytest.fixture
-def mock_service() -> MagicMock:
-    """Shared mock service with managed storage configured."""
-    svc = MagicMock()
-    svc.config.managed = MagicMock()  # Not None -> library available
-    svc.config.features.library_enabled = True
-    svc.config.storage_paths.image_folder = "tenant/instance"
-    svc.config.storage_paths.archive_folder = "archive"
-    svc.config.storage_paths.folder_keep = "keep"
-    svc.config.storage_paths.folder_remove = "reject"
-    svc.storage = MagicMock()
-    svc.ensure_known_image = AsyncMock(return_value=None)
-    return svc
-
-
-@pytest.fixture
-def managed_app(monkeypatch: pytest.MonkeyPatch, mock_service: MagicMock) -> Generator[TestClient, None, None]:
-    """TestClient with managed storage configured and admin auth set up."""
-    monkeypatch.setenv("WEB_AUTH_TOKEN", "test-token")
-    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
-    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
-    monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
-    monkeypatch.setenv("WEB_DEBUG", "true")
-    monkeypatch.delenv("ORCHESTRATOR_BASE_URL", raising=False)
-
-    from publisher_v2.web.app import app
-    from publisher_v2.web.dependencies import get_request_service
-
-    app.dependency_overrides[get_request_service] = lambda: mock_service
-
-    client = TestClient(app)
-    yield client
-
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def admin_headers() -> dict[str, str]:
-    return {"Authorization": "Bearer test-token"}
-
-
-@pytest.fixture
-def admin_cookies() -> dict[str, str]:
-    from publisher_v2.web.auth import mint_admin_cookie_value
-
-    return {"pv2_admin": mint_admin_cookie_value(host="testserver")}
 
 
 # Sample S3 objects for tests
@@ -98,9 +40,8 @@ SAMPLE_S3_OBJECTS = [
 ]
 
 
-def _setup_s3_list(mock_service: MagicMock, objects: list[dict], is_truncated: bool = False) -> None:
+def _setup_s3_list(library_service: MagicMock, objects: list[dict], is_truncated: bool = False) -> None:
     """#96: the router now uses only the storage protocol — fake list_objects."""
-    from unittest.mock import AsyncMock
 
     page = {
         "items": [
@@ -109,7 +50,7 @@ def _setup_s3_list(mock_service: MagicMock, objects: list[dict], is_truncated: b
         "cursor": "next-token" if is_truncated else None,
         "is_truncated": is_truncated,
     }
-    mock_service.storage.list_objects = AsyncMock(return_value=page)
+    library_service.storage.list_objects = AsyncMock(return_value=page)
 
 
 # ---------------------------------------------------------------------------
@@ -123,12 +64,10 @@ class TestSortNameAsc:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC1: sort=name&order=asc returns objects sorted by lowercase basename ascending."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -144,12 +83,10 @@ class TestSortNameAsc:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """sort=name&order=desc returns objects sorted by lowercase basename descending."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=desc",
@@ -172,12 +109,10 @@ class TestSortLastModified:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC2: sort=last_modified&order=desc returns newest first."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=last_modified&order=desc",
@@ -194,12 +129,10 @@ class TestSortLastModified:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """sort=last_modified&order=asc returns oldest first."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=last_modified&order=asc",
@@ -222,12 +155,10 @@ class TestSortSize:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC3: sort=size&order=asc returns smallest first."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=size&order=asc",
@@ -244,12 +175,10 @@ class TestSortSize:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """sort=size&order=desc returns largest first."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=size&order=desc",
@@ -272,10 +201,8 @@ class TestInvalidParams:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC4: sort=invalid returns 400."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         res = managed_app.get(
             "/api/library/objects?sort=invalid",
             headers=admin_headers,
@@ -289,10 +216,8 @@ class TestInvalidParams:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC4: order=invalid returns 400."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         res = managed_app.get(
             "/api/library/objects?order=invalid",
             headers=admin_headers,
@@ -313,12 +238,10 @@ class TestFilterQ:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC5: q=sunset returns only objects whose basename contains 'sunset'."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=sunset",
@@ -334,12 +257,10 @@ class TestFilterQ:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC5: q matching is case-insensitive."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=ALPHA",
@@ -355,12 +276,10 @@ class TestFilterQ:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """q with no matches returns empty objects and total_in_window=0."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=nonexistent",
@@ -384,12 +303,10 @@ class TestFilterQEmpty:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC6: q= (empty) returns all objects."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=",
@@ -404,12 +321,10 @@ class TestFilterQEmpty:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC6: q with only whitespace returns all objects."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=%20%20",
@@ -431,12 +346,10 @@ class TestFilterQSanitization:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC7: q containing /, \\, .. has those stripped; cleaned substring is used."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         # "../alpha" → stripped to "alpha"
         res = managed_app.get(
@@ -453,12 +366,10 @@ class TestFilterQSanitization:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC7: q that becomes empty after stripping → no filter (all returned)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         # "/../" → stripped to empty
         res = managed_app.get(
@@ -481,12 +392,10 @@ class TestOffsetPagination:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC8: offset=2&limit=2 skips first 2, returns next 2 (name-sorted)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?offset=2&limit=2",
@@ -504,12 +413,10 @@ class TestOffsetPagination:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC8: offset=1&limit=1 returns only the second item."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?offset=1&limit=1",
@@ -534,12 +441,10 @@ class TestResponseFields:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC9: Response has total_in_window (count of all matching) and truncated (bool)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -563,12 +468,10 @@ class TestOffsetBeyondTotal:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC10: offset >= total_in_window returns objects:[] (not an error)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?offset=100",
@@ -592,15 +495,14 @@ class TestScanBudget:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
+        library_service: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC11: When scan_budget is reached, truncated=true."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "2")
 
         # S3 returns 2 objects then says IsTruncated=True (more exist)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS[:2], is_truncated=True)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS[:2], is_truncated=True)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -617,15 +519,14 @@ class TestScanBudget:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
+        library_service: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC12: LIBRARY_SCAN_BUDGET env var overrides default."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "3")
 
         # Return 3 objects, S3 says more exist
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS[:3], is_truncated=True)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS[:3], is_truncated=True)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -642,14 +543,13 @@ class TestScanBudget:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
+        library_service: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         """AC12: Invalid LIBRARY_SCAN_BUDGET falls back to default 5000."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "not_a_number")
 
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -672,14 +572,11 @@ class TestLegacyCursorPath:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC13: cursor + no new params uses legacy S3 cursor pagination."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         _setup_s3_list(
-            mock_service,
+            library_service,
             [
                 {"Key": "tenant/instance/img1.jpg", "Size": 100, "LastModified": "2026-01-01T00:00:00Z"},
                 {"Key": "tenant/instance/img2.jpg", "Size": 200, "LastModified": "2026-01-02T00:00:00Z"},
@@ -703,14 +600,11 @@ class TestLegacyCursorPath:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC13: Legacy cursor path has total_in_window=0, truncated=False."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-
         _setup_s3_list(
-            mock_service,
+            library_service,
             [{"Key": "tenant/instance/img.jpg", "Size": 100, "LastModified": "2026-01-01"}],
             is_truncated=False,
         )
@@ -737,12 +631,10 @@ class TestDefaultBehavior:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """AC14: No parameters returns name-sorted ascending."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects",
@@ -804,17 +696,15 @@ class TestCombined:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """Filter + sort works together: q=a with sort=size&order=desc."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
         # Add more objects with 'a' in name
         objects = [
             *SAMPLE_S3_OBJECTS,
             _make_s3_object("tenant/instance/amazing.jpg", 500, DT1),
         ]
-        _setup_s3_list(mock_service, objects)
+        _setup_s3_list(library_service, objects)
 
         res = managed_app.get(
             "/api/library/objects?q=a&sort=size&order=desc",
@@ -835,12 +725,10 @@ class TestCombined:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """Filter + sort + offset pagination: q=a, sort=name, offset=1, limit=2."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, SAMPLE_S3_OBJECTS)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?q=a&sort=name&order=asc&offset=1&limit=2",
@@ -953,12 +841,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """anchor_key=img_015.jpg with limit=5 should return page 4 (offset 15)."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_015.jpg",
@@ -976,12 +862,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """anchor_key on the first page returns anchor_offset=0."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_002.jpg",
@@ -999,12 +883,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """When anchor_key is not in the list, anchor_offset is null and caller's offset is used."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc&limit=5&offset=10&anchor_key=nonexistent.jpg",
@@ -1022,12 +904,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """anchor_key with desc order finds the correct page in reversed list."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         # In desc order, img_019 is first and img_000 is last
         # img_002 would be near the end (index 17 in desc), page = 17 // 5 * 5 = 15
@@ -1047,12 +927,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """No anchor_key param returns anchor_offset=null and uses normal offset."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc&limit=5&offset=5",
@@ -1070,12 +948,10 @@ class TestAnchorKey:
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
-        mock_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
+        library_service: MagicMock,
     ) -> None:
         """anchor_key works correctly when combined with a search filter."""
-        monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
-        _setup_s3_list(mock_service, MANY_S3_OBJECTS)
+        _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         # Filter to "01" matches img_010..img_019 (10 items); anchor img_015 is at index 5
         res = managed_app.get(

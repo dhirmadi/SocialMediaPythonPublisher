@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
+from caption_pipeline_fakes import make_app_config
+
 from publisher_v2.config.schema import (
     ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     EmailConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.core.models import CaptionSpec
 
@@ -19,13 +16,8 @@ def _make_config(
     instagram: bool = False,
     email: bool = False,
 ) -> ApplicationConfig:
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=telegram, instagram_enabled=instagram, email_enabled=email),
-        telegram=None,
-        instagram=None,
+    cfg = make_app_config(
+        platforms={"telegram_enabled": telegram, "instagram_enabled": instagram, "email_enabled": email},
         email=EmailConfig(
             smtp_server="smtp.test",
             smtp_port=587,
@@ -35,7 +27,7 @@ def _make_config(
         )
         if email
         else None,
-        content=ContentConfig(hashtag_string="#shibari #ropeart", archive=False, debug=False),
+        content={"hashtag_string": "#shibari #ropeart"},
     )
     return cfg
 

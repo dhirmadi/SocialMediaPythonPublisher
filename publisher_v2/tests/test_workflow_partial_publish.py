@@ -12,22 +12,13 @@ import hashlib
 from typing import Any
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.db.models import Base
 from publisher_v2.db.publish_store import PublishStore
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 
@@ -48,33 +39,6 @@ class _ArchiveTrackingStorage(BaseDummyStorage):
 
     async def archive_image(self, folder: str, filename: str, archive_folder: str) -> None:
         self.archived.append(filename)
-
-
-class _DummyAnalyzer:
-    async def analyze(self, url_or_bytes: str | bytes) -> Any:
-        from publisher_v2.core.models import ImageAnalysis
-
-        return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None
-
-
-class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
-        return "hello world", None
-
-
-class _DummyAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
-        self.generator = _DummyGenerator()  # type: ignore[assignment]
-
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:
-                return None
-
-            async def __aexit__(self, exc_type, exc, tb) -> bool:
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _ScriptedPublisher(Publisher):
@@ -140,18 +104,6 @@ class _RaisingPublisher(Publisher):
         raise ConnectionError("boom at https://example.com/secret-path")
 
 
-def _config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-    )
-
-
 async def test_partial_publish_not_archived_then_retries_only_failed(publish_store: PublishStore) -> None:
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [
@@ -160,7 +112,12 @@ async def test_partial_publish_not_archived_then_retries_only_failed(publish_sto
     ]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
 
     first = await orchestrator.execute()
@@ -202,7 +159,12 @@ async def test_second_concurrent_click_publishes_nothing(publish_store: PublishS
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
 
     first = await orchestrator.execute(select_filename="test.jpg")
@@ -220,7 +182,12 @@ async def test_preview_and_dry_publish_never_touch_the_table(publish_store: Publ
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
 
     await orchestrator.execute(preview_mode=True, dry_publish=True)
@@ -255,9 +222,9 @@ async def test_publisher_timeout_marks_row_unknown_never_archives_never_auto_ret
     ]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _DummyAI(),
+        stub_ai_service(),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -298,7 +265,12 @@ async def test_publisher_exception_marks_row_failed_with_sanitized_message(
     ]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
 
     result = await orchestrator.execute()
@@ -347,12 +319,6 @@ class _CountingAnalyzer:
         return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None
 
 
-class _CountingAI(_DummyAI):
-    def __init__(self, analyzer: _CountingAnalyzer) -> None:
-        super().__init__()
-        self.analyzer = analyzer  # type: ignore[assignment]
-
-
 async def _lease_rows(publish_store: PublishStore) -> list[Any]:
     from sqlalchemy import select
 
@@ -385,7 +351,12 @@ async def test_lease_is_already_held_while_the_ai_stage_runs(publish_store: Publ
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     analyzer = _LeaseProbingAnalyzer(publish_store)
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _CountingAI(analyzer), publishers, tenant="t2", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(analyzer),
+        publishers,
+        tenant="t2",
+        publish_store=publish_store,
     )
 
     await orchestrator.execute(select_filename="test.jpg")
@@ -400,7 +371,12 @@ async def test_ai_stage_failure_leaves_no_leased_row_behind(publish_store: Publi
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     analyzer = _LeaseProbingAnalyzer(publish_store, fail=True)
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _CountingAI(analyzer), publishers, tenant="t2", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(analyzer),
+        publishers,
+        tenant="t2",
+        publish_store=publish_store,
     )
 
     with pytest.raises(RuntimeError):
@@ -418,9 +394,9 @@ async def test_next_run_publishes_after_an_ai_stage_crash(publish_store: Publish
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     crashing = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _CountingAI(_CountingAnalyzer(fail=True)),
+        stub_ai_service(_CountingAnalyzer(fail=True)),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -429,7 +405,12 @@ async def test_next_run_publishes_after_an_ai_stage_crash(publish_store: Publish
         await crashing.execute(select_filename="test.jpg")
 
     healthy = WorkflowOrchestrator(
-        _config(), storage, _CountingAI(_CountingAnalyzer()), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(_CountingAnalyzer()),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
     result = await healthy.execute(select_filename="test.jpg")
 
@@ -444,7 +425,12 @@ async def test_double_click_costs_exactly_one_ai_stage(publish_store: PublishSto
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     analyzer = _CountingAnalyzer(delay=0.05)
     orchestrator = WorkflowOrchestrator(
-        _config(), storage, _CountingAI(analyzer), publishers, tenant="t1", publish_store=publish_store
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(analyzer),
+        publishers,
+        tenant="t1",
+        publish_store=publish_store,
     )
 
     await asyncio.gather(
@@ -464,7 +450,9 @@ async def test_no_store_selected_file_is_blocked_after_it_was_posted(tmp_path, m
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1")
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}), storage, stub_ai_service(), publishers, tenant="t1"
+    )
 
     first = await orchestrator.execute(select_filename="test.jpg")
     assert first.success is True
@@ -481,7 +469,9 @@ async def test_no_store_preview_of_a_posted_file_is_still_allowed(tmp_path, monk
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1")
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}), storage, stub_ai_service(), publishers, tenant="t1"
+    )
     await orchestrator.execute(select_filename="test.jpg")
 
     preview = await orchestrator.execute(select_filename="test.jpg", preview_mode=True)
@@ -498,9 +488,9 @@ async def test_cancelled_run_still_releases_its_lease(publish_store: PublishStor
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _CountingAI(_CountingAnalyzer(delay=5.0)),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -529,9 +519,9 @@ async def test_a_cancelled_run_stays_cancelled(publish_store: PublishStore) -> N
     """
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], {})]
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         _ArchiveTrackingStorage(images=["test.jpg"]),
-        _CountingAI(_CountingAnalyzer(delay=5.0)),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -577,9 +567,9 @@ async def test_skipped_ai_stage_writes_no_empty_caption_history(publish_store: P
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     caption_store = _RecordingCaptionStore()
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _DummyAI(),
+        stub_ai_service(),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -608,9 +598,9 @@ async def test_lease_held_past_its_ttl_is_not_released_by_the_aborting_run(
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _CountingAI(_CountingAnalyzer(fail=True)),
+        stub_ai_service(_CountingAnalyzer(fail=True)),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -639,9 +629,9 @@ async def test_a_stalled_run_cannot_mark_a_lease_that_was_reclaimed(publish_stor
 
     lease_hash = hashlib.sha256(b"an-image").hexdigest()
     run_a = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         _ArchiveTrackingStorage(images=["test.jpg"]),
-        _DummyAI(),
+        stub_ai_service(),
         [],
         tenant="t1",
         publish_store=publish_store,

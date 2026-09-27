@@ -6,6 +6,7 @@ import logging
 from typing import Any
 
 import pytest
+from caption_pipeline_fakes import stub_ai_service
 
 from publisher_v2.core.models import ImageAnalysis
 
@@ -23,19 +24,7 @@ class _Generator:
 
 @pytest.fixture
 def service() -> Any:
-    from publisher_v2.services.ai import AIService
-
-    svc = AIService.__new__(AIService)
-
-    class _NoopLimiter:
-        async def __aenter__(self) -> None:
-            return None
-
-        async def __aexit__(self, *exc: object) -> bool:
-            return False
-
-    svc._rate_limiter = _NoopLimiter()  # type: ignore[attr-defined]
-    return svc
+    return stub_ai_service(generator=_Generator())
 
 
 class TestSimilarityTelemetryAlwaysEmitted:

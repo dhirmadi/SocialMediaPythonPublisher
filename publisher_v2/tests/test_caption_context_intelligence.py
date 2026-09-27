@@ -9,11 +9,11 @@ Covers all four parts:
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 from typing import Any
 
 import pytest
+from caption_pipeline_fakes import FakeOpenAI, install_fake_openai, make_app_config
 
 from publisher_v2.config.static_loader import PlatformCaptionStyle
 from publisher_v2.core.models import CaptionSpec
@@ -296,29 +296,15 @@ class TestHistoryIntegration:
         # Capture the prompt sent to OpenAI
         captured_prompts: list[str] = []
 
-        class _Msg:
-            content = '{"telegram": "test caption"}'
-
-        class _Choice:
-            message = _Msg()
-
-        class _Resp:
-            choices = [_Choice()]
-
-        class _FakeCompletions:
-            async def create(self, **kwargs: Any) -> _Resp:
-                messages = kwargs.get("messages", [])
-                for m in messages:  # type: ignore[union-attr]
-                    if isinstance(m, dict) and m.get("role") == "user":
-                        captured_prompts.append(m["content"])
-                return _Resp()
-
-        class _FakeClient:
-            chat = type("C", (), {"completions": _FakeCompletions()})()
+        def _reply(kwargs: dict[str, Any]) -> str:
+            for m in kwargs.get("messages", []):
+                if isinstance(m, dict) and m.get("role") == "user":
+                    captured_prompts.append(m["content"])
+            return '{"telegram": "test caption"}'
 
         config = OpenAIConfig(api_key="sk-test", caption_model="gpt-4o-mini")
         gen = CaptionGeneratorOpenAI(config)
-        gen.client = _FakeClient()  # type: ignore[assignment]
+        gen.client = FakeOpenAI(script=[_reply])  # type: ignore[assignment]
 
         analysis = ImageAnalysis(description="test", mood="calm", tags=["art"])
         specs = {"telegram": CaptionSpec(platform="telegram", style="test", hashtags="", max_length=4096)}
@@ -453,23 +439,12 @@ class TestHistoryAsConstraints:
 
 
 def _real_specs(**platforms: bool) -> dict[str, CaptionSpec]:
-    from publisher_v2.config.schema import (
-        ApplicationConfig,
-        ContentConfig,
-        DropboxConfig,
-        OpenAIConfig,
-        PlatformsConfig,
-        StoragePathConfig,
-    )
-
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(
-            telegram_enabled=platforms.get("telegram", False), email_enabled=platforms.get("email", False)
-        ),
-        content=ContentConfig(),
+    cfg = make_app_config(
+        platforms={
+            "telegram_enabled": platforms.get("telegram", False),
+            "email_enabled": platforms.get("email", False),
+        },
+        content={"archive": True},
     )
     return CaptionSpec.for_platforms(cfg)
 
@@ -508,30 +483,6 @@ class TestEmailPromptConsistency:
         assert "closing pattern" not in block.lower()
 
 
-class _Msg:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _Resp:
-    def __init__(self, content: str) -> None:
-        self.choices = [type("C", (), {"message": _Msg(content)})()]
-        self.usage = None
-
-
-class _RecordingCompletions:
-    """Fake OpenAI chat.completions: first draft copies history, the retry is fresh."""
-
-    def __init__(self, first: dict[str, str], second: dict[str, str]) -> None:
-        self.calls: list[dict[str, Any]] = []
-        self._payloads = [first, second]
-
-    async def create(self, **kwargs: Any) -> _Resp:
-        self.calls.append(kwargs)
-        payload = self._payloads[min(len(self.calls) - 1, 1)]
-        return _Resp(json.dumps(payload))
-
-
 def _angle_hits(prompt: str) -> Counter[str]:
     """PUB-051: which content-angle directives occur in a prompt, and how often."""
     from publisher_v2.utils.captions import CONTENT_ANGLES
@@ -554,12 +505,15 @@ async def test_regeneration_prompt_carries_exactly_one_angle_per_platform(monkey
         "telegram": ["Rope and light across her back tonight, slow and certain."],
         "email": ["Rope and light across her back tonight."],
     }
-    completions = _RecordingCompletions(
-        first={"telegram": history["telegram"][0], "email": history["email"][0]},
-        second={"telegram": "Something else entirely.", "email": "Quiet, then the knot."},
+    completions = install_fake_openai(
+        monkeypatch,
+        FakeOpenAI(
+            script=[
+                {"telegram": history["telegram"][0], "email": history["email"][0]},
+                {"telegram": "Something else entirely.", "email": "Quiet, then the knot."},
+            ]
+        ),
     )
-    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
     cfg = OpenAIConfig(api_key="sk-test")
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
     specs = _real_specs(telegram=True, email=True)
@@ -602,12 +556,15 @@ async def test_regeneration_gives_new_angle_only_to_offenders(monkeypatch) -> No
     from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 
     history = {"telegram": ["Rope and light across her back tonight, slow and certain."]}
-    completions = _RecordingCompletions(
-        first={"telegram": history["telegram"][0], "email": "Something new."},
-        second={"telegram": "Different now.", "email": "Something new."},
+    completions = install_fake_openai(
+        monkeypatch,
+        FakeOpenAI(
+            script=[
+                {"telegram": history["telegram"][0], "email": "Something new."},
+                {"telegram": "Different now.", "email": "Something new."},
+            ]
+        ),
     )
-    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
     cfg = OpenAIConfig(api_key="sk-test")
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
     specs = _real_specs(telegram=True, email=True)
@@ -642,9 +599,7 @@ async def test_single_platform_regeneration_prompt_carries_the_one_returned_angl
             draft,
         ]
     }
-    completions = _RecordingCompletions(first={"email": draft}, second={"email": "Something else."})
-    fake_client = type("Client", (), {"chat": type("Chat", (), {"completions": completions})()})()
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kwargs: fake_client)
+    completions = install_fake_openai(monkeypatch, FakeOpenAI(script=[{"email": draft}, {"email": "Something else."}]))
     cfg = OpenAIConfig(api_key="sk-test")
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
     specs = _real_specs(email=True)

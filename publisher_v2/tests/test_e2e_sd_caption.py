@@ -1,17 +1,16 @@
 from __future__ import annotations
 
 import pytest
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyPublisher, BaseDummyStorage
+from caption_pipeline_fakes import (
+    BaseDummyAnalyzer,
+    BaseDummyGenerator,
+    BaseDummyPublisher,
+    BaseDummyStorage,
+    make_app_config,
+)
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -47,32 +46,14 @@ class TrackingStorage(BaseDummyStorage):
         self.archived += 1
 
 
-def make_config(archive: bool) -> ApplicationConfig:
-    drop = DropboxConfig(
-        app_key="a", app_secret="b", refresh_token="c", image_folder="/ImagesToday", archive_folder="archive"
-    )
-    openai = OpenAIConfig(
-        api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx",
-        vision_model="gpt-4o",
-        caption_model="gpt-4o-mini",
-        sd_caption_enabled=True,
-        sd_caption_single_call_enabled=True,
-    )
-    platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
-    content = ContentConfig(hashtag_string="", archive=archive, debug=False)
-    return ApplicationConfig(
-        dropbox=drop,
-        storage_paths=StoragePathConfig(image_folder="/ImagesToday"),
-        openai=openai,
-        platforms=platforms,
-        content=content,
-    )
-
-
 @pytest.mark.asyncio
 async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
     # Preview phase - use centralized fixtures (QC-001)
-    cfg_prev = make_config(archive=True)
+    cfg_prev = make_app_config(
+        dropbox={"image_folder": "/ImagesToday"},
+        storage_paths={"image_folder": "/ImagesToday"},
+        content={"archive": True},
+    )
     storage_prev = TrackingStorage()
     ai_prev = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_prev.openai))  # type: ignore[arg-type]
     orch_prev = WorkflowOrchestrator(
@@ -87,7 +68,11 @@ async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch)
     assert storage_prev.sidecars == 0  # no side effects in preview
 
     # Live phase - use centralized fixtures (QC-001)
-    cfg_live = make_config(archive=True)
+    cfg_live = make_app_config(
+        dropbox={"image_folder": "/ImagesToday"},
+        storage_paths={"image_folder": "/ImagesToday"},
+        content={"archive": True},
+    )
     storage_live = TrackingStorage()
     ai_live = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg_live.openai))  # type: ignore[arg-type]
     orch_live = WorkflowOrchestrator(

@@ -5,28 +5,22 @@ from __future__ import annotations
 from unittest.mock import AsyncMock, patch
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
     ManagedStorageConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.config.source import RuntimeConfig
 from publisher_v2.core.exceptions import CredentialResolutionError
 
 
 def _runtime_config() -> RuntimeConfig:
-    cfg = ApplicationConfig(
+    cfg = make_app_config(
         managed=ManagedStorageConfig(
             access_key_id="k", secret_access_key="s", endpoint_url="https://r2.local", bucket="b"
         ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key=None),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
+        openai={"api_key": None},
+        content={"archive": True},
     )
     return RuntimeConfig(
         host="a.example.test",

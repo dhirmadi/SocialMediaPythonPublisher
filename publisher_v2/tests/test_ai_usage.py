@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from caption_pipeline_fakes import FakeCompletion, FakeOpenAI, fake_usage, stub_ai_service
 
 from publisher_v2.core.models import AIUsage, CaptionSpec, ImageAnalysis
 
@@ -30,13 +30,11 @@ _SPEC = CaptionSpec(platform="telegram", style="minimal_poetic", hashtags="", ma
 
 
 def _mock_openai_response(content: str = '{"description":"test"}', usage: Any = None, resp_id: str = "resp-abc") -> Any:
-    """Build a mock OpenAI ChatCompletion response."""
-    choice = SimpleNamespace(message=SimpleNamespace(content=content))
-    return SimpleNamespace(choices=[choice], usage=usage, id=resp_id)
+    """An OpenAI ChatCompletion response carrying ``usage`` and ``resp_id``."""
+    return FakeCompletion(content, usage=usage, id=resp_id)
 
 
-def _mock_usage(total: int = 100, prompt: int = 60, completion: int = 40) -> Any:
-    return SimpleNamespace(total_tokens=total, prompt_tokens=prompt, completion_tokens=completion)
+_mock_usage = fake_usage
 
 
 # --- AC-B2: VisionAnalyzerOpenAI.analyze() returns (ImageAnalysis, AIUsage | None) ---
@@ -69,9 +67,7 @@ async def test_vision_analyzer_returns_usage_tuple() -> None:
     analyzer._vision_fallback_max_dimension = 0
     analyzer._vision_fallback_detail = "high"
 
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    analyzer.client = mock_client
+    analyzer.client = FakeOpenAI(script=[resp])
 
     result = await analyzer.analyze("https://example.com/image.jpg")
     assert isinstance(result, tuple)
@@ -102,9 +98,7 @@ async def test_caption_generator_generate_returns_usage_tuple() -> None:
     gen.role_prompt = "Write a caption."
     gen.role_prompt_single = "Write a caption."
 
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    gen.client = mock_client
+    gen.client = FakeOpenAI(script=[resp])
 
     result = await gen.generate(_ANALYSIS, _SPEC)
     assert isinstance(result, tuple)
@@ -134,9 +128,7 @@ async def test_caption_generator_generate_with_sd_returns_usage_tuple() -> None:
     gen.role_prompt = "role"
     gen.role_prompt_single = "role"
 
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    gen.client = mock_client
+    gen.client = FakeOpenAI(script=[resp])
 
     result = await gen.generate_with_sd(_ANALYSIS, _SPEC)
     assert isinstance(result, tuple)
@@ -162,9 +154,7 @@ async def test_caption_generator_generate_multi_returns_usage_tuple() -> None:
     gen.role_prompt = "role"
     gen.role_prompt_single = "role"
 
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    gen.client = mock_client
+    gen.client = FakeOpenAI(script=[resp])
 
     specs = {
         "telegram": CaptionSpec(platform="telegram", style="minimal_poetic", hashtags="", max_length=2200),
@@ -209,9 +199,7 @@ async def test_vision_analyzer_none_usage() -> None:
     analyzer._vision_fallback_max_dimension = 0
     analyzer._vision_fallback_detail = "high"
 
-    mock_client = AsyncMock()
-    mock_client.chat.completions.create = AsyncMock(return_value=resp)
-    analyzer.client = mock_client
+    analyzer.client = FakeOpenAI(script=[resp])
 
     result = await analyzer.analyze("https://example.com/image.jpg")
     analysis, ai_usage = result
@@ -225,8 +213,6 @@ async def test_vision_analyzer_none_usage() -> None:
 @pytest.mark.asyncio
 async def test_ai_service_create_caption_pair_from_analysis_returns_usage_list() -> None:
     """AC-B5: create_caption_pair_from_analysis returns list[AIUsage]."""
-    from publisher_v2.services.ai import AIService
-
     # Mock generator with sd enabled + single call
     gen = MagicMock()
     gen.sd_caption_enabled = True
@@ -236,12 +222,7 @@ async def test_ai_service_create_caption_pair_from_analysis_returns_usage_list()
     gen.generate_with_sd = AsyncMock(return_value=({"caption": "cap", "sd_caption": "sd"}, usage))
 
     analyzer = MagicMock()
-    service = AIService.__new__(AIService)
-    service.analyzer = analyzer
-    service.generator = gen
-    service._rate_limiter = AsyncMock()
-    service._rate_limiter.__aenter__ = AsyncMock(return_value=None)
-    service._rate_limiter.__aexit__ = AsyncMock(return_value=None)
+    service = stub_ai_service(analyzer, gen)
 
     result = await service.create_caption_pair_from_analysis(_ANALYSIS, _SPEC)
     assert isinstance(result, tuple)
@@ -255,19 +236,12 @@ async def test_ai_service_create_caption_pair_from_analysis_returns_usage_list()
 @pytest.mark.asyncio
 async def test_ai_service_create_caption_from_analysis_returns_usage_list() -> None:
     """AC-B5: create_caption_from_analysis returns (caption, list[AIUsage])."""
-    from publisher_v2.services.ai import AIService
-
     gen = MagicMock()
     usage = AIUsage(response_id="u2", total_tokens=42, prompt_tokens=20, completion_tokens=22)
     gen.generate = AsyncMock(return_value=("cap-only", usage))
 
     analyzer = MagicMock()
-    service = AIService.__new__(AIService)
-    service.analyzer = analyzer
-    service.generator = gen
-    service._rate_limiter = AsyncMock()
-    service._rate_limiter.__aenter__ = AsyncMock(return_value=None)
-    service._rate_limiter.__aexit__ = AsyncMock(return_value=None)
+    service = stub_ai_service(analyzer, gen)
 
     caption, usages = await service.create_caption_from_analysis(_ANALYSIS, _SPEC)
     assert caption == "cap-only"
@@ -313,17 +287,16 @@ async def test_transient_error_retries_exactly_three_attempts(monkeypatch: pytes
 
     calls = {"n": 0}
 
-    class _FailingCompletions:
-        async def create(self, **kwargs):
-            calls["n"] += 1
-            raise httpx.ConnectError("boom")
+    def _fail(_kwargs):
+        calls["n"] += 1
+        raise httpx.ConnectError("boom")
 
     gen = CaptionGeneratorOpenAI.__new__(CaptionGeneratorOpenAI)
     gen.model = "gpt-4o-mini"
     gen.system_prompt = "system"
     gen.role_prompt = "role"
     gen.role_prompt_single = "role"
-    gen.client = SimpleNamespace(chat=SimpleNamespace(completions=_FailingCompletions()))
+    gen.client = FakeOpenAI(script=[_fail])
 
     with pytest.raises(AIServiceError):
         await gen.generate(_ANALYSIS, _SPEC)

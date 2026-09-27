@@ -3,15 +3,11 @@
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
     FeaturesConfig,
     ManagedStorageConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 
 
@@ -30,17 +26,15 @@ class TestLibraryEnabledFeatureFlag:
         """When config.managed is not None, library_enabled should be auto-set to True at startup."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        cfg = ApplicationConfig(
+        cfg = make_app_config(
             managed=ManagedStorageConfig(
                 access_key_id="AKID",
                 secret_access_key="SECRET",
                 endpoint_url="https://r2.example.com",
                 bucket="bucket",
             ),
-            storage_paths=StoragePathConfig(image_folder="tenant/instance"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(),
-            content=ContentConfig(),
+            storage_paths={"image_folder": "tenant/instance"},
+            content={"archive": True},
         )
 
         # #97 stage 1: helper lives in config/loader.py and takes managed presence
@@ -53,17 +47,15 @@ class TestLibraryEnabledFeatureFlag:
         """FEATURE_LIBRARY=false overrides auto-enable for managed instances."""
         monkeypatch.setenv("FEATURE_LIBRARY", "false")
 
-        cfg = ApplicationConfig(
+        cfg = make_app_config(
             managed=ManagedStorageConfig(
                 access_key_id="AKID",
                 secret_access_key="SECRET",
                 endpoint_url="https://r2.example.com",
                 bucket="bucket",
             ),
-            storage_paths=StoragePathConfig(image_folder="tenant/instance"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(),
-            content=ContentConfig(),
+            storage_paths={"image_folder": "tenant/instance"},
+            content={"archive": True},
         )
 
         from publisher_v2.config.loader import resolve_library_enabled_env
@@ -75,20 +67,7 @@ class TestLibraryEnabledFeatureFlag:
         """When config.managed is None (Dropbox-only), library_enabled stays False."""
         monkeypatch.delenv("FEATURE_LIBRARY", raising=False)
 
-        from publisher_v2.config.schema import DropboxConfig
-
-        cfg = ApplicationConfig(
-            dropbox=DropboxConfig(
-                app_key="k",
-                app_secret="s",
-                refresh_token="r",
-                image_folder="/Photos",
-            ),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(),
-            content=ContentConfig(),
-        )
+        cfg = make_app_config(content={"archive": True})
 
         from publisher_v2.config.loader import resolve_library_enabled_env
 

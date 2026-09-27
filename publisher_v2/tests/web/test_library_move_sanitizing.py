@@ -11,118 +11,22 @@ boundary and records what the tool would have asked S3 to do.
 
 from __future__ import annotations
 
-import contextlib
-import json
-from collections.abc import Iterator
-from typing import Any
-from unittest.mock import MagicMock, patch
+from collections.abc import Callable
 
 import httpx
 import pytest
-from botocore.exceptions import ClientError
 
-FOLDER = "/tenant/instance"
-KEY_PREFIX = FOLDER.strip("/")
-
-
-class _FakeS3:
-    """Records copy/delete calls; lists exactly one object in the image folder.
-
-    ``head_object`` is per-key (PUB-048 AC11): a blanket-truthy head would make
-    every move collide with the new destination guard, and would leave
-    ``ensure_known_object``'s existence branch untestable. Keys in ``keys`` are
-    returned by the listing paginator; keys in ``unlisted_keys`` exist for
-    ``head_object`` only (objects outside the image-root listing, e.g. the keep
-    folder). Anything else heads as a 404, which the real
-    ``ManagedStorage.head_object`` maps to ``None``.
-    """
-
-    def __init__(self) -> None:
-        self.copied: list[tuple[str, str]] = []
-        self.deleted: list[str] = []
-        self.keys: list[str] = [f"{KEY_PREFIX}/known.jpg"]
-        self.unlisted_keys: list[str] = [f"{KEY_PREFIX}/keep/kept.jpg"]
-
-    def add_object(self, name: str) -> None:
-        self.keys.append(f"{KEY_PREFIX}/{name}")
-
-    def add_unlisted_object(self, folder: str, name: str) -> None:
-        self.unlisted_keys.append(f"{KEY_PREFIX}/{folder}/{name}")
-
-    def get_paginator(self, _name: str) -> Any:
-        keys = list(self.keys)
-
-        class _Paginator:
-            def paginate(self, **_kwargs: Any) -> Any:
-                return [{"Contents": [{"Key": k, "Size": 10, "LastModified": None} for k in keys]}]
-
-        return _Paginator()
-
-    def head_object(self, **kwargs: Any) -> dict[str, Any]:
-        if kwargs["Key"] not in self.keys and kwargs["Key"] not in self.unlisted_keys:
-            raise ClientError({"Error": {"Code": "404", "Message": "Not Found"}}, "HeadObject")
-        return {"ETag": '"e"', "ContentLength": 10, "LastModified": None}
-
-    def copy_object(self, **kwargs: Any) -> dict[str, Any]:
-        self.copied.append((kwargs["CopySource"]["Key"], kwargs["Key"]))
-        return {}
-
-    def delete_object(self, **kwargs: Any) -> dict[str, Any]:
-        self.deleted.append(kwargs["Key"])
-        return {}
-
-    def close(self) -> None:
-        return None
+from .conftest import MANAGED_KEY_PREFIX as KEY_PREFIX
+from .conftest import FakeS3
 
 
 @pytest.fixture
-def client_and_s3(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[tuple[httpx.AsyncClient, _FakeS3]]:
-    env = {
-        "CONFIG_SOURCE": "env",
-        "HOME": str(tmp_path),
-        "STORAGE_PROVIDER": "managed",
-        "R2_ACCESS_KEY_ID": "k",
-        "R2_SECRET_ACCESS_KEY": "s",
-        "R2_ENDPOINT_URL": "https://account.r2.cloudflarestorage.com",
-        "R2_BUCKET_NAME": "bucket",
-        "STORAGE_PATHS": json.dumps({"root": FOLDER, "archive": "archive", "keep": "keep", "remove": "reject"}),
-        "PUBLISHERS": json.dumps([{"type": "telegram", "channel_id": "@chan"}]),
-        "TELEGRAM_BOT_TOKEN": "tg",
-        "OPENAI_SETTINGS": "{}",
-        "OPENAI_API_KEY": "sk-test",
-        "WEB_SESSION_SECRET": "test-secret",
-        "WEB_SECURE_COOKIES": "false",
-        "AUTH0_DOMAIN": "test.auth0.com",
-        "AUTH0_CLIENT_ID": "cid",
-        "AUTH0_CLIENT_SECRET": "csecret",
-        "FEATURE_LIBRARY": "true",
-    }
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
-        monkeypatch.delenv(key, raising=False)
-
-    from publisher_v2.config.source import get_config_source
-    from publisher_v2.web.app import app, get_service
-    from publisher_v2.web.auth import ADMIN_COOKIE_NAME, mint_admin_cookie_value
-
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    s3 = _FakeS3()
-    with patch("publisher_v2.services.managed_storage.boto3") as boto:
-        boto.client = MagicMock(return_value=s3)
-        transport = httpx.ASGITransport(app=app)
-        client = httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-            headers={"X-Requested-With": "XMLHttpRequest"},
-            cookies={ADMIN_COOKIE_NAME: mint_admin_cookie_value(host="testserver")},
-        )
-        yield client, s3
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with contextlib.suppress(Exception):
-        get_service()
+def client_and_s3(
+    managed_real_app: Callable[..., FakeS3], admin_asgi_client: Callable[..., httpx.AsyncClient]
+) -> tuple[httpx.AsyncClient, FakeS3]:
+    """One image in the root listing, one in the keep folder (outside the root listing)."""
+    s3 = managed_real_app(objects=[f"{KEY_PREFIX}/known.jpg", f"{KEY_PREFIX}/keep/kept.jpg"])
+    return admin_asgi_client(), s3
 
 
 async def _move(client: httpx.AsyncClient, filename: str) -> httpx.Response:
@@ -145,7 +49,7 @@ async def _move(client: httpx.AsyncClient, filename: str) -> httpx.Response:
     ],
 )
 async def test_traversal_name_never_reaches_storage(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3], hostile: str, expected_status: int
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3], hostile: str, expected_status: int
 ) -> None:
     client, s3 = client_and_s3
 
@@ -156,7 +60,7 @@ async def test_traversal_name_never_reaches_storage(
     assert s3.deleted == []
 
 
-async def test_unlisted_name_is_404(client_and_s3: tuple[httpx.AsyncClient, _FakeS3]) -> None:
+async def test_unlisted_name_is_404(client_and_s3: tuple[httpx.AsyncClient, FakeS3]) -> None:
     client, s3 = client_and_s3
 
     response = await _move(client, "not-in-the-listing.jpg")
@@ -166,14 +70,14 @@ async def test_unlisted_name_is_404(client_and_s3: tuple[httpx.AsyncClient, _Fak
 
 
 async def test_an_object_uploaded_moments_ago_can_be_moved(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """#144: ensure_known_image reads a 30s listing cache — a write must invalidate it."""
     client, s3 = client_and_s3
     # Warm the listing cache, as any page load would.
     await _move(client, "known.jpg")
     s3.copied.clear()
-    s3.add_object("fresh.jpg")
+    s3.add(f"{KEY_PREFIX}/fresh.jpg")
 
     response = await _move(client, "fresh.jpg")
 
@@ -181,7 +85,7 @@ async def test_an_object_uploaded_moments_ago_can_be_moved(
     assert (f"{KEY_PREFIX}/fresh.jpg", f"{KEY_PREFIX}/archive/fresh.jpg") in s3.copied
 
 
-async def test_listed_name_still_moves(client_and_s3: tuple[httpx.AsyncClient, _FakeS3]) -> None:
+async def test_listed_name_still_moves(client_and_s3: tuple[httpx.AsyncClient, FakeS3]) -> None:
     client, s3 = client_and_s3
 
     response = await _move(client, "known.jpg")
@@ -194,7 +98,7 @@ async def test_listed_name_still_moves(client_and_s3: tuple[httpx.AsyncClient, _
 
 
 async def test_move_target_root_when_already_in_root_rejects_same_key(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """AC6: root -> root is a copy onto itself, which R2/MinIO honour and then delete."""
     client, s3 = client_and_s3
@@ -207,7 +111,7 @@ async def test_move_target_root_when_already_in_root_rejects_same_key(
 
 
 async def test_move_from_keep_folder_to_root_uses_keep_folder_as_source_key(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """AC7: source_folder=keep must resolve the source prefix, not assume the image root."""
     client, s3 = client_and_s3
@@ -225,7 +129,7 @@ async def test_move_from_keep_folder_to_root_uses_keep_folder_as_source_key(
 
 
 async def test_move_sidecar_txt_name_from_non_root_source_folder_returns_404(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """AC7 negative: ensure_known_object must suffix-gate, not merely check existence.
 
@@ -252,7 +156,7 @@ async def test_move_sidecar_txt_name_from_non_root_source_folder_returns_404(
 
 
 async def test_move_onto_existing_destination_name_returns_409_and_nothing_copied_or_deleted(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """AC11: keep/a.jpg -> root when root already holds a.jpg must 409 before any write.
 
@@ -262,8 +166,8 @@ async def test_move_onto_existing_destination_name_returns_409_and_nothing_copie
     a 409 raised *after* the copy would still destroy data.
     """
     client, s3 = client_and_s3
-    s3.add_object("a.jpg")  # already in the root folder (and its listing)
-    s3.add_unlisted_object("keep", "a.jpg")
+    s3.add(f"{KEY_PREFIX}/a.jpg")  # already in the root folder (and its listing)
+    s3.add(f"{KEY_PREFIX}/keep/a.jpg")
 
     response = await client.post(
         "/api/library/objects/a.jpg/move",
@@ -276,7 +180,7 @@ async def test_move_onto_existing_destination_name_returns_409_and_nothing_copie
 
 
 async def test_move_missing_object_from_non_root_source_folder_returns_404_and_nothing_copied_or_deleted(
-    client_and_s3: tuple[httpx.AsyncClient, _FakeS3],
+    client_and_s3: tuple[httpx.AsyncClient, FakeS3],
 ) -> None:
     """AC7 existence branch: a correctly-suffixed name absent from the source folder 404s.
 
@@ -286,7 +190,7 @@ async def test_move_missing_object_from_non_root_source_folder_returns_404_and_n
     ``.jpg`` passes it, so only the existence check can reject.
     """
     client, s3 = client_and_s3
-    assert f"{KEY_PREFIX}/keep/ghost.jpg" not in s3.unlisted_keys
+    assert f"{KEY_PREFIX}/keep/ghost.jpg" not in s3.objects
 
     response = await client.post(
         "/api/library/objects/ghost.jpg/move",

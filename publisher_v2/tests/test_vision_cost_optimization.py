@@ -7,10 +7,17 @@ import io
 import json
 import logging
 from typing import Any
-from unittest.mock import AsyncMock
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import (
+    BaseDummyGenerator,
+    BaseDummyStorage,
+    FakeCompletion,
+    FakeOpenAI,
+    fake_usage,
+    make_app_config,
+    stub_ai_service,
+)
 from PIL import Image
 from pydantic import ValidationError
 
@@ -50,41 +57,9 @@ VALID_VISION_JSON = json.dumps(
 )
 
 
-class _FakeMessage:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _FakeChoice:
-    def __init__(self, content: str) -> None:
-        self.message = _FakeMessage(content)
-
-
-class _FakeUsage:
-    def __init__(self, total: int = 100) -> None:
-        self.total_tokens = total
-        self.prompt_tokens = total - 20
-        self.completion_tokens = 20
-
-
-class _FakeResp:
-    def __init__(self, content: str, usage_total: int = 100, resp_id: str = "resp_test") -> None:
-        self.choices = [_FakeChoice(content)]
-        self.usage = _FakeUsage(usage_total)
-        self.id = resp_id
-
-
-def _set_create_mock(analyzer: VisionAnalyzerOpenAI, mock: AsyncMock) -> None:
-    chat_ns = type("Chat", (), {})()
-    completions_ns = type("Completions", (), {})()
-    completions_ns.create = mock
-    chat_ns.completions = completions_ns
-    analyzer.client = chat_ns  # type: ignore[assignment]
-    # AsyncOpenAI client has shape client.chat.completions.create — mimic via attr access
-    # Actual client is replaced wholesale.
-    parent = type("ClientWrap", (), {})()
-    parent.chat = chat_ns
-    analyzer.client = parent  # type: ignore[assignment]
+def _vision_resp(content: str, usage_total: int = 100, resp_id: str = "resp_test") -> FakeCompletion:
+    """A vision completion with usage (prompt = total - 20, completion = 20)."""
+    return FakeCompletion(content, usage=fake_usage(usage_total, usage_total - 20, 20), id=resp_id)
 
 
 @pytest.fixture
@@ -335,18 +310,11 @@ def _build_analyzer(**cfg_overrides: Any) -> VisionAnalyzerOpenAI:
     return VisionAnalyzerOpenAI(cfg)
 
 
-def _stub_client_create(analyzer: VisionAnalyzerOpenAI, content: str = VALID_VISION_JSON) -> AsyncMock:
-    """Replace analyzer.client with a stub whose .chat.completions.create is an AsyncMock."""
-    mock = AsyncMock(return_value=_FakeResp(content))
-
-    completions = type("Completions", (), {})()
-    completions.create = mock
-    chat = type("Chat", (), {})()
-    chat.completions = completions
-    parent = type("ClientWrap", (), {})()
-    parent.chat = chat
-    analyzer.client = parent  # type: ignore[assignment]
-    return mock
+def _stub_client_create(analyzer: VisionAnalyzerOpenAI, content: str = VALID_VISION_JSON) -> FakeOpenAI:
+    """Replace analyzer.client with a FakeOpenAI that answers every call with ``content``."""
+    fake = FakeOpenAI(script=[_vision_resp(content)])
+    analyzer.client = fake  # type: ignore[assignment]
+    return fake
 
 
 class TestAnalyzeResizeAndDetail:
@@ -361,7 +329,7 @@ class TestAnalyzeResizeAndDetail:
         assert isinstance(analysis, ImageAnalysis)
         assert calls["count"] == 1
 
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         messages = kwargs["messages"]
         # Find the image part
         user_msg = messages[1]
@@ -380,7 +348,7 @@ class TestAnalyzeResizeAndDetail:
         create_mock = _stub_client_create(analyzer)
 
         await analyzer.analyze("https://x.example.com/p.jpg")
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         assert image_part["image_url"]["detail"] == "low"
 
@@ -395,7 +363,7 @@ class TestAnalyzeResizeAndDetail:
         await analyzer.analyze(url)
         # No download should occur when max_dimension == 0
         assert calls["count"] == 0
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         assert image_part["image_url"]["url"] == url
         assert image_part["image_url"]["detail"] == "high"
@@ -406,7 +374,7 @@ class TestAnalyzeResizeAndDetail:
         create_mock = _stub_client_create(analyzer)
 
         await analyzer.analyze("https://x.example.com/small.jpg")
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         url = image_part["image_url"]["url"]
         assert url.startswith("data:image/jpeg;base64,")
@@ -421,7 +389,7 @@ class TestAnalyzeResizeAndDetail:
         create_mock = _stub_client_create(analyzer)
 
         await analyzer.analyze("https://x.example.com/aspect.jpg")
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         decoded = base64.b64decode(image_part["image_url"]["url"].split(",", 1)[1])
         img = Image.open(io.BytesIO(decoded))
@@ -437,7 +405,7 @@ class TestAnalyzeResizeAndDetail:
         url = "https://signed.example.com/legacy.jpg"
         await analyzer.analyze(url)
         assert calls["count"] == 0  # no download
-        kwargs = create_mock.call_args.kwargs
+        kwargs = create_mock.calls[-1]
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         assert image_part["image_url"]["url"] == url
         assert image_part["image_url"]["detail"] == "high"
@@ -448,29 +416,11 @@ class TestAnalyzeResizeAndDetail:
 # ---------------------------------------------------------------------------
 
 
-class _ScriptedCompletions:
-    """OpenAI completions stub that returns scripted responses or raises errors per call."""
-
-    def __init__(self, script: list[Any]) -> None:
-        self._script = list(script)
-        self.calls: list[dict[str, Any]] = []
-
-    async def create(self, *args: Any, **kwargs: Any) -> Any:
-        self.calls.append(kwargs)
-        nxt = self._script.pop(0) if self._script else _FakeResp(VALID_VISION_JSON)
-        if isinstance(nxt, BaseException):
-            raise nxt
-        return nxt
-
-
-def _install_scripted(analyzer: VisionAnalyzerOpenAI, script: list[Any]) -> _ScriptedCompletions:
-    completions = _ScriptedCompletions(script)
-    chat = type("Chat", (), {})()
-    chat.completions = completions
-    parent = type("ClientWrap", (), {})()
-    parent.chat = chat
-    analyzer.client = parent  # type: ignore[assignment]
-    return completions
+def _install_scripted(analyzer: VisionAnalyzerOpenAI, script: list[Any]) -> FakeOpenAI:
+    """Scripted responses or errors per call; once the script runs out, every call gets a valid reply."""
+    fake = FakeOpenAI(script=[*script, _vision_resp(VALID_VISION_JSON)])
+    analyzer.client = fake  # type: ignore[assignment]
+    return fake
 
 
 class TestFallback:
@@ -491,7 +441,7 @@ class TestFallback:
         import httpx as _httpx
 
         primary_err = _httpx.ConnectError("primary failed")
-        good = _FakeResp(VALID_VISION_JSON, usage_total=200, resp_id="fallback-resp")
+        good = _vision_resp(VALID_VISION_JSON, usage_total=200, resp_id="fallback-resp")
         completions = _install_scripted(
             analyzer,
             [primary_err, primary_err, primary_err, good],
@@ -519,7 +469,7 @@ class TestFallback:
         import httpx as _httpx
 
         primary_err = _httpx.ConnectError("simulated primary fail")
-        good = _FakeResp(VALID_VISION_JSON)
+        good = _vision_resp(VALID_VISION_JSON)
         _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 
         caplog.set_level(logging.WARNING, logger="publisher_v2.ai.vision")
@@ -567,7 +517,7 @@ class TestFallback:
         import httpx as _httpx
 
         primary_err = _httpx.ConnectError("primary failed")
-        good = _FakeResp(VALID_VISION_JSON)
+        good = _vision_resp(VALID_VISION_JSON)
         completions = _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 
         await analyzer.analyze("https://x.example.com/p.jpg")
@@ -582,7 +532,7 @@ class TestFallback:
         import httpx as _httpx
 
         primary_err = _httpx.ConnectError("primary failed")
-        good = _FakeResp(VALID_VISION_JSON, usage_total=300, resp_id="fb-resp")
+        good = _vision_resp(VALID_VISION_JSON, usage_total=300, resp_id="fb-resp")
         _install_scripted(analyzer, [primary_err, primary_err, primary_err, good])
 
         analysis, usage = await analyzer.analyze("https://x.example.com/p.jpg")
@@ -599,8 +549,6 @@ class TestBytesInputNeverFetches:
 
     def _analyzer(self, max_dimension: int = 1024):
         import json as _json
-        from types import SimpleNamespace
-        from unittest.mock import AsyncMock
 
         from publisher_v2.services.ai import VisionAnalyzerOpenAI
 
@@ -614,8 +562,7 @@ class TestBytesInputNeverFetches:
         analyzer._vision_fallback_max_dimension = 2048
         analyzer._vision_fallback_detail = "high"
         payload = _json.dumps({"description": "d", "mood": "m", "tags": [], "nsfw": False, "safety_labels": []})
-        resp = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=payload))], usage=None, id="r")
-        client = SimpleNamespace(chat=SimpleNamespace(completions=SimpleNamespace(create=AsyncMock(return_value=resp))))
+        client = FakeOpenAI(script=[FakeCompletion(payload, id="r")])
         analyzer.client = client
         return analyzer, client
 
@@ -630,7 +577,7 @@ class TestBytesInputNeverFetches:
         result, _usage = await analyzer.analyze(image)
         assert result.description == "d"
 
-        sent = client.chat.completions.create.await_args.kwargs["messages"]
+        sent = client.calls[-1]["messages"]
         image_parts = [
             part
             for message in sent
@@ -670,16 +617,8 @@ class TestOneStorageGetPerRun:
     """#93 acceptance: exactly one storage GET per selected image per run."""
 
     async def test_workflow_downloads_once_and_passes_bytes(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-        from publisher_v2.config.schema import (
-            ApplicationConfig,
-            ContentConfig,
-            DropboxConfig,
-            PlatformsConfig,
-            StoragePathConfig,
-        )
         from publisher_v2.core.models import ImageAnalysis
         from publisher_v2.core.workflow import WorkflowOrchestrator
-        from publisher_v2.services.ai import AIService
 
         class _CountingStorage(BaseDummyStorage):
             def __init__(self) -> None:
@@ -702,35 +641,10 @@ class TestOneStorageGetPerRun:
                 received["source_type"] = type(source).__name__
                 return ImageAnalysis(description="d", mood="m", tags=[], nsfw=False, safety_labels=[]), None
 
-        class _Generator:
-            async def generate(self, analysis, spec):
-                return "caption", None
-
-        class _AI(AIService):
-            def __init__(self) -> None:
-                self.analyzer = _Analyzer()  # type: ignore[assignment]
-                self.generator = _Generator()  # type: ignore[assignment]
-
-                class _NoopLimiter:
-                    async def __aenter__(self):
-                        return None
-
-                    async def __aexit__(self, *a):
-                        return False
-
-                self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
-
-        cfg = ApplicationConfig(
-            dropbox=DropboxConfig(
-                app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-            ),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),  # vision_max_dimension defaults to 1024
-            platforms=PlatformsConfig(),
-            content=ContentConfig(hashtag_string="", archive=False, debug=False),
-        )
+        cfg = make_app_config()
         storage = _CountingStorage()
-        result = await WorkflowOrchestrator(cfg, storage, _AI(), []).execute()
+        ai = stub_ai_service(_Analyzer(), BaseDummyGenerator(caption="caption", sd_caption=None))
+        result = await WorkflowOrchestrator(cfg, storage, ai, []).execute()
 
         assert result.error is None
         assert storage.download_calls == 1

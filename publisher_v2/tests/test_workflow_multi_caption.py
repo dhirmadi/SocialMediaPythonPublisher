@@ -3,19 +3,18 @@
 from __future__ import annotations
 
 import pytest
-from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
-
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    EmailConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
+from caption_pipeline_fakes import (
+    BaseDummyPublisher,
+    BaseDummyStorage,
+    MultiCaptionDummyGenerator,
+    make_app_config,
+    stub_ai_service,
 )
+
+from publisher_v2.config.schema import ApplicationConfig, EmailConfig
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.core.workflow import WorkflowOrchestrator
+from publisher_v2.services.ai import AIService
 
 
 def _make_config(
@@ -23,17 +22,9 @@ def _make_config(
     instagram: bool = False,
     email: bool = False,
 ) -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(
-            api_key="sk-test",
-            sd_caption_enabled=False,
-            sd_caption_single_call_enabled=False,
-        ),
-        platforms=PlatformsConfig(telegram_enabled=telegram, instagram_enabled=instagram, email_enabled=email),
-        telegram=None,
-        instagram=None,
+    return make_app_config(
+        openai={"sd_caption_enabled": False, "sd_caption_single_call_enabled": False},
+        platforms={"telegram_enabled": telegram, "instagram_enabled": instagram, "email_enabled": email},
         email=EmailConfig(
             smtp_server="smtp.test",
             smtp_port=587,
@@ -43,24 +34,28 @@ def _make_config(
         )
         if email
         else None,
-        content=ContentConfig(hashtag_string="#test", archive=False, debug=False),
+        content={"hashtag_string": "#test"},
     )
 
 
-class MultiCaptionAI(BaseDummyAI):
-    """AI service that supports multi-platform caption generation."""
+class _PlatformCaptionGenerator(MultiCaptionDummyGenerator):
+    """Multi-platform generator: the given caption per platform, else ``<platform>-generated-caption``."""
 
     def __init__(self, platform_captions: dict[str, str] | None = None) -> None:
         super().__init__()
         self._platform_captions = platform_captions or {}
 
-    async def create_multi_caption_pair_from_analysis(
+    async def generate_multi(
         self, analysis: ImageAnalysis, specs: dict[str, CaptionSpec], **kwargs: object
-    ) -> tuple[dict[str, str], str | None, list, dict[str, str]]:
-        # PUB-051: (captions, sd_caption, usages, angles-by-platform).
+    ) -> tuple[dict[str, str], None]:
         if self._platform_captions:
-            return self._platform_captions, None, [], {}
-        return {k: f"{k}-generated-caption" for k in specs}, None, [], {}
+            return dict(self._platform_captions), None
+        return {k: f"{k}-generated-caption" for k in specs}, None
+
+
+def _multi_caption_ai(platform_captions: dict[str, str] | None = None) -> AIService:
+    """The real AIService over a multi-platform caption generator."""
+    return stub_ai_service(generator=_PlatformCaptionGenerator(platform_captions))
 
 
 class TestEachPublisherReceivesOwnCaption:
@@ -74,7 +69,7 @@ class TestEachPublisherReceivesOwnCaption:
         tg_pub = BaseDummyPublisher(platform="telegram")
         email_pub = BaseDummyPublisher(platform="email")
 
-        ai = MultiCaptionAI(
+        ai = _multi_caption_ai(
             platform_captions={
                 "telegram": "Telegram-specific caption",
                 "email": "Email-specific caption",
@@ -102,7 +97,7 @@ class TestEachPublisherReceivesOwnCaption:
 
         cfg = _make_config(telegram=True, instagram=True)
         storage = BaseDummyStorage()
-        ai = MultiCaptionAI()
+        ai = _multi_caption_ai()
         pubs: list = [BaseDummyPublisher(platform="telegram"), BaseDummyPublisher(platform="instagram")]
         orch = WorkflowOrchestrator(cfg, storage, ai, pubs)  # type: ignore[arg-type]
         result = await orch.execute(select_filename="test.jpg")
@@ -119,7 +114,7 @@ class TestFormatCaptionSafetyNet:
         cfg = _make_config(email=True)
         storage = BaseDummyStorage()
         # Give email a caption with hashtags — format_caption for email should strip them
-        ai = MultiCaptionAI(platform_captions={"email": "Caption with #hashtag"})
+        ai = _multi_caption_ai(platform_captions={"email": "Caption with #hashtag"})
         pub = BaseDummyPublisher(platform="email")
         pubs: list = [pub]
         orch = WorkflowOrchestrator(cfg, storage, ai, pubs)  # type: ignore[arg-type]
@@ -137,7 +132,7 @@ class TestCaptionOverride:
     async def test_caption_override_applies_to_all_publishers(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _make_config(telegram=True, email=True)
         storage = BaseDummyStorage()
-        ai = MultiCaptionAI()
+        ai = _multi_caption_ai()
         tg_pub = BaseDummyPublisher(platform="telegram")
         email_pub = BaseDummyPublisher(platform="email")
 
@@ -159,7 +154,7 @@ class TestSinglePublisher:
     async def test_single_publisher_generates_single_caption(self, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg = _make_config(telegram=True)
         storage = BaseDummyStorage()
-        ai = MultiCaptionAI()
+        ai = _multi_caption_ai()
         pub = BaseDummyPublisher(platform="telegram")
         pubs: list = [pub]
         orch = WorkflowOrchestrator(cfg, storage, ai, pubs)  # type: ignore[arg-type]

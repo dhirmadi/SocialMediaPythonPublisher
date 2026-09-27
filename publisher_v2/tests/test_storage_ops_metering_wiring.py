@@ -11,6 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 # ---------------------------------------------------------------------------
 # AC-C1: feature flag schema + loader
@@ -73,34 +74,14 @@ def _build_web_service(
     """Build a WebImageService bypassing __init__ to avoid full config plumbing."""
     from publisher_v2.config.runtime_settings import RuntimeSettings
     from publisher_v2.config.schema import (
-        ApplicationConfig,
-        ContentConfig,
-        DropboxConfig,
-        FeaturesConfig,
         ManagedStorageConfig,
-        OpenAIConfig,
-        PlatformsConfig,
-        StoragePathConfig,
     )
     from publisher_v2.web.service import WebImageService
 
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-            archive_folder="archive",
-        ),
-        managed=None,
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test-key-for-testing"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#x", archive=False, debug=False),
-        features=FeaturesConfig(storage_ops_metering_enabled=storage_ops_enabled),
+    cfg = make_app_config(
+        openai={"api_key": "sk-test-key-for-testing"},  # pragma: allowlist secret
+        content={"hashtag_string": "#x"},
+        features={"storage_ops_metering_enabled": storage_ops_enabled},
     )
     # Suppress unused-import warning when managed storage isn't needed in this path
     _ = ManagedStorageConfig
@@ -190,29 +171,12 @@ class TestWebServiceWiring:
 
 def _build_workflow(*, preview: bool, meter: MagicMock):
     """Helper to build a workflow that runs end-to-end with a mock storage."""
-    from publisher_v2.config.schema import (
-        ApplicationConfig,
-        ContentConfig,
-        DropboxConfig,
-        FeaturesConfig,
-        OpenAIConfig,
-        PlatformsConfig,
-        StoragePathConfig,
-    )
     from publisher_v2.core.workflow import WorkflowOrchestrator
 
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos", archive_folder="archive"),
-        openai=OpenAIConfig(api_key="sk-test-key-for-testing"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#x", archive=False, debug=False),
-        features=FeaturesConfig(analyze_caption_enabled=False, publish_enabled=False),
+    cfg = make_app_config(
+        openai={"api_key": "sk-test-key-for-testing"},  # pragma: allowlist secret
+        content={"hashtag_string": "#x"},
+        features={"analyze_caption_enabled": False, "publish_enabled": False},
     )
 
     storage = MagicMock()

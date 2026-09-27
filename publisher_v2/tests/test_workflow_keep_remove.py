@@ -1,19 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config, stub_ai_service
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.exceptions import StorageError
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 
@@ -25,41 +16,18 @@ class _DummyStorage:
         self.calls.append((folder, filename, target_subfolder))
 
 
-class _DummyAI(AIService):
-    def __init__(self) -> None:  # pragma: no cover - not used for curation
-        self.analyzer = None  # type: ignore[assignment]
-        self.generator = None  # type: ignore[assignment]
-
-
 class _DummyPublisher(Publisher):
     async def publish(self, *args, **kwargs):  # pragma: no cover - not used for curation
         raise RuntimeError("should not be called in keep/remove tests")
 
 
-def _base_config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-            archive_folder="archive",
-            folder_keep="keep",
-            folder_remove="remove",
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos", folder_keep="keep", folder_remove="remove"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        features=FeaturesConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-    )
-
-
 @pytest.mark.asyncio
 async def test_keep_image_calls_storage_with_configured_folder() -> None:
-    cfg = _base_config()
+    cfg = make_app_config(
+        dropbox={"folder_remove": "remove"}, storage_paths={"folder_remove": "remove"}, content={"archive": True}
+    )
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
+    orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
 
     await orchestrator.keep_image("image.jpg", preview_mode=False, dry_run=False)
 
@@ -68,9 +36,11 @@ async def test_keep_image_calls_storage_with_configured_folder() -> None:
 
 @pytest.mark.asyncio
 async def test_remove_image_calls_storage_with_configured_folder() -> None:
-    cfg = _base_config()
+    cfg = make_app_config(
+        dropbox={"folder_remove": "remove"}, storage_paths={"folder_remove": "remove"}, content={"archive": True}
+    )
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
+    orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
 
     await orchestrator.remove_image("image.jpg", preview_mode=False, dry_run=False)
 
@@ -82,9 +52,11 @@ async def test_keep_remove_preview_mode_uses_preview_helper(capsys, caplog) -> N
     # #96: preview curation no longer print()s via preview helper; it emits log_json only
     import logging
 
-    cfg = _base_config()
+    cfg = make_app_config(
+        dropbox={"folder_remove": "remove"}, storage_paths={"folder_remove": "remove"}, content={"archive": True}
+    )
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
+    orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
 
     with caplog.at_level(logging.INFO, logger="publisher_v2.workflow"):
         await orchestrator.keep_image("image.jpg", preview_mode=True, dry_run=False)
@@ -96,11 +68,13 @@ async def test_keep_remove_preview_mode_uses_preview_helper(capsys, caplog) -> N
 
 @pytest.mark.asyncio
 async def test_keep_remove_feature_disabled_raises() -> None:
-    cfg = _base_config()
+    cfg = make_app_config(
+        dropbox={"folder_remove": "remove"}, storage_paths={"folder_remove": "remove"}, content={"archive": True}
+    )
     cfg.features.keep_enabled = False
     cfg.features.remove_enabled = False
     storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, _DummyAI(), [])  # type: ignore[arg-type]
+    orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
 
     with pytest.raises(StorageError):
         await orchestrator.keep_image("image.jpg")

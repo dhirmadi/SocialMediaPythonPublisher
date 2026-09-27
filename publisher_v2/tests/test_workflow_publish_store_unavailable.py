@@ -14,47 +14,13 @@ import asyncio
 from typing import Any
 from unittest.mock import AsyncMock
 
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 
 from publisher_v2.config.runtime_settings import RuntimeSettings
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
-from publisher_v2.core.models import ImageAnalysis, PublishResult
+from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.db.publish_store import PublishStore
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
-
-
-class _DummyAnalyzer:
-    async def analyze(self, url_or_bytes: str | bytes) -> Any:
-        return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None
-
-
-class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
-        return "hello world", None
-
-
-class _DummyAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
-        self.generator = _DummyGenerator()  # type: ignore[assignment]
-
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:
-                return None
-
-            async def __aexit__(self, exc_type, exc, tb) -> bool:
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _RecordingPublisher(Publisher):
@@ -76,18 +42,6 @@ class _RecordingPublisher(Publisher):
         return PublishResult(success=True, platform=self._name, post_id=f"{self._name}-1")
 
 
-def _config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-    )
-
-
 async def test_acquire_lease_raising_aborts_run_with_publish_store_unavailable() -> None:
     """AC8: a raising store aborts the run instead of publishing everywhere."""
     calls: dict[str, int] = {}
@@ -100,7 +54,14 @@ async def test_acquire_lease_raising_aborts_run_with_publish_store_unavailable()
     store.posted_platforms.return_value = set()
     store.acquire_lease.side_effect = RuntimeError("publish store connection reset")
 
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=store)
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=store,
+    )
 
     result = await orchestrator.execute()
 
@@ -128,9 +89,9 @@ async def test_acquire_lease_hanging_past_claim_budget_aborts_run() -> None:
     store.acquire_lease.side_effect = _never_returns
 
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         storage,
-        _DummyAI(),
+        stub_ai_service(),
         publishers,
         tenant="t1",
         publish_store=store,
@@ -154,7 +115,14 @@ async def test_no_publish_store_configured_behaves_as_before() -> None:
     publishers: list[Publisher] = [_RecordingPublisher("telegram", calls)]
     storage = BaseDummyStorage(images=["test.jpg"])
 
-    orchestrator = WorkflowOrchestrator(_config(), storage, _DummyAI(), publishers, tenant="t1", publish_store=None)
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        storage,
+        stub_ai_service(),
+        publishers,
+        tenant="t1",
+        publish_store=None,
+    )
 
     first = await orchestrator.execute()
 

@@ -3,11 +3,11 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
-from fastapi import HTTPException
 from fastapi.testclient import TestClient
 from starlette.requests import Request
 
 from publisher_v2.web.app import _get_correlation_id, app
+from publisher_v2.web.auth import ADMIN_COOKIE_NAME, mint_admin_cookie_value
 from publisher_v2.web.dependencies import get_request_service
 
 
@@ -78,12 +78,26 @@ class _StubWebService:
 
 
 @pytest.fixture
-def client_factory():
+def client_factory(monkeypatch: pytest.MonkeyPatch):
+    """Real app with the stub service; ``admin=True`` gives a real admin session.
+
+    #298: the admin session is Auth0 configured in env plus a minted admin cookie, so the real
+    ``require_auth``/``require_admin`` run — the error-mapping tests below used to replace them
+    with no-ops, which would silently stop taking effect once they become FastAPI dependencies.
+    """
     clients: list[TestClient] = []
 
-    def _make(service: _StubWebService) -> TestClient:
+    def _make(service: _StubWebService, *, admin: bool = False) -> TestClient:
         app.dependency_overrides[get_request_service] = lambda request=None: service
         client = TestClient(app)
+        if admin:
+            monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
+            monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
+            monkeypatch.setenv("AUTH0_CLIENT_SECRET", "csecret")
+            monkeypatch.setenv("WEB_SECURE_COOKIES", "false")
+            client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(host="testserver"))
+            # Browser-shaped: CSRF requires it on cookie-authenticated POSTs.
+            client.headers.update({"X-Requested-With": "XMLHttpRequest"})
         clients.append(client)
         return client
 
@@ -111,34 +125,9 @@ def test_correlation_id_generated_when_missing() -> None:
     assert cid.count("-") == 4
 
 
-def test_random_image_requires_admin_when_unconfigured(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
-    service = _StubWebService()
-    # Patch both auth and app to be sure
-    monkeypatch.setattr("publisher_v2.web.auth.is_admin_configured", lambda: False)
-    monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
-
-    client = client_factory(service)
-    resp = client.get("/api/images/random")
-    assert resp.status_code == 503
-
-
-def test_random_image_requires_admin_cookie(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
-    service = _StubWebService()
-    monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: True)
-
-    def _require_admin(_request):
-        raise HTTPException(status_code=403, detail="no admin")
-
-    monkeypatch.setattr("publisher_v2.web.app.require_admin", _require_admin)
-    client = client_factory(service)
-    resp = client.get("/api/images/random")
-    assert resp.status_code == 403
-
-
-def test_random_image_not_found_and_error(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_random_image_not_found_and_error(client_factory) -> None:
     service = _StubWebService()
     service.config.features.auto_view_enabled = True
-    monkeypatch.setattr("publisher_v2.web.app.is_admin_configured", lambda: False)
 
     client = client_factory(service)
     service.random_error = FileNotFoundError()
@@ -150,18 +139,10 @@ def test_random_image_not_found_and_error(client_factory, monkeypatch: pytest.Mo
     assert resp2.status_code == 500
 
 
-def test_analyze_image_error_paths(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_analyze_image_error_paths(client_factory) -> None:
     service = _StubWebService()
 
-    async def _async_noop(_request):
-        return None
-
-    def _sync_noop(_request):
-        return None
-
-    monkeypatch.setattr("publisher_v2.web.app.require_auth", _async_noop)
-    monkeypatch.setattr("publisher_v2.web.app.require_admin", _sync_noop)
-    client = client_factory(service)
+    client = client_factory(service, admin=True)
     service.analyze_error = RuntimeError("image not found in service")
     resp = client.post("/api/images/sample/analyze")
     assert resp.status_code == 404
@@ -171,18 +152,10 @@ def test_analyze_image_error_paths(client_factory, monkeypatch: pytest.MonkeyPat
     assert resp2.status_code == 500
 
 
-def test_publish_image_success_and_errors(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_publish_image_success_and_errors(client_factory) -> None:
     service = _StubWebService()
 
-    async def _async_noop(_request):
-        return None
-
-    def _sync_noop(_request):
-        return None
-
-    monkeypatch.setattr("publisher_v2.web.app.require_auth", _async_noop)
-    monkeypatch.setattr("publisher_v2.web.app.require_admin", _sync_noop)
-    client = client_factory(service)
+    client = client_factory(service, admin=True)
     resp = client.post("/api/images/sample/publish", json={"platforms": ["telegram"]})
     assert resp.status_code == 200
     assert resp.json()["any_success"] is False
@@ -196,18 +169,10 @@ def test_publish_image_success_and_errors(client_factory, monkeypatch: pytest.Mo
     assert resp_error.status_code == 500
 
 
-def test_keep_and_remove_errors(client_factory, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_keep_and_remove_errors(client_factory) -> None:
     service = _StubWebService()
 
-    async def _async_noop(_request):
-        return None
-
-    def _sync_noop(_request):
-        return None
-
-    monkeypatch.setattr("publisher_v2.web.app.require_auth", _async_noop)
-    monkeypatch.setattr("publisher_v2.web.app.require_admin", _sync_noop)
-    client = client_factory(service)
+    client = client_factory(service, admin=True)
     service.keep_error = RuntimeError("fail")
     keep_resp = client.post("/api/images/sample/keep")
     assert keep_resp.status_code == 500

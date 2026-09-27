@@ -6,55 +6,17 @@ caption_generated → serve the cached social caption with cached=True.
 
 from __future__ import annotations
 
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import AsyncMock, patch
-
-import pytest
-
-from publisher_v2.core.models import ImageAnalysis
-
-
-def _make_service(monkeypatch: pytest.MonkeyPatch, tmp_path, sidecar_text: str | None):
-    # #97 stage 4: env-only configuration (INI removed)
-    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
-    monkeypatch.setenv("PUBLISHERS", "[]")
-    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
-    monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
-    monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-
-    with patch("publisher_v2.services.storage.dropbox.Dropbox"):
-        from publisher_v2.web.service import WebImageService
-
-        service = WebImageService()
-
-    service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
-    # #91 (SEC-11): analyze validates the filename against the image listing.
-    service.storage.list_images = AsyncMock(return_value=["img.jpg"])  # type: ignore[method-assign]
-    # #93: vision consumes the downloaded bytes instead of the presigned link.
-    service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
-    blob = sidecar_text.encode() if sidecar_text is not None else None
-    service.storage.download_sidecar_if_exists = AsyncMock(return_value=blob)  # type: ignore[method-assign]
-
-    analysis = ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[])
-    service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
-    service.ai_service.create_multi_caption_pair_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        return_value=({"generic": "fresh AI caption"}, "fresh sd", [], {})  # PUB-051: + angles
-    )
-    # No real OpenAI call if the multi path ever fails: the caption-only fallback is not mocked
-    # otherwise, and would reach the network with the test key.
-    service.ai_service.create_caption_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        side_effect=AssertionError("caption-only fallback ran; the multi-caption path failed")
-    )
-    return service
 
 
 class TestAnalyzeSidecarCache:
     async def test_sd_only_sidecar_runs_ai_and_never_returns_sd_prompt(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+        self, analyze_service: Callable[..., Any]
     ) -> None:
         sidecar = "the stable diffusion prompt\n\n# ---\n# image_file: img.jpg\n"
-        service = _make_service(monkeypatch, tmp_path, sidecar)
+        service = analyze_service(sidecar=sidecar)
 
         with patch("publisher_v2.services.sidecar.generate_and_upload_sidecar", new=AsyncMock(return_value=1.0)):
             result = await service.analyze_and_caption("img.jpg")
@@ -64,9 +26,9 @@ class TestAnalyzeSidecarCache:
         assert result.cached is False
         service.ai_service.analyzer.analyze.assert_awaited_once()  # type: ignore[union-attr]
 
-    async def test_caption_generated_sidecar_served_from_cache(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    async def test_caption_generated_sidecar_served_from_cache(self, analyze_service: Callable[..., Any]) -> None:
         sidecar = 'sd prompt\n\n# ---\n# caption_generated: {"email": "Email cap?"}\n'
-        service = _make_service(monkeypatch, tmp_path, sidecar)
+        service = analyze_service(sidecar=sidecar)
 
         result = await service.analyze_and_caption("img.jpg")
 
@@ -74,18 +36,18 @@ class TestAnalyzeSidecarCache:
         assert result.cached is True
         service.ai_service.analyzer.analyze.assert_not_awaited()  # type: ignore[union-attr]
 
-    async def test_published_caption_metadata_still_served(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    async def test_published_caption_metadata_still_served(self, analyze_service: Callable[..., Any]) -> None:
         sidecar = "sd prompt\n\n# ---\n# caption: The published caption\n"
-        service = _make_service(monkeypatch, tmp_path, sidecar)
+        service = analyze_service(sidecar=sidecar)
 
         result = await service.analyze_and_caption("img.jpg")
 
         assert result.caption == "The published caption"
         assert result.cached is True
 
-    async def test_force_refresh_bypasses_cache(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
+    async def test_force_refresh_bypasses_cache(self, analyze_service: Callable[..., Any]) -> None:
         sidecar = 'sd prompt\n\n# ---\n# caption_generated: {"email": "Email cap?"}\n'
-        service = _make_service(monkeypatch, tmp_path, sidecar)
+        service = analyze_service(sidecar=sidecar)
 
         with patch("publisher_v2.services.sidecar.generate_and_upload_sidecar", new=AsyncMock(return_value=1.0)):
             result = await service.analyze_and_caption("img.jpg", force_refresh=True)
@@ -103,11 +65,11 @@ def test_analysis_response_cached_defaults_false() -> None:
 
 class TestCachedCaptionSelectionFallback:
     async def test_generated_entry_for_non_enabled_platform_still_served(
-        self, monkeypatch: pytest.MonkeyPatch, tmp_path
+        self, analyze_service: Callable[..., Any]
     ) -> None:
         """No enabled-platform or email entry — any generated caption beats re-running AI."""
         sidecar = 'sd prompt\n\n# ---\n# caption_generated: {"instagram": "IG cap"}\n'
-        service = _make_service(monkeypatch, tmp_path, sidecar)
+        service = analyze_service(sidecar=sidecar)
 
         result = await service.analyze_and_caption("img.jpg")
 

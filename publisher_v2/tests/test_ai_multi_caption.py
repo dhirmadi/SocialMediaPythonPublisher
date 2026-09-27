@@ -5,46 +5,12 @@ from __future__ import annotations
 import json
 
 import pytest
-from conftest import BaseDummyAnalyzer
+from caption_pipeline_fakes import BaseDummyAnalyzer
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.services.ai import AIService, CaptionGeneratorOpenAI
-
-# --- Mock helpers ---
-
-
-class _Msg:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _Choice:
-    def __init__(self, content: str) -> None:
-        self.message = _Msg(content)
-
-
-class _Resp:
-    def __init__(self, content: str) -> None:
-        self.choices = [_Choice(content)]
-
-
-class _FakeCompletions:
-    """Capture create() calls and return configured response."""
-
-    def __init__(self, response_content: str) -> None:
-        self._response_content = response_content
-        self.calls: list[dict] = []
-
-    async def create(self, **kwargs) -> _Resp:
-        self.calls.append(kwargs)
-        return _Resp(self._response_content)
-
-
-class _FakeClient:
-    def __init__(self, completions: _FakeCompletions) -> None:
-        self.chat = type("Chat", (), {"completions": completions})()
 
 
 def _make_specs() -> dict[str, CaptionSpec]:
@@ -82,7 +48,7 @@ def _default_config() -> OpenAIConfig:
 
 class TestGenerateMulti:
     @pytest.mark.asyncio
-    async def test_generate_multi_returns_dict_per_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_generate_multi_returns_dict_per_platform(self, fake_openai) -> None:
         """AC1: Single call returns dict[str, str] keyed by platform."""
         response = json.dumps(
             {
@@ -91,8 +57,7 @@ class TestGenerateMulti:
                 "email": "Email caption here",
             }
         )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = _make_specs()
@@ -103,7 +68,7 @@ class TestGenerateMulti:
         assert result["telegram"] == "Telegram caption here"
 
     @pytest.mark.asyncio
-    async def test_single_openai_call(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_single_openai_call(self, fake_openai) -> None:
         """AC1: Only one OpenAI API call is made for all platforms."""
         response = json.dumps(
             {
@@ -112,8 +77,7 @@ class TestGenerateMulti:
                 "email": "e",
             }
         )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -121,7 +85,7 @@ class TestGenerateMulti:
         assert len(completions.calls) == 1
 
     @pytest.mark.asyncio
-    async def test_caption_truncated_when_exceeds_max_length(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_caption_truncated_when_exceeds_max_length(self, fake_openai) -> None:
         """AC2: Captions exceeding max_length are truncated with ellipsis."""
         long_email = "x" * 500  # email max_length is 240
         response = json.dumps(
@@ -131,8 +95,7 @@ class TestGenerateMulti:
                 "email": long_email,
             }
         )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -141,7 +104,7 @@ class TestGenerateMulti:
         assert result["email"].endswith("…")
 
     @pytest.mark.asyncio
-    async def test_missing_platform_key_raises_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_missing_platform_key_raises_error(self, fake_openai) -> None:
         """AC3: Missing platform key in LLM response raises AIServiceError."""
         response = json.dumps(
             {
@@ -149,19 +112,17 @@ class TestGenerateMulti:
                 # missing instagram and email
             }
         )
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         with pytest.raises(AIServiceError, match="Missing platform.*instagram"):
             await gen.generate_multi(_make_analysis(), _make_specs())
 
     @pytest.mark.asyncio
-    async def test_uses_json_response_format(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_uses_json_response_format(self, fake_openai) -> None:
         """AC4: Uses response_format=json_object."""
         response = json.dumps({"telegram": "t", "instagram": "i", "email": "e"})
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         _result, _usage = await gen.generate_multi(_make_analysis(), _make_specs())
@@ -175,11 +136,10 @@ class TestGenerateMulti:
 
 class TestPlatformStylesInPrompt:
     @pytest.mark.asyncio
-    async def test_telegram_style_in_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_telegram_style_in_prompt(self, fake_openai) -> None:
         """AC5: Telegram prompt includes conversational style."""
         response = json.dumps({"telegram": "t"})
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -193,11 +153,10 @@ class TestPlatformStylesInPrompt:
         assert "conversational" in user_msg.lower()
 
     @pytest.mark.asyncio
-    async def test_instagram_style_in_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_instagram_style_in_prompt(self, fake_openai) -> None:
         """AC6: Instagram prompt includes hook-first style."""
         response = json.dumps({"instagram": "i"})
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -211,11 +170,10 @@ class TestPlatformStylesInPrompt:
         assert "hook-first" in user_msg.lower()
 
     @pytest.mark.asyncio
-    async def test_email_style_in_prompt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    async def test_email_style_in_prompt(self, fake_openai) -> None:
         """AC7 / PUB-046 AC-11: Email prompt reflects new sentence+question style."""
         response = json.dumps({"email": "e"})
-        completions = _FakeCompletions(response)
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+        completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
         specs = {
@@ -277,19 +235,18 @@ class TestCreateMultiCaptionPair:
 # --- PUB-051 AC4: the caption completion asks for platform keys only, at the new sampling values ---
 
 
-async def _drive_caption_call(monkeypatch: pytest.MonkeyPatch, response: dict[str, str]):
+async def _drive_caption_call(fake_openai, response: dict[str, str]):
     """Real AIService with the default (sd-enabled) config; returns (result, recorded calls)."""
     from publisher_v2.services.ai import VisionAnalyzerOpenAI
 
-    completions = _FakeCompletions(json.dumps(response))
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    completions = fake_openai(script=[response])
     cfg = _default_config()
     service = AIService(VisionAnalyzerOpenAI(cfg), CaptionGeneratorOpenAI(cfg))
     result = await service.create_multi_caption_pair_from_analysis(_make_analysis(), _make_specs())
     return result, completions.calls
 
 
-async def test_caption_call_requests_platform_keys_only_no_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_caption_call_requests_platform_keys_only_no_sd_caption(fake_openai) -> None:
     """AC4: the prompt's key list and the parsed dict are the enabled platforms only.
 
     The fake model volunteers an ``sd_caption`` anyway: it must be neither requested
@@ -297,7 +254,7 @@ async def test_caption_call_requests_platform_keys_only_no_sd_caption(monkeypatc
     """
     specs = _make_specs()
     result, calls = await _drive_caption_call(
-        monkeypatch, {"telegram": "t", "instagram": "i", "email": "e", "sd_caption": "volunteered"}
+        fake_openai, {"telegram": "t", "instagram": "i", "email": "e", "sd_caption": "volunteered"}
     )
 
     assert len(calls) == 1, "one caption completion; no separate sd_caption call on the caption path"
@@ -316,7 +273,7 @@ async def test_caption_call_requests_platform_keys_only_no_sd_caption(monkeypatc
     assert set(angles) == set(specs)
 
 
-async def test_caption_call_sampling_params_match_configured_values(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_caption_call_sampling_params_match_configured_values(fake_openai) -> None:
     """AC4 + Scope: temperature 0.9, frequency_penalty 0.3, presence_penalty 0.6 on the actual create() call."""
     from publisher_v2.services.ai import (
         CAPTION_FREQUENCY_PENALTY,
@@ -326,7 +283,7 @@ async def test_caption_call_sampling_params_match_configured_values(monkeypatch:
 
     assert (DEFAULT_CAPTION_TEMPERATURE, CAPTION_FREQUENCY_PENALTY, CAPTION_PRESENCE_PENALTY) == (0.9, 0.3, 0.6)
 
-    _result, calls = await _drive_caption_call(monkeypatch, {"telegram": "t", "instagram": "i", "email": "e"})
+    _result, calls = await _drive_caption_call(fake_openai, {"telegram": "t", "instagram": "i", "email": "e"})
 
     assert len(calls) == 1
     call = calls[0]

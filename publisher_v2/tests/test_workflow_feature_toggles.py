@@ -1,15 +1,10 @@
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
     DropboxConfig,
-    FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
@@ -89,33 +84,8 @@ class _StubPublisher(Publisher):
         return PublishResult(success=True, platform=self.platform_name)
 
 
-def _make_config() -> ApplicationConfig:
-    drop = DropboxConfig(
-        app_key="k",
-        app_secret="s",
-        refresh_token="r",
-        image_folder="/Photos",
-        archive_folder="archive",
-    )
-    openai = OpenAIConfig(api_key="sk-test", vision_model="gpt-4o", caption_model="gpt-4o-mini")
-    platforms = PlatformsConfig(telegram_enabled=True, instagram_enabled=False, email_enabled=False)
-    content = ContentConfig(hashtag_string="", archive=False, debug=True)
-    features = FeaturesConfig()
-    return ApplicationConfig(
-        dropbox=drop,
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=openai,
-        platforms=platforms,
-        features=features,
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=content,
-    )
-
-
 def _make_orchestrator(monkeypatch: pytest.MonkeyPatch, publishers: list[Publisher] | None = None):
-    cfg = _make_config()
+    cfg = make_app_config(platforms={"telegram_enabled": True}, content={"debug": True})
     assert cfg.dropbox is not None
     storage = _StubStorage(cfg.dropbox)
     analyzer = _StubAnalyzer()

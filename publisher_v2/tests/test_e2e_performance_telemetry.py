@@ -6,59 +6,16 @@ import os
 from typing import Any
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 from fastapi.testclient import TestClient
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 from publisher_v2.web.app import app
 
 
 class _DummyStorage(BaseDummyStorage):
     pass
-
-
-class _DummyAnalyzer:
-    async def analyze(self, url_or_bytes: str | bytes) -> tuple[Any, None]:
-        from publisher_v2.core.models import ImageAnalysis
-
-        return ImageAnalysis(
-            description="Test image",
-            mood="neutral",
-            tags=["test"],
-            nsfw=False,
-            safety_labels=[],
-        ), None
-
-
-class _DummyGenerator:
-    async def generate(self, analysis: Any, spec: Any) -> tuple[str, None]:
-        return "hello world", None
-
-
-class _DummyAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
-        self.generator = _DummyGenerator()  # type: ignore[assignment]
-
-        # Provide a no-op rate limiter compatible with AIService usage.
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:  # type: ignore[override]
-                return None
-
-            async def __aexit__(self, exc_type, exc, tb) -> bool:  # type: ignore[override]
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _DummyPublisher(Publisher):
@@ -75,21 +32,10 @@ class _DummyPublisher(Publisher):
 
 @pytest.mark.asyncio
 async def test_cli_workflow_emits_timing_log(caplog: pytest.LogCaptureFixture) -> None:
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#tags", archive=False, debug=False),
-    )
+    cfg = make_app_config(content={"hashtag_string": "#tags"})
 
     storage = _DummyStorage()
-    ai = _DummyAI()
+    ai = stub_ai_service()
     publishers: list[Publisher] = [_DummyPublisher()]
     orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)
 

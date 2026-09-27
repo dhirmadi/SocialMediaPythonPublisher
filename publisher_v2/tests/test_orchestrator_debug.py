@@ -4,38 +4,22 @@ import json
 import logging
 
 import pytest
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
-
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
+from caption_pipeline_fakes import (
+    BaseDummyPublisher,
+    BaseDummyStorage,
+    MultiCaptionDummyGenerator,
+    make_app_config,
+    stub_ai_service,
 )
+
 from publisher_v2.core.workflow import WorkflowOrchestrator
 
 
 @pytest.mark.asyncio
 async def test_orchestrator_debug_mode_skips_publish_and_no_archive(tmp_path):
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#tags", archive=True, debug=True),
-    )
-    # Use centralized fixtures (QC-001)
+    cfg = make_app_config(content={"hashtag_string": "#tags", "archive": True, "debug": True})
     storage = BaseDummyStorage()
-    ai = BaseDummyAI()
+    ai = stub_ai_service(generator=MultiCaptionDummyGenerator(caption="hello world #tags"))
     publishers = [BaseDummyPublisher()]
     orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)
     result = await orchestrator.execute()
@@ -50,21 +34,9 @@ async def test_orchestrator_debug_mode_skips_publish_and_no_archive(tmp_path):
 
 @pytest.mark.asyncio
 async def test_orchestrator_emits_timing_log(tmp_path, caplog: pytest.LogCaptureFixture) -> None:
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#tags", archive=True, debug=True),
-    )
-    # Use centralized fixtures (QC-001)
+    cfg = make_app_config(content={"hashtag_string": "#tags", "archive": True, "debug": True})
     storage = BaseDummyStorage()
-    ai = BaseDummyAI()
+    ai = stub_ai_service(generator=MultiCaptionDummyGenerator(caption="hello world #tags"))
     publishers = [BaseDummyPublisher()]
     orchestrator = WorkflowOrchestrator(cfg, storage, ai, publishers)  # type: ignore[arg-type]
 
