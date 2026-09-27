@@ -1,10 +1,11 @@
 # Caption evaluation fixtures (PUB-049)
 
 Everything in this directory is **synthetic test data written for the caption
-evaluation harness**. None of it is production output, and none of it is the
-literal text from the owner's caption review — that text is not stored anywhere
-retrievable. Do not cite these files as evidence of what the model actually
-produced on any date.
+evaluation harness**, except `snapshot.json` and `baseline_runs/` (see below).
+None of the synthetic files is production output, and none of it is the literal
+text from the owner's caption review — that text is not stored anywhere
+retrievable. Do not cite them as evidence of what the model actually produced on
+any date.
 
 ## `clone_set.json` (AC1)
 
@@ -47,10 +48,31 @@ One file per platform, each holding the "last 30 published captions" the
 harness scores a new caption against. Synthesised from a varied pool of
 sentences; not production history.
 
-## `snapshot.json` and `caption_eval_thresholds.json`
+## `snapshot.json`, `baseline_runs/` and `caption_eval_thresholds.json`
 
-**Generated artifacts, not hand-written fixtures.** `snapshot.json` is produced
-by `scripts/caption_eval.py --nightly` (or a one-off bootstrap run) and
-`caption_eval_thresholds.json` is derived from it by
-`scripts/caption_eval.py --generate-thresholds`. They must always be generated
-as a pair from the same snapshot, or offline CI is red on arrival (spec Risks).
+**Live model output, not hand-written fixtures** (PUB-080). The PUB-049
+bootstrap snapshot was synthetic; it was replaced on 2026-09-27.
+
+- `baseline_runs/run1.json` … `run5.json`: five `--nightly` runs of the Caption
+  Eval Nightly workflow on `main` at `4e146ad`, caption model `gpt-4o-mini`,
+  2026-09-27 (Actions runs 36321465445, 36321644178, 36321719207, 36321802429,
+  36321879634). They are the evidence the bars were derived from.
+- `snapshot.json`: a copy of `run5.json`. The nightly workflow's PRs replace it
+  with later output; the baseline runs stay put.
+- `caption_eval_thresholds.json`: derived from **all** baseline runs. Each bar is
+  the worst score across the runs (highest for a "max" metric, lowest for a
+  "min" metric) with the PUB-049 10% margin, so every baseline run passes.
+  Identical runs vary far more than 10% (opener share 0.07–0.30), which is why
+  the bars do not come from one run or from the mean.
+
+To re-baseline (a deliberate, reviewed step; the nightly never does this):
+download new `caption-eval-report` artifacts into `baseline_runs/`, then run
+
+```bash
+PYTHONPATH=publisher_v2/src uv run python scripts/caption_eval.py --generate-thresholds \
+  $(for f in publisher_v2/tests/fixtures/captions/baseline_runs/run*.json; do printf -- '--snapshot %s ' "$f"; done) \
+  --out publisher_v2/tests/fixtures/captions/caption_eval_thresholds.json
+```
+
+`test_committed_thresholds_admit_every_recorded_baseline_run` fails if any
+recorded run crosses the committed bars.
