@@ -35,6 +35,9 @@ Per the #178 decision, either the backend, its config and credential types, the 
 
 - (either branch) `get_temporary_link` (#172): drop the `@_managed_retry` and `asyncio.to_thread` around a presign that makes no network request, or delete the method with the capability move in step 3
 
+- (either branch, absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291)) `ManagedStorage` ([#274](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/274)): one `_run(fn, msg)` helper does the thread hop, one uniform exception tuple and the retry for every S3 call (today 14 drifted copies; `list_objects`, `put_object` and `move_object` let connection errors escape unwrapped); one `_move_with_sidecar` replaces the three copy+delete implementations; `list_images` derives from `list_images_with_hashes` and the redundant immediate-child filter goes; a thumbnail cold miss uses one GET via `_get_with_etag` and `_last_get_etags` is deleted. Land before PUB-053's #201 executor
+- (either branch, absorbed 2026-09-27) Library router ([#275](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/275)): delete the unreachable legacy cursor listing (keep accepting and ignoring `cursor`, it is endpoint contract); one prefix resolver shared by router and storage, and one `resolve_storage_paths(root, archive, keep, remove)` shared by `config/loader.py` and `config/source.py` (they disagree today on already-rooted prefixes); public `object_key(folder, name)` and `sidecar_name(filename)`; the router calls storage-owned object+sidecar delete and move instead of rebuilding them
+
 **Out of scope:**
 - Config model consolidation beyond the Dropbox fields (PUB-057)
 
@@ -47,6 +50,9 @@ Per the #178 decision, either the backend, its config and credential types, the 
 - AC5 (keeping): Given `WebImageService`, when constructed with a Dropbox backend, then `object_storage` is `None` and the library routes answer 503 with a clear message
 - AC6: Given #113, when this item ships, then it is closed with the evidence
 - AC7: Given this item ships, when its implementing PRs merge, then #205, #178 (the recorded decision) and #172 (`get_temporary_link`'s pointless retry and thread hop, removed or moved behind a capability in step 3) are closed with `Closes #N` in the PR body, alongside #113 (AC6)
+- AC8: Given `ManagedStorage`, when a fake client raises a connection error from any method, then it surfaces as `StorageError`; one copy+delete implementation exists; a thumbnail cold miss bills one GET and no HEAD
+- AC9: Given `web/routers/library.py`, when it is searched, then it builds no object key or sidecar name by hand; a library delete bills at most two storage ops; `GET /api/library` with `cursor` still answers 200; standalone and orchestrated storage-path resolution share one function with one set of defaults
+- AC10: Given this item ships, when its implementing PRs merge, then [#274](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/274) and [#275](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/275) are closed with `Closes #N` in the PR body
 
 ## Implementation Notes
 
@@ -68,7 +74,9 @@ Per the #178 decision, either the backend, its config and credential types, the 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#205](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/205), [#178](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/178); closes [#113](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/113)
 - [PUB-015: Cloud Storage Adapter (Dropbox)](archive/PUB-015_cloud-storage-dropbox.md), [PUB-023: Storage Protocol Extraction](archive/PUB-023_storage-protocol-extraction.md), [PUB-024: Managed Storage Adapter](archive/PUB-024_managed-storage-adapter.md), [PUB-031: Managed Storage Migration & Admin Library](archive/PUB-031_managed-storage-migration-admin-library.md)
 - [#172](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/172) is closed by this item
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): [#274](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/274) and [#275](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/275) absorbed (Scope, AC8-AC10)
 
 ## Change Log
 
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.
+- 2026-09-27 — Absorbed #274 (ManagedStorage wrappers, copy+delete, thumbnail HEAD) and #275 (library router re-implementing storage; storage-path resolution in two config loaders) from the DRY review (#291); added AC8-AC10.

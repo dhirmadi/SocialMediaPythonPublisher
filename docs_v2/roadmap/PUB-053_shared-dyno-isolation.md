@@ -39,6 +39,11 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 
 - Library move: the missing move rate limit comes with #198; the per-move full listing invalidation (one storage LIST per move, #170) is replaced by a targeted invalidation of the source and destination entries
 
+**In scope (absorbed 2026-09-27 from the DRY review, [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291)):**
+- Before the #196 negative cache and single-flight: one generic `TTLCache[K, V]` replaces `config/runtime_cache.py` and `config/credential_cache.py` (and the tenant factory's `OrderedDict` LRU+TTL if it fits); write-only `CacheStats` counters and `mark_stale_served()` are dropped or actually exposed ([#289](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/289))
+- Credential resolution in `config/source.py`: a discriminated-union `TypeAdapter` replaces the `provider` if-chain; the cache is keyed by `(tenant, ref)` and the unbounded `_cred_latest_version` map is deleted; `get_credentials` returns the typed model, so the five `model_validate(model_dump())` round-trips go ([#289](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/289))
+- #201's dedicated storage executor lands after PUB-056's single `ManagedStorage` call helper ([#274](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/274)), so it is a one-line change instead of fourteen
+
 **Out of scope:**
 - Posted-state tenancy and dedup (PUB-054)
 - CI gates (PUB-055)
@@ -55,6 +60,7 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 - AC7: Given each of the nine small items, when its PR merges, then its named test passes through the real object and #168 is closed by the `head_object` PR
 - AC8: Given the cookie-purpose key version is bumped, when a stored Instagram session is read, then it is still decrypted and re-encrypted under the derived key
 - AC9: Given this item ships, when its implementing PRs merge, then each closes its issue with `Closes #N` in the PR body: #196, #197, #198, #201, #202, #203, #169 and #170, plus #168 through the `head_object` item of #202 (PUB-063 fixes only the web write guards and does not close #168)
+- AC10: Given `config/` and `web/tenant_factory.py`, when they are searched, then one TTL-cache implementation serves runtime config and credentials, `_cred_latest_version` does not exist, and no caller validates a `get_credentials` result back into its model; the implementing PR closes [#289](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/289) with `Closes #289`
 
 ## Implementation Notes
 
@@ -79,7 +85,9 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 - [PUB-018: Thumbnail Preview Optimization](archive/PUB-018_thumbnail-preview.md), [PUB-022: Orchestrator Schema V2 Integration](archive/PUB-022_orchestrator-schema-v2.md)
 - Prior fixes #77 (forwarded IP), #86 (tenant-safe thumbnail cache), #140 (thumbnail HEAD)
 - [#170](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/170) and [#169](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/169) are closed by this item (see the issue-closing AC)
+- 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): [#289](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/289) absorbed (Scope, AC10). [#273](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/273) (Instagram tenant always `"default"`, so `DbSessionStore` rows are shared across tenants) is a standalone bug but touches the same sessions #203 re-keys — land it first or together
 
 ## Change Log
 
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.
+- 2026-09-27 — Absorbed #289 (two near-identical LRU+TTL caches; credential model_dump round-trip and unbounded version map) from the DRY review (#291) as a prerequisite of #196; added AC10; noted #274 ordering before #201 and #273's overlap with #203.

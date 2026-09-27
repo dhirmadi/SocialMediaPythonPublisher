@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Absorbed by PUB-060 |
 | **Dependencies** | PUB-065 (merged, #235) |
 
 ## Problem

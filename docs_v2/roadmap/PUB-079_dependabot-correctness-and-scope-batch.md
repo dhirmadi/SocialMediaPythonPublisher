@@ -95,13 +95,7 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
   existing `instagrapi` cap comment uses).
 - Extend the Dependabot config test to assert the `code_v1/` exclusion and the `instagrapi` `ignore`
   rule are present, so removing either fails CI.
-- Mutation-check every new guard test per PUB-074 (now folded into this item): show the test red
-  before the fix, green after — reading the matcher is not evidence, and this exact class of guard
-  (a test asserting an absence) is the one PUB-066 shipped two vacuous instances of.
-- **Prep step (from PUB-074):** before implementing the guard tests, update
-  `.claude/agents/code-reviewer.md` and `.claude/rules/testing.md` to require mutation proof for
-  regression-guard tests as a matter of course — so the review discipline is in place before the
-  guards in this item are written.
+- Mutation-check every new guard test: show the test red before the fix, green after — reading the matcher is not evidence, and this exact class of guard (a test asserting an absence) is the one PUB-066 shipped two vacuous instances of. (Convention from PUB-074, now absorbed here.)
 
 **Out of scope:**
 - Full CommonMark parsing for the requirements-guard; scanning unfenced prose for install
@@ -141,24 +135,21 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
 - AC8: Given the `pip` entry, when this item closes, then it is either removed (with PUB-055's AC5 and
   its groups-test amended in the same change, reason recorded as redundancy with `uv`) or kept with a
   comment naming what it covers that `uv` does not.
-- AC9: **Live verification.** Given the change merged, when Dependabot next runs (touch
-  `dependabot.yml` to force it), then no new PR targets `code_v1/`, none proposes `instagrapi` 3.x, and
-  no two PRs propose the same bump. Link the run.
-- AC10: Given the five PRs from Problem §3, when this item closes, then each is closed unmerged with a
-  one-line reason (or, if the config was still unscoped when Dependabot re-ran, their re-opened
-  equivalents are too).
-- AC11: Given `pyproject.toml`, when
+- AC9: Given `pyproject.toml`, when
   `test_packaging_metadata.py::test_requires_python_matches_the_tested_interpreter` runs, then
   `requires-python`'s ceiling matches the Python version CI and `[tool.ruff] target-version` use.
-- AC12: Given the `pydantic` constraint, when a reader opens `pyproject.toml`, then a comment records
+- AC10: Given the `pydantic` constraint, when a reader opens `pyproject.toml`, then a comment records
   that `instagrapi` pins `pydantic` exactly, names the version, and states that relaxing it requires
   the `instagrapi` major.
-- AC13: **Live verification.** Given the change merged, when the `uv` updater next runs (touch
-  `dependabot.yml` to force it), then it completes without `dependency_file_not_resolvable`. Link the
-  run.
-- AC14: Given the change, when `uv lock` and the full test suite run locally, then the lockfile
+- AC11: Given the change, when `uv lock` and the full test suite run locally, then the lockfile
   resolves and all tests pass on Python 3.12 — narrowing `requires-python` must not alter the
   installed set.
+
+## PR Checklist (verified after merge, not in CI)
+
+- Touch `dependabot.yml` to force a Dependabot run after merge. Verify: no new PR targets `code_v1/`, none proposes `instagrapi` 3.x, no two PRs propose the same bump, and the `uv` updater completes without `dependency_file_not_resolvable`. Link the run in the summary.
+- Close the five PRs from Problem §3 unmerged with a one-line reason each.
+- Mutation-check every new guard test: show the test red before the fix, green after.
 
 ## Implementation Notes
 
@@ -224,6 +215,7 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
 
 ## Change Log
 
+- 2026-09-27 — Roadmap review: trimmed from 14 ACs to 11; moved live-verification and PR-closing steps to a PR Checklist section (verified after merge, not spec-level ACs). Simplified PUB-074 prep step to a convention note.
 - 2026-09-27 — Folded PUB-074 (guard test mutation proof) into this item's prep step during roadmap
   review: its two doc-edit deliverables are now a prerequisite step here rather than a standalone
   roadmap item. PUB-074 moved to archive/ as Superseded.

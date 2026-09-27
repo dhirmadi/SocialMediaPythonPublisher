@@ -194,6 +194,16 @@ adjacent/deleted behavior — see "Tests to remove or repurpose" below.
 - [ ] No new runtime dependency.
 - [ ] Backward compatibility: `caption_similarity`'s event name is preserved (dashboards keep working); its field semantics change (documented above) — note this explicitly in the #193 PR body since it's a silent payload change under an unchanged event name.
 
+### Scope addition (2026-09-27, DRY review #291)
+
+The spec gained AC10 after this handoff was written. While rewriting the gate and the condense path, also:
+
+- drop the always-`None` `sd_caption` element from `create_multi_caption_pair_from_analysis`'s return and from `_apply_similarity_gate` (callers stop unpacking it);
+- delete `excluded_directives` and its `exclude` parameter;
+- route the three pasted overshoot blocks (`generate`, `generate_with_sd`, `_parse_platform_captions`) through one `_fit_to_length(caption, spec)` that always logs `event="caption_truncated"` (the existing `_truncate_and_log` is the natural base).
+
+Test-first target: a test asserting one overshoot helper and the `caption_truncated` event from each of the three callers. PR body says "Part of #280" and "Part of #281".
+
 ### Claude Code command
 
 ```text
