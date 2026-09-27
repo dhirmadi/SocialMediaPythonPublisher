@@ -286,6 +286,10 @@ requirements-audit.txt
 .claude/settings.local.json
 CLAUDE.local.md
 
+# Per-item worktrees created by `claude -w <name>` for /implement runs (each
+# gets its own branch + .venv; never commit the checkout itself).
+.claude/worktrees/
+
 # ----------------------------------------------------------------------------
 # OS and local scripts
 # ----------------------------------------------------------------------------
