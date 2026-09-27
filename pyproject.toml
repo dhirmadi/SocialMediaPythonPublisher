@@ -59,7 +59,10 @@ packages = ["publisher_v2/src/publisher_v2"]
 line-length = 120
 target-version = "py312"
 src = ["publisher_v2/src"]
-extend-exclude = ["code_v1", "docs_v1"]
+# Ruff 0.16 formats Python code blocks inside Markdown. Doc snippets are often
+# partial or pseudo-code and archived roadmap items record what was written at
+# the time, so keep ruff to real source files.
+extend-exclude = ["code_v1", "docs_v1", "*.md"]
 
 [tool.ruff.lint]
 select = [
