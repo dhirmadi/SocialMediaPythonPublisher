@@ -105,5 +105,6 @@ was found only by reintroducing the defect.
 
 ## Related
 
-- PUB-066 (#245) added the guard and logged both gaps; PUB-072 covers the separate question of
-  whether a declared Dependabot ecosystem has any manifest at all.
+- PUB-066 (#245) added the guard and logged both gaps.
+- PUB-072 covers the separate question of whether a declared Dependabot ecosystem has any manifest at
+  all; PUB-075 covers what that config declares and excludes.

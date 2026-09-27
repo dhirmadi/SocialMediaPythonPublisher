@@ -152,7 +152,8 @@ that first successful run, each now its own item:
 - Both ecosystems scan `code_v1/` — #254, #256 and #260 propose edits to `code_v1/requirements.txt`,
   an archived tree `CLAUDE.md` forbids editing. `directory: "/"` does not contain them. **PUB-075.**
 - `pip` and `uv` duplicate each other — #256/#260 are the identical configparser bump, #255/#258 both
-  target `instagrapi`. Empirical evidence for **PUB-072**'s redundancy question.
+  target `instagrapi`. That evidence moved the `pip` keep-or-drop decision into **PUB-075**, which
+  owns the config; **PUB-072** was rescoped to the manifest-availability test alone.
 - Two PRs (#255, #258) try to lift the deliberate `instagrapi>=2.6.9,<3` cap, which exists because
   3.x swaps the HTTP transport to curl-cffi. Needs an `ignore` rule. **PUB-075.**
 
