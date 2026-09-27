@@ -56,6 +56,12 @@ from publisher_v2.core.exceptions import (
 )
 from publisher_v2.utils.logging import log_json
 
+# Negative cache for hosts the orchestrator does not know (404) or that are not bound to
+# publisher_v2. Incident 2026-09-27: a bot scan of custom domains without a tenant turned every
+# request into an orchestrator lookup and exhausted its DB connections (TooManyConnectionsError).
+NEGATIVE_CACHE_TTL_SECONDS = 60
+NEGATIVE_CACHE_MAX_SIZE = 1024
+
 
 @dataclass(frozen=True, slots=True)
 class RuntimeConfig:
@@ -264,6 +270,7 @@ class OrchestratorConfigSource:
 
         max_runtime = int(os.environ.get("RUNTIME_CONFIG_CACHE_MAX_SIZE") or "1000")
         self._runtime_cache: RuntimeConfigCache[str, RuntimeConfig] = RuntimeConfigCache(max_size=max_runtime)
+        self._negative_cache: RuntimeConfigCache[str, bool] = RuntimeConfigCache(max_size=NEGATIVE_CACHE_MAX_SIZE)
 
         max_cred = int(os.environ.get("CREDENTIAL_CACHE_MAX_SIZE") or "5000")
         self._cred_cache: CredentialCache[tuple[str, str, str], CredentialPayload] = CredentialCache(max_size=max_cred)
@@ -313,6 +320,11 @@ class OrchestratorConfigSource:
         if cached and fresh:
             return cached
 
+        # Known-unknown host (see NEGATIVE_CACHE_TTL_SECONDS): answer without asking the orchestrator.
+        _, negative_fresh = self._negative_cache.get(h)
+        if negative_fresh:
+            raise TenantNotFoundError("Host is not a known publisher_v2 tenant")
+
         request_id = str(uuid.uuid4())
         try:
             payload = await self._client.get_runtime_by_host(h, request_id=request_id)
@@ -346,6 +358,8 @@ class OrchestratorConfigSource:
             self._runtime_cache.set(h, rc, ttl_seconds=runtime.ttl_seconds)
             return rc
         except TenantNotFoundError:
+            # Unknown (404) or unbound host: remember it briefly; transient errors are never cached.
+            self._negative_cache.set(h, True, ttl_seconds=NEGATIVE_CACHE_TTL_SECONDS)
             raise
         except UnsupportedSchemaError:
             # Permanent misconfiguration — surface as-is rather than masking it
