@@ -27,7 +27,10 @@ No dead or phantom fields. Platform limits and styles defined once, in the in-pa
 1. Delete the dead fields and the phantom key; make `vision_max_completion_tokens` a real `OpenAIConfig` field or delete the knob, and say which in the PR
 2. One source for limits and styles: the in-package YAML, loaded once by `static_loader`; delete `_MAX_LEN` and the Python defaults for `platform_captions` and `PlatformLimitsConfig`; grep-based ratchet test
 3. One `parse_bool` in `config/`; retire the other parsers; document the accepted truthy set once; alias table with a test if two variables genuinely need different sets
-4. `RuntimeSettings` injected everywhere; seven fallbacks and the import-time call removed; `web/dependencies.get_service()` receives the snapshot, including updating every `get_service.cache_clear()` site in the tests (closes #173)
+4. `RuntimeSettings` injected everywhere; seven fallbacks and the import-time call removed.
+   **Note (2026-09-27 roadmap review):** the `get_service()` refactor and ~33 `cache_clear()` test
+   sites are deferred to PUB-059, which deletes `get_service` entirely — doing the refactor here
+   creates throwaway intermediate work. #173 is closed by PUB-059 instead.
 5. `OrchestratorConfigV2` generated from `ApplicationConfig` (or one shared schema); orchestrator contract PR first
 6. Precedence table in `docs_v2/05_Configuration/CONFIGURATION.md`; INI paragraphs deleted; test that every `ApplicationConfig` leaf field has a row
 
@@ -43,7 +46,7 @@ No dead or phantom fields. Platform limits and styles defined once, in the in-pa
 - AC4: Given a request or publish path, when `load_runtime_settings` is patched to raise, then nothing calls it (the existing `test_no_settings_reload_on_request_or_publish_paths` guard extended to lifespan-only)
 - AC5: Given the orchestrator schema, when it changes a field, then `_build_app_config_v2` needs no hand edit because the mapping is generated; the orchestrator contract PR is merged and linked
 - AC6: Given `ApplicationConfig`, when its leaf fields are enumerated, then each appears in the precedence table with env, orchestrator, static and default columns
-- AC7: Given the app's `RuntimeSettings` snapshot, when the `get_service()` dependency returns the `WebImageService`, then that service carries the same instance (identity, not equality), and the injection guard in `test_runtime_settings_injection.py` covers `web/dependencies.py` (#173)
+- AC7: ~~Given the app's `RuntimeSettings` snapshot, when the `get_service()` dependency returns the `WebImageService`, then that service carries the same instance (identity, not equality), and the injection guard in `test_runtime_settings_injection.py` covers `web/dependencies.py` (#173)~~ — **Deferred to PUB-059** (roadmap review 2026-09-27): `get_service` is deleted there, not refactored here.
 
 ## Implementation Notes
 

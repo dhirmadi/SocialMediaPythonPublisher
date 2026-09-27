@@ -72,7 +72,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](archive/PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Done |
 | PUB-051 | AI | [Caption Prompt and Register Repair](archive/PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Done |
 | PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
-| PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | M | PUB-047 | Proposal |
+| PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | L | PUB-047 | Proposal |
 | PUB-054 | Foundation | [Publish State Integrity](PUB-054_publish-state-integrity.md) | P1 | M | PUB-047 | Proposal |
 | PUB-055 | Ops | [CI Security Gates](PUB-055_ci-security-gates.md) | P1 | S | — | Done |
 | PUB-056 | Storage | [Dropbox Removal or Storage Typing](PUB-056_dropbox-removal-or-typing.md) | P1 | M | PUB-047, PUB-053 | Proposal |
@@ -92,13 +92,13 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-071 | Ops | [Triage the `openai` 3.x Major Upgrade](PUB-071_triage-openai-3x.md) | P3 | M | PUB-065 | Proposal |
 | PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](archive/PUB-072_dependabot-ecosystem-manifest-check.md) | P2 | XS | PUB-055, PUB-066 | Superseded by PUB-079 |
 | PUB-073 | Ops | [Close the Requirements-Guard's Two Known Blind Spots](archive/PUB-073_requirements-guard-completeness.md) | P2 | XS | PUB-066 | Superseded by PUB-079 |
-| PUB-074 | Foundation | [Require Mutation Proof for Regression-Guard Tests in Review](PUB-074_guard-tests-must-be-proven-to-fail.md) | P1 | XS | — | Proposal |
+| PUB-074 | Foundation | [Require Mutation Proof for Regression-Guard Tests in Review](archive/PUB-074_guard-tests-must-be-proven-to-fail.md) | P1 | XS | — | Superseded by PUB-079 |
 | PUB-075 | Ops | [Scope Dependabot to the Dependencies We Actually Maintain](archive/PUB-075_dependabot-scope-to-live-tree.md) | P1 | S | PUB-066 | Superseded by PUB-079 |
 | PUB-076 | Ops | [The `uv` Updater Cannot Resolve — `instagrapi` Pins `pydantic` Exactly](archive/PUB-076_uv-resolution-instagrapi-pydantic.md) | P1 | S | PUB-066 | Superseded by PUB-079 |
 | PUB-077 | Ops | [Fit the DB Connection Pool into the Shared 20-Connection Postgres](PUB-077_db-pool-budget.md) | P1 | S | PUB-047 | Proposal |
 | PUB-078 | Ops | [CI Security-Gate Cleanup Batch](PUB-078_ci-security-gate-cleanup-batch.md) | P2 | S | PUB-055 | Proposal |
 | PUB-079 | Ops | [Dependabot Correctness and Scope Batch](PUB-079_dependabot-correctness-and-scope-batch.md) | P1 | M | PUB-055, PUB-066 | Proposal |
-| PUB-080 | AI | [Re-baseline the Caption Eval From Live Output](PUB-080_caption-eval-live-baseline.md) | P1 | S | PUB-049, PUB-051 | Proposal |
+| PUB-080 | AI | [Re-baseline the Caption Eval From Live Output](archive/PUB-080_caption-eval-live-baseline.md) | P1 | S | PUB-049, PUB-051 | Done |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
@@ -134,7 +134,7 @@ parallel with each other. The trailing item has no rush and blocks nothing.
 | 1 (solo) | [PUB-063](PUB-063_head-object-fail-open.md) | `head_object` fail-open write guards | P1 | S | Active data-loss risk today: a transient 403/503 reads as "object absent" and an upload/move guard overwrites or destroys an existing image. Cheapest, highest-urgency fix in the whole roadmap. |
 | 2 (solo) | [PUB-074](PUB-074_guard-tests-must-be-proven-to-fail.md) | Mutation proof for regression-guard tests | P1 | XS | Docs/agent-instructions only — zero src or test overlap with anything else here. Land it early so every guard test written in the lanes below is held to the "proven to fail" bar from day one. |
 | 3 (solo) | [PUB-070](PUB-070_starlette-testclient-cookie-migration.md) | Migrate off `TestClient` per-request `cookies=` | P2 | S | Test-suite only. The negative auth assertions (`require_admin` returns 401/403) are what stands between an anonymous request and the admin API; fix the ambiguity before starlette resolves it for you. |
-| 4 (solo, internally parallel) | [PUB-053](PUB-053_shared-dyno-isolation.md) | Shared-dyno isolation (host lookups, thumbnails, rate limits, executors, keys) | P1 | M | The largest security batch: cross-tenant amplification, decode bombs, shared rate-limit buckets, hung Instagram threads starving storage, per-purpose key derivation. Already decomposed into 6 sub-issues (#196-#203) that are themselves parallelizable across engineers/agents. Closes #168-#170 too. |
+| 4 (solo, internally parallel) | [PUB-053](PUB-053_shared-dyno-isolation.md) | Shared-dyno isolation (host lookups, thumbnails, rate limits, executors, keys) | P1 | L | The largest security batch: cross-tenant amplification, decode bombs, shared rate-limit buckets, hung Instagram threads starving storage, per-purpose key derivation. Already decomposed into 6 sub-issues (#196-#203) that are themselves parallelizable across engineers/agents. Closes #168-#170 too. |
 | 5 (batch, shares a file with lane 6) | [PUB-078](PUB-078_ci-security-gate-cleanup-batch.md) | CI security-gate cleanup (SHA-pin `code-quality.yml`, bandit's alembic gap, pip-audit version drift) | P2 | S | Three XS/S fixes finishing what PUB-055 started, all touching the same SHA-pin helper in `test_ci_security_gates.py` — one spec instead of three. Closes #204's last open criterion. |
 | 6 (batch, shares a file with lane 5) | [PUB-079](PUB-079_dependabot-correctness-and-scope-batch.md) | Dependabot correctness and scope (manifest check, requirements-guard gaps, live-tree scoping, `uv`/`pydantic` resolution) | P1 | M | Four fixes surfaced by the same PUB-066 live run, all editing `.github/dependabot.yml` and/or `test_ci_security_gates.py` — one spec instead of four. Directly unblocks `pydantic` security patches and kills PR-queue noise that could hide a real advisory. |
 | trailing (no rush) | [PUB-071](PUB-071_triage-openai-3x.md) | Triage the `openai` 3.x major | P3 | M | No advisory forces this; a deliberate hold with mypy friction. Doesn't block or get blocked by anything above — pick it up whenever. |

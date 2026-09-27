@@ -95,9 +95,13 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
   existing `instagrapi` cap comment uses).
 - Extend the Dependabot config test to assert the `code_v1/` exclusion and the `instagrapi` `ignore`
   rule are present, so removing either fails CI.
-- Mutation-check every new guard test per PUB-074 (already merged): show the test red before the fix,
-  green after — reading the matcher is not evidence, and this exact class of guard (a test asserting
-  an absence) is the one PUB-066 shipped two vacuous instances of.
+- Mutation-check every new guard test per PUB-074 (now folded into this item): show the test red
+  before the fix, green after — reading the matcher is not evidence, and this exact class of guard
+  (a test asserting an absence) is the one PUB-066 shipped two vacuous instances of.
+- **Prep step (from PUB-074):** before implementing the guard tests, update
+  `.claude/agents/code-reviewer.md` and `.claude/rules/testing.md` to require mutation proof for
+  regression-guard tests as a matter of course — so the review discipline is in place before the
+  guards in this item are written.
 
 **Out of scope:**
 - Full CommonMark parsing for the requirements-guard; scanning unfenced prose for install
@@ -206,7 +210,8 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
 - PUB-055 (#236) introduced `.github/dependabot.yml` and its presence-only test.
 - PUB-066 (#245, #253) unblocked the Python updaters and is the worked example behind every defect in
   this item.
-- PUB-074 is the mutation-proof requirement AC2 and the other guard-test ACs invoke.
+- PUB-074 is the mutation-proof requirement AC2 and the other guard-test ACs invoke — now folded
+  into this item (see [archive/PUB-074](archive/PUB-074_guard-tests-must-be-proven-to-fail.md)).
 - Supersedes [PUB-072](archive/PUB-072_dependabot-ecosystem-manifest-check.md),
   [PUB-073](archive/PUB-073_requirements-guard-completeness.md),
   [PUB-075](archive/PUB-075_dependabot-scope-to-live-tree.md),
@@ -219,6 +224,9 @@ open. The `uv` updater completes without a resolution error, and a `pydantic` ad
 
 ## Change Log
 
+- 2026-09-27 — Folded PUB-074 (guard test mutation proof) into this item's prep step during roadmap
+  review: its two doc-edit deliverables are now a prerequisite step here rather than a standalone
+  roadmap item. PUB-074 moved to archive/ as Superseded.
 - 2026-09-27 — Created by merging PUB-072, PUB-073, PUB-075 and PUB-076 at the user's request to
   reduce the number of separately-tracked security roadmap items (12 → fewer, grouped by shared
   file/tooling).
