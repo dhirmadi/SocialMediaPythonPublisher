@@ -80,4 +80,5 @@ A `RunState` dataclass and seven stages (Select, Analyze, Caption, Sidecar, Leas
 
 ## Change Log
 
+- 2026-09-27 — Roadmap review: noted that line numbers and PUB-051 sidecar-preservation detail in Problem/Scope are implementation guidance that should be re-verified in the handoff, not hardcoded in the spec — they drift as prior items land.
 - 2026-09-27 — Folded in #207 and #208: added the `RunState` field list, the `finally` contents, the web stage mapping, the `config/exceptions.py` move with a one-release re-export, constructor-injected protocols in `services/*_protocol.py`, the ratchet rule, the docs deliverables (rules file, `ARCHITECTURE.md`, ADR), AC7-AC10, ordering and verification. Refreshed numbers from an AST audit at `main` 949b2d1 (`execute` 766 lines, `_select_image` 171, `_analyze_and_caption_impl` 275, `config/` imports `core.exceptions` in 5 files) and recorded PUB-051's additions to `execute` that the extraction must preserve.

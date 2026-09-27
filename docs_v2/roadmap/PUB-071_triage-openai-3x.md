@@ -6,7 +6,7 @@
 | **Category** | Ops |
 | **Priority** | P3 |
 | **Effort** | M |
-| **Status** | Proposal |
+| **Status** | Deferred |
 | **Dependencies** | PUB-065 (merged, #235) |
 
 ## Problem

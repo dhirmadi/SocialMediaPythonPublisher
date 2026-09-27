@@ -8,6 +8,7 @@
 | **Effort** | M |
 | **Status** | Proposal |
 | **Dependencies** | PUB-059 |
+| **Absorbs** | PUB-070 (Starlette TestClient cookie migration — test-suite change, same domain) |
 
 ## User Story
 
@@ -27,6 +28,7 @@ No allow-list test can grow; no test asserts on prompt wording; no test lacks an
 - Allow-list tests converted to ratchets (pinned sets may only shrink)
 - `web_integration/` folded into `web/`; top-level tests grouped into `ai/`, `workflow/`, `storage/`, `config/` packages by `git mv` (no content change)
 - `test_web_service_coverage.py` replaced by behaviour tests for the same paths, or deleted once PUB-058 covers them
+- **(From PUB-070)** Migrate off `TestClient`'s per-request `cookies=` kwarg: 83 deprecation warnings across `test_library_api.py` and `test_library_sort_filter.py`. Switch to client-level cookies or a fresh client per request (the pattern `conftest.py:154` already uses for uploads). Confirm the negative auth assertions (`require_admin` returns 401/403) still fail when the guard is stubbed out — a mutation check, per PUB-055's convention
 - The 59 wording tests rewritten to structural assertions (message count, directive count, example block present or absent, JSON keys). PUB-051 (Done) started this: its new tests assert structure and the web fake routes on call shape instead of the `"sd_caption"` substring. The wording assertions still in `test_ai_prompt_payload.py` and the other three files remain this item's work
 - Six no-assert tests given an assertion or deleted: `test_storage_ops_meter.py:77`, `test_scripts_heroku_hetzner_clone.py:670`, `test_storage_error_paths.py:214`, `config/test_loader_env_helpers.py:124, 133`, `web/test_publishers_endpoint.py:10` (a fixture named `test_client`; line numbers from #211)
 - `conftest.py`: `minimal_ini_content` fixture and the `AUTH0_AUTHORIZED_EMAILS` clear removed; the import-time dotenv rebind removed, keeping the per-test one
@@ -67,6 +69,8 @@ No allow-list test can grow; no test asserts on prompt wording; no test lacks an
 - AC8: Given the suite, when run three times with random seeds, then it passes each time
 - AC9: Given each test PR, when its pass count is compared with `main`, then it is the same minus the deliberate deletions listed in that PR body
 - AC10: Given `.pre-commit-config.yaml`, when it is read, then exactly one docstring linter (ruff `D`) runs, covering every file including the PEP 695 modules; and `CLAUDE.md`'s and `AGENTS.md`'s hook lists match the config
+- AC14 (from PUB-070): Given `uv run pytest -q`, then no `DeprecationWarning` from `starlette/testclient.py` about per-request cookies is emitted
+- AC15 (from PUB-070): Given `require_admin` neutered, when the negative auth tests run, then they fail — mutation check recorded in the summary, per PUB-055 convention
 - AC11: Given a deliberately broken docstring in `config/runtime_cache.py`, when the pre-commit hooks run, then the run fails
 - AC12: Given the #212 list above, when the doc PRs are merged, then every listed line is corrected or deleted
 - AC13: Given `--preview` output, when it is read, then it does not claim to read a config file; and `scripts/migrate_features.py` has no `normalize_name`, no docstring describes shipped work as forthcoming (`config/source.py`), and the `CurationResponse.action` comment matches the three values or is gone
@@ -94,8 +98,10 @@ No allow-list test can grow; no test asserts on prompt wording; no test lacks an
 
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#211](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/211), [#212](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/212); closes [#176](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/176) and [#175](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/175). #211, #212, #176 and #175 were folded into this spec on 2026-09-27 and are tracked here
 - PUB-051 (Done) started the wording-test rewrite; PUB-057 deletes the dead `WebConfig` fields behind contradictions 10 and 13; PUB-058 rewrites the layering and orchestration docs behind contradictions 4 and 6
+- [PUB-070](archive/PUB-070_starlette-testclient-cookie-migration.md) — absorbed into this item (2026-09-27 roadmap review); parent tracker [#243](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/243)
 - Prior fixes #135 (order-independent suite), #141 (coverage gate), #145 (docs drift), #167 (docstrings)
 
 ## Change Log
 
+- 2026-09-27 — Absorbed PUB-070 (Starlette TestClient cookie migration) — same domain (test-suite hygiene), same priority (P2). Added its scope as a bullet, its ACs as AC14/AC15. PUB-070 moved to archive/ as Absorbed.
 - 2026-09-27 — Folded in #211, #212, #176 and #175 so they can close as "tracked in PUB-060". Added from #211: the repo-state and wording-test file lists, the four test packages, the structural-assertion kinds, the six no-assert test locations, "keep the per-test dotenv rebind", the ordering after PUB-059, and the pass-count gate (AC9). Added from #212: the fourteen contradictions, re-checked at `main` `949b2d1` (moved lines updated: `CONFIGURATION.md` INI lines, `ARCHITECTURE.md:216`, `schema.py:376`, `web-security.md:14`), the grep test landing with the first doc PR, and AC12 (every listed line corrected). Added from #176: the ruff parity check, the exclude-comment and hook-list updates (including `AGENTS.md:28`, which #176 did not name), AC10 and AC11. Added #175's four stale comments and labels as a docs-in-code bullet with AC13. Recorded that PUB-051 (Done) has started the wording-test rewrite.

@@ -56,13 +56,7 @@ No dead or phantom fields. Platform limits and styles defined once, in the in-pa
 - Tracker position: Phase 4, order 02 in #177.
 - Test first, per step: a failing test that names the duplication (for example `test_platform_limits_defined_once`, `test_no_load_runtime_settings_outside_lifespan`, `test_every_config_field_has_precedence_row`), with the real-loader tests left unchanged.
 - #173 test: extend `test_runtime_settings_injection.py` in the shape `TestCacheMissDoesNotReparseTheEnvironment` already uses for the tenant path. `get_service()` is a zero-argument `lru_cache(maxsize=1)` singleton (`web/dependencies.py:15`), so the signature change touches the ~33 `get_service.cache_clear()` sites in the tests; that is the work.
-- Code facts at the 2026-09-27 audit (the line numbers in Problem are from #206 and have drifted):
-  - Dead `WebConfig` fields at `config/schema.py:391,395,407` (the `auth_*` block and `admin_cookie_ttl_seconds`); `InstagramConfig.session_file` at `:222`.
-  - The phantom read is now `services/ai.py:416`: `getattr(config, "vision_max_completion_tokens", 1024)`.
-  - `_MAX_LEN` is at `utils/captions.py:54`; the Python style/limit defaults are `static_loader.py:156-172` (`platform_captions`) and `PlatformLimitsConfig` at `:210`.
-  - Bool parsers: `config/loader.py:452` `parse_bool_env`, `config/runtime_settings.py:45` `_bool_env`, inline sets at `web/auth.py:56, 61, 234` and `web/app.py:87, 314` (`web/app.py:87` omits `"on"`).
-  - The `rate_limit.py` "do not unify" comment cited by #206 no longer exists; step 3 still needs the alias table only if two variables genuinely need different sets.
-  - `load_runtime_settings()` call sites: `app.py:73`, `web/app.py:101, 113, 326` (`:326` at import), `web/settings.py:52`, and the constructor fallbacks in `core/workflow.py:116`, `web/service.py:231`, `services/ai.py:1707`, `services/managed_storage.py:122`, `db/caption_store.py:35`, `db/publish_store.py:92`.
+- **Code facts**: line numbers from the 2026-09-27 audit are in the Problem section and #206. They will drift as prior items land — the handoff doc should re-verify locations at implementation time, not rely on these numbers.
 - Verification:
 
 ```bash
@@ -91,4 +85,5 @@ WEB_SESSION_SECRET=x uv run pytest -q -p no:cacheprovider
 
 ## Change Log
 
+- 2026-09-27: Roadmap review — moved detailed code-facts (line numbers) from Implementation Notes to a handoff-time concern; they drift with each prior item landing.
 - 2026-09-27: Folded GitHub #206/#173 in full; added: "say which" decision for `vision_max_completion_tokens`; YAML loaded once by `static_loader` and the named Python defaults (`platform_captions`, `PlatformLimitsConfig`); `parse_bool` located in `config/` with the truthy set documented once; `get_service.cache_clear()` test-site work; `CONFIGURATION.md` path; AC7 (#173 snapshot identity and guard coverage of `web/dependencies.py`); test-first names; tracker position; verification commands; 2026-09-27 code facts.
