@@ -1,11 +1,11 @@
-# PUB-075: Stop Dependabot Proposing Updates to the Archived Tree and to Capped Majors
+# PUB-075: Scope Dependabot to the Dependencies We Actually Maintain
 
 | Field | Value |
 |-------|-------|
 | **ID** | PUB-075 |
 | **Category** | Ops |
 | **Priority** | P1 |
-| **Effort** | XS |
+| **Effort** | S |
 | **Status** | Proposal |
 | **Dependencies** | PUB-066 |
 
@@ -39,6 +39,14 @@ mocked tests cannot verify, and the major bump is its own piece of work.
 [#258](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/258) (`uv`, 3.0.13) both try to
 lift it. Without an `ignore` rule they will return every week.
 
+**Duplicated ecosystems.** The same run showed `pip` and `uv` proposing the same work twice:
+#256/#260 are byte-identical `configparser` bumps, and #255/#258 both target `instagrapi`. PUB-055's
+AC5 mandated the `pip` entry before anyone knew how the two would interact; the config's own comment
+says `pip` "rarely has a bump to propose on its own" because every direct dependency is a bare `>=`.
+So its observed contribution is duplicates plus the `code_v1/` noise above. Deciding its fate belongs
+here, with the config, rather than in PUB-072 where it was first drafted — PUB-072 is now just the
+manifest-availability test.
+
 ## Desired Outcome
 
 Dependabot opens no PR against `code_v1/`, and none that lifts the `instagrapi` major cap, while
@@ -55,10 +63,15 @@ still updating everything in the live tree.
 - Close the five PRs above unmerged, noting why.
 - Extend the Dependabot config test to assert both rules are present, so removing them fails CI.
 
+- **Decide the `pip` entry's fate** (moved here from PUB-072). Either drop it as duplicative of `uv`,
+  which amends PUB-055's AC5 and `test_dependabot_config_groups_weekly_pip_and_actions_updates` in the
+  same change, or keep it with a recorded statement of what it covers that `uv` does not. Do not leave
+  it undecided: every week it stays, it re-opens duplicates.
+
 **Out of scope:**
 - Deleting `code_v1/requirements.txt`. The archived tree is kept as-is deliberately; scoping the
   updater is the fix, not editing the archive.
-- Whether the `pip` entry should exist at all — PUB-072. This item must work whichever way that goes.
+- The manifest-availability test — PUB-072.
 - Lifting the `instagrapi` cap. That is its own piece of work, as `pyproject.toml` says.
 
 ## Acceptance Criteria
@@ -71,11 +84,16 @@ still updating everything in the live tree.
   then it asserts an `ignore` entry for `instagrapi` covering `version-update:semver-major`.
 - AC3: Given the `instagrapi` `ignore` entry, when a reader opens it, then a comment cites
   `pyproject.toml`'s `<3` cap and its reason, so the two cannot silently diverge.
-- AC4: **Live verification.** Given the change merged, when Dependabot next runs (touch
+- AC4: Given the `pip` entry, when this item closes, then it is either removed — with PUB-055's AC5
+  and `test_dependabot_config_groups_weekly_pip_and_actions_updates` amended in the same change and
+  the reason recorded as redundancy with `uv`, not unreadability (`pip` reads PEP 621
+  `pyproject.toml`) — or kept, with a comment naming what it covers that `uv` does not.
+- AC5: **Live verification.** Given the change merged, when Dependabot next runs (touch
   `dependabot.yml` to force it — a manifest change alone does not), then no new PR targets
-  `code_v1/` and none proposes `instagrapi` 3.x. Link the run.
-- AC5: Given the five PRs listed in Problem, when this item closes, then each is closed unmerged with
-  a one-line reason.
+  `code_v1/`, none proposes `instagrapi` 3.x, and no two PRs propose the same bump. Link the run.
+- AC6: Given the five PRs listed in Problem, when this item closes, then each is closed unmerged with
+  a one-line reason. (All five were closed on 2026-09-27; if the config is still unscoped, Dependabot
+  will have re-opened equivalents, and those count too.)
 
 ## Implementation Notes
 
@@ -102,4 +120,5 @@ outside. Confirm with a real run before closing.
 ## Related
 
 - PUB-066 (#245, #253) unblocked the updaters and surfaced all of this on the first successful run.
-- PUB-072 covers the overlapping-ecosystem question that #256/#260 and #255/#258 demonstrate.
+- PUB-072 was rescoped to the manifest-availability test alone; the `pip` keep-or-drop decision it
+  originally carried now lives here, with the evidence.

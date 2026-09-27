@@ -90,10 +90,10 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-069 | Ops | [Single Source of Truth for the pip-audit Version Pin](PUB-069_pip-audit-version-single-source.md) | P3 | XS | PUB-055 | Proposal |
 | PUB-070 | Foundation | [Migrate Off `TestClient`'s Per-Request `cookies=`](PUB-070_starlette-testclient-cookie-migration.md) | P2 | S | PUB-065 | Proposal |
 | PUB-071 | Ops | [Triage the `openai` 3.x Major Upgrade](PUB-071_triage-openai-3x.md) | P3 | M | PUB-065 | Proposal |
-| PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](PUB-072_dependabot-ecosystem-manifest-check.md) | P1 | S | PUB-055, PUB-066 | Proposal |
+| PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](PUB-072_dependabot-ecosystem-manifest-check.md) | P2 | XS | PUB-055, PUB-066 | Proposal |
 | PUB-073 | Ops | [Close the Requirements-Guard's Two Known Blind Spots](PUB-073_requirements-guard-completeness.md) | P2 | XS | PUB-066 | Proposal |
 | PUB-074 | Foundation | [Require Mutation Proof for Regression-Guard Tests in Review](PUB-074_guard-tests-must-be-proven-to-fail.md) | P1 | XS | — | Proposal |
-| PUB-075 | Ops | [Stop Dependabot Proposing Updates to the Archived Tree and to Capped Majors](PUB-075_dependabot-scope-to-live-tree.md) | P1 | XS | PUB-066 | Proposal |
+| PUB-075 | Ops | [Scope Dependabot to the Dependencies We Actually Maintain](PUB-075_dependabot-scope-to-live-tree.md) | P1 | S | PUB-066 | Proposal |
 | PUB-076 | Ops | [The `uv` Updater Cannot Resolve — `instagrapi` Pins `pydantic` Exactly](PUB-076_uv-resolution-instagrapi-pydantic.md) | P1 | S | PUB-066 | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
