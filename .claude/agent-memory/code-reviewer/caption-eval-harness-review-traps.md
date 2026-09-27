@@ -36,3 +36,12 @@ Traps found reviewing PUB-049 (caption evaluation harness, 2026-09-22):
 **Why:** these are the non-obvious findings behind the PUB-049 review.
 **How to apply:** on any diff touching `caption_eval.py`, `caption_metrics.py`, the caption
 fixtures, or a scheduled workflow that opens PRs, check these first.
+
+PUB-080 (2026-09-27, live re-baseline; reviewed while it was still numbered PUB-078): bars = worst-of-5 live runs +/-10% (owner decision, not
+#234's mean). `baseline_runs/run*.json` are the evidence; `test_committed_thresholds_admit_every_recorded_baseline_run`
+catches a thresholds file regenerated from fewer runs (mutation-proven). Rescore recipe: load
+`scripts/caption_eval.py` via importlib, `score_snapshot` each run, compare
+`generate_thresholds(worst_scores(tables))` to the committed file. Trap seen: **roadmap ID
+collision** — a parallel session had an untracked `PUB-078_ci-security-gate-cleanup-batch.md` in
+the main checkout while this branch used PUB-078 too. On parallel-worktree reviews, `ls
+docs_v2/roadmap/` in the main checkout (read-only) for the item's ID.
