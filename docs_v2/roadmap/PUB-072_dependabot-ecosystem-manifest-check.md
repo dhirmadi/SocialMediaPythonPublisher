@@ -43,6 +43,18 @@ readable manifest.** PUB-066 removed the only `pip` manifest in the tree (`requi
 and the suite did not blink — it happened to be safe because `pyproject.toml` remains, but nothing
 checked that.
 
+**The first successful run settles the redundancy question empirically (2026-09-27).** With both
+entries live, the two ecosystems proposed the same bumps twice:
+
+| Dependency | `pip` PR | `uv` PR |
+|------------|----------|---------|
+| `configparser` (in `code_v1/`) | [#256](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/256) | [#260](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/260) |
+| `instagrapi` | [#255](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/255) (widen to `<4`) | [#258](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/258) (3.0.13) |
+
+#256 and #260 are byte-identical proposals. So the `pip` entry is not inert — it is *duplicative*, and
+it also generates the `code_v1/` noise PUB-075 addresses. That is the concrete case for dropping it,
+and it is evidence rather than argument.
+
 ## Desired Outcome
 
 A test fails if any ecosystem declared in `.github/dependabot.yml` has no manifest of a type that

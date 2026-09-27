@@ -6,11 +6,18 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | XS |
-| **Status** | In Progress |
+| **Status** | Done |
 | **Dependencies** | PUB-055 (merged, #236) |
 
-> **Status note:** implementation is merged-ready (PR #245); AC3 — a live Dependabot `pip`/`uv`
-> run — is unverified, which is why this is `In Progress` rather than `Done`.
+> **Verified 2026-09-27.** PR [#245](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/245)
+> merged; [#253](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/253) then touched
+> `dependabot.yml` to force an immediate re-check. The `pip` updater
+> ([run 36314787005](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36314787005))
+> succeeded, and `uv`
+> ([run 36314786947](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36314786947))
+> reached dependency resolution and failed there with `dependency_file_not_resolvable` — a different
+> error class, which is what proves file fetching now works. Eight Python dependency PRs (#254-#261)
+> followed within three minutes.
 
 ## User Story
 
@@ -84,11 +91,13 @@ references a path that does not exist.
 - AC2: Given the repository after this change, when
   `publisher_v2/tests/test_requirements_files.py::test_the_docs_do_not_recommend_a_missing_requirements_file`
   runs, then no tracked Markdown file instructs installing from a `requirements*.txt` that is absent.
-- AC3: **Verification step, not a pytest AC.** Given this change merged to `main`, when Dependabot
-  next runs, then the `pip` and `uv` jobs both complete without a `dependency_file_not_found` error.
-  **Verification:** re-run from Insights → Dependency graph → Dependabot ("Check for updates"), or
-  wait for the weekly schedule; link the successful run in the delivery PR. If they still fail, stop
-  and apply the fallback in Risks rather than iterating blindly.
+- AC3: **Verification step, not a pytest AC. ✅ Met 2026-09-27.** Neither job reports
+  `dependency_file_not_found` any more. `pip` completed successfully; `uv` progressed past file
+  fetching and failed at `dependency_file_not_resolvable` on an unrelated version conflict
+  (`instagrapi` hard-pins `pydantic==2.13.4`), which is tracked separately as PUB-076. The Risks
+  fallback was not needed — the hypothesis held. Note the trigger: merging a manifest change does
+  **not** re-run Dependabot; only adding or updating `dependabot.yml` forces an immediate check,
+  which is what #253 did.
 
 ## Implementation Notes
 
@@ -111,7 +120,9 @@ should only consider tracked files, so an untracked local export does not fail t
 ## Success Metrics
 
 - A Dependabot PR for a Python dependency appears within one week of this merging — the metric
-  PUB-055 claimed but could not deliver.
+  PUB-055 claimed but could not deliver. **Met:** eight appeared within three minutes (#254-#261).
+  Three of them (#254, #256, #260) target `code_v1/requirements.txt`, revealing that both ecosystems
+  scan the archived tree — PUB-075.
 
 ## Related
 

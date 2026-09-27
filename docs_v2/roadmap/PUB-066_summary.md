@@ -1,6 +1,6 @@
 # PUB-066 — Unblock Dependabot's Python Updaters: Implementation Summary
 
-**Status:** Implementation Complete (AC3 pending live verification)
+**Status:** Done — all ACs met, AC3 verified live on 2026-09-27
 **Date:** 2026-09-26
 
 ## Files Changed
@@ -26,11 +26,19 @@ PUB-055's follow-up), `code_v1/`, `docs_v1/`.
       path (test: `test_no_requirements_file_references_a_missing_target`)
 - [x] AC2 — no tracked Markdown file instructs installing from an absent `requirements*.txt`
       (test: `test_the_docs_do_not_recommend_a_missing_requirements_file`)
-- [ ] AC3 — **pending live verification.** Not a pytest AC. Requires a Dependabot `pip` + `uv` run
-      after this merges to `main` (Insights → Dependency graph → Dependabot → "Check for updates");
-      link the successful run in the delivery PR. If `dependency_file_not_found` persists, stop and
-      apply the spec's Risks fallback (`exclude-paths`, or dropping the `pip` entry — the latter is
-      a PUB-055 spec amendment, not a config tweak) rather than iterating.
+- [x] AC3 — **verified live 2026-09-27.** Not a pytest AC. `pip`
+      ([run 36314787005](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36314787005))
+      succeeded; `uv`
+      ([run 36314786947](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36314786947))
+      reached dependency resolution and failed with `dependency_file_not_resolvable`, a different
+      error class from the `dependency_file_not_found` that blocked it — which is precisely what
+      proves file fetching recovered. The Risks fallback was not needed. The `uv` resolution conflict
+      (`instagrapi` pins `pydantic==2.13.4`) is PUB-076.
+
+      **Trigger mechanics, worth knowing:** merging #245 deleted a manifest but did not re-run
+      Dependabot. Only adding or updating `dependabot.yml` forces an immediate check, so #253 made a
+      (genuinely owed) comment correction there, and all three updaters fired seconds after it merged.
+      Otherwise the wait would have been until the Monday weekly schedule.
 
 Test names are verbatim from the handoff's Test-first targets table; no drift.
 
@@ -136,8 +144,21 @@ The exclusion is a prefix match on those two paths only and swallows no live pat
   committed again. A pinned export would still pass AC1, so this is not a Dependabot regression
   risk; adding the two filenames to `.gitignore` is a cheap follow-up, out of this item's scope.
 
-### Root cause remains a hypothesis
+### Verified outcome: eight Python dependency PRs
 
-Per the spec and handoff, the tests assert repository hygiene — they do **not** prove Dependabot
-recovered. Dependabot's file-fetch order is not observable from outside the runner. AC3 is what
-actually proves the fix.
+#254-#261 opened within three minutes of the trigger, against none before. Three findings came out of
+that first successful run, each now its own item:
+
+- Both ecosystems scan `code_v1/` — #254, #256 and #260 propose edits to `code_v1/requirements.txt`,
+  an archived tree `CLAUDE.md` forbids editing. `directory: "/"` does not contain them. **PUB-075.**
+- `pip` and `uv` duplicate each other — #256/#260 are the identical configparser bump, #255/#258 both
+  target `instagrapi`. Empirical evidence for **PUB-072**'s redundancy question.
+- Two PRs (#255, #258) try to lift the deliberate `instagrapi>=2.6.9,<3` cap, which exists because
+  3.x swaps the HTTP transport to curl-cffi. Needs an `ignore` rule. **PUB-075.**
+
+### The root cause was a hypothesis, and it held
+
+The spec deliberately labelled the root cause unproven: Dependabot's file-fetch order is not
+observable from outside the runner, so the tests assert repository hygiene rather than recovery. AC3
+settled it. The dangling `-r requirements.txt` in `requirements-dev.txt` was indeed what aborted both
+Python updaters, and removing it was sufficient.
