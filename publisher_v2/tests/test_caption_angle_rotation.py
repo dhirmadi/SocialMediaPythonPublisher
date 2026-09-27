@@ -46,11 +46,6 @@ from publisher_v2.db.caption_store import CaptionStore
 from publisher_v2.db.models import Base, CaptionHistory
 
 
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-
 @pytest.fixture
 async def session_factory():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)

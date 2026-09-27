@@ -9,7 +9,6 @@ from __future__ import annotations
 from io import BytesIO
 from typing import Any
 
-import pytest
 from conftest import BaseDummyStorage
 from PIL import Image
 
@@ -25,12 +24,6 @@ from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
-
-
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    """Keep posted-image dedup state out of the real user cache."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
 
 def _png_bytes(width: int = 2000, height: int = 1000) -> bytes:

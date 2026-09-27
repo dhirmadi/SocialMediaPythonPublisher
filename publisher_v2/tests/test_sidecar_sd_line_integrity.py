@@ -74,7 +74,6 @@ async def _workflow_run(
     """One real WorkflowOrchestrator publish of ``FILENAME`` over a pre-existing sidecar."""
     from publisher_v2.core.workflow import WorkflowOrchestrator
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     fake = FakeOpenAI(["telegram"]) if vision_sd else FakeOpenAI(["telegram"], vision_payload=_vision_without_sd)
     install_fake_openai(monkeypatch, fake)
     storage = SidecarStorage([FILENAME])

@@ -71,10 +71,6 @@ def make_config(archive: bool) -> ApplicationConfig:
 
 @pytest.mark.asyncio
 async def test_e2e_preview_then_live_sd_caption(monkeypatch: pytest.MonkeyPatch) -> None:
-    # Bypass dedup state
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-
     # Preview phase - use centralized fixtures (QC-001)
     cfg_prev = make_config(archive=True)
     storage_prev = TrackingStorage()

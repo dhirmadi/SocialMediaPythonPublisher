@@ -681,8 +681,6 @@ class TestOneStorageGetPerRun:
         from publisher_v2.core.workflow import WorkflowOrchestrator
         from publisher_v2.services.ai import AIService
 
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
         class _CountingStorage(BaseDummyStorage):
             def __init__(self) -> None:
                 super().__init__(images=["test.jpg"])

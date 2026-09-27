@@ -1,9 +1,9 @@
 """Instagram publisher built on instagrapi, with a persistent, reusable session.
 
-Session settings (device fingerprint, uuids, cookies) are stored per tenant so
-password logins happen rarely; challenges and two-factor prompts are never
-resolved interactively — they record a backoff and fail the publish instead
-(#133).
+Session settings (device fingerprint, uuids, cookies) are stored under one
+fixed key (``INSTAGRAM_SESSION_KEY``) so password logins happen rarely;
+challenges and two-factor prompts are never resolved interactively — they
+record a backoff and fail the publish instead (#133).
 """
 
 import asyncio
@@ -148,6 +148,11 @@ def _no_interactive_challenge_code(username: str, choice: object) -> str:
     raise ChallengeRequired("instagram challenge requires a code; not resolvable unattended")
 
 
+# Fixed session-store key: Instagram supports one instance per database. The value
+# must stay "default" so existing ``pv2_instagram_session`` rows keep working.
+INSTAGRAM_SESSION_KEY = "default"
+
+
 class InstagramPublisher(Publisher):
     """Instagram publisher with a persistent session (#94, standalone mode).
 
@@ -157,6 +162,10 @@ class InstagramPublisher(Publisher):
     lifetime. An expired session (``LoginRequired`` on upload) is cleared and
     relogged once (#133). Challenges never trigger an immediate password
     retry — the publish fails and a 24h backoff is recorded.
+
+    Instagram supports a single instance per database: every instance reads
+    and writes the same session/backoff row (``INSTAGRAM_SESSION_KEY``), so
+    two instances sharing a database would share one Instagram session.
     """
 
     def __init__(
@@ -165,9 +174,8 @@ class InstagramPublisher(Publisher):
         enabled: bool,
         *,
         session_store: SessionStore | None = None,
-        tenant: str = "default",
     ):
-        """Configure the publisher for one tenant's Instagram account.
+        """Configure the publisher for the single Instagram account of this instance.
 
         ``config`` None (or ``enabled`` False) leaves the publisher permanently
         disabled — ``publish`` then fails fast without touching the network.
@@ -177,7 +185,6 @@ class InstagramPublisher(Publisher):
         self._config = config
         self._enabled = enabled and config is not None
         self._limits = get_static_config().service_limits.instagram
-        self._tenant = tenant
         self._store = session_store or build_session_store(getattr(config, "session_file", None))
         self._client: Client | None = None
         self._logged_in = False
@@ -220,7 +227,7 @@ class InstagramPublisher(Publisher):
         publish timeout therefore leaves the backoff in place, so a failed
         password login can never repeat on every publish.
         """
-        if not await self._store.set_blocked_until(self._tenant, challenge_backoff_until()):
+        if not await self._store.set_blocked_until(INSTAGRAM_SESSION_KEY, challenge_backoff_until()):
             # Fail closed: without a stored backoff a failed login could repeat on
             # every publish, so do not risk the password login at all.
             raise RuntimeError("instagram backoff could not be stored; skipping password login")
@@ -237,7 +244,7 @@ class InstagramPublisher(Publisher):
                 # otherwise hold the task open indefinitely. The 24h block
                 # written before the login stands if this cannot be shortened.
                 await asyncio.wait_for(
-                    self._store.set_blocked_until(self._tenant, transient_backoff_until()),
+                    self._store.set_blocked_until(INSTAGRAM_SESSION_KEY, transient_backoff_until()),
                     timeout=_BACKOFF_WRITE_TIMEOUT_SECONDS,
                 )
             log_json(
@@ -267,7 +274,7 @@ class InstagramPublisher(Publisher):
             # worker may still be logging in against that Client.
             self._drop_client()
             raise
-        await self._store.set_blocked_until(self._tenant, None)
+        await self._store.set_blocked_until(INSTAGRAM_SESSION_KEY, None)
         return settings
 
     async def _relogin(self, config: Any) -> dict[str, Any]:
@@ -279,7 +286,7 @@ class InstagramPublisher(Publisher):
         challenges, so the fingerprint has to survive a *failed* relogin too.
         """
         log_json(logger, logging.INFO, "instagram_session_expired_relogin")
-        stale = await self._store.load(self._tenant) or {}
+        stale = await self._store.load(INSTAGRAM_SESSION_KEY) or {}
 
         # One atomic write, not clear-then-save. `save` replaces the file (or
         # the row) in a single step, so the device cannot be lost to a crash
@@ -289,9 +296,9 @@ class InstagramPublisher(Publisher):
         # instead of logging in from a brand-new one.
         fingerprint = _device_fingerprint(stale)
         if fingerprint:
-            await self._store.save(self._tenant, fingerprint)
+            await self._store.save(INSTAGRAM_SESSION_KEY, fingerprint)
         else:
-            await self._store.clear(self._tenant)
+            await self._store.clear(INSTAGRAM_SESSION_KEY)
 
         self._drop_client()
 
@@ -308,7 +315,7 @@ class InstagramPublisher(Publisher):
     async def _back_off(self, exc: BaseException, start: float) -> PublishResult:
         """Never loop password logins into a challenge — record a 24h backoff."""
         until = challenge_backoff_until()
-        if not await self._store.set_blocked_until(self._tenant, until):
+        if not await self._store.set_blocked_until(INSTAGRAM_SESSION_KEY, until):
             # Fail-closed everywhere else; here the publish has already failed,
             # so the only thing lost is the record. Say so loudly: without it
             # the next publish retries immediately, which is a narrower version
@@ -351,7 +358,7 @@ class InstagramPublisher(Publisher):
 
         from datetime import UTC, datetime
 
-        blocked_until = await self._store.get_blocked_until(self._tenant)
+        blocked_until = await self._store.get_blocked_until(INSTAGRAM_SESSION_KEY)
         if blocked_until is not None and datetime.now(UTC) < blocked_until:
             error = f"instagram challenge backoff active until {blocked_until.isoformat()}"
             log_publisher_publish(logger, self.platform_name, start, success=False, error=error)
@@ -360,7 +367,7 @@ class InstagramPublisher(Publisher):
         relogged = False
         try:
             if not self._logged_in:
-                settings = await self._store.load(self._tenant)
+                settings = await self._store.load(INSTAGRAM_SESSION_KEY)
 
                 def _login() -> dict[str, Any]:
                     client = self._get_client()
@@ -388,7 +395,7 @@ class InstagramPublisher(Publisher):
                     new_settings = await self._password_login(_login)
                 self._logged_in = True
                 # Persist immediately after login (#94 item 4).
-                await self._store.save(self._tenant, new_settings)
+                await self._store.save(INSTAGRAM_SESSION_KEY, new_settings)
 
             def _upload() -> tuple[str, dict[str, Any]]:
                 client = self._get_client()
@@ -402,9 +409,9 @@ class InstagramPublisher(Publisher):
                 if relogged:
                     raise
                 relogged = True
-                await self._store.save(self._tenant, await self._relogin(config))
+                await self._store.save(INSTAGRAM_SESSION_KEY, await self._relogin(config))
                 post_id, latest_settings = await asyncio.to_thread(_upload)
-            await self._store.save(self._tenant, latest_settings)
+            await self._store.save(INSTAGRAM_SESSION_KEY, latest_settings)
             log_publisher_publish(logger, self.platform_name, start, success=True)
             return PublishResult(success=True, platform=self.platform_name, post_id=post_id or None)
         except (ChallengeError, TwoFactorRequired, LoginRequired) as exc:

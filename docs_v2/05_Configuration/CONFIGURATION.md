@@ -56,6 +56,8 @@ Canonical GUI/validation contract for orchestrator-managed config fields:
 | `AUTH0_CLIENT_SECRET` | Auth0 OIDC client secret | Auth0 admin login enabled |
 | `WEB_SESSION_SECRET` | Web session signing secret (cookie/session middleware) | Auth0 admin login enabled |
 
+**Instagram: one instance per database (#273).** The Instagram publisher stores its session (device fingerprint, cookies) and its 24h challenge backoff in a single `pv2_instagram_session` row under the fixed key `default`. Every instance pointed at the same database therefore shares that one session and backoff, so only one instance per database may publish to Instagram. Instagram is not currently in use; per-tenant session keys were deliberately not plumbed.
+
 ### Web Admin (Auth0) — Required Non-Secret Env Vars
 
 Auth0 is the only admin login (#137). Without `AUTH0_DOMAIN` and `AUTH0_CLIENT_ID` admin mode is unavailable and the UI says so. These are required when enabling Auth0 login (Feature 020). They are not “secrets” except `AUTH0_CLIENT_SECRET` and `WEB_SESSION_SECRET` above.

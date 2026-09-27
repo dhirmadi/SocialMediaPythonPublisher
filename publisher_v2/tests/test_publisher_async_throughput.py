@@ -22,12 +22,6 @@ from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    """Keep posted-image dedup state out of the real user cache (#83)."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-
 class _DummyStorage(BaseDummyStorage):
     pass
 

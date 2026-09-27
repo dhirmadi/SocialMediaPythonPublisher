@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from pathlib import Path
 
 import pytest
@@ -27,11 +28,6 @@ class _StubPublisher(Publisher):
 
     async def publish(self, image_path: str, caption: str, context: dict | None = None):
         raise NotImplementedError
-
-
-@pytest.fixture(autouse=True)
-def _reset_cache(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
 
 @pytest.mark.asyncio
@@ -89,8 +85,8 @@ def test_logging_helpers(monkeypatch: pytest.MonkeyPatch) -> None:
     assert isinstance(utils_logging.elapsed_ms(start), int)
 
 
-def test_state_helpers_handle_formats(tmp_path: Path) -> None:
-    cache_dir = Path(tmp_path) / "publisher_v2"
+def test_state_helpers_handle_formats() -> None:
+    cache_dir = Path(os.environ["XDG_CACHE_HOME"]) / "publisher_v2"
     cache_dir.mkdir(parents=True, exist_ok=True)
     cache_file = cache_dir / "posted.json"
 
@@ -113,9 +109,8 @@ def test_state_helpers_handle_formats(tmp_path: Path) -> None:
     assert state.load_posted_content_hashes() == {"db1", "db2"}
 
 
-def test_state_handles_missing_and_corrupt_files(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    cache_dir = Path(tmp_path) / "publisher_v2"
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
+def test_state_handles_missing_and_corrupt_files() -> None:
+    cache_dir = Path(os.environ["XDG_CACHE_HOME"]) / "publisher_v2"
     # Missing file path
     assert state.load_posted_hashes() == set()
 

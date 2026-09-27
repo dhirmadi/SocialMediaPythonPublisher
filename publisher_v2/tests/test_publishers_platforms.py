@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import email
+import os
 from email.header import decode_header
 from pathlib import Path
 from types import SimpleNamespace
@@ -472,27 +473,33 @@ class _SessionAwareClient:
 
 
 class _SpyStore:
-    """Real FileSessionStore, recording clear() calls."""
+    """Real FileSessionStore, recording clear() calls and the (method, key) of every call."""
 
     def __init__(self, path: Path) -> None:
         from publisher_v2.services.instagram_session import FileSessionStore
 
         self._inner = FileSessionStore(str(path))
         self.cleared: list[str] = []
+        self.calls: list[tuple[str, str]] = []
 
     async def load(self, tenant):
+        self.calls.append(("load", tenant))
         return await self._inner.load(tenant)
 
     async def save(self, tenant, settings):
+        self.calls.append(("save", tenant))
         await self._inner.save(tenant, settings)
 
     async def get_blocked_until(self, tenant):
+        self.calls.append(("get_blocked_until", tenant))
         return await self._inner.get_blocked_until(tenant)
 
     async def set_blocked_until(self, tenant, until):
+        self.calls.append(("set_blocked_until", tenant))
         return await self._inner.set_blocked_until(tenant, until)
 
     async def clear(self, tenant):
+        self.calls.append(("clear", tenant))
         self.cleared.append(tenant)
         await self._inner.clear(tenant)
 
@@ -589,7 +596,6 @@ def test_standalone_instagram_session_defaults_under_xdg_cache(monkeypatch: pyte
         "DROPBOX_APP_KEY": "k",
         "DROPBOX_APP_SECRET": "s",
         "DROPBOX_REFRESH_TOKEN": "r",
-        "XDG_CACHE_HOME": str(tmp_path / "xdg"),
     }.items():
         monkeypatch.setenv(key, value)
     monkeypatch.delenv("DATABASE_URL", raising=False)
@@ -600,7 +606,7 @@ def test_standalone_instagram_session_defaults_under_xdg_cache(monkeypatch: pyte
     assert cfg.instagram is not None
     publisher = InstagramPublisher(cfg.instagram, True)
     assert isinstance(publisher._store, FileSessionStore)
-    assert str(publisher._store._path).startswith(str(tmp_path / "xdg"))
+    assert str(publisher._store._path).startswith(os.environ["XDG_CACHE_HOME"])
 
 
 async def test_db_session_store_clear_drops_settings_but_keeps_backoff() -> None:
@@ -700,11 +706,11 @@ async def test_legacy_relative_session_file_is_picked_up(monkeypatch: pytest.Mon
     from publisher_v2.services.instagram_session import FileSessionStore
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    xdg_root = Path(os.environ["XDG_CACHE_HOME"])
     (tmp_path / "instasession.json").write_text(_json.dumps({"user_id": "7"}))
     store = FileSessionStore(None)
     assert await store.load("default") == {"user_id": "7"}
-    assert (tmp_path / "xdg" / "publisher_v2" / "instagram_session.json").exists()
+    assert (xdg_root / "publisher_v2" / "instagram_session.json").exists()
 
 
 async def test_clear_does_not_resurrect_legacy_session(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
@@ -713,7 +719,6 @@ async def test_clear_does_not_resurrect_legacy_session(monkeypatch: pytest.Monke
     from publisher_v2.services.instagram_session import FileSessionStore
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     (tmp_path / "instasession.json").write_text(_json.dumps({"user_id": "7"}))
     store = FileSessionStore(None)
     await store.clear("default")
@@ -743,9 +748,9 @@ async def test_corrupt_xdg_file_does_not_resurrect_legacy(monkeypatch: pytest.Mo
     from publisher_v2.services.instagram_session import FileSessionStore
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    xdg_root = Path(os.environ["XDG_CACHE_HOME"])
     (tmp_path / "instasession.json").write_text(_json.dumps({"user_id": "old"}))
-    xdg = tmp_path / "xdg" / "publisher_v2" / "instagram_session.json"
+    xdg = xdg_root / "publisher_v2" / "instagram_session.json"
     xdg.parent.mkdir(parents=True)
     xdg.write_text("{not json")
     assert await FileSessionStore(None).load("default") is None
@@ -798,11 +803,11 @@ async def test_legacy_file_removed_after_migration_and_new_file_private(
     from publisher_v2.services.instagram_session import FileSessionStore
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
+    xdg_root = Path(os.environ["XDG_CACHE_HOME"])
     (tmp_path / "instasession.json").write_text(_json.dumps({"user_id": "7"}))
     assert await FileSessionStore(None).load("default") == {"user_id": "7"}
     assert not (tmp_path / "instasession.json").exists(), "plaintext legacy cookies must not linger"
-    new_file = tmp_path / "xdg" / "publisher_v2" / "instagram_session.json"
+    new_file = xdg_root / "publisher_v2" / "instagram_session.json"
     assert stat.S_IMODE(new_file.stat().st_mode) == 0o600
     assert stat.S_IMODE(new_file.parent.stat().st_mode) == 0o700
 
@@ -1048,7 +1053,6 @@ async def test_a_symlinked_legacy_session_file_is_never_read_as_a_session(
     from publisher_v2.services.instagram_session import FileSessionStore
 
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "xdg"))
     victim = tmp_path / "victim.json"
     victim.write_text(_json.dumps({"user_id": "stolen"}))
     (tmp_path / "instasession.json").symlink_to(victim)
@@ -1182,3 +1186,92 @@ async def test_email_subject_folds_line_breaks_only(tmp_path: Path, monkeypatch:
     subject = str(make_header(decode_header(parsed["Subject"])))
     assert "\n" not in subject and "\r" not in subject, "a header cannot hold a line break"
     assert subject == "Tokyo　Night  and\ttabs second line", subject
+
+
+# --- PUB-084 AC3 (#273): Instagram is single-instance; no tenant option ---------
+
+
+def test_instagram_publisher_takes_no_tenant_argument() -> None:
+    import inspect
+
+    params = inspect.signature(InstagramPublisher.__init__).parameters
+    assert "tenant" not in params, f"InstagramPublisher.__init__ still takes tenant: {list(params)}"
+
+
+@pytest.mark.asyncio
+async def test_instagram_session_store_uses_one_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from publisher_v2.services.instagram_session import FileSessionStore
+    from publisher_v2.services.publishers.instagram import INSTAGRAM_SESSION_KEY
+
+    assert INSTAGRAM_SESSION_KEY == "default", "the key must stay 'default' so existing session rows stay valid"
+
+    class _RecordingStore:
+        def __init__(self, path: Path) -> None:
+            self._inner = FileSessionStore(str(path))
+            self.keys: list[tuple[str, str]] = []
+
+        async def load(self, key):
+            self.keys.append(("load", key))
+            return await self._inner.load(key)
+
+        async def save(self, key, settings):
+            self.keys.append(("save", key))
+            await self._inner.save(key, settings)
+
+        async def get_blocked_until(self, key):
+            self.keys.append(("get_blocked_until", key))
+            return await self._inner.get_blocked_until(key)
+
+        async def set_blocked_until(self, key, until):
+            self.keys.append(("set_blocked_until", key))
+            return await self._inner.set_blocked_until(key, until)
+
+        async def clear(self, key):
+            self.keys.append(("clear", key))
+            await self._inner.clear(key)
+
+    _SessionFakeClient.login_calls = 0
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.Client", _SessionFakeClient)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.instagram.asyncio.to_thread", fake_to_thread)
+
+    store = _RecordingStore(tmp_path / "session.json")
+    publisher = InstagramPublisher(
+        InstagramConfig(username="user", password="pass", session_file=str(tmp_path / "session.json")),
+        True,
+        session_store=store,  # type: ignore[arg-type]
+    )
+    image = tmp_path / "img.jpg"
+    image.write_bytes(b"img")
+
+    result = await publisher.publish(str(image), "caption")
+
+    assert result.success, result.error
+    assert store.keys, "publish must consult the session store"
+    assert {key for _, key in store.keys} == {INSTAGRAM_SESSION_KEY}, store.keys
+
+
+async def test_instagram_relogin_uses_one_key(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """The relogin path (clear, fresh-session save) and the back-off write use INSTAGRAM_SESSION_KEY too."""
+    from publisher_v2.services.publishers.instagram import INSTAGRAM_SESSION_KEY
+
+    world, store, publisher, image = _expired_session_setup(monkeypatch, tmp_path)
+    await store.save(INSTAGRAM_SESSION_KEY, {"user_id": "42", "session": "expired"})
+    store.calls.clear()
+
+    # 1) Expired session -> clear + password relogin + save of the fresh session.
+    relogged = await publisher.publish(str(image), "caption")
+    assert relogged.success is True, relogged.error
+
+    # 2) Session expires again and the relogin hits a challenge -> back-off is stored.
+    world["session"] = "expired"
+    world["login_raises"] = ChallengeRequired("challenge_required")
+    blocked = await publisher.publish(str(image), "caption")
+    assert blocked.success is False
+
+    methods = {method for method, _ in store.calls}
+    assert {"clear", "save", "set_blocked_until"} <= methods, store.calls
+    assert {key for _, key in store.calls} == {INSTAGRAM_SESSION_KEY}, store.calls

@@ -234,7 +234,7 @@ def _build_workflow(*, preview: bool, meter: MagicMock):
 
 
 class TestWorkflowWiring:
-    async def test_execute_calls_flush_at_end(self, monkeypatch: pytest.MonkeyPatch, bypass_dedup: None) -> None:
+    async def test_execute_calls_flush_at_end(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-C5: WorkflowOrchestrator.execute() calls flush() at the end."""
         meter = MagicMock()
         meter.flush = AsyncMock()
@@ -243,7 +243,7 @@ class TestWorkflowWiring:
         await wf.execute()
         meter.flush.assert_awaited()
 
-    async def test_preview_mode_still_flushes_meter(self, monkeypatch: pytest.MonkeyPatch, bypass_dedup: None) -> None:
+    async def test_preview_mode_still_flushes_meter(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-C7: preview mode still flushes the meter (R2 costs are real)."""
         meter = MagicMock()
         meter.flush = AsyncMock()

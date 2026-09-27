@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | L |
-| **Status** | Not Started |
+| **Status** | In Progress |
 | **Dependencies** | — (waves 1-2 are prerequisites for PUB-054, PUB-056 step 1 and PUB-058) |
 
 ## User Story
