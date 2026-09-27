@@ -95,6 +95,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-074 | Foundation | [Require Mutation Proof for Regression-Guard Tests in Review](PUB-074_guard-tests-must-be-proven-to-fail.md) | P1 | XS | — | Proposal |
 | PUB-075 | Ops | [Scope Dependabot to the Dependencies We Actually Maintain](PUB-075_dependabot-scope-to-live-tree.md) | P1 | S | PUB-066 | Proposal |
 | PUB-076 | Ops | [The `uv` Updater Cannot Resolve — `instagrapi` Pins `pydantic` Exactly](PUB-076_uv-resolution-instagrapi-pydantic.md) | P1 | S | PUB-066 | Proposal |
+| PUB-080 | AI | [Re-baseline the Caption Eval From Live Output](PUB-080_caption-eval-live-baseline.md) | P1 | S | PUB-049, PUB-051 | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |

@@ -22,7 +22,9 @@ Three modes, one script:
     This script holds no forge credentials and calls no forge API.
 
 ``--generate-thresholds`` (the deliberate, human-invoked mode)
-    Scores a snapshot and writes the derived bars to ``--out``. Never run as
+    Scores one or more snapshots and writes the derived bars to ``--out``.
+    Given ``--snapshot`` several times (PUB-080), the bars derive from the
+    worst score per metric across all of them, so every run passes. Never run as
     part of a nightly regeneration: a snapshot and the bars derived from it must
     move in separate, reviewed steps, or ordinary run-to-run model variance
     silently re-baselines CI.
@@ -32,7 +34,8 @@ Usage::
     PYTHONPATH=publisher_v2/src uv run python scripts/caption_eval.py --offline
     PYTHONPATH=publisher_v2/src uv run python scripts/caption_eval.py --nightly --out build/caption-eval
     PYTHONPATH=publisher_v2/src uv run python scripts/caption_eval.py --generate-thresholds \\
-        --snapshot publisher_v2/tests/fixtures/captions/snapshot.json \\
+        --snapshot publisher_v2/tests/fixtures/captions/baseline_runs/run1.json \\
+        --snapshot publisher_v2/tests/fixtures/captions/baseline_runs/run2.json \\
         --out publisher_v2/tests/fixtures/captions/caption_eval_thresholds.json
 """
 
@@ -232,10 +235,30 @@ def direction_for(metric: str) -> str:
     return "min" if metric in MIN_METRICS else "max"
 
 
-def generate_thresholds(scores: dict[str, float]) -> dict[str, dict[str, Any]]:
-    """Derive the thresholds file from a snapshot's score table (AC6).
+def worst_scores(tables: list[dict[str, float]]) -> dict[str, float]:
+    """Collapse several score tables into the worst value per metric (PUB-080).
 
-    The margin always points the way that lets the snapshot which produced
+    Worst means the value a bar must admit: the highest for a "max" metric and
+    the lowest for a "min" metric. Live runs of an unchanged prompt vary far more
+    than the 10% margin, so bars derived from one run, or from the mean, fail
+    runs of the very baseline they came from.
+    """
+    worst: dict[str, float] = {}
+    for table in tables:
+        for metric, score in table.items():
+            if metric not in worst:
+                worst[metric] = score
+            elif direction_for(metric) == "max":
+                worst[metric] = max(worst[metric], score)
+            else:
+                worst[metric] = min(worst[metric], score)
+    return worst
+
+
+def generate_thresholds(scores: dict[str, float]) -> dict[str, dict[str, Any]]:
+    """Derive the thresholds file from a snapshot's score table, or the ``worst_scores`` of several (AC6).
+
+    The margin always points the way that lets every snapshot which produced
     ``scores`` pass, so the bootstrap run is not immediately red:
     ``direction "max"`` gets ``value * 1.1``, ``direction "min"`` gets
     ``value * 0.9`` (never below zero).
@@ -577,10 +600,10 @@ def run_nightly(fixtures: Path, out_dir: Path, thresholds_path: Path) -> int:
     return 0
 
 
-def run_generate_thresholds(fixtures: Path, snapshot_path: Path, out_path: Path) -> int:
-    """Score a snapshot and write the derived bars to ``out_path``."""
-    snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    scores = score_snapshot(snapshot, fixtures)
+def run_generate_thresholds(fixtures: Path, snapshot_paths: list[Path], out_path: Path) -> int:
+    """Score each snapshot and write the bars derived from the worst scores to ``out_path``."""
+    tables = [score_snapshot(json.loads(path.read_text(encoding="utf-8")), fixtures) for path in snapshot_paths]
+    scores = worst_scores(tables)
     thresholds = generate_thresholds(scores)
     out_path.parent.mkdir(parents=True, exist_ok=True)
     out_path.write_text(json.dumps(thresholds, indent=2) + "\n", encoding="utf-8")
@@ -595,9 +618,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     mode = parser.add_mutually_exclusive_group(required=True)
     mode.add_argument("--offline", action="store_true", help="Score the committed snapshot; no network calls")
     mode.add_argument("--nightly", action="store_true", help="Regenerate the snapshot with the real generator")
-    mode.add_argument("--generate-thresholds", action="store_true", help="Derive the bars from a snapshot")
+    mode.add_argument("--generate-thresholds", action="store_true", help="Derive the bars from one or more snapshots")
     parser.add_argument("--fixtures", default=str(DEFAULT_FIXTURES), help="Fixture directory")
-    parser.add_argument("--snapshot", default=str(DEFAULT_SNAPSHOT), help="Snapshot to score")
+    parser.add_argument(
+        "--snapshot",
+        action="append",
+        default=None,
+        help="Snapshot to score; repeat with --generate-thresholds to derive bars from several runs",
+    )
     parser.add_argument("--thresholds", default=str(DEFAULT_THRESHOLDS), help="Thresholds file to score against")
     parser.add_argument("--out", default=None, help="Output directory (--nightly) or file (--generate-thresholds)")
     return parser.parse_args(argv)
@@ -607,15 +635,18 @@ def main(argv: list[str] | None = None) -> int:
     """Run the requested mode and return the process exit code."""
     args = parse_args(argv)
     fixtures = Path(args.fixtures)
+    snapshots = [Path(path) for path in args.snapshot or [DEFAULT_SNAPSHOT]]
     if args.offline:
-        return run_offline(fixtures, Path(args.snapshot), Path(args.thresholds))
+        if len(snapshots) > 1:
+            raise SystemExit("--offline scores exactly one --snapshot")
+        return run_offline(fixtures, snapshots[0], Path(args.thresholds))
     if args.nightly:
         if not args.out:
             raise SystemExit("--nightly needs --out DIR")
         return run_nightly(fixtures, Path(args.out), Path(args.thresholds))
     if not args.out:
         raise SystemExit("--generate-thresholds needs --out FILE")
-    return run_generate_thresholds(fixtures, Path(args.snapshot), Path(args.out))
+    return run_generate_thresholds(fixtures, snapshots, Path(args.out))
 
 
 if __name__ == "__main__":
