@@ -1,31 +1,35 @@
-# FetLife subject limit: what we know, and what we do not (#79, #146)
+# FetLife subject limit: measured (#79, #146)
 
-## Status: unverified assumption
+## Status: measured 2026-09-27 — 240 characters
 
 `platform_limits.yaml` caps the email/FetLife caption at **240 characters**, and
-`utils/captions._MAX_LEN["email"]` agrees. That number came from #79. It was not
-measured against FetLife — it was chosen, and it has been treated as fact since.
+`ai_prompts.yaml` and `utils/captions._MAX_LEN["email"]` agree. The number came
+from #79 as an assumption; #146 asked the account owner to measure it.
 
-`publisher_v2/tests/test_captions_platform_limits_static.py` pins it so the
-value cannot drift silently, and points here. The pin is a reminder that the
-number is unverified, not evidence that it is right.
+## Measurement
 
-## What would settle it
+- **Date:** 2026-09-27, by the account owner, on the production FetLife account.
+- **Sent:** one post-by-email with a 264-character subject (24 over the cap),
+  built so each 10-character block ends with its own position:
+  `.......010.......020 … .......250.......260.264`
+- **Displayed:** the subject was cut off at the 240-character mark.
+- **Result:** FetLife's subject limit is 240 characters. The configured cap is
+  correct; no value changed.
 
-#146 asks the account owner for one measurement:
+`publisher_v2/tests/test_captions_platform_limits_static.py` pins 240 and checks
+the three locations agree. If FetLife ever changes its limit, re-measure the same
+way, record it here, and update `platform_limits.yaml`, `ai_prompts.yaml`,
+`_MAX_LEN` and the test in one commit.
 
-1. Post to FetLife by email with a subject of exactly 264 characters (24 over
-   the current cap), each 10th character a digit so truncation is countable.
-2. Record what FetLife displays: the full subject, a truncation, or a rejection.
-3. If truncated, count the characters that survived.
+## Open question: the subject prefix
 
-## Recording the answer
+The caption is capped at 240 **before** `EmailPublisher` prepends the
+`subject_mode` prefix (`"Private: "` is 9 characters, `"Avatar: "` 8;
+`services/publishers/email.py`). With `subject_mode` private or avatar, a
+caption at the cap produces a 248-249 character subject.
 
-Replace this section with the measurement — the subject sent, what was
-displayed, the surviving length, and the date — then update
-`platform_limits.yaml`, `_MAX_LEN` and the expectation in the test **in the same
-commit**, so the three cannot disagree.
-
-Until then the 240 stands as the conservative guess it has always been: too low
-truncates a caption that would have fitted, too high loses the end of one that
-did not.
+The test above was sent without a prefix, so it does not say whether FetLife
+strips the prefix before applying its limit (then 240 is right) or counts it
+(then up to 9 characters of the caption are lost). Only matters for instances
+using `subject_mode` private or avatar; measure with one prefixed 264-character
+subject before changing anything.
