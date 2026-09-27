@@ -41,7 +41,10 @@ it, and independently:
    Claude Code's summary doc.
 4. Checks the V2 safety non-negotiables (preview safety, secrets, web auth, async hygiene,
    backward compatibility).
-5. Recommends a verdict: APPROVED / APPROVED WITH NOTES / REJECTED.
+5. Checks the issue-closing AC (`.claude/skills/spec-format/SKILL.md`, "The issue-closing rule"):
+   every issue it names has `Closes #N` in the PR body, or is already closed after merge. A missing
+   one is a Required Action, not a note.
+6. Recommends a verdict: APPROVED / APPROVED WITH NOTES / REJECTED.
 
 Treat its report as the evidence base for this command's own output below — you (the PM agent)
 own the final approve/reject decision and the user-facing framing, but do not re-derive the

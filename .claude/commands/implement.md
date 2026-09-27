@@ -28,10 +28,14 @@ If no path is provided, ask for the roadmap item path under `docs_v2/roadmap/`.
    - Extract: goals, non-goals, acceptance criteria, implementation notes
 2. Read the handoff document: `docs_v2/roadmap/PUB-NNN_handoff.md`
    - Contains: implementation order, test-first targets, mock boundaries, files to touch
+3. Collect the **linked issues**: every GitHub issue named in the spec's issue-closing AC (see
+   `.claude/skills/spec-format/SKILL.md`, "The issue-closing rule"). If the spec has no such AC
+   but its Related section lists issues it resolves, stop and ask — don't guess which to close.
 
 If the handoff doc doesn't exist, read the roadmap item spec directly and plan from it.
 
 **Stop and report** if:
+- The spec lists resolved issues in Related but has no issue-closing AC
 - The roadmap item path doesn't exist
 - There's no spec doc
 - Acceptance criteria are vague or untestable (ask the user to run `/product-harden` in Cursor first)
@@ -124,9 +128,17 @@ Create `docs_v2/roadmap/PUB-NNN_summary.md`:
 - `code-reviewer`: PASS / PASS WITH NITS / BLOCKED (resolved) — <one line>
 - `security-auditor`: PASS / N/A (not security-sensitive) — <one line>
 
+## Linked Issues
+- #N — closed by this PR (`Closes #N` in the PR body)
+- #M — decision issue, closed when <recorded decision>
+
 ## Notes
 <any implementation decisions or deviations from spec>
 ```
+
+When the work is opened as a pull request, the PR body must contain `Closes #N` for every
+issue in the spec's issue-closing AC, so GitHub closes them on merge. After merge, confirm each
+one is closed (`gh issue view N --json state`); close any that were missed, citing the PR.
 
 ## Non-Negotiables
 

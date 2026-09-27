@@ -96,6 +96,19 @@ independently audit the item — it runs in its own context window with no view 
 Skip this step only if the item is a trivial, low-risk change (effort S, no security/auth/
 preview surface) and say so explicitly in the report.
 
+### 5b. Issue-closing AC
+
+Make sure the spec carries exactly one issue-closing acceptance criterion naming every GitHub
+issue it resolves ("Given this item ships, when its implementing PR merges, then #X and #Y are
+closed with `Closes #N` in the PR body"). For each issue in Related:
+- If the item resolves it, it must be in that AC.
+- If the item only relates to it, mark it in Related as "not closed by this item", and name its
+  owning spec.
+- If another spec is also claiming it, resolve the conflict: an issue has exactly one owner.
+
+Check that every requirement in each listed issue is in the spec's Scope or ACs; fold in any gap
+before handing off, so closing the issue loses nothing.
+
 ### 6. Claude Code handoff readiness
 
 Create the handoff document as a **sibling file** in the same directory:

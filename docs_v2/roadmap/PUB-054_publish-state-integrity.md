@@ -46,6 +46,7 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - AC4: Given a row in `publishing` older than the TTL, when the next run claims, then it is not reclaimed; given a row in `leased` older than the TTL, then it is
 - AC5: Given a run, when its status transitions are recorded, then they go `leased` → `publishing` → `published` (or `failed`) with the lease token fencing every mark
 - AC6: Given `RuntimeSettings`, when the lease TTL floor is computed, then it includes the sidecar and DB claim budgets and a configured TTL below it is raised to it with a warning
+- AC7: Given this item ships, when its implementing PRs merge, then #199 and #200 are closed with `Closes #N` in the PR body, and #181 is closed once the two contract answers this item depends on are recorded here and quoted on the issue
 
 ## Implementation Notes
 
@@ -68,3 +69,7 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#199](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/199), [#200](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/200), [#181](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/181)
 - [PUB-006: Core Workflow Dedup Performance](archive/PUB-006_core-workflow-dedup.md)
 - Prior fixes #85 (Postgres publish state), #139 (lease expiry)
+
+## Change Log
+
+- 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

@@ -45,6 +45,7 @@ Every run requests three candidates and selects per platform by lowest tells sco
 - AC6: Given the real web service and the real orchestrator with a fake store, when each fetches history, then both fetch the same depth
 - AC7: Given the PUB-049 harness, when the PR body is written, then TF-IDF cosine to history drops against the PUB-051 result and tells rate does not rise
 - AC8: Given two nightly snapshots (current model, trial model), when the owner reads them blind, then the reading and the score tables are recorded on the trial issue and the decision is made from both
+- AC9: Given this item ships, when its implementing PR merges, then #193 and #195 are closed by that PR (`Closes #193`, `Closes #195` in its body) with the evidence, and #182 is closed once the trial model and budget it asks for are recorded in this spec
 
 ## Implementation Notes
 
@@ -67,3 +68,7 @@ Every run requests three candidates and selects per platform by lowest tells sco
 - Tracker [#177](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/177); sub-issues [#193](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/193), [#195](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/195), [#182](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/182)
 - [PUB-040: OpenAI Model Lifecycle Warnings](archive/PUB-040_model-lifecycle-warnings.md) — the model config this trial uses
 - Prior fixes #82 (similarity gate), #144 (telemetry gate)
+
+## Change Log
+
+- 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

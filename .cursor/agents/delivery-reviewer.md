@@ -55,6 +55,11 @@ grep for secrets), but you never edit code, tests, or docs.
 5. **Documentation alignment** — implementation notes in the item reflect actual modules/files (if
    applicable); no orphaned test files or dead code.
 
+6. **Linked issues** — read the item's issue-closing AC (`.claude/skills/spec-format/SKILL.md`,
+   "The issue-closing rule"). Every issue it names must appear as `Closes #N` in the PR body
+   (`gh pr view <pr> --json body`) or already be closed (`gh issue view N --json state`). Report
+   any that are missing under Required Actions; a stale issue is not a note.
+
 ## Output format
 
 ```markdown

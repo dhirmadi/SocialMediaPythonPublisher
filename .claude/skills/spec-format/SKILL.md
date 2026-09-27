@@ -38,6 +38,24 @@ Metrics, Related are optional but encouraged. See
 `.cursor/skills/product-propose-item/SKILL.md` for the exact template and category/priority
 vocab.
 
+## The issue-closing rule
+
+A GitHub issue that a roadmap item resolves must never be left open after the item ships.
+Every spec therefore carries **one issue-closing acceptance criterion** listing each issue it
+resolves: "Given this item ships, when its implementing PR merges, then #X and #Y are closed
+with `Closes #N` in the PR body". Issues the item only *relates* to (context, prior fixes,
+issues another spec owns) stay in Related and are explicitly marked as not closed here.
+
+- `/product-harden` adds or completes that AC and gives every orphaned issue one owning spec.
+- `/implement` puts `Closes #N` for each listed issue in the PR body (GitHub closes them on
+  merge) and records them in the summary's Linked Issues section.
+- `/verify` and `/product-review-delivery` fail the item if a listed issue is missing from the PR
+  body or still open after merge.
+- `/product-archive` refuses to archive while a listed issue is still open.
+
+Decision issues (for example "owner picks a model") are closed when the decision is recorded in
+the spec, not by the code PR; the AC says so explicitly.
+
 ## The exact-test-name traceability rule
 
 The handoff doc's Test-first targets table has a **Test name (exact function)** column —

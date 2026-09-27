@@ -75,7 +75,9 @@ A caller that needs to know whether an object exists can tell the difference bet
 
 - [PUB-048: Auth and Library Uniformity](archive/PUB-048_auth-and-library-uniformity.md) — added the two write guards; its Risks section records this fail-open as accepted pending this item
 - #142 — made presence the migration tool's resume gate, which is why `head_object` swallows
+- [#168](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/168): **not closed by this item** — this spec fixes only the web write guards and leaves `head_object`'s contract and the migration tool unchanged; #168 is owned by PUB-053 (the `head_object` item of #202)
 
 ## Change Log
 
 - 2026-09-22 — Raised from a `security-auditor` finding on PUB-048 (#223), flagged there at the AC9 upload guard and confirmed inherited by the AC11 move guard. Filed as a proposal rather than fixed in-place, because the fix changes a storage-layer contract used by callers outside the web layer.
+- 2026-09-27 — Recorded that #168 is not closed by this item; PUB-053 owns it.
