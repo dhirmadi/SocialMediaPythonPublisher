@@ -24,17 +24,24 @@ PUB-055 added `.github/dependabot.yml` with `pip`, `uv` and `github-actions` ent
 
 Neither item closed the underlying gap: **nothing asserts a declared ecosystem has a manifest it can
 actually read.** PUB-055's test checks the config's shape; PUB-066's tests check requirements-file
-hygiene. The suite is fully green in exactly the state where Dependabot errors — which is how
-PUB-055 shipped a config that could not run, and the state the repository is still in for `pip`:
+hygiene. Between them, the suite was fully green in the state where both Python updaters aborted.
 
-- `/` contains `pyproject.toml` (PEP 621 `[project].dependencies` + PEP 735 `[dependency-groups]`)
-  and `uv.lock`. Nothing else Python.
-- The `pip` ecosystem reads `requirements*.txt`, `setup.py`, `setup.cfg`, Pipfile and poetry's
-  `[tool.poetry]` table. None exist here, and PEP 735 dependency groups are not a pip manifest.
-- `.github/dependabot.yml:9-11` already concedes the `pip` entry "cannot read `uv.lock`" and "bumps
-  nothing on its own".
+What `/` actually contains after PUB-066: `pyproject.toml` (PEP 621 `[project].dependencies` plus
+PEP 735 `[dependency-groups]`) and `uv.lock`. Nothing else Python — no `requirements*.txt`,
+`setup.py`, `setup.cfg`, Pipfile, or poetry `[tool.poetry]` table.
 
-So a green suite currently coexists with a `pip` entry that has nothing to act on.
+**The `pip` entry is therefore readable, not inert.** GitHub's supported-ecosystems reference states
+(checked 2026-09-27): "Dependabot supports updates to `pyproject.toml` files if they follow the PEP
+621 standard." This repo's `pyproject.toml` is PEP 621, so `pip` has a manifest at `/`. An earlier
+draft of this item asserted the opposite; that was wrong and is corrected here. PEP 735
+`[dependency-groups]` support is a separate question
+([dependabot-core#10847](https://github.com/dependabot/dependabot-core/issues/10847)) and this item
+should not assume either answer.
+
+So the gap is narrower but real: **no test would notice if a declared ecosystem lost its last
+readable manifest.** PUB-066 removed the only `pip` manifest in the tree (`requirements-dev.txt`)
+and the suite did not blink — it happened to be safe because `pyproject.toml` remains, but nothing
+checked that.
 
 ## Desired Outcome
 
@@ -69,10 +76,13 @@ left as a known-inert declaration.
 - AC3: Given the ecosystem → manifest mapping, when a reader opens the test, then each ecosystem's
   accepted filenames carry a comment citing why those and not others (the `pip` row must state that
   PEP 735 `[dependency-groups]` is not a pip manifest).
-- AC4: Given the `pip` decision, when the item closes, then either the entry is removed and
-  PUB-055's AC5 and its test are amended in the same change, or a manifest `pip` reads is tracked at
-  `/` and the test passes because of it — not because the mapping was widened to accept
-  `pyproject.toml` for `pip`.
+- AC4: Given the `pip` decision, when the item closes, then the reason recorded is **redundancy with
+  the `uv` entry**, not unreadability — and whichever way it goes, the mapping's `pip` row accepts
+  PEP 621 `pyproject.toml` because GitHub documents that it does, with the citation in the test. If
+  the entry is dropped, PUB-055's AC5 and
+  `test_dependabot_config_groups_weekly_pip_and_actions_updates` are amended in the same change. If
+  it is kept, the item records what `pip` adds that `uv` does not, since `.github/dependabot.yml:10-12`
+  claims it "bumps nothing on its own".
 
 ## Implementation Notes
 
@@ -81,13 +91,22 @@ sibling. Enumerate tracked files with `git ls-files` semantics as
 `publisher_v2/tests/test_requirements_files.py` (PUB-066) does, so an untracked local export cannot
 make the test pass.
 
-AC4 is the honest crux: the cheap way to green this test is to declare `pyproject.toml` a valid
-`pip` manifest. That would restore precisely the false confidence this item exists to remove.
+AC4 is the honest crux, and it cuts the other way from an earlier draft of this item: declaring
+`pyproject.toml` a valid `pip` manifest is *correct*, because GitHub documents that support. The
+cheap fake-green to guard against is the opposite one — a mapping so permissive that any ecosystem
+passes. Mutation-check it: remove each manifest in turn and confirm the test goes red (see PUB-074).
+
+Also verify the `.github/dependabot.yml:10-12` comment while here. It says the `pip` ecosystem
+"cannot read `uv.lock`" (true) "and every direct dependency in `pyproject.toml` is a bare `>=` lower
+bound, so it bumps nothing on its own" — that second clause only makes sense if `pip` reads
+`pyproject.toml`, which it does. The comment and the entry's justification should be made consistent.
 
 ## Risks
 
-- **A wrong mapping fails open.** If the accepted-filenames list is too generous the test passes
-  while Dependabot still cannot read anything — the PUB-055 failure mode repeated one level up.
+- **A wrong mapping fails open in either direction.** Too generous and the test passes while
+  Dependabot can read nothing (the PUB-055 failure mode one level up); too strict and it fails on a
+  manifest Dependabot handles fine — the error an earlier draft of this item made about PEP 621
+  `pyproject.toml`. Cite the supported-manifests doc per row, with the date checked.
   Mitigate by mutation-checking: remove each manifest in turn and confirm the test goes red.
 - Dependabot's supported-manifest list changes over time, so the mapping will drift. It is still
   worth more than no check; note the drift risk in the test's docstring.

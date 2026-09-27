@@ -6,8 +6,11 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | XS |
-| **Status** | Implementation Complete (AC3 pending live Dependabot run) |
+| **Status** | In Progress |
 | **Dependencies** | PUB-055 (merged, #236) |
+
+> **Status note:** implementation is merged-ready (PR #245); AC3 — a live Dependabot `pip`/`uv`
+> run — is unverified, which is why this is `In Progress` rather than `Done`.
 
 ## User Story
 

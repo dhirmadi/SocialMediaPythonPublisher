@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **ID** | PUB-070 |
-| **Category** | Testing |
+| **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | S |
 | **Status** | Proposal |

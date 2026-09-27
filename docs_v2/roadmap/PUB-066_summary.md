@@ -100,6 +100,22 @@ The exclusion is a prefix match on those two paths only and swallows no live pat
   and a single `uv sync --group dev`. The previous `python -m venv venv` + `uv sync` pair left the
   activated `venv/` empty (uv installs into the project's `.venv`), so the next documented step,
   `pre-commit install`, would not find `pre-commit`.
+- **The AC2 code-block matcher was rewritten (`_code_lines`).** The original toggled a single boolean
+  on every ``` line, so one unbalanced fence silently inverted the scanned region for the rest of a
+  file — a guard that weakened as the docs grew, invisibly. It now tracks the fence character and
+  length and closes only on a matching delimiter of at least that length with no info string, covers
+  `~~~` fences and 4-space/tab indented blocks, and keeps an unclosed fence at EOF classified as code
+  (fail loud). Unfenced prose stays out of scope by design: several roadmap docs, including this one,
+  cite the old `pip install -r requirements-dev.txt` in inline backticks while describing its removal.
+  A second review found the rewrite was **unverifiable**: restoring the old naive toggle, or stubbing
+  `_code_lines` to return nothing, both left the suite green, because no tracked doc contains a fenced
+  install-from-a-missing-file line and so AC2 had no positive fixture. Ten fixture tests over literal
+  strings now pin the classification in both directions (`test_code_lines_*`), and each of the three
+  correctness fixes is caught by exactly one of them. Mutation evidence: the naive-toggle mutant fails
+  7 of 12, the dead-matcher mutant fails 8 of 12 (independently reproduced). Paragraph tracking
+  replaced the blank-line heuristic, so the ~98 heading- and fence-adjacent indented blocks in the
+  tracked corpus are now scanned rather than skipped. Remaining residual: a 4-space-indented list
+  continuation is read as code — a false positive, so it fails loud, and no tracked doc trips it.
 
 ### Open nits (not blocking, no action taken)
 

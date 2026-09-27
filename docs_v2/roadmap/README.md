@@ -88,7 +88,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-067 | Ops | [SHA-Pin `code-quality.yml`](PUB-067_sha-pin-code-quality-workflow.md) | P2 | S | PUB-055 | Proposal |
 | PUB-068 | Ops | [Add `publisher_v2/alembic` to the Bandit Scan Roots](PUB-068_bandit-alembic-scan-root.md) | P3 | XS | PUB-055 | Proposal |
 | PUB-069 | Ops | [Single Source of Truth for the pip-audit Version Pin](PUB-069_pip-audit-version-single-source.md) | P3 | XS | PUB-055 | Proposal |
-| PUB-070 | Testing | [Migrate Off `TestClient`'s Per-Request `cookies=`](PUB-070_starlette-testclient-cookie-migration.md) | P2 | S | PUB-065 | Proposal |
+| PUB-070 | Foundation | [Migrate Off `TestClient`'s Per-Request `cookies=`](PUB-070_starlette-testclient-cookie-migration.md) | P2 | S | PUB-065 | Proposal |
 | PUB-071 | Ops | [Triage the `openai` 3.x Major Upgrade](PUB-071_triage-openai-3x.md) | P3 | M | PUB-065 | Proposal |
 | PUB-072 | Ops | [Assert Every Declared Dependabot Ecosystem Has a Manifest It Can Read](PUB-072_dependabot-ecosystem-manifest-check.md) | P1 | S | PUB-055, PUB-066 | Proposal |
 | PUB-073 | Ops | [Close the Requirements-Guard's Two Known Blind Spots](PUB-073_requirements-guard-completeness.md) | P2 | XS | PUB-066 | Proposal |

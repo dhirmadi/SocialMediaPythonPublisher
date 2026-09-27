@@ -31,9 +31,9 @@ This is not hypothetical in this repository:
 - The same review also found that AC2's matcher toggled a single boolean on every ``` fence, so one
   unbalanced fence silently inverted the scanned region for the rest of a file: a guard that got
   weaker as the docs grew, invisibly.
-- `.claude/agent-memory/code-reviewer/` already carries notes in this shape
-  (`verify-ci-tooling-by-execution`: "gates that cannot fail — check scope, not exit code"), which is
-  evidence the lesson keeps being re-learned per-session instead of being encoded.
+- `.claude/agent-memory/code-reviewer/mutation-check-review-technique.md` already records this
+  technique, which is evidence the lesson keeps being re-derived per-session rather than required by
+  the role's own instructions.
 
 Today whether this check happens depends on the Lead thinking to ask for it by name in the review
 prompt. That is not a process.

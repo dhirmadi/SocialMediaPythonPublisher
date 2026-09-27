@@ -31,11 +31,14 @@ changes what AC1/AC2 assert and so needs a spec, not a review fix:
    backtick. `_is_requirements_name` then fails to match `*requirements*.txt` and the line is
    silently skipped.
 
-Gap 2 is currently load-bearing in one direction: the trailing backtick is *why* inline code spans in
-prose are excluded from AC2. Several roadmap docs, including PUB-066's own summary, cite
-`pip install -r requirements-dev.txt` in backticks while describing its removal. Any fix must keep
-those green — which means excluding inline spans deliberately, by structure, rather than by accident
-of the capture regex.
+Those prose citations are shielded by `_code_lines`, which returns only lines inside a code block, so
+a backticked command in a paragraph is never scanned at all. (An earlier draft of this item claimed
+the trailing backtick in the capture was what protected them. That is wrong: `PUB-066_handoff.md:35`
+captures a clean `requirements-dev.txt` — the token is followed by whitespace — and is skipped purely
+because its line is prose.) The constraint on gap 2 is therefore narrower than it looked: stripping
+trailing punctuation cannot start flagging prose, because prose lines never reach the matcher. It
+can, however, start flagging a *fenced* line that quotes the old command, so the fixture tests below
+still matter.
 
 ## Desired Outcome
 
@@ -48,8 +51,9 @@ its real filename — with no new false positive on prose that quotes the old co
 - Widen `REQUIREMENT_FLAG` to `-c` / `--constraint` (and the `-cfile` / `--constraint=file` spellings
   already handled for `-r`).
 - Strip trailing punctuation that cannot be part of a filename from the captured target.
-- Make the inline-code-span exclusion explicit in `_code_lines` rather than an accident of the
-  capture, so gap 2's fix does not silently start flagging prose.
+- Add fixture tests pinning the two directions gap 2's fix could break: a fenced `-r requirements.txt.`
+  for an absent file must fail, and a fenced line quoting the old command for a file that exists must
+  not.
 - Amend AC1/AC2 wording in `PUB-066_dependabot-python-updaters.md` to name constraints files, with a
   pointer to this item.
 
@@ -68,11 +72,12 @@ its real filename — with no new false positive on prose that quotes the old co
 - AC2: Given a tracked requirements file containing `-r requirements.txt.` or `-r requirements.txt)`
   where that file is absent, when the same test runs, then it fails, having matched the target on its
   real filename rather than skipping it.
-- AC3: Given the tracked docs that cite `pip install -r requirements-dev.txt` in an inline code span
-  while describing its removal (`PUB-066_summary.md`, `PUB-066_handoff.md`), when
-  `test_the_docs_do_not_recommend_a_missing_requirements_file` runs, then it passes — and that pass
-  is attributable to the inline-span exclusion in `_code_lines`, not to the capture regex dropping
-  the name.
+- AC3: Given the punctuation-stripping change, when
+  `test_the_docs_do_not_recommend_a_missing_requirements_file` runs against the tracked docs that
+  cite `pip install -r requirements-dev.txt` in prose backticks (`PUB-066_summary.md`,
+  `PUB-066_handoff.md`, `PUB-073`, `PUB-074`), then it still passes, and a fixture test asserts the
+  same command inside a fence for an absent file does fail — so the stripping is shown to widen
+  matching without widening the scanned region.
 - AC4: Given each behaviour above, when it is implemented, then a mutation check is recorded showing
   the test red before and green after — reading the matcher is not evidence.
 

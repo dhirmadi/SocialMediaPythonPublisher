@@ -6,7 +6,7 @@
 | **Category** | Ops |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Implementation Complete |
+| **Status** | Done |
 | **Dependencies** | Blocks PUB-055 |
 
 ## User Story
