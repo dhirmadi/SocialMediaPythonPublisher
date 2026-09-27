@@ -11,6 +11,17 @@
 | **Shipped date** | 2026-09-27 |
 | **Verified** | PR [#266](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/266), merge commit `2e20538` |
 
+> **Verified live 2026-09-27.** Post-merge `workflow_dispatch`
+> [run 36326463986](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36326463986)
+> on `main` @ `2e20538` was green through "Score the regenerated snapshot" (opener 0.200 ≤ 0.330,
+> tells 0.050 ≤ 0.073, distinct_1 0.319 ≥ 0.286, word_count_variance 16.5 ≥ 12.3). Its "Open the
+> pull request" step failed on a repo setting that did not allow Actions to open PRs, which is
+> outside this item's scope. After the owner enabled the setting,
+> [run 36327170889](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/36327170889)
+> was green end to end and opened [#268](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/268).
+> [#234](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/234) is closed, with the evidence
+> in a comment.
+
 ## User Story
 
 As the owner, I want the caption-eval bars to come from real model output, so that the nightly run
@@ -74,18 +85,18 @@ unchanged (PUB-049 policy).
 
 ## Acceptance Criteria
 
-- AC1: Given several score tables, when the worst scores are taken, then each `max` metric gets the
+- AC1: ✅ Given several score tables, when the worst scores are taken, then each `max` metric gets the
   highest value and each `min` metric the lowest.
-- AC2: Given `--generate-thresholds` with two or more `--snapshot` arguments, when it runs, then the
+- AC2: ✅ Given `--generate-thresholds` with two or more `--snapshot` arguments, when it runs, then the
   bars derive from the worst score per metric, and `--offline` against each of those snapshots with
   the written bars exits 0.
-- AC3: Given `--offline` with more than one `--snapshot`, when it runs, then it exits with an error
+- AC3: ✅ Given `--offline` with more than one `--snapshot`, when it runs, then it exits with an error
   naming the flag and scores nothing.
-- AC4: Given the committed thresholds, when each committed baseline run is scored offline, then every
+- AC4: ✅ Given the committed thresholds, when each committed baseline run is scored offline, then every
   run passes.
-- AC5: Given the committed `snapshot.json` and thresholds, when `--offline` runs with defaults, then
+- AC5: ✅ Given the committed `snapshot.json` and thresholds, when `--offline` runs with defaults, then
   it exits 0 (existing test).
-- AC6: Given this item ships, when a `workflow_dispatch` run of Caption Eval Nightly runs on `main`,
+- AC6: ✅ Met 2026-09-27 (run 36326463986). Given this item ships, when a `workflow_dispatch` run of Caption Eval Nightly runs on `main`,
   then it completes green through "Score the regenerated snapshot". This is a human-run check after
   merge, not a pytest.
 

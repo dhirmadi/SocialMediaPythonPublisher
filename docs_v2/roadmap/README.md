@@ -72,7 +72,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](archive/PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Done |
 | PUB-051 | AI | [Caption Prompt and Register Repair](archive/PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Done |
 | PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
-| PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | L | PUB-047 | Proposal |
+| PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | L | PUB-047, PUB-083 | Proposal |
 | PUB-054 | Foundation | [Publish State Integrity](PUB-054_publish-state-integrity.md) | P1 | M | PUB-047 | Proposal |
 | PUB-055 | Ops | [CI Security Gates](PUB-055_ci-security-gates.md) | P1 | S | — | Done |
 | PUB-056 | Storage | [Dropbox Removal or Storage Typing](PUB-056_dropbox-removal-or-typing.md) | P1 | M | PUB-047, PUB-053 | Proposal |
@@ -99,6 +99,9 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-078 | Ops | [CI Security-Gate Cleanup Batch](PUB-078_ci-security-gate-cleanup-batch.md) | P2 | S | PUB-055 | Proposal |
 | PUB-079 | Ops | [Dependabot Correctness and Scope Batch](PUB-079_dependabot-correctness-and-scope-batch.md) | P1 | M | PUB-055, PUB-066 | Proposal |
 | PUB-080 | AI | [Re-baseline the Caption Eval From Live Output](archive/PUB-080_caption-eval-live-baseline.md) | P1 | S | PUB-049, PUB-051 | Done |
+| PUB-081 | AI | [Publish Reuses the Sidecar Analysis When Every Caption Is Supplied](PUB-081_publish-reuses-analysis-with-overrides.md) | P2 | S | PUB-051 | Proposal |
+| PUB-082 | AI | [Consume the Orchestrator's Per-Instance Caption Overrides](PUB-082_runtime-platform-captions.md) | P1 | M | PUB-046, PUB-051 | Proposal |
+| PUB-083 | Web UI | [Close the Tenant Factory Shutdown Race](PUB-083_tenant-factory-shutdown-race.md) | P2 | S | — (before PUB-053 #197) | Proposal |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |

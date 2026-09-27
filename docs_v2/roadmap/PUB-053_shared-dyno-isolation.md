@@ -7,7 +7,7 @@
 | **Priority** | P1 |
 | **Effort** | L |
 | **Status** | Proposal |
-| **Dependencies** | PUB-047 |
+| **Dependencies** | PUB-047; PUB-083 before the #197 factory-lock work |
 
 ## User Story
 
@@ -31,7 +31,7 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 
 **In scope:**
 - Negative cache for `TenantNotFoundError` and build failures; single-flight per host; readiness cached (sub-issue #196)
-- Pixel budget at upload; decode semaphore; `Image.reduce()` for PNG; TTL extension on unchanged version; per-tenant lock in the factory, closing #169 (#197)
+- Pixel budget at upload; decode semaphore; `Image.reduce()` for PNG; TTL extension on unchanged version; per-tenant lock in the factory, closing #169 (#197). Land [PUB-083](PUB-083_tenant-factory-shutdown-race.md) (#174) first: its closed-factory state is checked after taking this lock, and its tests become regression tests here
 - One limiter helper keyed on `(tenant, sid)`; every mutating route limited; ad-hoc dict limiters retired (#198)
 - instagrapi timeout adapter; dedicated executor for storage and thumbnails; blocking calls moved off the loop; tenant service constructed in a thread (#201)
 - Nine small items, nine PRs (#202): stale ceiling, auth-block default, callback error allow-list, `STANDALONE_HOST`, storage outage not 404, publisher rebuild, prune and index, warn-once, `head_object`
