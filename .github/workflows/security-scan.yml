@@ -24,53 +24,17 @@ jobs:
     steps:
     - name: Checkout code
       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
-      with:
-        fetch-depth: 0
 
-    - name: Set up Python
-      uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97  # v7.0.0
-      with:
-        python-version: '3.12'
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
-    - name: Install uv
-      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
-
-    - name: Check for secrets in code
-      uses: trufflesecurity/trufflehog@4dd8831c5f12599465d4d45c3c447b4018a34c85  # v3.97.9
-      with:
-        # The action is a thin wrapper around `docker run`; without an explicit
-        # `version` it pulls `:latest`, so the scanner that decides pass/fail
-        # would float even though the action itself is SHA-pinned (PUB-055).
-        version: "3.97.9"
-        extra_args: --only-verified
+    # TruffleHog lives in secret-scan.yml, which scans the diff on pull_request
+    # and push and the full history on its weekly schedule (PUB-084, #295).
+    # Nothing here needs full history, so this checkout stays shallow.
 
     - name: Verify .env not committed
       run: |
-        if git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$' | grep -v 'alembic\.ini$'; then
-          echo "❌ ERROR: Sensitive files found in repository!"
-          echo "The following files should not be committed:"
-          git ls-files | grep -E '\.env$|.*\.ini$' | grep -v '\.example$' | grep -v 'alembic\.ini$'
-          exit 1
-        else
-          echo "✅ No sensitive files found in repository"
-        fi
-
-    - name: Check file permissions
-      run: |
-        echo "Checking for world-readable sensitive files..."
-        # This would be more relevant for deployed instances
-        # For repo, we just verify .gitignore is configured
-        if [ -f .gitignore ]; then
-          echo "✅ .gitignore exists"
-          grep -q "\.env" .gitignore && echo "✅ .env in .gitignore" || echo "⚠️  .env not in .gitignore"
-          grep -q "\.ini" .gitignore && echo "✅ .ini in .gitignore" || echo "⚠️  .ini not in .gitignore"
-        fi
+        make check-secrets
 
     # Kept last so the cheap checks above still report while the advisory
     # backlog stands (PUB-055).

@@ -30,6 +30,7 @@ Several are prerequisites of roadmap items: #296 before PUB-054/PUB-058 rename t
 - **#294:** `scripts/heroku_hetzner_clone.py` is not used. Delete it.
 - **#299:** Implementer's choice, delegated by the owner — see Scope wave 3. The owner's delegation approves adding `pytest-playwright` as a dev dependency for this purpose.
 - **Delivery:** one PR per wave, from one worktree branch.
+- **#295 pulled in (2026-09-27):** the pre-commit hooks pin an older ruff than `uv.lock`, which cost several commit passes in waves 1 and 2. #295 moves from PUB-078 into this item as wave 2b, run before wave 3.
 - **PUB-053 ordering:** #201 (dedicated storage executor) runs last inside PUB-053, after PUB-056 has landed #274's single `ManagedStorage` call helper.
 
 ## Desired Outcome
@@ -49,6 +50,13 @@ The eleven issues are closed. The suite no longer touches the developer's home d
    - The 19 unused conftest fixtures are deleted; one `make_app_config(**overrides)` helper replaces the per-file builders.
    - `tests/web/conftest.py` holds one real-app harness (`real_app_env`), one per-key `FakeS3` with `managed_real_app`, one `analyze_service` builder, and the hoisted library fixtures (with `FEATURE_LIBRARY` unset inside).
    - One route-auth inventory without source line numbers, parametrised over the auth matrix and covering every admin route including library routes. No test replaces `require_auth`/`require_admin` with a no-op.
+2b. **Tooling (#295)** — config only, no production or test-behaviour change
+   - The pre-commit `ruff-format` and `ruff` hooks become `repo: local` hooks running `uv run ruff ...`, so local, pre-commit and CI use the one ruff version pinned by `uv.lock`.
+   - TruffleHog runs once per event (the `security-scan.yml` and `secret-scan.yml` steps are duplicates); `test_ci_security_gates.py` re-pointed.
+   - "Verify .env not committed" in `security-scan.yml` runs `make check-secrets` instead of a second copy of that pipeline; the "Check file permissions" step, which only echoes, is deleted.
+   - One local composite action, `.github/actions/setup`, installs `uv` with cache and runs `uv sync --group dev`; every job that installs the project uses it after its own `actions/checkout` (a local action cannot check the repo out itself). No job keeps a separate `setup-python` step.
+   - ~~`--ignore-missing-imports` dropped from the Makefile and the CI mypy step~~ — descoped during implementation: `test_docs_commands.py` pins that exact command as the one canonical mypy invocation across the Makefile, CLAUDE.md, AGENTS.md and contributor docs. The flag is redundant but harmless, and CI keeps it so CI and the documented command stay identical.
+   - Out of scope: detect-secrets stays a pre-commit repo hook (moving it to `uv` would add a dependency); SHA-pinning the remaining tag-pinned actions stays with PUB-078, which now has one setup action to pin instead of six copies.
 3. **Browser tests and pruning (#299, #272, #300)**
    - Replace the ~140 `index.html` source-grep tests with (a) one parametrised element-contract test (ids and `data-*` hooks the UI relies on), fetching the page once, and (b) a small `pytest-playwright` suite, marker `e2e`, deselected from the default run and executed in its own CI job, covering: upload queue locks controls while uploading; bulk delete retries failed items; keep/remove/delete each send one request; logout sends exactly one request after repeated actions (#272).
    - Fix #272: register the logout handler once and drop its redundant header.
@@ -89,7 +97,11 @@ The eleven issues are closed. The suite no longer touches the developer's home d
 - AC17: Given the phase-2 metadata fixtures, when `build_metadata_phase2` runs, then its output is byte-identical to before the refactor
 - AC18: Given `_create_vision_completion`, when the client raises `TypeError`, then the error propagates and no second request is made
 - AC19: Given `index.html` after the JS dedup, when the element-contract test and the `e2e` flows run, then they pass without their expectations being edited
-- AC20: Given this item ships, when its implementing PRs merge, then #272, #273, #277, #281, #286, #294, #296, #297, #298, #299 and #300 are closed with `Closes #N` in the PR body of the wave that resolves each
+- AC20: Given this item ships, when its implementing PRs merge, then #272, #273, #277, #281, #286, #294, #295, #296, #297, #298, #299 and #300 are closed with `Closes #N` in the PR body of the wave that resolves each
+- AC21: Given `.pre-commit-config.yaml`, when its ruff hooks are read, then they are `repo: local` hooks whose entry runs ruff through `uv run`, and no `ruff-pre-commit` repo remains
+- AC22: Given the workflows triggered by a pull request or a push to `main`, when their steps are listed, then exactly one TruffleHog step runs per event
+- AC23: Given every workflow job that runs `uv sync`, when its steps are read, then it installs through `.github/actions/setup` and has no inline `setup-uv`, `uv sync` or `setup-python` step
+- AC24: Given `security-scan.yml`, when its steps are read, then the committed-secrets check runs `make check-secrets` and no step consists only of `echo` lines
 
 ## Implementation Notes
 
@@ -112,3 +124,4 @@ The eleven issues are closed. The suite no longer touches the developer's home d
 ## Change Log
 
 - 2026-09-27 — Created from the #291 review's standalone issues with the owner's decisions; hardened directly into Not Started with a handoff because the owner approved the plan and its decisions in the same session.
+- 2026-09-27 — Owner pulled #295 (CI/tooling duplication) in from PUB-078 as wave 2b, ahead of wave 3; added AC21-AC24 and #295 to AC20.

@@ -123,7 +123,10 @@ version is declared once, or a test asserts every occurrence agrees and fails on
   one spec instead of three near-identical ones. No scope was added or removed in the merge; every AC
   above traces to an AC in one of the three originals.
 
+- [#295](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/295) (CI/tooling duplication), once suggested for folding in here, is done by [PUB-084](PUB-084_dry-review-standalone-batch.md) wave 2b instead. After it, the per-job setup steps sit in one local composite action (`.github/actions/setup`), so AC1 pins that action's `uses:` once rather than six copies; each job's own `actions/checkout` still needs pinning.
+
 ## Change Log
 
 - 2026-09-27 — Created by merging PUB-067, PUB-068 and PUB-069 at the user's request to reduce the
   number of separately-tracked security roadmap items (12 → fewer, grouped by shared file/tooling).
+- 2026-09-27 — Noted that #295 is delivered by PUB-084 wave 2b and what that changes for AC1.

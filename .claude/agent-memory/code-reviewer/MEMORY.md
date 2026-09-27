@@ -24,3 +24,4 @@
 - [Caption eval harness review traps](caption-eval-harness-review-traps.md) — PUB-049/080: 0.01 bar zero tolerance; GITHUB_TOKEN PRs skip caption-eval; worst-of-N rescore recipe; roadmap ID collisions across worktrees
 - [Sidecar SD-line cache-miss traps](sidecar-sd-line-cache-miss-traps.md) — PUB-051: new Analyze miss wipes #147 edits; kept-SD reader preserves legacy line-1 captions
 - [Requirements hygiene test traps](requirements-hygiene-test-traps.md) — PUB-066: fenced-block-only doc matcher, docs_v1 exclusion load-bearing, uv lock --upgrade verified
+- [CI tooling dedup review traps](ci-tooling-dedup-review-traps.md) - #295: removed "duplicate" step can drop cron/branch triggers; sandbox heredoc refusals, perl -pi mutation recipe

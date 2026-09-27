@@ -1,6 +1,6 @@
 # PUB-084 — DRY Review Standalone Batch: Implementation Summary
 
-**Status:** In Progress (waves 1-2 of 5 complete)
+**Status:** In Progress (waves 1, 2 and 2b complete; waves 3-5 remain)
 **Date:** 2026-09-27
 
 One section per wave; each wave ships as its own PR.
@@ -112,3 +112,43 @@ Test-only: no file under `publisher_v2/src` changed.
 - Some library tests still patch private route helpers (`_list_objects_buffered`, `_move_in_storage`), and the matrix's tenant scenario patches the middleware's orchestrator lookup. Neither is in wave 2's ACs; the helper patches go when #275 (PUB-056) moves that logic into storage.
 - Web tests shrank by ~275 lines net rather than the issue's ~600 estimate because the auth matrix grew from 12 routes × 2 scenarios to 15 × 14.
 - PUB-060's `minimal_ini_content` bullet is now obsolete (fixture deleted here).
+
+## Wave 2b — Tooling (#295)
+
+Pulled in from PUB-078 by the owner after waves 1 and 2 each needed several commit passes because the pre-commit hooks pinned an older ruff than `uv.lock`. Config only: no `publisher_v2/src` change.
+
+### Files Changed
+
+- `.pre-commit-config.yaml` — the `ruff-pre-commit` repo (v0.9.10) replaced by `repo: local` hooks running `uv run --frozen ruff format --force-exclude` and `uv run --frozen ruff check --fix --force-exclude` (`language: system`). `--force-exclude` keeps `pyproject` excludes applied when pre-commit passes filenames (without it the first run reformatted archived `code_v1/`, reverted); `--frozen` stops a commit from rewriting `uv.lock`.
+- `.github/actions/setup/action.yml` — new composite action: `astral-sh/setup-uv` pinned to the same SHA `security-scan.yml` used (`d4b2f3b6…`, v5.4.2, with cache) and `uv sync --group dev --locked`. No `setup-python`: uv provides 3.12 from `.python-version`.
+- `.github/workflows/code-quality.yml` (4 jobs), `security-scan.yml`, `caption-eval-nightly.yml` — each job keeps its own checkout, then uses the shared action; inline setup-python / setup-uv / `uv sync` steps removed. Jobs that used the floating `setup-uv@v5` tag now run the same commit, pinned.
+- `security-scan.yml` — duplicate `--only-verified` TruffleHog step removed; "Verify .env not committed" runs `make check-secrets` (the Makefile's narrower alembic exclusion kept, which is stricter); echo-only "Check file permissions" step removed; `fetch-depth: 0` dropped (only TruffleHog needed it).
+- `secret-scan.yml` — keeps the single TruffleHog step (default mode, the stricter one) and regains the weekly scan the removal would have lost: `schedule` (Mondays 09:00) and `workflow_dispatch` triggers, with `--only-verified` on those runs only. The pinned action scans full history on schedule events.
+- `publisher_v2/tests/test_ci_security_gates.py` — AC21-AC24 tests plus `test_secret_scan_runs_a_weekly_full_history_verified_scan`; `test_every_action_in_the_security_workflows_is_pinned_by_sha` (Lead-authorised change) accepts only `./.github/actions/<name>` refs, requires each to resolve to an `action.yml`, and SHA-checks every `uses:` inside composite actions.
+- `.claude/agent-memory/code-reviewer/` — the reviewer's note on CI-dedup review traps.
+
+### Acceptance Criteria
+
+- [x] AC21 — ruff hooks are `repo: local` running ruff through `uv run` (test: `test_precommit_ruff_uses_the_locked_version`)
+- [x] AC22 — one TruffleHog step per pull-request and push event (test: `test_trufflehog_runs_once_per_event`)
+- [x] AC23 — every job installs through `.github/actions/setup` after its own checkout (test: `test_every_job_installs_through_the_shared_setup_action`)
+- [x] AC24 — `make check-secrets`, no echo-only steps (test: `test_security_scan_has_no_noop_steps`)
+- Extra, from both reviews: `test_secret_scan_runs_a_weekly_full_history_verified_scan`.
+
+### Descoped
+
+- Dropping the redundant `--ignore-missing-imports`: `test_docs_commands.py` pins that exact command as the canonical mypy invocation across the Makefile, CLAUDE.md, AGENTS.md and contributor docs, so it stays everywhere, CI included.
+
+### Test Results
+
+2163 passed, 2 skipped. `actionlint` clean. Pre-commit ruff hooks pass on all files without rewriting any, running ruff 0.15.2 from `uv.lock`.
+
+### Subagent Verdicts
+
+- `code-reviewer`: PASS WITH NITS — every job's commands, env, permissions and triggers compared old vs new; eight mutations all caught. Nits (lost weekly scan, stale `fetch-depth`, inaccurate comment) applied.
+- `security-auditor`: PASS WITH NITS — setup-uv SHA verified against the `v5.4.2` tag; composite pin check proven non-vacuous; `make check-secrets` stricter than the removed step. Recommended restoring the weekly verified full-history scan (done as specified) and `--frozen`/`--locked` (done).
+
+### Linked Issues
+
+- #295 — closed by the wave 2b PR
+- #303 — filed from the audit: the gitleaks pre-commit hook scans only staged changes, so in CI it scans nothing. It predates this wave, and this wave does not fix it.
