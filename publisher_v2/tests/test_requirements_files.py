@@ -109,9 +109,16 @@ def _code_lines(text: str) -> list[tuple[int, str]]:
     and is still scanned. That is the safe direction — the alternative (treating it as
     prose) would let a malformed doc quietly opt out of the check.
 
-    Known residual: a 4-space-indented list continuation paragraph is read as code.
-    That fails in the loud direction (a false positive, never a silent skip) and
-    separating the two cases needs a real Markdown parser.
+    Two known residuals, both needing a real Markdown parser to separate properly:
+
+    * a 4-space-indented list continuation paragraph is read as code. That fails in
+      the loud direction (a false positive, never a silent skip).
+    * a fence indented 4+ spaces inside a list item with no blank line before it is
+      read as prose in its entirety -- too indented to be a fence, and the list
+      marker keeps a paragraph open so it is not an indented block either. That one
+      fails *open*: an install instruction there is missed. Three such sites exist in
+      the live docs, none holding an install command. A blank line after the list text
+      makes it visible again.
     """
     lines: list[tuple[int, str]] = []
     fence_char: str | None = None

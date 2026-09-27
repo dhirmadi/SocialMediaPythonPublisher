@@ -30,17 +30,21 @@ to reintroduce; both tests are hand-rolled matchers, so vacuity is the main revi
   `uv lock --upgrade --dry-run` listed ~40 bumps; every direct dep is a bare `>=`.
 
 **Post-rewrite matcher traps (reviewed 2026-09-27, commit 64c3093):**
-- `_code_lines` is a 64-line hand-rolled CommonMark-ish state machine with **no direct unit tests**.
+- Resolved in 911390e by ten `test_code_lines_*` fixture tests. Was: a 64-line hand-rolled
+  CommonMark-ish state machine with **no direct unit tests**.
   Mutation-proven twice: restoring the old `inside = not inside` toggle, and making `_code_lines`
   return `[]` outright, both leave the suite green. AC2 has zero positive fixture — no tracked doc
   has a fenced install-from-missing-file line, so the test cannot distinguish a working matcher
   from a dead one. Only the false-positive direction is constrained (`_code_lines` returning every
   line goes red on `PUB-066_handoff.md:35`).
-- Fail-open: an indented code block is recognised only when preceded by a *blank* line
-  (`after_blank`). CommonMark only forbids interrupting a **paragraph**, so an indented block right
-  after an ATX heading, a thematic break or a closing fence is real code that the guard reads as
-  prose. 98 such non-paragraph-then-indented sites exist in tracked live docs. The docstring claims
-  the CommonMark rule, so it overstates what the code does.
+- Fixed in 911390e. Was: an indented code block was recognised only after a *blank* line
+  (`after_blank`), but CommonMark only forbids interrupting a **paragraph**, so an indented block
+  after a heading / thematic break / closing fence was read as prose. Now tracked as
+  `paragraph_open` + `NON_PARAGRAPH_LINE`. **Measurement caveat for future reviews:** my "98
+  affected sites" figure came from a fence-unaware line scan and was wrong — nearly all were
+  already inside fences. Corpus-wide the fix changes the classification of **zero** lines
+  (8065 scanned code lines before and after, identical sets). Always diff the two matchers'
+  line sets, don't count candidate line pairs.
 - Path-dependent state leak: `in_indented_block` is not reset when a fence opens, so
   `    x` / ```` ``` ```` / `fenced` / ```` ``` ```` / `    pip install ...` classifies the last line
   as CODE, while the same file without the leading indented line classifies it as prose.
@@ -54,3 +58,15 @@ to reintroduce; both tests are hand-rolled matchers, so vacuity is the main revi
   PUB-055/065/066 header tables say "Implementation Complete", which is off-vocabulary — the README
   rows are right, the item files are wrong. Canonical categories are 8 and do **not** include
   `Testing` (PUB-070 uses it).
+
+**Post-fix state (911390e, verified):** 12 tests in the file; naive-toggle mutant fails 7, dead
+matcher fails 8, and eight separate feature mutations (backtick-info opener, indented-block reset on
+fence open, `paragraph_open` → `not blank`, ignore closing info string, ignore fence length, drop tab
+indent, drop `<` from `NON_PARAGRAPH_LINE`, require 0-indent fences) each kill exactly one test. The
+two `== []` fixtures are one-directional by design (they also pass under a dead matcher) but are
+killed by over-classifying mutants, so none of the 12 is vacuous.
+**Residual fail-open not in the docstring:** a fence indented 4+ spaces inside a list item with no
+blank line before it (`- JS \`x\`:` then `    \`\`\`js`) is neither a fence (>3 spaces) nor an
+indented block (list marker keeps a paragraph open) — 3 such sites in live docs, none with an
+install command. Deliberate: making list markers close a paragraph would make the list-continuation
+false positive common.

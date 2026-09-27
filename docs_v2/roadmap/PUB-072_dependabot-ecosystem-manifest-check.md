@@ -74,8 +74,10 @@ left as a known-inert declaration.
 - AC2: Given an ecosystem whose manifests are all absent, when that test runs, then it fails naming
   the ecosystem, its `directory`, and the manifest filenames it looked for.
 - AC3: Given the ecosystem → manifest mapping, when a reader opens the test, then each ecosystem's
-  accepted filenames carry a comment citing why those and not others (the `pip` row must state that
-  PEP 735 `[dependency-groups]` is not a pip manifest).
+  accepted filenames carry a comment citing why those and not others — the `pip` row recording that
+  PEP 621 `pyproject.toml` is accepted, with the supported-manifests citation and the date checked,
+  and that PEP 735 `[dependency-groups]` support is unresolved
+  ([dependabot-core#10847](https://github.com/dependabot/dependabot-core/issues/10847)).
 - AC4: Given the `pip` decision, when the item closes, then the reason recorded is **redundancy with
   the `uv` entry**, not unreadability — and whichever way it goes, the mapping's `pip` row accepts
   PEP 621 `pyproject.toml` because GitHub documents that it does, with the citation in the test. If

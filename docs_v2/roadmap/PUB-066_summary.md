@@ -112,10 +112,16 @@ The exclusion is a prefix match on those two paths only and swallows no live pat
   install-from-a-missing-file line and so AC2 had no positive fixture. Ten fixture tests over literal
   strings now pin the classification in both directions (`test_code_lines_*`), and each of the three
   correctness fixes is caught by exactly one of them. Mutation evidence: the naive-toggle mutant fails
-  7 of 12, the dead-matcher mutant fails 8 of 12 (independently reproduced). Paragraph tracking
-  replaced the blank-line heuristic, so the ~98 heading- and fence-adjacent indented blocks in the
-  tracked corpus are now scanned rather than skipped. Remaining residual: a 4-space-indented list
-  continuation is read as code — a false positive, so it fails loud, and no tracked doc trips it.
+  7 of 12, the dead-matcher mutant fails 8 of 12, and eight feature-level mutants each kill exactly
+  one fixture (all independently reproduced). Paragraph tracking replaced the blank-line heuristic,
+  which had silently skipped an indented block following a heading or closing fence. **No tracked doc
+  currently contains such a block:** running both matchers over all 420 live `.md` files scans 8065
+  lines either way, with identical line sets, so this closes a latent gap rather than a live one. An
+  earlier revision of this summary claimed ~98 sites became newly scanned; that came from a
+  fence-unaware measurement and was wrong. Residuals, both documented in the matcher's docstring: a
+  4-space-indented list continuation is read as code (false positive, fails loud), and a 4+-space
+  indented fence inside a list item with no preceding blank line is read as prose (fails open; three
+  live sites, none holding an install command).
 
 ### Open nits (not blocking, no action taken)
 

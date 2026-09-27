@@ -75,7 +75,7 @@ its real filename — with no new false positive on prose that quotes the old co
 - AC3: Given the punctuation-stripping change, when
   `test_the_docs_do_not_recommend_a_missing_requirements_file` runs against the tracked docs that
   cite `pip install -r requirements-dev.txt` in prose backticks (`PUB-066_summary.md`,
-  `PUB-066_handoff.md`, `PUB-073`, `PUB-074`), then it still passes, and a fixture test asserts the
+  `PUB-066_handoff.md`, and this item), then it still passes, and a fixture test asserts the
   same command inside a fence for an absent file does fail — so the stripping is shown to widen
   matching without widening the scanned region.
 - AC4: Given each behaviour above, when it is implemented, then a mutation check is recorded showing
