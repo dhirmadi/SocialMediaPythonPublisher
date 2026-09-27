@@ -41,19 +41,8 @@ jobs:
         # step is handed the token explicitly instead.
         persist-credentials: false
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
     - name: Regenerate and score the snapshot
       env:

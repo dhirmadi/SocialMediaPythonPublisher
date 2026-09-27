@@ -1,0 +1,18 @@
+name: Set up uv and the project
+description: >-
+  Installs uv (SHA-pinned, with its cache) and syncs the project with the dev
+  group. uv picks the interpreter from .python-version / requires-python, so no
+  separate setup-python step is needed. Callers must run actions/checkout first:
+  a local action cannot be resolved until the repository is checked out.
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@d4b2f3b6ecc6e67c4457f6d3e41ec42d3d0fcb86  # v5.4.2
+      with:
+        enable-cache: true
+
+    - name: Install dependencies
+      shell: bash
+      run: uv sync --group dev --locked

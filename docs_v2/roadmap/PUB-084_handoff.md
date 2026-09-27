@@ -14,6 +14,7 @@ previous wave merges. Each PR body carries `Closes #N` for the issues that wave 
 |------|--------|-----|
 | 1 | #296, #273 | AC1-AC3 |
 | 2 | #297, #298 | AC4-AC9 |
+| 2b | #295 | AC21-AC24 |
 | 3 | #299, #272, #300 | AC10-AC12 |
 | 4 | #294, #286 | AC13-AC14 |
 | 5 | #281, #277 | AC15-AC19 |
@@ -39,6 +40,10 @@ Ratchet tests (repo-state checks over `publisher_v2/tests` or `src`) live in
 | AC8 | `test_fake_s3_head_object_is_per_key` | `web/test_web_harness.py` |
 | AC9 | `test_route_inventory_covers_every_admin_route` | `web/test_route_auth_matrix.py` |
 | AC9 | `test_no_test_patches_out_auth` | `test_suite_hygiene.py` |
+| AC21 | `test_precommit_ruff_uses_the_locked_version` | `test_ci_security_gates.py` |
+| AC22 | `test_trufflehog_runs_once_per_event` | `test_ci_security_gates.py` |
+| AC23 | `test_every_job_installs_through_the_shared_setup_action` | `test_ci_security_gates.py` |
+| AC24 | `test_security_scan_has_no_noop_steps` | `test_ci_security_gates.py` |
 | AC10 | `test_no_test_greps_index_html_function_bodies` | `test_suite_hygiene.py` |
 | AC10 | `test_index_exposes_required_hook` (parametrised) | `web/test_index_contract.py` |
 | AC11 | `test_upload_queue_locks_controls_while_uploading` | `e2e/test_admin_flows.py` |

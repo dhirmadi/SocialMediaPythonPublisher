@@ -22,19 +22,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
     - name: Run ruff format (code formatting check)
       run: |
@@ -63,19 +52,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
     - name: Cache pre-commit hook environments
       uses: actions/cache@v4
@@ -100,19 +78,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
     - name: Run tests with coverage
       env:
@@ -144,19 +111,8 @@ jobs:
     - name: Checkout code
       uses: actions/checkout@v7
 
-    - name: Set up Python
-      uses: actions/setup-python@v7
-      with:
-        python-version: '3.12'
-
-    - name: Install uv
-      uses: astral-sh/setup-uv@v5
-      with:
-        enable-cache: true
-
-    - name: Install dependencies
-      run: |
-        uv sync --group dev
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
 
     - name: Score the committed caption snapshot (offline)
       run: |
