@@ -9,6 +9,15 @@
 | **Status** | Done |
 | **Dependencies** | PUB-055 (merged, #236) |
 
+**Shipped date:** 2026-09-27
+**Verified:** PR [#245](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/245), merge commit
+`7866e2a`; follow-up docs PRs [#253](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/253)
+(merge `29a247b`, forced the re-check that proved AC3) and
+[#262](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/262) (merge `961ee85`, closeout).
+1961 passed / 1 skipped, coverage 93.56% overall (re-run at archival time; delivery review recorded
+1944 passed / 1 skipped, 93.37% at merge — both clear the 85% gate); `ruff check` + `ruff format
+--check` clean; `mypy` clean over 65 source files.
+
 > **Verified 2026-09-27.** PR [#245](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/245)
 > merged; [#253](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/253) then touched
 > `dependabot.yml` to force an immediate re-check. The `pip` updater
@@ -84,11 +93,11 @@ references a path that does not exist.
 
 ## Acceptance Criteria
 
-- AC1: Given the repository after this change, when
+- AC1: ✅ Given the repository after this change, when
   `publisher_v2/tests/test_requirements_files.py::test_no_requirements_file_references_a_missing_target`
   runs, then it finds no `-r` / `--requirement` line in any tracked `requirements*.txt` pointing at
   a path that does not exist.
-- AC2: Given the repository after this change, when
+- AC2: ✅ Given the repository after this change, when
   `publisher_v2/tests/test_requirements_files.py::test_the_docs_do_not_recommend_a_missing_requirements_file`
   runs, then no tracked Markdown file instructs installing from a `requirements*.txt` that is absent.
 - AC3: **Verification step, not a pytest AC. ✅ Met 2026-09-27.** Neither job reports

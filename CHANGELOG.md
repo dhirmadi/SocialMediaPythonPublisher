@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - PUB-066: Unblock Dependabot's Python Updaters
+- Removed the stale, hand-written `requirements-dev.txt`: its `-r requirements.txt` line pointed at
+  a file deleted by the `uv` migration, and this dangling reference was the confirmed cause of
+  Dependabot's `pip` and `uv` updaters both aborting with `Error during file fetching; aborting:
+  /requirements.txt not found` (only `github-actions`, which does not scan requirements files,
+  succeeded)
+- `.github/DEVELOPMENT.md`, `CONTRIBUTING.md` and `SECURITY.md` install/upgrade instructions
+  switched from `pip install -r requirements*.txt` to `uv sync` / `uv sync --group dev` / `uv lock
+  --upgrade`
+- New `publisher_v2/tests/test_requirements_files.py` guards against recurrence: no tracked
+  `requirements*.txt` may reference a missing `-r`/`--requirement` target, and no tracked Markdown
+  file may instruct installing from an absent one (fenced- and indented-code-aware, mutation-tested)
+- **Verified live 2026-09-27:** after #253 forced an immediate Dependabot re-check, `pip` completed
+  successfully and `uv` progressed past file fetching to a resolvable dependency conflict
+  (`dependency_file_not_resolvable`, tracked separately as PUB-076) — proof the file-fetch abort is
+  gone. Eight Python dependency PRs opened within three minutes, restoring the weekly-PR metric
+  PUB-055 had claimed but could not deliver for Python packages
+
 ### Changed - PUB-051: Caption Prompt and Register Repair
 - Structure-directive rotation replaced by a content-angle pool (`CONTENT_ANGLES`) rotated least-recently-used over a new stored `angle` column (`pv2_caption_history.angle`, additive Alembic migration 004); platforms in one call get distinct angles while the pool allows; the similarity-gate retry never reuses the rejected angle
 - Caption prompt slimmed: no closing-pattern line, at most two openings to avoid (emoji/hashtags stripped), analysis rendered as a short prose paragraph without colour palette, tags or aesthetic terms; smart-hashtag platforms get up to five plain-word topics
