@@ -122,9 +122,6 @@ async def test_metadata_selection_no_images(monkeypatch: pytest.MonkeyPatch) -> 
     storage = _MetadataStorage()
     storage.images_with_hashes = []
 
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-
     orchestrator = _make_orchestrator(storage)
     result = await orchestrator.execute()
     assert result.success is False
@@ -152,9 +149,6 @@ async def test_metadata_selection_specific_missing(monkeypatch: pytest.MonkeyPat
     storage.images_with_hashes = [("one.jpg", "dbhash1")]
     storage.download_map["one.jpg"] = b"blob"
 
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-
     orchestrator = _make_orchestrator(storage)
     result = await orchestrator.execute(select_filename="missing.jpg")
     assert result.success is False
@@ -170,8 +164,6 @@ async def test_metadata_sidecar_error_path(monkeypatch: pytest.MonkeyPatch) -> N
 
     save_hashes: list[str] = []
     save_content: list[str] = []
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
     monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda value: save_hashes.append(value))
     monkeypatch.setattr(
         "publisher_v2.core.workflow.save_posted_content_hash",

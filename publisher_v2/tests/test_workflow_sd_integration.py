@@ -73,9 +73,6 @@ async def test_workflow_sd_integration_preview_and_live(monkeypatch: pytest.Monk
     ai = AIService(BaseDummyAnalyzer(), SDCaptionGenerator(cfg.openai))  # type: ignore[arg-type]
     cgf = cfg
     orchestrator = WorkflowOrchestrator(config=cgf, storage=storage, ai_service=ai, publishers=[])  # type: ignore[arg-type]
-    # Ensure dedup state does not block the test
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
 
     # Preview mode should not write sidecar but should expose sd_caption in result.analysis
     result_prev = await orchestrator.execute(preview_mode=True)

@@ -68,11 +68,6 @@ class TestEachPublisherReceivesOwnCaption:
 
     @pytest.mark.asyncio
     async def test_each_publisher_receives_own_caption(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda h: None)
-
         cfg = _make_config(telegram=True, email=True)
         storage = BaseDummyStorage()
 
@@ -104,10 +99,6 @@ class TestEachPublisherReceivesOwnCaption:
     @pytest.mark.asyncio
     async def test_platform_captions_in_result(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """WorkflowResult.platform_captions carries the full dict."""
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda h: None)
 
         cfg = _make_config(telegram=True, instagram=True)
         storage = BaseDummyStorage()
@@ -125,11 +116,6 @@ class TestFormatCaptionSafetyNet:
 
     @pytest.mark.asyncio
     async def test_format_caption_still_applied_as_safety_net(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda h: None)
-
         cfg = _make_config(email=True)
         storage = BaseDummyStorage()
         # Give email a caption with hashtags — format_caption for email should strip them
@@ -149,11 +135,6 @@ class TestCaptionOverride:
 
     @pytest.mark.asyncio
     async def test_caption_override_applies_to_all_publishers(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda h: None)
-
         cfg = _make_config(telegram=True, email=True)
         storage = BaseDummyStorage()
         ai = MultiCaptionAI()
@@ -176,11 +157,6 @@ class TestSinglePublisher:
 
     @pytest.mark.asyncio
     async def test_single_publisher_generates_single_caption(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
-        monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-        monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda h: None)
-
         cfg = _make_config(telegram=True)
         storage = BaseDummyStorage()
         ai = MultiCaptionAI()

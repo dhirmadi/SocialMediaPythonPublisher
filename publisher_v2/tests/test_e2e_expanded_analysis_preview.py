@@ -61,9 +61,6 @@ async def test_e2e_preview_includes_expanded_fields(monkeypatch: pytest.MonkeyPa
     storage = BaseDummyStorage()
     ai = AIService(ExpandedFieldsAnalyzer(), FixedCaptionGenerator(cfg.openai))  # type: ignore[arg-type]
     orchestrator = WorkflowOrchestrator(config=cfg, storage=storage, ai_service=ai, publishers=[])  # type: ignore[arg-type]
-    # Ensure dedup state does not block the test
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)
     result = await orchestrator.execute(preview_mode=True)
     assert result.image_analysis is not None
     analysis = result.image_analysis

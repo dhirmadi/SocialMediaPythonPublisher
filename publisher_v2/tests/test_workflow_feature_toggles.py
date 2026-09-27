@@ -123,11 +123,6 @@ def _make_orchestrator(monkeypatch: pytest.MonkeyPatch, publishers: list[Publish
     ai_service = AIService(analyzer, generator)  # type: ignore[arg-type]
     pubs = publishers or []
 
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda _h: None)
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_content_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_content_hash", lambda _h: None)
-
     orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, pubs)  # type: ignore[arg-type]
     return orchestrator, cfg, storage, analyzer, generator, pubs
 

@@ -143,7 +143,6 @@ async def _run_one_publish(monkeypatch: pytest.MonkeyPatch, tmp_path) -> tuple[A
 
     from publisher_v2.core.workflow import WorkflowOrchestrator
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     fake = FakeOpenAI(["telegram"])
     install_fake_openai(monkeypatch, fake)
     storage = SidecarStorage(["a.jpg"])

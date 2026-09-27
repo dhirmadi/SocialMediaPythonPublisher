@@ -502,7 +502,6 @@ async def test_sidecar_records_caption_angles_next_to_caption_generated(
     from publisher_v2.services.sidecar_parser import parse_sidecar_text
     from publisher_v2.utils.captions import CONTENT_ANGLES
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     platforms = ["telegram", "instagram"]
     fake = FakeOpenAI(platforms)
     install_fake_openai(monkeypatch, fake)
@@ -629,7 +628,6 @@ async def test_web_analyze_writes_sidecar_without_sd_prompt(monkeypatch: pytest.
     from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
     from publisher_v2.utils.captions import CONTENT_ANGLES
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     platforms = ["telegram", "instagram"]
     fake = FakeOpenAI(platforms)
     install_fake_openai(monkeypatch, fake)

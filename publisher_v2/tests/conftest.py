@@ -174,12 +174,18 @@ def _reset_web_rate_limiters() -> Generator[None, None, None]:
 
 
 @pytest.fixture(autouse=True)
-def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
+def _isolate_env(
+    monkeypatch: pytest.MonkeyPatch, tmp_path_factory: pytest.TempPathFactory
+) -> Generator[None, None, None]:
     """
     Ensure tests don't leak environment variables.
 
     Clears commonly used env vars that could affect test isolation.
     This runs automatically for all tests.
+
+    PUB-084: points XDG_CACHE_HOME at a fresh per-test temp dir so the posted-state
+    dedup cache (utils.state) and the Instagram session store never touch the real
+    ~/.cache and never carry state between tests. Test files must not set it themselves.
 
     Patches load_dotenv to prevent the workspace .env from being loaded
     during tests (unless an explicit env_path is provided to load_application_config).
@@ -223,6 +229,7 @@ def _isolate_env(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]
     # Set minimal required env vars for tests
     monkeypatch.setenv("WEB_DEBUG", "1")  # Enable dev mode for tests
     monkeypatch.setenv("WEB_SESSION_SECRET", "test_secret_key_for_testing_only")
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path_factory.mktemp("xdg-cache")))
 
     # Patch load_dotenv to be a no-op when called without arguments
     # This prevents the workspace .env from being loaded during tests
@@ -767,15 +774,3 @@ def dummy_client_class() -> type:
 def dummy_client() -> BaseDummyClient:
     """Return a default BaseDummyClient instance."""
     return BaseDummyClient()
-
-
-# ==============================================================================
-# WORKFLOW BYPASS FIXTURES
-# ==============================================================================
-
-
-@pytest.fixture
-def bypass_dedup(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Bypass deduplication state for workflow tests."""
-    monkeypatch.setattr("publisher_v2.core.workflow.load_posted_hashes", lambda: set())
-    monkeypatch.setattr("publisher_v2.core.workflow.save_posted_hash", lambda h: None)

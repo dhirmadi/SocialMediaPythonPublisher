@@ -36,11 +36,6 @@ LEASE_RELEASE = "lease_release"
 METER_FLUSH = "meter_flush"
 
 
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-
 class _AbortingAnalyzer:
     """Aborts the run after the lease is claimed but before anything is published."""
 

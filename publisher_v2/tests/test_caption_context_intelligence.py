@@ -776,7 +776,6 @@ async def test_partial_retry_makes_zero_additional_ai_calls(monkeypatch, tmp_pat
     from publisher_v2.db.models import Base, CaptionHistory
     from publisher_v2.db.publish_store import PublishStore
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -851,7 +850,6 @@ class _PartialPublishRig:
         from publisher_v2.db.models import Base
         from publisher_v2.db.publish_store import PublishStore
 
-        self.monkeypatch.setenv("XDG_CACHE_HOME", str(self.tmp_path))
         self.engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
         async with self.engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -980,7 +978,6 @@ async def test_unedited_override_records_the_generated_angle_edited_one_does_not
     from publisher_v2.db.models import Base, CaptionHistory
     from publisher_v2.utils.captions import build_caption_sidecar
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     generated = {
         "telegram": "Cold floorboards and warm hands, the harness finally sat right.",
         "instagram": "One frayed end, left alone on purpose.",
@@ -1044,7 +1041,6 @@ async def test_override_angle_lookup_failure_stores_null_and_warns(monkeypatch, 
     from publisher_v2.db.models import Base, CaptionHistory
     from publisher_v2.utils.captions import build_caption_sidecar
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     generated = {
         "telegram": "Cold floorboards and warm hands, the harness finally sat right.",
         "instagram": "One frayed end, left alone on purpose.",
@@ -1139,7 +1135,6 @@ async def _run_override_publish(monkeypatch, tmp_path, overrides: dict[str, str]
     from publisher_v2.utils.captions import CONTENT_ANGLES, build_caption_sidecar
 
     assert set(_OVERRIDE_ANGLES.values()) <= set(CONTENT_ANGLES)
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     storage = storage or SidecarStorage(["a.jpg"])
     storage.sidecars["a.jpg"] = build_caption_sidecar(
         "sd prompt, fine art",
@@ -1247,7 +1242,6 @@ async def test_partial_retry_reuses_captions_when_sd_caption_disabled(monkeypatc
     from publisher_v2.db.publish_store import PublishStore
     from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -1303,7 +1297,6 @@ async def test_sidecar_without_sd_prompt_is_never_written_in_preview_dry_or_debu
 
     from publisher_v2.core.workflow import WorkflowOrchestrator
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     fake = FakeOpenAI(["telegram"])
     install_fake_openai(monkeypatch, fake)
     cfg = openai_config(sd_caption_enabled=False)

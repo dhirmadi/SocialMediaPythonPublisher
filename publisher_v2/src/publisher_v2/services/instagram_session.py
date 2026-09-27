@@ -6,9 +6,14 @@ password login — the fastest way to a challenge. Two implementations:
 
 - ``FileSessionStore``: JSON under the configured path (default: the
   ``session_file`` from config, falling back to ``$XDG_CACHE_HOME``).
-- ``DbSessionStore``: one row per tenant in ``pv2_instagram_session``,
+- ``DbSessionStore``: one row per key in ``pv2_instagram_session``,
   encrypted at rest with a Fernet key derived from ``WEB_SESSION_SECRET``
   — this is what survives Heroku restarts.
+
+Instagram supports a single instance per database: ``InstagramPublisher``
+always uses the fixed key ``INSTAGRAM_SESSION_KEY`` ("default"), so instances
+sharing a database would share one session/backoff row. The store API keeps
+its key parameter as a seam.
 
 ``blocked_until`` implements the 24h challenge backoff.
 """
@@ -265,7 +270,7 @@ def _fernet_from_secret(secret: str):
 
 
 class DbSessionStore:
-    """Postgres-backed session store: one encrypted row per tenant."""
+    """Postgres-backed session store: one encrypted row per key (in practice the single ``"default"`` key)."""
 
     def __init__(self, session_factory: Any, secret: str) -> None:
         """Bind the store to an async SQLAlchemy session factory and a Fernet key.

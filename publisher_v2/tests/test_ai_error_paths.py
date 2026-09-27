@@ -162,7 +162,6 @@ class TestStageDeadline:
         from publisher_v2.services.ai import AIService
 
         monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "0.2")
-        monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
 
         class _HangingAnalyzer:
             async def analyze(self, url_or_bytes):

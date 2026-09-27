@@ -441,7 +441,6 @@ async def test_caption_history_holds_one_row_per_successfully_published_platform
 
     from publisher_v2.core.workflow import WorkflowOrchestrator
 
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
     install_fake_openai(monkeypatch, FakeOpenAI(["telegram", "email"]))
     store = CaptionStore(db_session_factory)
     orchestrator = WorkflowOrchestrator(

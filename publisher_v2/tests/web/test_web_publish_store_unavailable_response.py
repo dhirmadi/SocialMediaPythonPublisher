@@ -37,12 +37,6 @@ from publisher_v2.web.models import PublishResponse
 from publisher_v2.web.service import WebImageService
 
 
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
-    """File-based posted state must not leak between tests (random test order)."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-
 class _DummyAnalyzer:
     async def analyze(self, url_or_bytes: str | bytes) -> Any:
         return ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[]), None

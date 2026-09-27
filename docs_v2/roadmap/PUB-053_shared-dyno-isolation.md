@@ -64,6 +64,8 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 
 ## Implementation Notes
 
+- **Ordering decision (owner, 2026-09-27):** run #201 (dedicated storage executor) last within this item, after PUB-056 has landed #274's single `ManagedStorage` call helper, so the executor is wired in one place instead of fourteen.
+
 - Six sub-issues; #202 fans out into nine PRs by rule 1 on #177.
 - #203 touches `web.auth` internals; owner's merge is the approval; `security-auditor` gate mandatory.
 - Item 2 of #202 depends on the #181 contract answer; item 7 carries an additive migration (drop index only).
@@ -91,3 +93,4 @@ A burst of requests for an unknown host costs the orchestrator at most one looku
 
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.
 - 2026-09-27 — Absorbed #289 (two near-identical LRU+TTL caches; credential model_dump round-trip and unbounded version map) from the DRY review (#291) as a prerequisite of #196; added AC10; noted #274 ordering before #201 and #273's overlap with #203.
+- 2026-09-27 — Recorded the owner's decision to run #201 last, after PUB-056 (#274), from the PUB-084 planning session.

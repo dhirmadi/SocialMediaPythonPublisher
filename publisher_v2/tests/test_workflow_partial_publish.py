@@ -31,11 +31,6 @@ from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 
-@pytest.fixture(autouse=True)
-def _isolated_posted_state(monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path))
-
-
 @pytest.fixture
 async def publish_store():
     engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
@@ -466,7 +461,6 @@ async def test_double_click_costs_exactly_one_ai_stage(publish_store: PublishSto
 
 async def test_no_store_selected_file_is_blocked_after_it_was_posted(tmp_path, monkeypatch) -> None:
     """Legacy (SHA256-only) path: a second publish of the same file must not repost."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
@@ -484,7 +478,6 @@ async def test_no_store_selected_file_is_blocked_after_it_was_posted(tmp_path, m
 
 async def test_no_store_preview_of_a_posted_file_is_still_allowed(tmp_path, monkeypatch) -> None:
     """``--select X --preview`` publishes nothing, so posted state must not veto it."""
-    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
