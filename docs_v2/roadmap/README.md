@@ -102,6 +102,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-081 | AI | [Publish Reuses the Sidecar Analysis When Every Caption Is Supplied](PUB-081_publish-reuses-analysis-with-overrides.md) | P2 | S | PUB-051 | Proposal |
 | PUB-082 | AI | [Consume the Orchestrator's Per-Instance Caption Overrides](PUB-082_runtime-platform-captions.md) | P1 | M | PUB-046, PUB-051 | Proposal |
 | PUB-083 | Web UI | [Close the Tenant Factory Shutdown Race](PUB-083_tenant-factory-shutdown-race.md) | P2 | S | — (before PUB-053 #197) | Proposal |
+| PUB-084 | Foundation | [DRY Review Standalone Batch](PUB-084_dry-review-standalone-batch.md) | P2 | L | — (waves 1-2 before PUB-054, PUB-056) | Not Started |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
@@ -145,6 +146,7 @@ Lane 4 (PUB-079), but is deferred — pick it up after stabilization or when con
 
 | Order | ID | Item | Priority | Effort | Why here / why this position |
 |-------|----|------|----------|--------|-------------------------------|
+| 0 | [PUB-084](PUB-084_dry-review-standalone-batch.md) | DRY review standalone batch (waves 1-2 first) | P2 | L | Wave 1 isolates posted-state in tests before PUB-054/058 rename its helpers; wave 2's `make_app_config` shrinks PUB-056 step 1 from 92 files to one; wave 5 lands before PUB-052. Waves 3-5 can trail. |
 | 1 | [PUB-077](PUB-077_db-pool-budget.md) | Fit the DB pool into the shared 20-connection Postgres | P1 | S | Not hypothetical — the orchestrator already hit `TooManyConnectionsError` once (#246) sharing this database. The control plane failing takes every tenant down. Highest-urgency stabilization item. |
 | 2 | [PUB-054](PUB-054_publish-state-integrity.md) | Publish state integrity (tenant-keyed state, dedup, lease) | P1 | M | Cross-tenant 409 leakage, "success with nothing published" loops, and double-post risk on crash. Also unblocks PUB-058 (dependency). |
 | 3 | [PUB-064](PUB-064_harness-voice-path-coverage.md) | Make the caption harness exercise the voice path | P1 | S | Cheap, isolated fix for a harness that is currently structurally blind to the PUB-050 feature it's supposed to be measuring — every caption-quality decision downstream (including PUB-052) is flying without instruments until this lands. |
@@ -181,6 +183,7 @@ Lane 4 (PUB-079), but is deferred — pick it up after stabilization or when con
 - PUB-027 or PUB-030 may optionally be pulled ahead of PUB-059 (see Features §3 note above).
 - PUB-081 and PUB-082 added to Features execution order (were in index but missing from sequencing).
 - PUB-083 added to Security execution order as prerequisite for PUB-053.
+- PUB-084 added (2026-09-27, #291 review standalone batch) at the head of Stabilization; PUB-053 runs #201 last, after PUB-056.
 
 ## Priority Definitions
 
