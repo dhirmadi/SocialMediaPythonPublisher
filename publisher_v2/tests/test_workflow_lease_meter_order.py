@@ -16,20 +16,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.exceptions import AIServiceError
 from publisher_v2.core.models import PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
-from publisher_v2.services.ai import AIService
 from publisher_v2.services.publishers.base import Publisher
 
 LEASE_RELEASE = "lease_release"
@@ -41,20 +32,6 @@ class _AbortingAnalyzer:
 
     async def analyze(self, url_or_bytes: str | bytes) -> Any:
         raise AIServiceError("vision unavailable")
-
-
-class _AbortingAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _AbortingAnalyzer()  # type: ignore[assignment]
-
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:
-                return None
-
-            async def __aexit__(self, exc_type, exc, tb) -> bool:
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
 
 
 class _NeverPublishes(Publisher):
@@ -114,25 +91,13 @@ class _HangingMeter:
         await asyncio.Event().wait()  # never resolves; only a cancellation ends it
 
 
-def _config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-    )
-
-
 def _build(order: list[str]) -> tuple[WorkflowOrchestrator, _RecordingStore, _HangingMeter]:
     store = _RecordingStore(order)
     meter = _HangingMeter(order)
     orchestrator = WorkflowOrchestrator(
-        _config(),
+        make_app_config(content={"archive": True}),
         BaseDummyStorage(images=["test.jpg"]),
-        _AbortingAI(),
+        stub_ai_service(analyzer=_AbortingAnalyzer()),
         [_NeverPublishes()],
         tenant="t1",
         publish_store=store,  # type: ignore[arg-type]

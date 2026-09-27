@@ -9,8 +9,8 @@ re-raised the error out of ``execute()``, or added an ``any_success=False`` -> H
 error mapping, would go unnoticed.
 
 The only fake is the publish store (the Postgres boundary) and ``telegram.Bot``
-(the external Telegram client) — the latter exists purely so that a regression
-which *did* publish fails loudly instead of touching the network.
+(the external Telegram client, the web harness's recording fake) — the latter so that a
+regression which *did* publish is caught by its send log instead of touching the network.
 """
 
 from __future__ import annotations
@@ -19,22 +19,18 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
     TelegramConfig,
 )
 from publisher_v2.core.models import ImageAnalysis
 from publisher_v2.db.publish_store import PublishStore
-from publisher_v2.services.ai import AIService
 from publisher_v2.web.models import PublishResponse
 from publisher_v2.web.service import WebImageService
+
+from .conftest import _FakeBot
 
 
 class _DummyAnalyzer:
@@ -47,44 +43,11 @@ class _DummyGenerator:
         return "hello world", None
 
 
-class _DummyAI(AIService):
-    def __init__(self) -> None:
-        self.analyzer = _DummyAnalyzer()  # type: ignore[assignment]
-        self.generator = _DummyGenerator()  # type: ignore[assignment]
-
-        class _NoopLimiter:
-            async def __aenter__(self) -> None:
-                return None
-
-            async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> bool:
-                return False
-
-        self._rate_limiter = _NoopLimiter()  # type: ignore[assignment]
-
-
-class _ExplodingBot:
-    """Stand-in for ``telegram.Bot``: any send here means the fail-closed path broke."""
-
-    def __init__(self, token: str) -> None:
-        self.token = token
-
-    async def send_photo(self, *args: Any, **kwargs: Any) -> Any:
-        raise AssertionError("no platform may be published when the publish store is unavailable")
-
-    async def shutdown(self) -> None:
-        return None
-
-
 def _config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=True, instagram_enabled=False, email_enabled=False),
+    return make_app_config(
+        platforms={"telegram_enabled": True},
         telegram=TelegramConfig(bot_token="tg-token", channel_id="@chan"),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
+        content={"archive": True},
     )
 
 
@@ -101,10 +64,11 @@ async def test_publish_image_returns_empty_publish_response_when_publish_store_u
     store.posted_platforms.return_value = set()
     store.acquire_lease.side_effect = RuntimeError("publish store connection reset")
 
-    with patch("publisher_v2.services.publishers.telegram.telegram.Bot", _ExplodingBot):
+    _FakeBot.sent = []
+    with patch("publisher_v2.services.publishers.telegram.telegram.Bot", _FakeBot):
         service = WebImageService()
         service.storage = BaseDummyStorage(images=["test.jpg"])  # type: ignore[assignment]
-        service.ai_service = _DummyAI()
+        service.ai_service = stub_ai_service(_DummyAnalyzer(), _DummyGenerator())
         # Inject at the Postgres boundary: the service built itself without a DB,
         # so drop the cached orchestrator and let it be rebuilt around the fake store.
         service._publish_store = store
@@ -122,3 +86,4 @@ async def test_publish_image_returns_empty_publish_response_when_publish_store_u
     assert response.archived is False
     storage: BaseDummyStorage = service.storage  # type: ignore[assignment]
     assert storage.archives == 0
+    assert _FakeBot.sent == [], "no platform may be published when the publish store is unavailable"

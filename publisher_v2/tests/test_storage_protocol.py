@@ -12,7 +12,7 @@ from enum import StrEnum
 from unittest.mock import patch
 
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailFormat, ThumbnailSize

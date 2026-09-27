@@ -1,49 +1,16 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 from pathlib import Path
 from typing import Any
 
 import pytest
+from caption_pipeline_fakes import FakeOpenAI
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.models import ImageAnalysis
 from publisher_v2.services.ai import VisionAnalyzerOpenAI
-
-
-class _FakeRespMessage:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _FakeChoice:
-    def __init__(self, content: str) -> None:
-        self.message = _FakeRespMessage(content)
-
-
-class _FakeResp:
-    def __init__(self, content: str) -> None:
-        self.choices = [_FakeChoice(content)]
-
-
-class _FakeChatCompletions:
-    def __init__(self, content: str, delay_ms: float = 0) -> None:
-        self._content = content
-        self._delay_ms = delay_ms
-
-    async def create(self, *args: Any, **kwargs: Any) -> _FakeResp:
-        # Simulate minimal delay to exercise timing
-        if self._delay_ms:
-            await asyncio.sleep(self._delay_ms / 1000.0)
-        return _FakeResp(self._content)
-
-
-class _FakeAsyncOpenAI:
-    def __init__(self, content: str, delay_ms: float = 0) -> None:
-        self.chat = type("Chat", (), {})()
-        self.chat.completions = _FakeChatCompletions(content, delay_ms=delay_ms)
 
 
 def _build_config() -> OpenAIConfig:
@@ -62,8 +29,8 @@ async def test_vision_analyzer_logs_timing_success(monkeypatch, caplog) -> None:
     config = _build_config()
     analyzer = VisionAnalyzerOpenAI(config)
 
-    fake_client = _FakeAsyncOpenAI(
-        json.dumps(
+    fake_client = FakeOpenAI(
+        script=[
             {
                 "description": "short description",
                 "mood": "calm",
@@ -71,7 +38,7 @@ async def test_vision_analyzer_logs_timing_success(monkeypatch, caplog) -> None:
                 "nsfw": False,
                 "safety_labels": [],
             }
-        )
+        ]
     )
     monkeypatch.setattr(analyzer, "client", fake_client)
 
@@ -102,7 +69,7 @@ async def test_vision_analyzer_logs_timing_on_json_error(monkeypatch, caplog) ->
     config = _build_config()
     analyzer = VisionAnalyzerOpenAI(config)
 
-    fake_client = _FakeAsyncOpenAI("not-json")
+    fake_client = FakeOpenAI(script=["not-json"])
     monkeypatch.setattr(analyzer, "client", fake_client)
 
     caplog.set_level(logging.INFO, logger="publisher_v2.ai.vision")
@@ -480,17 +447,20 @@ async def test_senses_seed_hashing_runs_off_the_event_loop(monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 
 
-class _ScriptedVisionCompletions:
-    """Returns the scripted replies in order and records the limiter count at each call."""
+def _scripted_vision_client(replies: list[str], limiters: list[Any]) -> FakeOpenAI:
+    """A scripted FakeOpenAI replying in order; ``acquires_seen_at_call`` holds the limiter count at each call."""
+    seen: list[int] = []
 
-    def __init__(self, replies: list[str], limiters: list[Any]) -> None:
-        self._replies = list(replies)
-        self._limiters = limiters
-        self.acquires_seen_at_call: list[int] = []
+    def _reply(text: str) -> Any:
+        def _entry(_kwargs: dict[str, Any]) -> str:
+            seen.append(sum(limiter.acquires for limiter in limiters))
+            return text
 
-    async def create(self, *args: Any, **kwargs: Any) -> _FakeResp:
-        self.acquires_seen_at_call.append(sum(limiter.acquires for limiter in self._limiters))
-        return _FakeResp(self._replies.pop(0))
+        return _entry
+
+    fake = FakeOpenAI(script=[_reply(r) for r in replies])
+    fake.acquires_seen_at_call = seen  # type: ignore[attr-defined]
+    return fake
 
 
 async def test_vision_calls_acquire_the_shared_rate_limiter(monkeypatch) -> None:
@@ -542,11 +512,8 @@ async def test_vision_calls_acquire_the_shared_rate_limiter(monkeypatch) -> None
     )
     assert built, "setup: AIService built no rate limiter"
     shared = built[-1]
-    completions = _ScriptedVisionCompletions(["not-json", "still not json", valid], [shared])
-    fake_client = type("Client", (), {})()
-    fake_client.chat = type("Chat", (), {})()
-    fake_client.chat.completions = completions
-    monkeypatch.setattr(analyzer, "client", fake_client)
+    completions = _scripted_vision_client(["not-json", "still not json", valid], [shared])
+    monkeypatch.setattr(analyzer, "client", completions)
 
     analysis, _usage = await service.analyzer.analyze("http://example.com/image.jpg")
 
@@ -562,11 +529,8 @@ async def test_vision_calls_acquire_the_shared_rate_limiter(monkeypatch) -> None
 
     # A standalone analyzer, built without any AIService, has no limiter and must still work.
     standalone = VisionAnalyzerOpenAI(config)
-    standalone_calls = _ScriptedVisionCompletions(["not-json", "still not json", valid], [])
-    standalone_client = type("Client", (), {})()
-    standalone_client.chat = type("Chat", (), {})()
-    standalone_client.chat.completions = standalone_calls
-    monkeypatch.setattr(standalone, "client", standalone_client)
+    standalone_calls = _scripted_vision_client(["not-json", "still not json", valid], [])
+    monkeypatch.setattr(standalone, "client", standalone_calls)
 
     standalone_analysis, _ = await standalone.analyze("http://example.com/image.jpg")
 

@@ -57,19 +57,3 @@ def test_admin_logout_without_csrf_header_is_blocked(client: TestClient) -> None
     _become_admin(client)
     res = client.post("/api/admin/logout")  # no CSRF header
     assert res.status_code == 403
-
-
-def test_analyze_publish_require_admin(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> None:
-    monkeypatch.setenv("AUTH0_DOMAIN", "test.auth0.com")
-    monkeypatch.setenv("AUTH0_CLIENT_ID", "cid")
-    monkeypatch.setenv("AUTH0_CLIENT_SECRET", "sec")
-    client = TestClient(app)
-
-    # Without admin cookie, should be blocked. Post-hardening returns 401
-    # (no credentials) rather than 403 (forbidden); both indicate the route
-    # is properly gated.
-    res = client.post("/api/images/test.jpg/analyze")
-    assert res.status_code in (401, 403, 404)
-
-    res = client.post("/api/images/test.jpg/publish")
-    assert res.status_code in (401, 403, 404)

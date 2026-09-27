@@ -1,16 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 from fastapi.testclient import TestClient
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 
 
@@ -21,20 +16,7 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
     """
 
     def _make(auto_view: bool, admin_configured: bool) -> TestClient:
-        cfg = ApplicationConfig(
-            dropbox=DropboxConfig(
-                app_key="k",
-                app_secret="s",
-                refresh_token="r",
-                image_folder="/Photos",
-            ),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(
-                telegram_enabled=False,
-                instagram_enabled=False,
-                email_enabled=False,
-            ),
+        cfg = make_app_config(
             features=FeaturesConfig(
                 analyze_caption_enabled=True,
                 publish_enabled=True,
@@ -42,10 +24,7 @@ def make_client(monkeypatch: pytest.MonkeyPatch):
                 remove_enabled=True,
                 auto_view_enabled=auto_view,
             ),
-            telegram=None,
-            instagram=None,
-            email=None,
-            content=ContentConfig(hashtag_string="#tags", archive=True, debug=False),
+            content={"hashtag_string": "#tags", "archive": True},
         )
 
         # Make the web layer use our in-memory config instead of reading real files/env.

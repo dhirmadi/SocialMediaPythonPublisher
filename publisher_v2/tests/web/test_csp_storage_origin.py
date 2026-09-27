@@ -14,13 +14,13 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from typing import Any
 from unittest.mock import patch
 
 import pytest
 
-R2_ENDPOINT = "https://accountid.r2.cloudflarestorage.com"
+from .conftest import FakeS3
 
 
 def _base_env(tmp_path: Any) -> dict[str, str]:
@@ -37,28 +37,14 @@ def _base_env(tmp_path: Any) -> dict[str, str]:
     }
 
 
-@pytest.fixture
-def managed_app(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[None]:
-    env = _base_env(tmp_path) | {
-        "STORAGE_PROVIDER": "managed",
-        "R2_ACCESS_KEY_ID": "k",
-        "R2_SECRET_ACCESS_KEY": "s",
-        "R2_ENDPOINT_URL": R2_ENDPOINT,
-        "R2_BUCKET_NAME": "bucket",
-    }
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
-        monkeypatch.delenv(key, raising=False)
-    from publisher_v2.config.source import get_config_source
-    from publisher_v2.web.app import get_service
+# The managed harness's env with Auth0 unset: this file's policy assertions predate Auth0 in it.
+_NO_AUTH0: dict[str, str | None] = {"AUTH0_DOMAIN": None, "AUTH0_CLIENT_ID": None, "AUTH0_CLIENT_SECRET": None}
 
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with patch("publisher_v2.services.managed_storage.boto3"):
-        yield
-    get_config_source.cache_clear()
-    get_service.cache_clear()
+
+@pytest.fixture
+def csp_managed_app(managed_real_app: Callable[..., FakeS3]) -> None:
+    """Real app on managed storage (``tests/web/conftest.py``) at ``R2_ENDPOINT``."""
+    managed_real_app(env=_NO_AUTH0)
 
 
 @pytest.fixture
@@ -107,7 +93,7 @@ def _csp() -> str:
     return response.headers["Content-Security-Policy"]
 
 
-def test_managed_storage_origin_replaces_blanket_https(managed_app: None) -> None:
+def test_managed_storage_origin_replaces_blanket_https(csp_managed_app: None) -> None:
     csp = _csp()
 
     assert "accountid.r2.cloudflarestorage.com" in csp
@@ -132,31 +118,10 @@ def test_dropbox_content_host_is_allowed_not_all_of_https(dropbox_app: None) -> 
     ],
 )
 def test_hostile_endpoint_cannot_inject_a_directive(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, hostile_endpoint: str
+    managed_real_app: Callable[..., FakeS3], hostile_endpoint: str
 ) -> None:
     """An endpoint_url is tenant-influenced (BYOK) — it must never reach the header raw."""
-    env = _base_env(tmp_path) | {
-        "STORAGE_PROVIDER": "managed",
-        "R2_ACCESS_KEY_ID": "k",
-        "R2_SECRET_ACCESS_KEY": "s",
-        "R2_ENDPOINT_URL": hostile_endpoint,
-        "R2_BUCKET_NAME": "bucket",
-    }
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
-        monkeypatch.delenv(key, raising=False)
-    from publisher_v2.config.source import get_config_source
-    from publisher_v2.web.app import get_service
-
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with patch("publisher_v2.services.managed_storage.boto3"):
-        csp = _csp()
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with contextlib.suppress(Exception):
-        get_service()
+    csp = _csp_for_endpoint(managed_real_app, hostile_endpoint)
 
     # One script-src — the nonce one — and no extra source smuggled into any
     # directive. A host that urlparse folds into a single valid netloc may still
@@ -173,41 +138,20 @@ def test_hostile_endpoint_cannot_inject_a_directive(
             assert len(origins) <= 1, csp
 
 
-def _csp_for_endpoint(monkeypatch: pytest.MonkeyPatch, tmp_path: Any, endpoint: str) -> str:
-    env = _base_env(tmp_path) | {
-        "STORAGE_PROVIDER": "managed",
-        "R2_ACCESS_KEY_ID": "k",
-        "R2_SECRET_ACCESS_KEY": "s",
-        "R2_ENDPOINT_URL": endpoint,
-        "R2_BUCKET_NAME": "bucket",
-    }
-    for key, value in env.items():
-        monkeypatch.setenv(key, value)
-    for key in ("ORCHESTRATOR_BASE_URL", "DATABASE_URL", "CONFIG_PATH"):
-        monkeypatch.delenv(key, raising=False)
-    from publisher_v2.config.source import get_config_source
-    from publisher_v2.web.app import get_service
-
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with patch("publisher_v2.services.managed_storage.boto3"):
-        csp = _csp()
-    get_config_source.cache_clear()
-    get_service.cache_clear()
-    with contextlib.suppress(Exception):
-        get_service()
-    return csp
+def _csp_for_endpoint(managed_real_app: Callable[..., FakeS3], endpoint: str) -> str:
+    managed_real_app(env={**_NO_AUTH0, "R2_ENDPOINT_URL": endpoint})
+    return _csp()
 
 
-def test_malformed_endpoint_does_not_break_the_request(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+def test_malformed_endpoint_does_not_break_the_request(managed_real_app: Callable[..., FakeS3]) -> None:
     """An unparseable endpoint_url must degrade to 'self', not 500 every request."""
-    csp = _csp_for_endpoint(monkeypatch, tmp_path, "http://[evil")
+    csp = _csp_for_endpoint(managed_real_app, "http://[evil")
 
     assert "img-src 'self' data: blob:;" in csp, csp
     assert not _has_blanket_https(csp), csp
 
 
-def test_ipv6_endpoint_is_not_emitted(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+def test_ipv6_endpoint_is_not_emitted(managed_real_app: Callable[..., FakeS3]) -> None:
     """CSP's host-source grammar has no IPv6 production.
 
     This previously asserted the bracketed literal appears in the policy. A
@@ -216,13 +160,13 @@ def test_ipv6_endpoint_is_not_emitted(monkeypatch: pytest.MonkeyPatch, tmp_path:
     could not work. Falling back to `'self'` is the same effective behaviour,
     stated honestly.
     """
-    csp = _csp_for_endpoint(monkeypatch, tmp_path, "https://[2001:db8::1]:9000")
+    csp = _csp_for_endpoint(managed_real_app, "https://[2001:db8::1]:9000")
 
     assert "2001:db8" not in csp, csp
     assert "connect-src 'self'" in csp, csp
 
 
-def test_policy_keeps_its_other_directives(managed_app: None) -> None:
+def test_policy_keeps_its_other_directives(csp_managed_app: None) -> None:
     csp = _csp()
 
     assert "default-src 'self'" in csp
@@ -239,34 +183,17 @@ class TestPerTenantOrigins:
 
     @staticmethod
     def _config(endpoint: str | None):
-        from publisher_v2.config.schema import (
-            ApplicationConfig,
-            ContentConfig,
-            DropboxConfig,
-            ManagedStorageConfig,
-            OpenAIConfig,
-            PlatformsConfig,
-            StoragePathConfig,
-        )
+        from caption_pipeline_fakes import make_app_config
 
-        common = {
-            "storage_paths": StoragePathConfig(image_folder="/Photos"),
-            "openai": OpenAIConfig(api_key="sk-test"),
-            "platforms": PlatformsConfig(),
-            "content": ContentConfig(hashtag_string="", archive=True, debug=False),
-        }
+        from publisher_v2.config.schema import ManagedStorageConfig
+
         if endpoint is None:
-            return ApplicationConfig(
-                dropbox=DropboxConfig(
-                    app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-                ),
-                **common,
-            )
-        return ApplicationConfig(
+            return make_app_config(content={"archive": True})
+        return make_app_config(
             managed=ManagedStorageConfig(
                 access_key_id="k", secret_access_key="s", endpoint_url=endpoint, bucket="b", region="auto"
             ),
-            **common,
+            content={"archive": True},
         )
 
     def test_each_tenant_gets_its_own_storage_origin(self) -> None:
@@ -574,3 +501,26 @@ class TestAnEndpointCannotInflateTheHeader:
 
         config = TestPerTenantOrigins._config("https://minio.internal:9000")
         assert storage_origins_for_config(config) == ["https://minio.internal:9000"]
+
+
+def test_storage_origins_falls_back_without_lifespan_state() -> None:
+    """Standalone request with no tenant config and no startup snapshot: no storage origin, 'self' only.
+
+    Called directly so the fallback is covered no matter which test first ran the app's lifespan.
+    """
+    from types import SimpleNamespace
+
+    from starlette.datastructures import State
+    from starlette.requests import Request
+
+    from publisher_v2.web.middleware_security import _storage_origins
+
+    # The app exists but its lifespan never stored ``csp_storage_origins`` (State raises AttributeError).
+    assert _storage_origins(Request({"type": "http", "app": SimpleNamespace(state=State())})) == []
+    # No app in the scope at all (``request.app`` raises KeyError).
+    assert _storage_origins(Request({"type": "http"})) == []
+
+    # Control: the same request shape reads the snapshot once lifespan has stored one.
+    state = State()
+    state.csp_storage_origins = ["https://r2.example"]
+    assert _storage_origins(Request({"type": "http", "app": SimpleNamespace(state=state)})) == ["https://r2.example"]

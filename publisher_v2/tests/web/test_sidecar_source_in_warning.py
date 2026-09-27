@@ -13,15 +13,10 @@ import logging
 from unittest.mock import AsyncMock
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -30,20 +25,7 @@ CORRUPT_SIDECAR = b"sd prompt\n\n# ---\n# caption_generated: {not parseable\n"
 
 @pytest.fixture
 def web_service(monkeypatch: pytest.MonkeyPatch) -> WebImageService:
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-            archive_folder="archive",
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        features=FeaturesConfig(),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
-    )
+    cfg = make_app_config(features=FeaturesConfig(), content={"archive": True})
     monkeypatch.setattr(
         "publisher_v2.web.service.load_application_config",
         lambda config_path, env_path: cfg,

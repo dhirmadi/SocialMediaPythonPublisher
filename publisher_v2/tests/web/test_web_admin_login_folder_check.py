@@ -2,16 +2,12 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.runtime_settings import RuntimeSettings
 from publisher_v2.config.schema import (
-    ApplicationConfig,
     ContentConfig,
-    DropboxConfig,
     FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -26,26 +22,12 @@ def mock_storage():
 @pytest.fixture
 def service(mock_storage):
     # Construct a valid minimal config to satisfy Pydantic
-    dropbox_config = DropboxConfig(
-        app_key="k",
-        app_secret="s",
-        refresh_token="t",
-        image_folder="/photos",
-        folder_keep="keep",
-        folder_remove="remove",
-    )
-    openai_config = OpenAIConfig(api_key="sk-testkey")
-    platforms_config = PlatformsConfig()
-    content_config = ContentConfig()
-    features_config = FeaturesConfig(keep_enabled=True, remove_enabled=True)
-
-    config = ApplicationConfig(
-        dropbox=dropbox_config,
-        storage_paths=StoragePathConfig(image_folder="/photos", folder_keep="keep", folder_remove="remove"),
-        openai=openai_config,
-        platforms=platforms_config,
-        content=content_config,
-        features=features_config,
+    config = make_app_config(
+        dropbox={"refresh_token": "t", "image_folder": "/photos", "folder_keep": "keep", "folder_remove": "remove"},
+        storage_paths={"image_folder": "/photos", "folder_keep": "keep", "folder_remove": "remove"},
+        openai={"api_key": "sk-testkey"},  # pragma: allowlist secret
+        content=ContentConfig(),
+        features=FeaturesConfig(keep_enabled=True, remove_enabled=True),
     )
 
     # Create service without calling __init__ to avoid config loading

@@ -20,12 +20,6 @@ def client(monkeypatch: pytest.MonkeyPatch, env_first_config: None) -> TestClien
 _CSRF = {"X-Requested-With": "XMLHttpRequest"}
 
 
-def test_delete_requires_admin(client: TestClient) -> None:
-    # Without auth credentials, 401 (post-hardening) or 403/404 acceptable.
-    res = client.post("/api/images/test.jpg/delete")
-    assert res.status_code in (401, 403, 404)
-
-
 def test_delete_endpoint_success_flow(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     # Become admin (#137: Auth0 is the only login; Auth0-mode cookie stands in for its callback)
     client.cookies.set(ADMIN_COOKIE_NAME, mint_admin_cookie_value(host="testserver", mode="auth0"))

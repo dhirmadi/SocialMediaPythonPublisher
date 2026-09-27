@@ -8,53 +8,30 @@ as a single field in the existing /api/config/features endpoint.
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 from fastapi.testclient import TestClient
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
     ContentConfig,
-    DropboxConfig,
     FeaturesConfig,
     ManagedStorageConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 
 
 def _make_dropbox_config() -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(),
-        features=FeaturesConfig(),
-    )
+    return make_app_config(content=ContentConfig(), features=FeaturesConfig())
 
 
 def _make_managed_config() -> ApplicationConfig:
-    return ApplicationConfig(
+    return make_app_config(
         managed=ManagedStorageConfig(
             access_key_id="AKID",
             secret_access_key="SECRET",
             endpoint_url="https://r2.example.com",
             bucket="bucket",
         ),
-        storage_paths=StoragePathConfig(image_folder="tenant/instance"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
-        telegram=None,
-        instagram=None,
-        email=None,
+        storage_paths={"image_folder": "tenant/instance"},
         content=ContentConfig(),
         features=FeaturesConfig(),
     )

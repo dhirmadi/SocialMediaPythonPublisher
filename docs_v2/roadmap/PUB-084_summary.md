@@ -1,6 +1,6 @@
 # PUB-084 — DRY Review Standalone Batch: Implementation Summary
 
-**Status:** In Progress (wave 1 of 5 complete)
+**Status:** In Progress (waves 1-2 of 5 complete)
 **Date:** 2026-09-27
 
 One section per wave; each wave ships as its own PR.
@@ -58,3 +58,57 @@ Manual check: running the eight previously unisolated files left `~/.cache/publi
 - Role split: #296 is test infrastructure only, so the test-engineer did both the red tests and the conftest/fixture changes; the developer (which never edits tests) did #273's source change.
 - Lead decision: the six Instagram session-location tests were rewritten to read the autouse cache dir rather than allowlisted in the AC2 guard.
 - The AC2 guard catches `setattr(..., lambda: set()|None)` forms only; `patch(..., return_value=set())` is not covered (none exist today).
+
+## Wave 2 — Test infrastructure (#297, #298)
+
+Test-only: no file under `publisher_v2/src` changed.
+
+### Files Changed
+
+- `publisher_v2/tests/caption_pipeline_fakes.py` — the one home for shared fakes: `FakeOpenAI` scripted mode (payloads, exceptions or callables replayed in order; records `calls` and `client_kwargs`), `FakeCompletion`, `fake_usage`, `stub_ai_service`, `MultiCaptionDummyGenerator`, the `BaseDummy*` classes moved from conftest, and `make_app_config(**overrides)`.
+- `publisher_v2/tests/conftest.py` — fixtures only; `fake_openai` fixture; 19 unused fixtures deleted (`mock_full_env` kept: `env_first_config` uses it). Net −518 lines.
+- Root tests — 12 files migrated off hand-rolled OpenAI chains, 10 off `AIService` subclasses and inline `_NoopLimiter`s; every root `ApplicationConfig(` goes through `make_app_config` (four thin wrappers over it kept in `test_workflow_multi_caption`, `test_caption_spec`, `test_pub028_smart_hashtags`, `test_sidecar_builders`).
+- `publisher_v2/tests/web/conftest.py` — one real-app harness (`real_app_env`), per-key `FakeS3` with `managed_real_app`, `analyze_service`, hoisted library fixtures (`FEATURE_LIBRARY` unset inside; 52 `delenv` lines gone), `_FakeDropbox`/`_FakeBot`/`_FakeSMTP` defined once.
+- Web tests — the two copied real-app harnesses, three `_FakeS3`s, three `_make_service` copies and the duplicated library fixtures replaced; 14 web `ApplicationConfig(` sites moved to `make_app_config` (equivalence checked by `model_dump()` comparison where built outside fixtures).
+- `publisher_v2/tests/web/test_route_auth_matrix.py` — new: admin routes derived from the running app (endpoint and dependency source via AST, identity-matched to `require_admin`), 15 routes × 14 scenarios with the real guards, plus `test_every_mutating_route_is_admin_or_allowlisted` (only the two logout routes allowlisted).
+- Deleted and folded into the matrix: `web/test_require_admin_strict_mode.py` (stale `app.py:476`-style ids), `web_integration/test_web_auth_integration.py`, the `_MUTATING` tests, `TestAuthEnforcement`, and `web_integration` require-admin tests that accepted any of 401/403/404.
+- `web/test_web_app_additional.py` — error-path tests use a real admin session instead of no-op `require_auth`/`require_admin` patches.
+- `test_web_thumbnail_endpoint.py::test_thumbnail_endpoint_requires_admin_when_auto_view_disabled` — expectation 401 → 403. The old 401 was the patched `require_admin`'s own `side_effect`; the test now runs the real guard. Reviewer and auditor both judged this a test fix, not a weakening.
+- `web/test_library_delete_sanitizing.py` — re-seeded so only the listing check can refuse (`known.txt` seeded; `ghost.jpg` written behind the cached listing); both fail if `ensure_known_image` is a no-op.
+- `web/test_csp_storage_origin.py` — `test_storage_origins_falls_back_without_lifespan_state` removes an order-dependent coverage swing in `middleware_security.py`.
+- `publisher_v2/tests/test_suite_hygiene.py` — AC4-AC9 ratchets plus self-checks for the scan patterns.
+- Placeholder secrets marked `# pragma: allowlist secret`; `.secrets.baseline` only shifted two line numbers.
+
+### Acceptance Criteria
+
+- [x] AC4 — `FakeOpenAI` replays a script; no hand-rolled OpenAI fakes (tests: `test_fake_openai_replays_script_in_order`, `test_no_hand_rolled_openai_fakes`; allowlist: `test_caption_eval_script.py`'s "never builds a client" tripwire)
+- [x] AC5 — no `AIService` subclass in tests (test: `test_no_test_subclasses_ai_service`)
+- [x] AC6 — every conftest fixture used (test: `test_every_conftest_fixture_is_used`)
+- [x] AC7 — `make_app_config`; direct construction only in `test_config_managed.py`, which tests the model's validator (tests: `test_make_app_config_applies_overrides`, `test_application_config_built_via_helper`)
+- [x] AC8 — each web fake defined once; per-key S3 head (tests: `test_web_fakes_defined_once`, `test_fake_s3_head_object_is_per_key`)
+- [x] AC9 — route inventory covers every admin route, no line numbers; no auth patched out (tests: `test_route_inventory_covers_every_admin_route`, `test_no_test_patches_out_auth`). Extra, from the security audit: `test_every_mutating_route_is_admin_or_allowlisted`, and Basic-auth and strict-mode edge rows in the matrix.
+
+### Test Results
+
+2158 passed, 2 skipped under seeds 719490804 and 3994647 (wave 1 end: 1970). 48 old auth tests were folded into the matrix; the matrix and hygiene self-checks added the rest.
+
+### Quality Gates
+
+- Format / lint: ✅ · Type check: ✅ (no `src` change)
+- Coverage: 93.55% overall. `services/ai.py` −0.13pp (line 440, the `TypeError` retry wave 5 deletes under AC18); no other `src` module moved beyond test-order noise, which the new `_storage_origins` test removes.
+
+### Subagent Verdicts
+
+- `code-reviewer`: PASS WITH NITS — gates green; exact-name traceability AC4-AC9; four mutation checks all caught (ratchets, a removed `require_admin`, a dropped inventory entry, a no-op `ensure_known_image`).
+- `security-auditor` (run although the handoff schedules it for waves 3 and 5, because wave 2 rewrote the auth tests): PASS WITH NITS — no auth guarantee lost; a mutant removing the keep route's guard fails five tests. Its nits (opt-in route inventory, Basic and strict-mode rows, detect-secrets placeholders) were applied in this wave.
+
+### Linked Issues
+
+- #297 — closed by the wave 2 PR
+- #298 — closed by the wave 2 PR
+
+### Notes
+
+- Some library tests still patch private route helpers (`_list_objects_buffered`, `_move_in_storage`), and the matrix's tenant scenario patches the middleware's orchestrator lookup. Neither is in wave 2's ACs; the helper patches go when #275 (PUB-056) moves that logic into storage.
+- Web tests shrank by ~275 lines net rather than the issue's ~600 estimate because the auth matrix grew from 12 routes × 2 scenarios to 15 × 14.
+- PUB-060's `minimal_ini_content` bullet is now obsolete (fixture deleted here).

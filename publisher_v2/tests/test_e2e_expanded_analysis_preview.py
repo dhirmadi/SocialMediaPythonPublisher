@@ -1,17 +1,10 @@
 from __future__ import annotations
 
 import pytest
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyAnalyzer, BaseDummyGenerator, BaseDummyStorage, make_app_config
 
 from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.ai import AIService
@@ -32,31 +25,9 @@ class FixedCaptionGenerator(BaseDummyGenerator):
         self.model = cfg.caption_model
 
 
-def make_config() -> ApplicationConfig:
-    drop = DropboxConfig(
-        app_key="a", app_secret="b", refresh_token="c", image_folder="/ImagesToday", archive_folder="archive"
-    )
-    openai = OpenAIConfig(
-        api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx",
-        vision_model="gpt-4o",
-        caption_model="gpt-4o-mini",
-        sd_caption_enabled=True,
-        sd_caption_single_call_enabled=True,
-    )
-    platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
-    content = ContentConfig(hashtag_string="", archive=False, debug=False)
-    return ApplicationConfig(
-        dropbox=drop,
-        storage_paths=StoragePathConfig(image_folder="/ImagesToday"),
-        openai=openai,
-        platforms=platforms,
-        content=content,
-    )
-
-
 @pytest.mark.asyncio
 async def test_e2e_preview_includes_expanded_fields(monkeypatch: pytest.MonkeyPatch) -> None:
-    cfg = make_config()
+    cfg = make_app_config(dropbox={"image_folder": "/ImagesToday"}, storage_paths={"image_folder": "/ImagesToday"})
     # Use centralized fixtures (QC-001)
     storage = BaseDummyStorage()
     ai = AIService(ExpandedFieldsAnalyzer(), FixedCaptionGenerator(cfg.openai))  # type: ignore[arg-type]

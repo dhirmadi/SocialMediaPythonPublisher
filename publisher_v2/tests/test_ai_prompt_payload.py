@@ -12,6 +12,7 @@ import json
 import logging
 
 import pytest
+from caption_pipeline_fakes import FakeOpenAI, install_fake_openai
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.models import CaptionSpec, ImageAnalysis
@@ -21,38 +22,6 @@ from publisher_v2.services.ai import (
     AIService,
     CaptionGeneratorOpenAI,
 )
-
-# --- Fakes (same shape as test_ai_multi_caption.py) ---
-
-
-class _Msg:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _Choice:
-    def __init__(self, content: str) -> None:
-        self.message = _Msg(content)
-
-
-class _Resp:
-    def __init__(self, content: str) -> None:
-        self.choices = [_Choice(content)]
-
-
-class _FakeCompletions:
-    def __init__(self, response_content: str) -> None:
-        self._response_content = response_content
-        self.calls: list[dict] = []
-
-    async def create(self, **kwargs) -> _Resp:
-        self.calls.append(kwargs)
-        return _Resp(self._response_content)
-
-
-class _FakeClient:
-    def __init__(self, completions: _FakeCompletions) -> None:
-        self.chat = type("Chat", (), {"completions": completions})()
 
 
 def _make_specs() -> dict[str, CaptionSpec]:
@@ -82,9 +51,8 @@ def _platform_response() -> str:
     return json.dumps({"telegram": "t", "instagram": "i", "email": "e"})
 
 
-def _make_generator(monkeypatch: pytest.MonkeyPatch, response: str) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
-    completions = _FakeCompletions(response)
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+def _make_generator(monkeypatch: pytest.MonkeyPatch, response: str) -> tuple[CaptionGeneratorOpenAI, FakeOpenAI]:
+    completions = install_fake_openai(monkeypatch, FakeOpenAI(script=[response]))
     return CaptionGeneratorOpenAI(_default_config()), completions
 
 
@@ -178,8 +146,7 @@ async def test_service_path_sends_caption_persona_system_message(monkeypatch: py
     the request that reaches the OpenAI client carries the caption persona, not the SD prompt engineer."""
     from publisher_v2.services.ai import VisionAnalyzerOpenAI
 
-    completions = _FakeCompletions(_platform_response())
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    completions = install_fake_openai(monkeypatch, FakeOpenAI(script=[_platform_response()]))
     cfg = _default_config()
     generator = CaptionGeneratorOpenAI(cfg)
     service = AIService(VisionAnalyzerOpenAI(cfg), generator)
@@ -203,9 +170,10 @@ async def test_service_path_sends_caption_persona_system_message(monkeypatch: py
 # ---------- #138: tenant-neutral default persona, fewer machine tells ----------
 
 
-def _captured_user_prompt(monkeypatch: pytest.MonkeyPatch) -> tuple[CaptionGeneratorOpenAI, _FakeCompletions]:
-    completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+def _captured_user_prompt(monkeypatch: pytest.MonkeyPatch) -> tuple[CaptionGeneratorOpenAI, FakeOpenAI]:
+    completions = install_fake_openai(
+        monkeypatch, FakeOpenAI(script=[json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"})])
+    )
     return CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test")), completions
 
 
@@ -227,7 +195,7 @@ async def test_default_system_prompt_is_tenant_neutral_and_keeps_banned_list(
     assert "kink" not in system
 
 
-async def _generate_through_the_service(gen: CaptionGeneratorOpenAI, completions: _FakeCompletions) -> str:
+async def _generate_through_the_service(gen: CaptionGeneratorOpenAI, completions: FakeOpenAI) -> str:
     """Drive AIService, not the generator, and return the user message sent."""
     from publisher_v2.services.ai import AIService, VisionAnalyzerOpenAI
 
@@ -290,8 +258,9 @@ class TestATenantPersonaKeepsTheRules:
 
     @staticmethod
     def _generator(monkeypatch: pytest.MonkeyPatch, system_prompt: str | None) -> CaptionGeneratorOpenAI:
-        completions = _FakeCompletions(json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"}))
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        install_fake_openai(
+            monkeypatch, FakeOpenAI(script=[json.dumps({"telegram": "t", "email": "e", "sd_caption": "s"})])
+        )
         kwargs = {"api_key": "sk-test"}
         if system_prompt is not None:
             kwargs["system_prompt"] = system_prompt
@@ -311,8 +280,7 @@ class TestATenantPersonaKeepsTheRules:
 
     async def test_a_single_platform_call_is_briefed_for_one_platform(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """The fallbacks send one Platform= line, so "one caption per platform below" contradicted them."""
-        completions = _FakeCompletions("a caption")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        completions = install_fake_openai(monkeypatch, FakeOpenAI(script=["a caption"]))
         gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test"))
         spec = CaptionSpec(platform="email", style="short", hashtags="", max_length=240)
 
@@ -384,8 +352,7 @@ class TestTheBudgetAndTheBriefAreRespected:
         self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         """The single-platform brief must not silently override a tenant's own role."""
-        completions = _FakeCompletions("a caption")
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda **_kw: _FakeClient(completions))
+        completions = install_fake_openai(monkeypatch, FakeOpenAI(script=["a caption"]))
         gen = CaptionGeneratorOpenAI(OpenAIConfig(api_key="sk-test", role_prompt="My own brief, thanks."))
 
         await gen.generate(
@@ -755,8 +722,7 @@ async def test_email_caption_label_and_line_breaks_are_stripped(monkeypatch: pyt
 
     telegram_raw = "First line of the telegram post.\n\nSecond paragraph, kept as written."
     response = json.dumps({"telegram": telegram_raw, "email": raw})
-    completions = _FakeCompletions(response)
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    install_fake_openai(monkeypatch, FakeOpenAI(script=[response]))
     specs = {
         "telegram": CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096),
         "email": CaptionSpec(platform="email", style="s", hashtags="", max_length=240),
@@ -830,21 +796,8 @@ async def test_multi_prompt_asks_platforms_to_open_differently(monkeypatch: pyte
 # cleanup itself: without them a mutation that disables it leaves the suite green.
 
 
-class _SequentialCompletions:
-    """Returns the queued responses in order (primary multi-caption call, then condense)."""
-
-    def __init__(self, responses: list[str]) -> None:
-        self._responses = list(responses)
-        self.calls: list[dict] = []
-
-    async def create(self, **kwargs) -> _Resp:
-        self.calls.append(kwargs)
-        return _Resp(self._responses.pop(0))
-
-
 async def _multi_with(monkeypatch: pytest.MonkeyPatch, responses: list[str], specs: dict[str, CaptionSpec]):
-    completions = _SequentialCompletions(responses)
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _FakeClient(completions))
+    completions = install_fake_openai(monkeypatch, FakeOpenAI(script=responses))
     result, _usage = await CaptionGeneratorOpenAI(_default_config()).generate_multi(_make_analysis(), specs)
     return result, completions
 

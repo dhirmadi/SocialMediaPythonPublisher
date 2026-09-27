@@ -195,53 +195,8 @@ def test_index_has_no_password_prompt_and_says_when_auth0_missing(monkeypatch: p
     assert client.get("/api/config/features").json()["auth_mode"] == "none"
 
 
-_MUTATING = ["analyze", "publish", "keep", "remove", "delete"]
-
-
-@pytest.mark.parametrize("action", _MUTATING)
-def test_mutating_route_needs_admin_even_with_header_auth_when_auth0_missing(
-    monkeypatch: pytest.MonkeyPatch, action: str
-) -> None:
-    """No Auth0 on the dyno: a Bearer header alone must not analyze/publish/curate (503, admin not configured)."""
-    client = _real_client(monkeypatch, auth0=False, extra={"WEB_AUTH_TOKEN": "tok"})
-    res = client.post(f"/api/images/a.jpg/{action}", headers={"Authorization": "Bearer tok"})
-    assert res.status_code == 503, res.text
-    assert res.json()["detail"] == "Admin mode not configured"
-
-
-@pytest.mark.parametrize("action", _MUTATING)
-def test_mutating_route_needs_admin_when_unauthenticated_allowed(monkeypatch: pytest.MonkeyPatch, action: str) -> None:
-    client = _real_client(monkeypatch, auth0=False, extra={"WEB_ALLOW_UNAUTHENTICATED": "1"})
-    res = client.post(f"/api/images/a.jpg/{action}", headers={"X-Requested-With": "XMLHttpRequest"})
-    assert res.status_code == 503, res.text
-
-
-@pytest.mark.parametrize("action", _MUTATING)
-def test_mutating_route_403_for_tenant_without_auth0_on_dyno_without_auth0(
-    monkeypatch: pytest.MonkeyPatch, action: str
-) -> None:
-    """Orchestrator tenant auth0=None on a dyno with only header auth: per-tenant 403, not header pass-through."""
-    client = _real_client(monkeypatch, auth0=False, extra={"WEB_AUTH_TOKEN": "tok"})
-    monkeypatch.delenv("CONFIG_SOURCE", raising=False)
-    monkeypatch.setenv("ORCHESTRATOR_BASE_URL", "https://orch.test")
-    host = "tenant-a.shibari.photo"
-    tenant_config = SimpleNamespace(auth0=None, features=SimpleNamespace(auto_view_enabled=True))
-    runtime = SimpleNamespace(host=host, tenant="tenant-a", config=tenant_config)
-
-    class _FakeOrchestratorSource:
-        async def get_config(self, _host: str) -> SimpleNamespace:
-            return runtime
-
-    class _FakeFactory:
-        async def get_service(self, _source: object, _runtime: object) -> SimpleNamespace:
-            return SimpleNamespace(config=tenant_config)
-
-    monkeypatch.setattr("publisher_v2.web.middleware.get_config_source", lambda: _FakeOrchestratorSource())
-    monkeypatch.setattr("publisher_v2.web.middleware._tenant_service_factory", lambda _settings=None: _FakeFactory())
-    client = TestClient(client.app, base_url=f"http://{host}")
-    res = client.post(f"/api/images/a.jpg/{action}", headers={"Authorization": "Bearer tok"})
-    assert res.status_code == 403, res.text
-    assert res.json()["detail"] == "Admin mode disabled for this tenant"
+# The admin-route auth checks that used to live here (#137: header auth alone never reaches an admin
+# route; 503 without Auth0; per-tenant 403) run over every admin route in test_route_auth_matrix.py.
 
 
 def test_features_auth_mode_none_for_tenant_without_auth0_on_auth0_dyno(monkeypatch: pytest.MonkeyPatch) -> None:

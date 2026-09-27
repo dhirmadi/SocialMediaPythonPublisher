@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import pytest
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyClient
+from caption_pipeline_fakes import BaseDummyClient
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.services.storage import DropboxStorage

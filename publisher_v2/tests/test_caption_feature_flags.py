@@ -16,6 +16,7 @@ import json
 from unittest.mock import patch
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 from pydantic import ValidationError
 
 from publisher_v2.config.orchestrator_models import feature_kwargs
@@ -226,21 +227,11 @@ class TestVoiceProfilePipeline:
 
     def _make_config(self, voice_matching: bool, voice_profile: list[str] | None) -> object:
         """Build a minimal ApplicationConfig with the given voice settings."""
-        from publisher_v2.config.schema import (
-            ApplicationConfig,
-            DropboxConfig,
-            OpenAIConfig,
-            PlatformsConfig,
-            StoragePathConfig,
-        )
 
-        return ApplicationConfig(
-            dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(telegram_enabled=True),
-            content=ContentConfig(voice_profile=voice_profile),
-            features=FeaturesConfig(voice_matching_enabled=voice_matching),
+        return make_app_config(
+            platforms={"telegram_enabled": True},
+            content={"voice_profile": voice_profile, "archive": True},
+            features={"voice_matching_enabled": voice_matching},
         )
 
     def test_voice_matching_enabled_with_profile_prepends(self) -> None:
@@ -312,23 +303,9 @@ class TestBackwardCompatibility:
 
     def test_defaults_no_voice_profile_in_specs(self) -> None:
         """AC-16: Default config → CaptionSpec has no voice profile entries."""
-        from publisher_v2.config.schema import (
-            ApplicationConfig,
-            DropboxConfig,
-            OpenAIConfig,
-            PlatformsConfig,
-            StoragePathConfig,
-        )
         from publisher_v2.core.models import CaptionSpec
 
-        cfg = ApplicationConfig(
-            dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(telegram_enabled=True),
-            content=ContentConfig(),
-            features=FeaturesConfig(),
-        )
+        cfg = make_app_config(platforms={"telegram_enabled": True}, content={"archive": True})
         specs = CaptionSpec.for_platforms(cfg)
         spec = specs["telegram"]
         # With default voice_matching_enabled=False and voice_profile=None,
@@ -342,22 +319,12 @@ class TestVoiceMatchingDefaultWithProfile:
 
     def _app_config(self, voice_profile, features_kwargs=None):
         from publisher_v2.config.schema import (
-            ApplicationConfig,
-            ContentConfig,
-            DropboxConfig,
             FeaturesConfig,
-            OpenAIConfig,
-            PlatformsConfig,
-            StoragePathConfig,
         )
 
-        return ApplicationConfig(
-            dropbox=DropboxConfig(app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos"),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(),
+        return make_app_config(
             features=FeaturesConfig(**(features_kwargs or {})),
-            content=ContentConfig(hashtag_string="", archive=True, debug=False, voice_profile=voice_profile),
+            content={"archive": True, "voice_profile": voice_profile},
         )
 
     def test_default_true_when_profile_present(self) -> None:

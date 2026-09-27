@@ -1,15 +1,11 @@
 from __future__ import annotations
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.config.schema import (
     ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
     FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
 )
 from publisher_v2.web.service import WebImageService
 
@@ -31,21 +27,10 @@ class _DummyOrchestrator:
 
 
 def _make_config(*, delete_enabled: bool = True) -> ApplicationConfig:
-    return ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k",
-            app_secret="s",
-            refresh_token="r",
-            image_folder="/Photos",
-            archive_folder="archive",
-            folder_keep="keep",
-            folder_remove="remove",
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(),
+    return make_app_config(
+        dropbox={"folder_keep": "keep", "folder_remove": "remove"},
         features=FeaturesConfig(delete_enabled=delete_enabled),
-        content=ContentConfig(hashtag_string="", archive=True, debug=False),
+        content={"archive": True},
     )
 
 

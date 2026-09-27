@@ -22,7 +22,7 @@ from unittest.mock import patch
 import dropbox
 import httpx
 import pytest
-from caption_pipeline_fakes import FakeOpenAI
+from caption_pipeline_fakes import FakeOpenAI, install_fake_openai
 from PIL import Image
 
 from publisher_v2.config.orchestrator_client import OrchestratorClient
@@ -163,7 +163,7 @@ def _isolated_state(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> Iterator[
 
 
 @pytest.fixture
-def fake_openai() -> FakeOpenAI:
+def caption_openai() -> FakeOpenAI:
     # PUB-051 AC4/AC5: vision replies carry `sd_caption`; the JSON-mode caption call gets platform keys only.
     return FakeOpenAI(CAPTION_PLATFORMS)
 
@@ -181,10 +181,8 @@ async def _run(
     cfg = rc.config
     assert cfg.features.voice_matching_enabled is True, "a profile in the payload must switch voice matching on"
 
-    with (
-        patch("publisher_v2.services.storage.dropbox.Dropbox", _FakeDropbox),
-        patch("publisher_v2.services.ai.AsyncOpenAI", lambda *_a, **_kw: fake),
-    ):
+    install_fake_openai(monkeypatch, fake)
+    with patch("publisher_v2.services.storage.dropbox.Dropbox", _FakeDropbox):
         storage = create_storage(cfg)
         ai_service = AIService(VisionAnalyzerOpenAI(cfg.openai), CaptionGeneratorOpenAI(cfg.openai))
         orchestrator = WorkflowOrchestrator(cfg, storage, ai_service, [])
@@ -213,12 +211,12 @@ def _voice_block_examples(fake: FakeOpenAI) -> list[str]:
 
 
 async def test_workflow_run_prompt_contains_sampled_voice_examples(
-    monkeypatch: pytest.MonkeyPatch, fake_openai: FakeOpenAI
+    monkeypatch: pytest.MonkeyPatch, caption_openai: FakeOpenAI
 ) -> None:
     """Untagged corpus: the prompt carries this image's sample, not the whole profile."""
-    await _run([TELEGRAM_PUBLISHER], {"voice_profile": PROFILE, "archive": False}, monkeypatch, fake_openai)
+    await _run([TELEGRAM_PUBLISHER], {"voice_profile": PROFILE, "archive": False}, monkeypatch, caption_openai)
 
-    sent = _voice_block_examples(fake_openai)
+    sent = _voice_block_examples(caption_openai)
     expected = sample_voice_examples(PROFILE, seed_source=CONTENT_HASH, platform_tags=None, platforms=["telegram"])
 
     assert sent == expected, "the prompt did not carry the per-image sample for this run's seed"
@@ -227,7 +225,7 @@ async def test_workflow_run_prompt_contains_sampled_voice_examples(
 
 async def test_workflow_run_prompt_prefers_tagged_examples_when_voice_profile_tags_set(
     monkeypatch: pytest.MonkeyPatch,
-    fake_openai: FakeOpenAI,
+    caption_openai: FakeOpenAI,
 ) -> None:
     """Single enabled platform with tags: only that platform's tagged lines are eligible."""
     tags = {"telegram": PROFILE[:6], "email": EMAIL_TAGGED}
@@ -235,10 +233,10 @@ async def test_workflow_run_prompt_prefers_tagged_examples_when_voice_profile_ta
         [TELEGRAM_PUBLISHER],
         {"voice_profile": PROFILE, "voice_profile_tags": tags, "archive": False},
         monkeypatch,
-        fake_openai,
+        caption_openai,
     )
 
-    sent = _voice_block_examples(fake_openai)
+    sent = _voice_block_examples(caption_openai)
     expected = sample_voice_examples(PROFILE, seed_source=CONTENT_HASH, platform_tags=tags, platforms=["telegram"])
 
     assert sent == expected
@@ -246,7 +244,7 @@ async def test_workflow_run_prompt_prefers_tagged_examples_when_voice_profile_ta
 
 
 async def test_workflow_run_prompt_unions_tags_when_two_platforms_enabled(
-    monkeypatch: pytest.MonkeyPatch, fake_openai: FakeOpenAI
+    monkeypatch: pytest.MonkeyPatch, caption_openai: FakeOpenAI
 ) -> None:
     """Two enabled platforms, disjoint tags: one shared prompt prefers the union of both."""
     tags = {"telegram": TELEGRAM_TAGGED, "email": EMAIL_TAGGED}
@@ -254,11 +252,11 @@ async def test_workflow_run_prompt_unions_tags_when_two_platforms_enabled(
         [TELEGRAM_PUBLISHER, EMAIL_PUBLISHER],
         {"voice_profile": PROFILE, "voice_profile_tags": tags, "archive": False},
         monkeypatch,
-        fake_openai,
+        caption_openai,
     )
     assert cfg.platforms.telegram_enabled and cfg.platforms.email_enabled, "both platforms must be enabled"
 
-    sent = _voice_block_examples(fake_openai)
+    sent = _voice_block_examples(caption_openai)
     expected = sample_voice_examples(
         PROFILE, seed_source=CONTENT_HASH, platform_tags=tags, platforms=["telegram", "email"]
     )

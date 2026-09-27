@@ -3,17 +3,8 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+from caption_pipeline_fakes import make_app_config
 
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    CaptionFileConfig,
-    ContentConfig,
-    DropboxConfig,
-    FeaturesConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
-)
 from publisher_v2.core.models import ImageAnalysis, PublishResult
 from publisher_v2.core.workflow import WorkflowOrchestrator
 from publisher_v2.services.publishers.base import Publisher
@@ -87,32 +78,8 @@ class _SuccessPublisher(Publisher):
         return PublishResult(success=True, platform=self.platform_name)
 
 
-def _build_config() -> ApplicationConfig:
-    drop = DropboxConfig(
-        app_key="k",
-        app_secret="s",
-        refresh_token="r",
-        image_folder="/Photos",
-        archive_folder="archive",
-    )
-    openai = OpenAIConfig(api_key="sk-test", vision_model="gpt-4o", caption_model="gpt-4o-mini")
-    platforms = PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False)
-    content = ContentConfig(hashtag_string="#tag", archive=True, debug=False)
-    features = FeaturesConfig()
-    captionfile = CaptionFileConfig(extended_metadata_enabled=False, artist_alias="artist")
-    return ApplicationConfig(
-        dropbox=drop,
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=openai,
-        platforms=platforms,
-        features=features,
-        content=content,
-        captionfile=captionfile,
-    )
-
-
 def _make_orchestrator(storage: _MetadataStorage, publishers: list[Publisher] | None = None) -> WorkflowOrchestrator:
-    cfg = _build_config()
+    cfg = make_app_config(content={"hashtag_string": "#tag", "archive": True}, captionfile={"artist_alias": "artist"})
     ai_service = _StubAI()  # type: ignore[arg-type]
     return WorkflowOrchestrator(cfg, storage, ai_service, publishers or [])  # type: ignore[arg-type]
 

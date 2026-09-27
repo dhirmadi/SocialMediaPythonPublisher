@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import json
-
 import pytest
-from conftest import BaseDummyStorage
+from caption_pipeline_fakes import BaseDummyStorage, make_app_config, stub_ai_service
 
 from publisher_v2.config.schema import OpenAIConfig
 from publisher_v2.core.exceptions import AIServiceError
@@ -11,51 +9,15 @@ from publisher_v2.core.models import CaptionSpec, ImageAnalysis
 from publisher_v2.services.ai import CaptionGeneratorOpenAI, VisionAnalyzerOpenAI
 
 
-class _Msg:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _Choice:
-    def __init__(self, content: str) -> None:
-        self.message = _Msg(content)
-
-
-class _Resp:
-    def __init__(self, content: str) -> None:
-        self.choices = [_Choice(content)]
-
-
-class _CompletionsBadJSON:
-    async def create(self, model: str, messages, response_format, temperature: float):
-        # Return a non-JSON blob to trigger fallback
-        return _Resp("Not JSON at all")
-
-
-class _CompletionsCaption:
-    def __init__(self, content: str) -> None:
-        self._content = content
-
-    async def create(self, **kwargs):  # accepts max_tokens added in PUB-046
-        return _Resp(self._content)
-
-
-class _ClientWithCompletions:
-    def __init__(self, completions) -> None:
-        self.chat = type("Chat", (), {"completions": completions})()
-
-
 @pytest.mark.asyncio
-async def test_analyzer_non_json_response_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_analyzer_non_json_response_raises(fake_openai) -> None:
     """Post-hardening: non-JSON Vision response surfaces an AIServiceError.
 
     Previously this path fabricated an analysis with ``description=content[:100]``,
     which let attacker-controlled model output (e.g. overlay text in the image
     or a jailbroken model) flow into downstream caption generation. The new
     behavior surfaces the failure so the caller can decide (retry/skip)."""
-    monkeypatch.setattr(
-        "publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _ClientWithCompletions(_CompletionsBadJSON())
-    )
+    fake_openai(script=["Not JSON at all"])
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     with pytest.raises(AIServiceError):
@@ -73,12 +35,9 @@ async def test_analyzer_rejects_invalid_bytes_input(monkeypatch: pytest.MonkeyPa
 
 
 @pytest.mark.asyncio
-async def test_caption_generate_enforces_length(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_caption_generate_enforces_length(fake_openai) -> None:
     long_text = "x" * 500
-    monkeypatch.setattr(
-        "publisher_v2.services.ai.AsyncOpenAI",
-        lambda api_key, **kwargs: _ClientWithCompletions(_CompletionsCaption(long_text)),
-    )
+    fake_openai(script=[long_text])
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
@@ -90,12 +49,9 @@ async def test_caption_generate_enforces_length(monkeypatch: pytest.MonkeyPatch)
 
 
 @pytest.mark.asyncio
-async def test_generate_with_sd_parses_json(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_generate_with_sd_parses_json(fake_openai) -> None:
     payload = {"caption": "short", "sd_caption": "sd prompt"}
-    monkeypatch.setattr(
-        "publisher_v2.services.ai.AsyncOpenAI",
-        lambda api_key, **kwargs: _ClientWithCompletions(_CompletionsCaption(json.dumps(payload))),
-    )
+    fake_openai(script=[payload])
     cfg = OpenAIConfig(api_key="sk-xxxxxxxxxxxxxxxxxxxxxxxx", vision_max_dimension=0, vision_fallback_enabled=False)
     gen = CaptionGeneratorOpenAI(cfg)
     spec = CaptionSpec(platform="generic", style="style", hashtags="", max_length=50)
@@ -110,14 +66,8 @@ async def test_generate_with_sd_parses_json(monkeypatch: pytest.MonkeyPatch) -> 
 
 
 class TestClientConstruction:
-    def test_clients_built_with_zero_sdk_retries_and_finite_timeout(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[dict] = []
-
-        def _fake_async_openai(api_key=None, **kwargs):
-            captured.append(kwargs)
-            return _ClientWithCompletions(_CompletionsCaption("x"))
-
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", _fake_async_openai)
+    def test_clients_built_with_zero_sdk_retries_and_finite_timeout(self, fake_openai) -> None:
+        captured = fake_openai(script=["x"]).client_kwargs
         cfg = OpenAIConfig(api_key="sk-test")
         VisionAnalyzerOpenAI(cfg)
         CaptionGeneratorOpenAI(cfg)
@@ -131,14 +81,8 @@ class TestClientConstruction:
             assert getattr(timeout, "read", None) == 60.0
             assert getattr(timeout, "connect", None) == 5.0
 
-    def test_request_timeout_configurable(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        captured: list[dict] = []
-
-        def _fake_async_openai(api_key=None, **kwargs):
-            captured.append(kwargs)
-            return _ClientWithCompletions(_CompletionsCaption("x"))
-
-        monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", _fake_async_openai)
+    def test_request_timeout_configurable(self, fake_openai) -> None:
+        captured = fake_openai(script=["x"]).client_kwargs
         cfg = OpenAIConfig(api_key="sk-test", request_timeout_seconds=25.0)
         VisionAnalyzerOpenAI(cfg)
         assert getattr(captured[0]["timeout"], "read", None) == 25.0
@@ -151,15 +95,7 @@ class TestStageDeadline:
         import asyncio
         import time
 
-        from publisher_v2.config.schema import (
-            ApplicationConfig,
-            ContentConfig,
-            DropboxConfig,
-            PlatformsConfig,
-            StoragePathConfig,
-        )
         from publisher_v2.core.workflow import WorkflowOrchestrator
-        from publisher_v2.services.ai import AIService
 
         monkeypatch.setenv("AI_STAGE_TIMEOUT_SECONDS", "0.2")
 
@@ -167,21 +103,8 @@ class TestStageDeadline:
             async def analyze(self, url_or_bytes):
                 await asyncio.sleep(30)
 
-        class _AI(AIService):
-            def __init__(self) -> None:
-                self.analyzer = _HangingAnalyzer()  # type: ignore[assignment]
-                self.generator = None  # type: ignore[assignment]
-
-        cfg = ApplicationConfig(
-            dropbox=DropboxConfig(
-                app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-            ),
-            storage_paths=StoragePathConfig(image_folder="/Photos"),
-            openai=OpenAIConfig(api_key="sk-test"),
-            platforms=PlatformsConfig(),
-            content=ContentConfig(hashtag_string="", archive=False, debug=False),
-        )
-        orchestrator = WorkflowOrchestrator(cfg, BaseDummyStorage(), _AI(), [])
+        cfg = make_app_config()
+        orchestrator = WorkflowOrchestrator(cfg, BaseDummyStorage(), stub_ai_service(analyzer=_HangingAnalyzer()), [])
 
         start = time.monotonic()
         with pytest.raises(AIServiceError, match="ai stage timeout"):

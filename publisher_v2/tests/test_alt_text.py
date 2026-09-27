@@ -41,37 +41,8 @@ def test_default_vision_prompts_include_alt_text() -> None:
     assert "screen readers" in prompt.lower()
 
 
-class _DummyMessage:
-    def __init__(self, content: str) -> None:
-        self.content = content
-
-
-class _DummyChoice:
-    def __init__(self, message: _DummyMessage) -> None:
-        self.message = message
-
-
-class _DummyResp:
-    def __init__(self, content: str) -> None:
-        self.choices = [_DummyChoice(_DummyMessage(content))]
-
-
-def _make_dummy_client(content: str):
-    class _DummyCompletions:
-        async def create(
-            self, model: str, messages, response_format, temperature: float, max_tokens: int | None = None
-        ):
-            return _DummyResp(content)
-
-    class _DummyClient:
-        def __init__(self) -> None:
-            self.chat = SimpleNamespace(completions=_DummyCompletions())
-
-    return _DummyClient()
-
-
 @pytest.mark.asyncio
-async def test_vision_analyzer_parses_alt_text(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_vision_analyzer_parses_alt_text(fake_openai) -> None:
     payload = json.dumps(
         {
             "description": "test scene",
@@ -82,7 +53,7 @@ async def test_vision_analyzer_parses_alt_text(monkeypatch: pytest.MonkeyPatch) 
             "alt_text": "A person sitting on a chair in soft light.",
         }
     )
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client(payload))
+    fake_openai(script=[payload])
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     analysis, _usage = await analyzer.analyze("http://tmp-url")
@@ -91,7 +62,7 @@ async def test_vision_analyzer_parses_alt_text(monkeypatch: pytest.MonkeyPatch) 
 
 
 @pytest.mark.asyncio
-async def test_vision_analyzer_missing_alt_text_is_none(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_vision_analyzer_missing_alt_text_is_none(fake_openai) -> None:
     payload = json.dumps(
         {
             "description": "test scene",
@@ -101,7 +72,7 @@ async def test_vision_analyzer_missing_alt_text_is_none(monkeypatch: pytest.Monk
             "safety_labels": [],
         }
     )
-    monkeypatch.setattr("publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client(payload))
+    fake_openai(script=[payload])
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     analysis, _usage = await analyzer.analyze("http://tmp-url")
@@ -110,15 +81,13 @@ async def test_vision_analyzer_missing_alt_text_is_none(monkeypatch: pytest.Monk
 
 
 @pytest.mark.asyncio
-async def test_vision_analyzer_json_decode_error_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_vision_analyzer_json_decode_error_raises(fake_openai) -> None:
     """Post-hardening: non-JSON Vision response surfaces an error instead of
     fabricating an analysis (previously caused attacker-controlled model
     output to flow into published captions). See CR-S0-vision-fix."""
     from publisher_v2.core.exceptions import AIServiceError
 
-    monkeypatch.setattr(
-        "publisher_v2.services.ai.AsyncOpenAI", lambda api_key, **kwargs: _make_dummy_client("not-json")
-    )
+    fake_openai(script=["not-json"])
     cfg = OpenAIConfig(api_key="sk-test", vision_max_dimension=0, vision_fallback_enabled=False)
     analyzer = VisionAnalyzerOpenAI(cfg)
     with pytest.raises(AIServiceError):

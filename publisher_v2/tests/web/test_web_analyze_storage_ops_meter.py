@@ -8,54 +8,20 @@ still return immediately and leave the undelivered batch pending in the meter.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Callable
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from publisher_v2.core.models import ImageAnalysis
-
-
-def _make_service(monkeypatch: pytest.MonkeyPatch):
-    """Build a WebImageService with stubbed storage/AI (mirrors test_web_analyze_sidecar_cache)."""
-    # #97 stage 4: env-only configuration (INI removed)
-    monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
-    monkeypatch.setenv("PUBLISHERS", "[]")
-    monkeypatch.setenv("OPENAI_SETTINGS", "{}")
-    monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
-    monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-    monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-
-    with patch("publisher_v2.services.storage.dropbox.Dropbox"):
-        from publisher_v2.web.service import WebImageService
-
-        service = WebImageService()
-
-    service.storage.get_temporary_link = AsyncMock(return_value="http://temp")  # type: ignore[method-assign]
-    service.storage.list_images = AsyncMock(return_value=["img.jpg"])  # type: ignore[method-assign]
-    service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
-    service.storage.download_sidecar_if_exists = AsyncMock(return_value=None)  # type: ignore[method-assign]
-
-    analysis = ImageAnalysis(description="Test", mood="neutral", tags=["t"], nsfw=False, safety_labels=[])
-    service.ai_service.analyzer.analyze = AsyncMock(return_value=(analysis, None))  # type: ignore[method-assign, union-attr]
-    service.ai_service.create_multi_caption_pair_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        return_value=({"generic": "fresh AI caption"}, "fresh sd", [], {})  # PUB-051: + angles
-    )
-    # No real OpenAI call if the multi path ever fails: the caption-only fallback is not mocked
-    # otherwise, and would reach the network with the test key.
-    service.ai_service.create_caption_from_analysis = AsyncMock(  # type: ignore[method-assign, union-attr]
-        side_effect=AssertionError("caption-only fallback ran; the multi-caption path failed")
-    )
-    return service
-
 
 async def test_analyze_returns_under_one_second_when_orchestrator_never_responds(
-    monkeypatch: pytest.MonkeyPatch,
+    analyze_service: Callable[..., Any],
 ) -> None:
     """AC5: a hung ``post_usage`` must not stall analyze; the batch stays pending."""
     from publisher_v2.services.storage_ops_meter import StorageOpsMeter
 
-    service = _make_service(monkeypatch)
+    service = analyze_service()
 
     # The fixture's storage is a DropboxStorage, which has no ops counter of its
     # own (that is ManagedStorage-only), so give the meter a non-zero batch to hold.

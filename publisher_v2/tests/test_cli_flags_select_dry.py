@@ -1,18 +1,14 @@
 from __future__ import annotations
 
 import pytest
-
-# Use centralized test fixtures from conftest.py (QC-001)
-from conftest import BaseDummyAI, BaseDummyPublisher, BaseDummyStorage
-
-from publisher_v2.config.schema import (
-    ApplicationConfig,
-    ContentConfig,
-    DropboxConfig,
-    OpenAIConfig,
-    PlatformsConfig,
-    StoragePathConfig,
+from caption_pipeline_fakes import (
+    BaseDummyPublisher,
+    BaseDummyStorage,
+    MultiCaptionDummyGenerator,
+    make_app_config,
+    stub_ai_service,
 )
+
 from publisher_v2.core.workflow import WorkflowOrchestrator
 
 
@@ -29,21 +25,9 @@ class SelectableStorage(BaseDummyStorage):
 
 @pytest.mark.asyncio
 async def test_select_and_dry_publish_skip_real_publish(monkeypatch):
-    cfg = ApplicationConfig(
-        dropbox=DropboxConfig(
-            app_key="k", app_secret="s", refresh_token="r", image_folder="/Photos", archive_folder="archive"
-        ),
-        storage_paths=StoragePathConfig(image_folder="/Photos"),
-        openai=OpenAIConfig(api_key="sk-test"),
-        platforms=PlatformsConfig(telegram_enabled=False, instagram_enabled=False, email_enabled=False),
-        telegram=None,
-        instagram=None,
-        email=None,
-        content=ContentConfig(hashtag_string="#h", archive=True, debug=False),
-    )
-    # Use centralized fixtures (QC-001)
+    cfg = make_app_config(content={"hashtag_string": "#h", "archive": True})
     storage = SelectableStorage()
-    ai = BaseDummyAI()
+    ai = stub_ai_service(generator=MultiCaptionDummyGenerator(caption="hello world #tags"))
     orch = WorkflowOrchestrator(cfg, storage, ai, [BaseDummyPublisher()])
     result = await orch.execute(select_filename="y.jpg", dry_publish=True)
     assert result.success is True
