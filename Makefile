@@ -11,8 +11,8 @@ help:
 	@echo "  make install         Install production dependencies"
 	@echo "  make install-dev     Install development dependencies"
 	@echo "  make setup-dev       Complete development environment setup"
-	@echo "  make export-reqs     Export requirements.txt from Poetry"
-	@echo "  make export-reqs-dev Export requirements-dev.txt (incl. dev) from Poetry"
+	@echo "  make export-reqs     Export requirements.txt from uv"
+	@echo "  make export-reqs-dev Export requirements-dev.txt (incl. dev) from uv"
 	@echo ""
 	@echo "Code Quality:"
 	@echo "  make format          Format code and fix lint issues (ruff)"
@@ -53,7 +53,9 @@ setup-dev: install-dev
 	@echo "  1. Edit .env with your API credentials"
 	@echo "  2. Run 'make test' to verify installation"
 
-# Export pip requirement files for non-Poetry environments
+# Export pip requirement files for non-uv environments. Both outputs are
+# build artifacts, not tracked files: a committed requirements-dev.txt with a
+# dangling `-r` is what broke Dependabot in PUB-066.
 export-reqs:
 	@echo "Exporting requirements.txt from uv..."
 	uv export --format requirements-txt --no-hashes > requirements.txt

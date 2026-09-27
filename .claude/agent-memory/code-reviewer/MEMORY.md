@@ -23,3 +23,4 @@
 - [PUB-048 auth/library review traps](pub048-auth-library-review-traps.md) — require_admin must re-verify the header; voice-profile guard order inverted on purpose; per-key head_object fakes; 3-of-12 AC2 params fail pre-fix
 - [Caption eval harness review traps](caption-eval-harness-review-traps.md) — PUB-049: 0.01 bar is zero tolerance at n=60; epsilon untested; GITHUB_TOKEN PRs skip caption-eval; missing bars skipped silently
 - [Sidecar SD-line cache-miss traps](sidecar-sd-line-cache-miss-traps.md) — PUB-051: new Analyze miss wipes #147 edits; kept-SD reader preserves legacy line-1 captions
+- [Requirements hygiene test traps](requirements-hygiene-test-traps.md) — PUB-066: fenced-block-only doc matcher, docs_v1 exclusion load-bearing, uv lock --upgrade verified

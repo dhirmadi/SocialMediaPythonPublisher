@@ -1,0 +1,68 @@
+version: 1
+roadmap_id: PUB-066
+summary: >
+  Unblock Dependabot's pip and uv updaters by removing the stale requirements-dev.txt
+  whose dangling `-r requirements.txt` aborted file fetching, fix the docs that
+  recommended installing from absent requirements files, and add a hygiene test so it
+  cannot recur.
+
+repo_constraints:
+  allowed:
+    - requirements-dev.txt          # delete
+    - .github/DEVELOPMENT.md
+    - CONTRIBUTING.md
+    - SECURITY.md
+    - publisher_v2/tests/test_requirements_files.py
+    - docs_v2/roadmap/PUB-066_*
+  excluded:
+    - Makefile                      # export-reqs / export-reqs-dev targets still work
+    - README.md                     # describes those targets, not the committed file
+    - CHANGELOG.md                  # historical entry; do not rewrite history
+    - .github/dependabot.yml        # ecosystem set is PUB-055's follow-up
+    - code_v1/                      # archived
+    - docs_v1/                      # archived
+
+acceptance_criteria:
+  AC1: No `-r` / `--requirement` line in any tracked requirements*.txt points at a path that does not exist.
+  AC2: No tracked Markdown file instructs installing from a requirements*.txt that is absent.
+  AC3: Live verification only — Dependabot's pip and uv jobs complete without dependency_file_not_found. Not a pytest AC.
+
+tasks:
+  - id: 1
+    phase: red
+    owner: test-engineer
+    files: [publisher_v2/tests/test_requirements_files.py]
+    detail: >
+      Two failing tests, exact names test_no_requirements_file_references_a_missing_target
+      and test_the_docs_do_not_recommend_a_missing_requirements_file. Tracked files only
+      via `git ls-files`; REPO_ROOT = Path(__file__).resolve().parents[2].
+  - id: 2
+    phase: green
+    owner: developer
+    files: [requirements-dev.txt]
+    detail: git rm requirements-dev.txt
+  - id: 3
+    phase: green
+    owner: developer
+    files: [.github/DEVELOPMENT.md, CONTRIBUTING.md, SECURITY.md]
+    detail: >
+      Replace every `pip install -r <absent requirements file>` with its uv equivalent
+      (uv sync / uv sync --group dev; uv lock --upgrade && uv sync in SECURITY.md's
+      Applying Updates snippet). Drop the two stale requirements rows from
+      DEVELOPMENT.md's project tree.
+  - id: 4
+    phase: review
+    owner: code-reviewer
+    detail: Re-run all gates; mutation-check that both new tests can actually fail.
+
+quality_gates:
+  format: uv run ruff format --check .
+  lint: uv run ruff check .
+  types: uv run mypy publisher_v2/src --ignore-missing-imports
+  tests: uv run pytest -v --tb=short
+  coverage: ">=85% overall (unaffected — no src/ code in this item)"
+  safety:
+    preview_mode: N/A — no runtime code touched
+    sensitive_material: none — this item touches no credential or config-loading code
+    web_auth: N/A
+    async: N/A
