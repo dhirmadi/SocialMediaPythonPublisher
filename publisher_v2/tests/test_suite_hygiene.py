@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from publisher_v2.utils import state
+from publisher_v2.web import auth as web_auth
 
 TESTS_ROOT = Path(__file__).resolve().parent
 THIS_FILE = Path(__file__).resolve()
@@ -313,7 +314,8 @@ _W2WEB_CONFTEST = "web/conftest.py"
 _W2WEB_FAKE_KINDS = ("S3", "Dropbox", "Bot", "SMTP")
 # OpenAI's one fake is caption_pipeline_fakes.FakeOpenAI (AC4); tests/web defines none of its own.
 _W2WEB_SHARED_FAKE_KINDS = ("OpenAI",)
-_W2WEB_AUTH_GUARDS = ("require_auth", "require_admin")
+# Derived from the real guards (not string literals) so a rename cannot leave the scan stale.
+_W2WEB_AUTH_GUARDS = frozenset(fn.__name__ for fn in (web_auth.require_auth, web_auth.require_admin))
 
 
 def _w2web_sources() -> list[tuple[str, str]]:
