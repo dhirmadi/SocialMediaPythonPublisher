@@ -6,8 +6,8 @@
 | **Category** | AI |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Proposal |
-| **Dependencies** | PUB-049, PUB-051 |
+| **Status** | Not Started |
+| **Dependencies** | PUB-049 (Done), PUB-051 (Done) |
 
 ## User Story
 
@@ -15,7 +15,7 @@ As a publisher operator curating content, I want the pipeline to generate a few 
 
 ## Problem
 
-`services/ai.py:1492-1622` generates once, scores each platform against history with trigram Jaccard, and regenerates with a diversity clause if any score exceeds 0.45. PUB-049 establishes that the metric scores real clones at 0.04, so the gate fires only on near-verbatim reuse, which a 0.7-temperature model essentially never produces; the `caption_similarity` telemetry (`:1610-1618`) reports comfortable diversity forever, and when the gate does fire the regeneration re-picks the same stuck directive. Web fetches 8 history items per platform (`web/service.py:878`), cron fetches 3 (`core/workflow.py:551`). Separately, `caption_model` is gpt-4o-mini (`config/schema.py:85`), the cheapest 2024 model; the name validator now accepts any model (#81), so a trial is a config change, but done before the pipeline is repaired a better model would hide whether the pipeline improved.
+`services/ai.py` generates once via `_generate_once` (a closure inside `create_multi_caption_pair_from_analysis`, ~line 1800), scores each platform against history with trigram Jaccard via `_apply_similarity_gate` (~line 1828), and regenerates with a diversity clause if any score exceeds `CAPTION_SIMILARITY_THRESHOLD = 0.45` (line 121). PUB-049 establishes that the metric scores real clones at 0.04, so the gate fires only on near-verbatim reuse, which a 0.9-temperature model (PUB-051's setting) essentially never produces; the `caption_similarity` telemetry (~line 1890) reports comfortable diversity forever, and when the gate does fire the regeneration re-picks the content angle via `pick_content_angle` (PUB-051's replacement for the old `pick_structure_directive`). Both web (`web/service.py:954`) and cron (`core/workflow.py:609`) now use `angle_history_depth(window_size)` as their limit — but the text-based history window is still `window_size=3` (the default in `CaptionHistoryConfig`), not the 30 needed for selection. Separately, `caption_model` is gpt-4o-mini (`config/schema.py:85`), the cheapest 2024 model; the name validator now accepts any model (#81), so a trial is a config change, but done before the pipeline is repaired a better model would hide whether the pipeline improved.
 
 ## Desired Outcome
 
@@ -71,4 +71,5 @@ Every run requests three candidates and selects per platform by lowest tells sco
 
 ## Change Log
 
+- 2026-09-27 — Post-PUB-051 refresh: updated Status to Not Started (both dependencies now Done), refreshed Problem section with post-PUB-051 function names (`pick_content_angle` replaces `pick_structure_directive`, `CONTENT_ANGLES` replaces `STRUCTURE_DIRECTIVES`), updated line references to match current `ai.py` layout, noted that both web and cron now use `angle_history_depth(window_size)` but text window is still 3.
 - 2026-09-27 — Issue-closing contract: added an AC naming every GitHub issue this item closes (implementing PR carries `Closes #N`), so no issue is left stale.

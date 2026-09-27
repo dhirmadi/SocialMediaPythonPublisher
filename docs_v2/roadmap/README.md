@@ -71,10 +71,10 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-049 | AI | [Caption Evaluation Harness](archive/PUB-049_caption-evaluation-harness.md) | P0 | M | — | Done |
 | PUB-050 | AI | [Owner Voice Corpus in Every Caption Prompt](archive/PUB-050_owner-voice-corpus.md) | P0 | M | PUB-049 | Done |
 | PUB-051 | AI | [Caption Prompt and Register Repair](archive/PUB-051_caption-prompt-and-register-repair.md) | P0 | M | PUB-049 | Done |
-| PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049, PUB-051 | Proposal |
+| PUB-052 | AI | [Caption Candidate Selection and Model Trial](PUB-052_caption-candidate-selection.md) | P1 | S | PUB-049 (Done), PUB-051 (Done) | Not Started |
 | PUB-053 | Web UI | [Shared-Dyno Isolation](PUB-053_shared-dyno-isolation.md) | P1 | L | PUB-047, PUB-083 | Proposal |
 | PUB-054 | Foundation | [Publish State Integrity](PUB-054_publish-state-integrity.md) | P1 | M | PUB-047 | Proposal |
-| PUB-055 | Ops | [CI Security Gates](PUB-055_ci-security-gates.md) | P1 | S | — | Done |
+| PUB-055 | Ops | [CI Security Gates](archive/PUB-055_ci-security-gates.md) | P1 | S | — | Done |
 | PUB-056 | Storage | [Dropbox Removal or Storage Typing](PUB-056_dropbox-removal-or-typing.md) | P1 | M | PUB-047, PUB-053 | Proposal |
 | PUB-057 | Config | [Configuration Consolidation](PUB-057_configuration-consolidation.md) | P1 | L | PUB-056 | Proposal |
 | PUB-058 | Foundation | [Workflow Stages and Layering](PUB-058_workflow-stages-and-layering.md) | P1 | L | PUB-047, PUB-054 | Proposal |
@@ -83,7 +83,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-061 | Foundation | [Storage-Ops Drain Deadline — Stop Under-Billing a Slow-but-Alive Orchestrator](archive/PUB-061_storage-ops-drain-deadline.md) | P2 | XS | PUB-047 | Done |
 | PUB-063 | Foundation | [Distinguish "absent" from "could not tell" in head_object](PUB-063_head-object-fail-open.md) | P1 | S | PUB-048 | Proposal |
 | PUB-064 | AI | [Make the Caption Harness Exercise the Voice Path](PUB-064_harness-voice-path-coverage.md) | P1 | S | PUB-049, PUB-050 | Proposal |
-| PUB-065 | Ops | [Dependency Security Upgrades](PUB-065_dependency-security-upgrades.md) | P1 | S | Blocks PUB-055 | Done |
+| PUB-065 | Ops | [Dependency Security Upgrades](archive/PUB-065_dependency-security-upgrades.md) | P1 | S | Blocks PUB-055 | Done |
 | PUB-066 | Ops | [Unblock Dependabot's Python Updaters](archive/PUB-066_dependabot-python-updaters.md) | P1 | XS | PUB-055 | Done |
 | PUB-067 | Ops | [SHA-Pin `code-quality.yml`](archive/PUB-067_sha-pin-code-quality-workflow.md) | P2 | S | PUB-055 | Superseded by PUB-078 |
 | PUB-068 | Ops | [Add `publisher_v2/alembic` to the Bandit Scan Roots](archive/PUB-068_bandit-alembic-scan-root.md) | P3 | XS | PUB-055 | Superseded by PUB-078 |
