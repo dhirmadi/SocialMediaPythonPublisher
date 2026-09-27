@@ -366,9 +366,9 @@ def test_offline_mode_passes_cleanly_on_the_real_committed_snapshot_and_threshol
     """The committed ``snapshot.json`` and ``caption_eval_thresholds.json`` must agree on day one.
 
     Spec Risks: a mismatch between these two artifacts would make CI red from
-    the moment they land rather than on a real regression. They are generated
-    together (``--generate-thresholds`` from that exact snapshot), so the
-    default-argument run must exit 0.
+    the moment they land rather than on a real regression. The snapshot is one
+    of the baseline runs the bars were derived from (``--generate-thresholds``
+    over ``baseline_runs/``, PUB-080), so the default-argument run must exit 0.
     """
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     assert (FIXTURES / "snapshot.json").is_file(), "committed snapshot.json is missing"
@@ -516,6 +516,97 @@ def test_generate_thresholds_derives_bar_from_snapshot_scores_with_margin(tmp_pa
     for name, bar in written.items():
         assert bar["direction"] == ("max" if name in MAX_METRICS else "min")
         assert isinstance(bar["value"], float)
+
+
+# --- PUB-080: bars from several live runs ---
+
+
+def test_worst_scores_takes_the_worst_value_per_metric_direction() -> None:
+    """Across several score tables, a "max" metric keeps its highest value and a "min" metric its lowest.
+
+    That is the value each direction's bar has to admit for every run to pass.
+    """
+    mod = _module()
+    tables = [
+        {"opener_closer_trigram_share": 0.08, "distinct_1": 0.33},
+        {"opener_closer_trigram_share": 0.30, "distinct_1": 0.32},
+        {"opener_closer_trigram_share": 0.07, "distinct_1": 0.34},
+    ]
+
+    assert mod.worst_scores(tables) == {
+        "opener_closer_trigram_share": pytest.approx(0.30),
+        "distinct_1": pytest.approx(0.32),
+    }
+    # One table in, the same table out: a single-snapshot run is unchanged.
+    assert mod.worst_scores(tables[:1]) == tables[0]
+
+
+def test_generate_thresholds_from_several_snapshots_lets_every_run_pass(tmp_path: Path) -> None:
+    """``--snapshot`` given twice derives the bars from both, and each snapshot then passes offline."""
+    mod = _module()
+    first = tmp_path / "run1.json"
+    second = tmp_path / "run2.json"
+    _write_snapshot(first, {"telegram": "Rope, then quiet.", "email": "A cold floor and a warm lamp."})
+    _write_snapshot(
+        second,
+        {
+            "telegram": "There is something about the rope tonight. This isn't just knotwork.",
+            "email": "In a world where everything rushes, a testament to patience, slow and long and unhurried.",
+        },
+    )
+    out = tmp_path / "caption_eval_thresholds.json"
+
+    code = mod.main(
+        [
+            "--generate-thresholds",
+            "--fixtures",
+            str(FIXTURES),
+            "--snapshot",
+            str(first),
+            "--snapshot",
+            str(second),
+            "--out",
+            str(out),
+        ]
+    )
+
+    assert code == 0
+    scores = [mod.score_snapshot(json.loads(p.read_text()), FIXTURES) for p in (first, second)]
+    assert json.loads(out.read_text()) == mod.generate_thresholds(mod.worst_scores(scores))
+    for snapshot in (first, second):
+        assert (
+            mod.main(["--offline", "--fixtures", str(FIXTURES), "--snapshot", str(snapshot), "--thresholds", str(out)])
+            == 0
+        ), f"{snapshot.name} must pass the bars derived from it"
+
+
+def test_offline_mode_rejects_more_than_one_snapshot(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Offline scores exactly one snapshot; two is a usage error, not a silent pick of one of them."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    snapshot = tmp_path / "snapshot.json"
+    _write_snapshot(snapshot, {"telegram": "Rope, then quiet."})
+    mod = _module()
+
+    with pytest.raises(SystemExit) as excinfo:
+        mod.main(["--offline", "--snapshot", str(snapshot), "--snapshot", str(snapshot)])
+
+    output = capsys.readouterr()
+    assert excinfo.value.code != 0
+    assert "--snapshot" in str(excinfo.value.code) + output.err
+    assert "|" not in output.out, "nothing may be scored"
+
+
+def test_committed_thresholds_admit_every_recorded_baseline_run(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Every live run the committed bars were derived from must pass them (PUB-080 AC4)."""
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    runs = sorted((FIXTURES / "baseline_runs").glob("run*.json"))
+    assert len(runs) >= 3, "the bars must come from at least three recorded live runs"
+    mod = _module()
+
+    for run in runs:
+        assert mod.main(["--offline", "--snapshot", str(run)]) == 0, f"{run.name} fails the committed bars"
 
 
 # --- PUB-049 review follow-ups (outside the handoff's Test-first table) ---

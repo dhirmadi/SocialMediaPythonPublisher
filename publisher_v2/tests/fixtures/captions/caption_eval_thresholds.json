@@ -1,7 +1,7 @@
 {
   "opener_closer_trigram_share": {
     "direction": "max",
-    "value": 0.01
+    "value": 0.33
   },
   "two_sentence_emoji_rhythm_share": {
     "direction": "max",
@@ -9,30 +9,30 @@
   },
   "tells_lexicon_hit_rate": {
     "direction": "max",
-    "value": 0.01
+    "value": 0.073333
   },
   "tfidf_bigram_cosine": {
     "direction": "max",
-    "value": 0.010779
+    "value": 0.005115
   },
   "vision_field_overlap": {
     "direction": "max",
-    "value": 0.309586
+    "value": 0.160504
   },
   "sentence_count_variance": {
     "direction": "min",
-    "value": 0.31275
+    "value": 0.359
   },
   "word_count_variance": {
     "direction": "min",
-    "value": 75.866
+    "value": 12.34275
   },
   "distinct_1": {
     "direction": "min",
-    "value": 0.44491
+    "value": 0.285968
   },
   "distinct_2": {
     "direction": "min",
-    "value": 0.823544
+    "value": 0.713
   }
 }
