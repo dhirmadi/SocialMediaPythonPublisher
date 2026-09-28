@@ -89,7 +89,7 @@ class TestTelemetryReachesTheGateFromTheRealCaller:
     ``create_multi_caption_pair_from_analysis``. Calling ``_apply_similarity_gate``
     directly cannot detect that guard coming back, so drive the caller."""
 
-    @pytest.mark.parametrize("history", [None, {}, ["a flat list is not a per-platform dict"]])
+    @pytest.mark.parametrize("history", [None, {}])
     async def test_a_run_without_usable_history_still_logs_the_event(
         self, service: Any, caplog: pytest.LogCaptureFixture, history: Any
     ) -> None:

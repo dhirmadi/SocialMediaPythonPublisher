@@ -450,7 +450,7 @@ def _opening_token(platform: str, index: int) -> str:
 async def _pub051_prompts(
     monkeypatch: pytest.MonkeyPatch,
     specs: dict[str, CaptionSpec],
-    history: dict[str, list[str]] | list[str] | None,
+    history: dict[str, list[str]] | None,
     voice_examples: list[str] | None = None,
     analysis: ImageAnalysis | None = None,
 ) -> list[str]:
@@ -466,16 +466,15 @@ async def _pub051_prompts(
 
 
 async def test_no_closing_pattern_line_is_ever_rendered(monkeypatch: pytest.MonkeyPatch) -> None:
-    """AC2: no closing-pattern constraint anywhere — per-platform or flat history, any `closing` setting."""
+    """AC2: no closing-pattern constraint anywhere — per-platform history, any `closing` setting."""
     specs = _pub051_specs()
     assert specs["email"].closing == "any", "the shipped email brief is the case that always emitted the line"
     mandated = {
         "telegram": CaptionSpec(platform="telegram", style="s", hashtags="", max_length=4096, closing="statement"),
         "email": CaptionSpec(platform="email", style="s", hashtags="", max_length=240, closing="question"),
     }
-    scenarios: list[tuple[dict[str, CaptionSpec], dict[str, list[str]] | list[str]]] = [
+    scenarios: list[tuple[dict[str, CaptionSpec], dict[str, list[str]]]] = [
         (specs, _pub051_history(list(specs))),
-        (specs, _pub051_history(["email"])["email"]),  # legacy flat list
         (mandated, _pub051_history(list(mandated))),
     ]
 
@@ -503,11 +502,6 @@ async def test_at_most_two_openings_to_avoid_appear_per_platform(monkeypatch: py
         assert len(present) <= 2, f"{platform}: {len(present)} openings rendered ({present})"
         assert set(present) <= {0, 1}, f"{platform}: rendered openings are not the two most recent ({present})"
         assert 0 in present, f"{platform}: the most recent opening is no longer avoided"
-
-    # The legacy flat-history block is capped the same way.
-    flat = history["email"]
-    (flat_prompt,) = await _pub051_prompts(monkeypatch, specs, flat)
-    assert sum(_opening_token("email", i) in flat_prompt for i in range(8)) <= 2
 
 
 async def test_user_message_under_500_tokens_with_history_and_six_examples(monkeypatch: pytest.MonkeyPatch) -> None:

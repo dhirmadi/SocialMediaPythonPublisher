@@ -348,3 +348,31 @@ class TestUnmatchedTagKeyWarning:
         assert set(logged_keys) <= set(many), logged_keys
         assert SENTINEL_TAG_VALUE not in caplog.text, "a tagged example string was logged"
         assert result == sample_voice_examples(PROFILE, seed_source="image-001")
+
+
+# --- PUB-084 wave 5 (#281): pin the SHA-256 seeds before they share one helper -----------
+
+
+def test_voice_and_senses_seeds_are_pinned() -> None:
+    """Refactor guard, captured 2026-09-28: the same image must keep its senses pool and
+    its voice examples when the two seed formulas become one helper."""
+    from publisher_v2.services.ai import senses_seed
+
+    assert senses_seed("https://example.com/a.jpg") == 2840111927141921002
+    assert senses_seed(b"\x89PNG fixed bytes") == 1518405983830311156
+    assert senses_seed("") == 16406829232824261652
+
+    examples = [f"Example line {i}." for i in range(10)]
+    assert sample_voice_examples(examples, "abc123") == [
+        "Example line 1.",
+        "Example line 7.",
+        "Example line 4.",
+        "Example line 8.",
+        "Example line 6.",
+    ]
+    assert sample_voice_examples(examples, "image-hash-2") == [
+        "Example line 5.",
+        "Example line 8.",
+        "Example line 4.",
+        "Example line 7.",
+    ]

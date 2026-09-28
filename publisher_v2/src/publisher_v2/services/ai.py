@@ -32,6 +32,7 @@ from publisher_v2.utils.captions import (
     CONTENT_ANGLES,
     caption_opening,
     pick_content_angle,
+    smart_truncate,
     strip_emoji_and_hashtags,
     trigram_jaccard,
 )
@@ -245,38 +246,6 @@ def _build_inline_hashtags_clause(spec: CaptionSpec) -> str:
     return ""
 
 
-def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
-    """Truncate text to max_length while respecting word boundaries.
-
-    Tries to cut at sentence end (. ! ?) first, then at word boundary.
-    A sentence-end cut needs no ellipsis — the text ends where a sentence does.
-    A word-boundary cut appends one, and only that path reserves room for it.
-    """
-    if len(text) <= max_length:
-        return text
-
-    # #138: a cut at a sentence end needs no ellipsis, so search the full budget
-    # for one first (a sentence end is followed by a space in the original text).
-    for i in range(max_length - 1, -1, -1):
-        if text[i] in ".!?" and (i + 1 >= len(text) or text[i + 1] == " "):
-            return text[: i + 1]
-
-    # Leave room for ellipsis
-    target_len = max_length - len(ellipsis)
-    if target_len <= 0:
-        return ellipsis[:max_length]
-
-    truncated = text[:target_len]
-
-    # Fall back to word boundary - find last space
-    last_space = truncated.rfind(" ")
-    if last_space > 0:
-        return truncated[:last_space].rstrip(".,;:!?-") + ellipsis
-
-    # No good boundary found, just cut
-    return truncated.rstrip() + ellipsis
-
-
 # PUB-051 AC5: the fixed sentinel that opens the owner-voice section of the vision
 # system message. ``sensory_detail`` and ``mood_note`` are written under it; every
 # other field stays in the neutral analyst register above it.
@@ -301,6 +270,11 @@ SENSES_POOL: tuple[str, ...] = (
 SENSES_OFFERED = 4
 
 
+def _sha256_seed(content: bytes) -> int:
+    """A deterministic RNG seed: the first 8 bytes of ``content``'s SHA-256, big-endian."""
+    return int.from_bytes(hashlib.sha256(content).digest()[:8], "big")
+
+
 def senses_seed(source: str | bytes) -> int:
     """Seed for the senses pool: the first 8 bytes of the image content's SHA-256.
 
@@ -309,8 +283,7 @@ def senses_seed(source: str | bytes) -> int:
     per URL string, not per image: a presigned URL changes on every request, so the
     same image reached by URL gets a different senses pool each time.
     """
-    content = source if isinstance(source, bytes) else source.encode("utf-8")
-    return int.from_bytes(hashlib.sha256(content).digest()[:8], "big")
+    return _sha256_seed(source if isinstance(source, bytes) else source.encode("utf-8"))
 
 
 # PUB-051: bound on the tenant persona quoted into the owner-voice section.
@@ -427,22 +400,13 @@ class VisionAnalyzerOpenAI:
         """One vision ``chat.completions.create`` call, pacing on the shared limiter when one is wired in."""
         if self._rate_limiter is not None:
             await self._rate_limiter.acquire()
-        try:
-            return await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=VISION_TEMPERATURE,
-                max_tokens=self.max_completion_tokens,
-            )
-        except TypeError:
-            # Fall back for older or test double clients that do not accept max_tokens.
-            return await self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=VISION_TEMPERATURE,
-            )
+        return await self.client.chat.completions.create(
+            model=self.model,
+            messages=messages,
+            response_format={"type": "json_object"},
+            temperature=VISION_TEMPERATURE,
+            max_tokens=self.max_completion_tokens,
+        )
 
     @staticmethod
     def _opt_str(v: object) -> str | None:
@@ -692,8 +656,6 @@ class VisionAnalyzerOpenAI:
 # ---------------------------------------------------------------------------
 # PUB-035: Prompt builder helpers for context intelligence
 # ---------------------------------------------------------------------------
-
-logger = logging.getLogger("publisher_v2.services.ai")
 
 
 _INJECTION_MARKERS = (
@@ -971,30 +933,6 @@ def build_platform_block(
     return "\n".join(lines)
 
 
-def build_history_block(captions: list[str]) -> str:
-    """Build the legacy flat-history block as constraints (#82, PUB-051).
-
-    Full captions never enter the prompt — only the two most recent openings.
-    """
-    openings = recent_openings(captions)
-    if not openings:
-        return ""
-    return "Recent openings to avoid: " + "; ".join(f'"{o}"' for o in openings)
-
-
-def truncate_history_to_budget(captions: list[str], max_tokens_budget: int) -> list[str]:
-    """Truncate captions list (oldest first) to fit within token budget.
-
-    Uses a rough estimate of 1 token per 4 characters.
-    """
-    if not captions:
-        return []
-    result = list(captions)
-    while result and sum(len(c) // 4 + 1 for c in result) > max_tokens_budget:
-        result.pop(0)  # drop oldest first
-    return result
-
-
 # ---------------------------------------------------------------------------
 # PUB-029: brand voice matching — bounded, injection-hardened examples block
 # ---------------------------------------------------------------------------
@@ -1029,8 +967,7 @@ def truncate_voice_profile_to_budget(
     """Truncate voice profile examples to fit a rough token budget.
 
     Order is preserved; entries are dropped from the END until the running total
-    fits within the budget. Token estimate: 1 token ≈ 4 chars (matches the
-    convention used by ``truncate_history_to_budget``).
+    fits within the budget. Token estimate: 1 token ≈ 4 chars.
 
     PUB-029 AC-01.
     """
@@ -1115,7 +1052,7 @@ def sample_voice_examples(
             preferred = [ex for ex in pool if ex in tagged]
             rest = [ex for ex in pool if ex not in tagged]
 
-    seed = int.from_bytes(hashlib.sha256(seed_source.encode()).digest()[:8], "big")
+    seed = _sha256_seed(seed_source.encode())
     rng = random.Random(seed)  # nosec B311 — seeded per-image sampling, not a secret; unpredictability breaks it
     target = min(len(pool), rng.randint(target_min, target_max))
     rng.shuffle(preferred)
@@ -1388,28 +1325,20 @@ class CaptionGeneratorOpenAI:
         role_prompt: str,
         analysis: ImageAnalysis,
         specs: dict[str, CaptionSpec],
-        history: dict[str, list[str]] | list[str] | None,
+        history: dict[str, list[str]] | None,
         voice_examples: list[str] | tuple[str, ...] | None = None,
         directives: dict[str, str] | None = None,
     ) -> tuple[str, str]:
         """Build the prompt and keys_list for multi-platform generation (DRY).
 
-        ``history`` accepts either:
-        - ``dict[str, list[str]]`` — per-platform history (preferred, from DB)
-        - ``list[str]`` — flat history (legacy sidecar fallback)
+        ``history`` is the per-platform caption history from the DB, most-recent-first.
 
         PUB-029: ``voice_examples`` (when non-empty) is rendered as a hardened
         delimited block at the top of the prompt. PUB-051: ``directives`` maps each
         platform to its one content-angle directive; the analysis follows the
         brief as a short prose paragraph (``build_analysis_context(prose=True)``).
         """
-        # Normalise history into per-platform dict
-        history_dict: dict[str, list[str]] = {}
-        flat_history: list[str] = []
-        if isinstance(history, dict):
-            history_dict = history
-        elif isinstance(history, list):
-            flat_history = history
+        history_dict = history or {}
 
         topics = hashtag_topics(analysis) if any(spec.smart_hashtags for spec in specs.values()) else []
         platform_blocks = [
@@ -1427,8 +1356,6 @@ class CaptionGeneratorOpenAI:
         constraints = "Constraints: " + "; ".join(platform_length_limit(n, sp) for n, sp in specs.items()) + "."
         platforms_block = "\n".join(platform_blocks)
         keys_list = ", ".join(f'"{k}"' for k in specs)
-        # Legacy flat history block (only when no per-platform history was provided)
-        history_block = build_history_block(flat_history) if flat_history and not history_dict else ""
         # #138: examples are rendered once, at the top. They used to be repeated
         # inside every platform block, so one example stood in front of the model
         # four times over. When the caller passes none, the specs' own examples
@@ -1462,7 +1389,6 @@ class CaptionGeneratorOpenAI:
             + f"{platforms_block}\n"
             + (f"{notes_block}\n" if notes_block else "")
             + "\n"
-            + (f"{history_block}\n\n" if history_block else "")
             + (f"Photo: {analysis_prose}\n\n" if analysis_prose else "")
             + f"{constraints}\n"
             + f"Reply as JSON with keys: {keys_list}"
@@ -1612,14 +1538,14 @@ class CaptionGeneratorOpenAI:
         self,
         analysis: ImageAnalysis,
         specs: dict[str, CaptionSpec],
-        history: dict[str, list[str]] | list[str] | None = None,
+        history: dict[str, list[str]] | None = None,
         voice_examples: list[str] | tuple[str, ...] | None = None,
         diversity_clause: str | None = None,
         directives: dict[str, str] | None = None,
     ) -> tuple[dict[str, str], AIUsage | None]:
         """Generate one caption per platform in a single OpenAI call.
 
-        ``history`` accepts per-platform dict (preferred) or flat list (legacy).
+        ``history`` is the per-platform caption history (most-recent-first).
         ``voice_examples`` is rendered as a hardened delimited block at the top
         of the prompt (PUB-029). When None/empty, no voice block is added.
         ``diversity_clause`` (#82) is appended by the similarity gate on the
@@ -1770,7 +1696,7 @@ class AIService:
         self,
         analysis: ImageAnalysis,
         specs: dict[str, CaptionSpec],
-        history: dict[str, list[str]] | list[str] | None = None,
+        history: dict[str, list[str]] | None = None,
         voice_examples: list[str] | tuple[str, ...] | None = None,
         history_angles: dict[str, list[str | None]] | None = None,
     ) -> tuple[dict[str, str], str | None, list[AIUsage], dict[str, str]]:
@@ -1816,12 +1742,11 @@ class AIService:
 
         # #82: similarity gate — one bounded regeneration when a caption is too
         # close to that platform's recent history, plus telemetry either way.
-        # #144: run it unconditionally — with an empty or flat history there is
+        # #144: run it unconditionally — with an empty history there is
         # nothing to regenerate against, but the telemetry must still report a
         # value so dashboards do not silently lose the metric.
-        history_dict = history if isinstance(history, dict) else {}
         captions, _ = await self._apply_similarity_gate(
-            captions, None, history_dict, _generate_once, specs, angles=angles, history_angles=stored_angles
+            captions, None, history or {}, _generate_once, specs, angles=angles, history_angles=stored_angles
         )
         return captions, None, usages, angles
 

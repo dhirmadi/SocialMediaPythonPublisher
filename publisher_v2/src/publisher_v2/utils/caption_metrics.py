@@ -25,7 +25,7 @@ from collections import Counter
 from dataclasses import fields as dataclass_fields
 
 from publisher_v2.core.models import ImageAnalysis
-from publisher_v2.utils.captions import word_ngrams, words
+from publisher_v2.utils.captions import EMOJI_BASE_CHARS, EMOJI_VARIATION_SELECTORS, word_ngrams, words
 
 # --- shared text helpers -----------------------------------------------------
 
@@ -35,8 +35,8 @@ _SENTENCE_SPLIT_RE = re.compile(r"[.!?]+")
 # A trailing emoji (pictographs, dingbats, symbols and variation selectors).
 # Matched only at the very end of a caption, so it is stripped before sentences
 # are counted and never becomes a sentence of its own.
-_TRAILING_EMOJI_RE = re.compile(r"(?:[←-⇿⌀-➿⬀-⯿︀-️\U0001f000-\U0001faff]|\s)+$")
-_EMOJI_CHAR_RE = re.compile(r"[←-⇿⌀-➿⬀-⯿\U0001f000-\U0001faff]")
+_TRAILING_EMOJI_RE = re.compile(f"(?:[{EMOJI_BASE_CHARS}{EMOJI_VARIATION_SELECTORS}]|\\s)+$")
+_EMOJI_CHAR_RE = re.compile(f"[{EMOJI_BASE_CHARS}]")
 
 # Function words excluded from "content words" in ``vision_field_overlap``.
 STOPWORDS: frozenset[str] = frozenset(

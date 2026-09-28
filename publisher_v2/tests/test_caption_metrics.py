@@ -310,3 +310,25 @@ def test_vision_field_content_word_overlap_matches_hand_computed_value() -> None
     score = vision_field_overlap("The rope is tight and the lantern glows on the floor.", analysis)
 
     assert score == pytest.approx(0.6)
+
+
+# --- PUB-084 wave 5 (#281): pin the metrics emoji class before the regexes are shared ----
+
+
+@pytest.mark.parametrize(
+    ("text", "share"),
+    [
+        ("Rope. Light. \U0001f525", 1.0),  # ordinary emoji: two sentences + trailing emoji
+        ("Rope. Light. ❤️", 1.0),  # heart + variation selector
+        ("Rope. Light. ️", 0.0),  # a lone variation selector is not an emoji here
+        ("Rope. Light. ‍", 0.0),  # a lone ZWJ is not an emoji here
+        ("Rope. Light. \U0001f469‍\U0001f525", 0.0),  # the ZWJ breaks the trailing run today
+        ("Rope. Light.", 0.0),  # no emoji
+    ],
+)
+def test_caption_metrics_emoji_count_pins_current_class(text: str, share: float) -> None:
+    """Refactor guard, captured 2026-09-28. Differs from ``strip_emoji_and_hashtags`` on
+    purpose: a lone U+FE0F / U+200D does not count as a trailing emoji, and a ZWJ sequence
+    does not either. Sharing one emoji class must keep these values (or change them on
+    purpose, with this table updated and the reason recorded)."""
+    assert two_sentence_emoji_rhythm_share([text]) == share

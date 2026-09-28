@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError
+from caption_pipeline_fakes import VISION_NEUTRAL
 from playwright.sync_api import Locator, Page, Request, Route, expect
 
 from publisher_v2.utils.captions import build_caption_sidecar
@@ -287,3 +288,69 @@ def test_publish_is_stopped_when_one_platform_caption_is_empty(legacy_edit_page:
     )
     expect(page.get_by_role("button", name="Confirm & Publish")).to_have_count(0)
     assert bodies == []
+
+
+# --- PUB-084 wave 5: the two admin actions #277's JS dedup left without a browser test ------------
+
+SCRIPTED_SD_CAPTION = "kneeling figure in jute rope, hard window light, fine-art study"
+# Distinct per platform, so the single-caption fallback (the same text in every editor) cannot pass.
+SCRIPTED_CAPTIONS = {
+    "telegram": "Telegram: the frayed rope end stayed, on purpose.",
+    "email": "FetLife: a quiet floor, one harness, the last knot still settling.",
+}
+
+
+def test_analyze_shows_the_generated_captions(admin_page: Page, live_app: LiveApp) -> None:
+    """One Analyze click sends one analyze request and fills each platform's editor with its own caption.
+
+    The server's OpenAI client is the harness's ``FakeOpenAI``, scripted here: the vision reply,
+    then the per-platform captions. Nothing is published.
+    """
+    page, fake = admin_page, live_app.openai
+    fake.script = [{**VISION_NEUTRAL, "sd_caption": SCRIPTED_SD_CAPTION}, SCRIPTED_CAPTIONS]
+    analyzes = _record(page, "POST", re.compile(r"/api/images/[^/]+/analyze$"))
+    publishes = _record(page, "POST", re.compile(r"/api/images/[^/]+/publish$"))
+
+    with page.expect_response(lambda r: r.request in analyzes, timeout=15_000) as analyze_response:
+        page.locator("#btn-analyze").click()
+    expect(page.locator("#btn-analyze")).to_be_enabled()
+
+    assert analyze_response.value.ok, f"analyze answered {analyze_response.value.status}"
+    # Checked before the DOM: a second request would overwrite the status and editors with its own outcome.
+    assert len(analyzes) == 1, f"one Analyze click sent {len(analyzes)} requests: {[r.url for r in analyzes]}"
+    expect(page.locator("#status")).to_have_text("Analysis complete; caption generated.")
+    expect(page.locator("#caption-editors .caption-editor")).to_have_count(len(SCRIPTED_CAPTIONS))
+    for platform, caption in SCRIPTED_CAPTIONS.items():
+        expect(_editor(page, platform).locator("textarea")).to_have_value(caption)
+    # The server really went through the (fake) OpenAI client: a vision call, then a caption call.
+    assert fake.vision_calls, "the analyze request never reached the vision stage"
+    assert fake.caption_calls, "the analyze request never reached the caption stage"
+    assert publishes == []
+
+
+def test_grid_single_delete_removes_the_image(admin_page: Page, live_app: LiveApp) -> None:
+    """A tile's own delete control (confirm accepted) deletes that one object and drops its tile."""
+    page = admin_page
+    deletes = _record(page, "DELETE", re.compile(r"/api/library/objects/[^/]+$"))
+    library_lists = _record(page, "GET", re.compile(r"/api/library/objects$"))
+    _open_grid(page)
+    total = len(SEED_IMAGES)
+    tiles = page.locator("#grid-container [data-filename]")
+    expect(tiles).to_have_count(total)
+    expect(page.locator("#grid-result-count")).to_have_text(f"Showing 1–{total} of {total}")
+    lists_before = len(library_lists)
+
+    tile = page.locator('#grid-container [data-filename="bravo.jpg"]')
+    with page.expect_response(lambda r: r.request in deletes, timeout=5_000) as delete_response:
+        tile.locator("button.delete-overlay").click()
+
+    assert delete_response.value.ok, f"delete answered {delete_response.value.status}"
+    expect(tile).to_have_count(0)
+    expect(tiles).to_have_count(total - 1)
+    expect(page.locator("#grid-result-count")).to_have_text(f"Showing 1–{total - 1} of {total - 1}")
+    assert len(deletes) == 1, f"one delete click sent {len(deletes)} requests: {[r.url for r in deletes]}"
+    assert deletes[0].url.rsplit("/", 1)[-1] == "bravo.jpg"
+    assert image_key("bravo.jpg") not in live_app.s3.objects
+    assert all(image_key(name) in live_app.s3.objects for name in ("alpha.jpg", "charlie.jpg"))
+    # The tile went because the page dropped it, not because the grid was listed again.
+    assert len(library_lists) == lists_before
