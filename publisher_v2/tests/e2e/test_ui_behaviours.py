@@ -57,6 +57,17 @@ def _current_filename(page: Page) -> str:
     return match.group(1)
 
 
+def _expect_current(page: Page, name: str) -> None:
+    """Wait until the detail view shows ``name`` on its "File:" line.
+
+    The image's own response arrives before the page has rendered it: until then the details panel
+    still names the previous image, so a one-shot read races the page.
+    """
+    file_line = page.locator("#details > div").filter(has=page.locator("strong", has_text="File:"))
+    expect(file_line).to_have_text(f"File: {name}")
+    assert _current_filename(page) == name
+
+
 # --- GH-59: back to grid ----------------------------------------------------------------------------
 
 
@@ -90,6 +101,9 @@ def test_back_to_grid_falls_back_when_the_page_is_empty(live_app: LiveApp, page:
     30 images (page 2 holds five); the operator opens charlie.jpg from page 2, then another writer
     deletes all but three images, charlie.jpg included. Back to grid finds no anchor, gets an empty
     page 2, and must fall back to page 1 rather than show "No images found".
+
+    The start-up image is random (any of the 30), so the grid may first open on either page; the
+    flow clicks page 2 and charlie.jpg's tile itself and waits for the detail view to show it.
     """
     fillers = [f"b{i:02d}.jpg" for i in range(27)]
     for name in fillers:
@@ -102,7 +116,7 @@ def test_back_to_grid_falls_back_when_the_page_is_empty(live_app: LiveApp, page:
     with page.expect_response(lambda r: r.url.split("?", 1)[0].endswith("/api/images/charlie.jpg") and r.ok):
         page.locator('#grid-container [data-filename="charlie.jpg"]').click()
     expect(page.locator("#panel-grid")).to_be_hidden()
-    assert _current_filename(page) == "charlie.jpg"
+    _expect_current(page, "charlie.jpg")
 
     survivors = {image_key(name) for name in ("alpha.jpg", "b00.jpg", "b01.jpg")}
     for key in [key for key in live_app.s3.objects if key not in survivors]:
@@ -126,13 +140,15 @@ def test_back_to_grid_falls_back_when_the_page_is_empty(live_app: LiveApp, page:
 def test_page_size_is_remembered_across_reloads(admin_page: Page, live_app: LiveApp) -> None:
     """PUB-044: the chosen page size survives a reload (localStorage) and is what the grid asks for.
 
-    The fillers sort after every seeded name, so the grid opens on page 1 whichever seeded image
-    the reload shows (back to grid opens the current image's page).
+    Back to grid opens the current image's page, and the reload shows a random image: one the page
+    names, whose page of ten the test works out from the name order the grid sorts by.
     """
     page = admin_page
-    for i in range(12):
-        live_app.s3.add(image_key(f"d{i:02d}.jpg"), jpeg_bytes())
-    total = 12 + len(SEED_IMAGES)
+    fillers = [f"d{i:02d}.jpg" for i in range(12)]
+    for name in fillers:
+        live_app.s3.add(image_key(name), jpeg_bytes())
+    names = sorted([*SEED_IMAGES, *fillers])
+    total = len(names)
     open_grid(page)
     expect(page.locator("#grid-result-count")).to_have_text(f"Showing 1–{total} of {total}")
 
@@ -144,12 +160,16 @@ def test_page_size_is_remembered_across_reloads(admin_page: Page, live_app: Live
     with page.expect_response(lambda r: "/api/images/random" in r.url and r.ok):
         page.reload()
     expect(page.locator("#btn-keep")).to_be_enabled()
+    current = _current_filename(page)
+    first = names.index(current) // 10 * 10
+    page_names = names[first : first + 10]
     lists = record_requests(page, "GET", LIBRARY_LIST)
     open_grid(page)
 
     expect(page.locator("#grid-page-size")).to_have_value("10")
     assert [_query(r).get("limit") for r in lists] == [["10"]]
-    expect(page.locator(GRID_TILES)).to_have_count(10)
+    expect(page.locator("#grid-result-count")).to_have_text(f"Showing {first + 1}–{first + len(page_names)} of {total}")
+    expect(page.locator(GRID_TILES)).to_have_count(len(page_names))
 
 
 def test_page_size_control_is_locked_while_uploading(admin_page: Page, live_app: LiveApp) -> None:
@@ -336,6 +356,7 @@ def test_selecting_a_grid_item_while_uploading_asks_first(live_app: LiveApp, pag
     with page.expect_response(lambda r: r.url.split("?", 1)[0].endswith("/api/images/alpha.jpg") and r.ok):
         page.locator('#grid-container [data-filename="alpha.jpg"]').click()
     expect(grid).to_be_hidden()
+    _expect_current(page, "alpha.jpg")
     assert dialogs == []
 
     open_grid(page)
@@ -357,7 +378,7 @@ def test_selecting_a_grid_item_while_uploading_asks_first(live_app: LiveApp, pag
             bravo.click()
         assert len(dialogs) == 2
         expect(grid).to_be_hidden()
-        assert _current_filename(page) == "bravo.jpg"
+        _expect_current(page, "bravo.jpg")
 
 
 # --- #137: no password login --------------------------------------------------------------------------
