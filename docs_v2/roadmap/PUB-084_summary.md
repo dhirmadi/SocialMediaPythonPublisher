@@ -1,6 +1,6 @@
 # PUB-084 — DRY Review Standalone Batch: Implementation Summary
 
-**Status:** In Progress (waves 1, 2, 2b and 3 complete; waves 4-5 remain)
+**Status:** In Progress (waves 1, 2, 2b, 3 and 4 complete; wave 5 remains)
 **Date:** 2026-09-27
 
 One section per wave; each wave ships as its own PR.
@@ -191,3 +191,34 @@ Default run: 2064 passed, 2 skipped, 9 deselected. `-m e2e`: 9 passed, stable ac
 - Some grep-only UI behaviours now have no test and are tracked in #305 (owner decision, option a).
 - The `playwright install --with-deps` step downloads Chromium from Microsoft's CDN without a hash pin; exposure is limited by the job's read-only permissions and lack of secrets.
 - `.gitleaks.toml` (owner-approved, option a): keeps gitleaks' default rules and allowlists only `^\.secrets\.baseline$`. Parametrising config tests moved two existing placeholder entries in the detect-secrets baseline; gitleaks' generic-api-key rule then read their unchanged SHA-1 hashes as newly added keys and blocked the commit. Checked against gitleaks v8.22.1's config schema; a fake key in any other file is still reported (verified with the hook's own binary). Pinned by `test_gitleaks_config_only_allowlists_the_detect_secrets_baseline`, which fails on any other allowlisted path or on any regex, stopword, commit or rule exclusion. The pattern is anchored, so it applies to repo-relative scans (as the hook runs); a manual `gitleaks dir /absolute/path` would still report the baseline.
+
+## Wave 4 — Dead code (#294, #286)
+
+No production behaviour change.
+
+### Files Changed
+
+- Deleted (owner decision on #294): `scripts/heroku_hetzner_clone.py` and its 919-line test `publisher_v2/tests/test_scripts_heroku_hetzner_clone.py`; the one-off docs-migration scripts `scripts/{migrate,cleanup,refine}_features.py` and `scripts/rename_artifacts.py`; `publisher_v2/src/publisher_v2/tools/__main__.py` (`python -m publisher_v2.tools.migrate_storage` still works through the module's own `__main__` guard); the `web/sidecar_parser.py` re-export shim (three tests now import `services.sidecar_parser`). `scripts/servers.txt` was never tracked; its `.gitignore` line stays so a local copy is never committed.
+- `services/usage_meter.py` — one `_spawn_if_loop(coro) -> Task | None` (closes the coroutine when no loop is running); `emit_all` delegates every entry to `emit` instead of repeating its filter.
+- `services/storage_ops_meter.py` — imports the same `_spawn_if_loop`; `stop_periodic_flush` alias, test-only `pending_batch_count` and the `_drain_loop` catch-all deleted (`_post_batch` catches every `Exception` and `_drain_pending` catches the drain timeout, so the catch-all was unreachable); `_PENDING_MAX = 12` module constant.
+- `web/service.py` — calls `aclose()` where it called the deleted alias (same behaviour).
+- Docs: the provisioning-script bullet in `docs_v2/01_Overview/README.md`, the #137 operator note in `CONFIGURATION.md` (reworded; operators must still unset `web_admin_pw`), `.cursor/commands/experts/hetzner.md`, reviewer memory, PUB-059's shim mention, and PUB-060's now-obsolete bullets (struck through, with a change-log line).
+- Tests: `pending_batch_count()` → `len(meter._pending)`; the alias test became an `aclose` test with the same assertions; `test_drain_task_failure_is_logged_not_silent` deleted with the catch-all it exercised (`_post_batch`'s swallow-and-keep-pending guarantee stays pinned by four existing tests); one assertion that could no longer fail dropped.
+
+### Acceptance Criteria
+
+- [x] AC13 — the removed files are absent from the tracked tree and nothing live references them (test: `test_removed_scripts_are_not_referenced`). The check reads `git ls-files`, not the disk, so an untracked local copy (the owner's `scripts/servers.txt`) doesn't fail it. Historical records are exempt: archived trees, dated epics/reviews/test reports, `roadmap/archive/`, reviewer memory, and the specs that must name the files (listed one by one).
+- [x] AC14 — one shared spawn helper; pending batches flushed on `aclose` (tests: `test_spawn_if_loop_without_running_loop_is_noop`, plus `test_spawn_if_loop_with_running_loop_returns_the_task`, `test_storage_ops_meter_has_no_alias_or_test_only_wrappers`, `test_pending_cap_is_a_module_constant`, `test_emit_all_delegates_every_entry_to_emit`). **Name mapping:** the handoff's `test_aclose_flushes_pending_batches` is satisfied by the existing `TestAclose::test_aclose_cancels_periodic_task_and_drains_pending` (the handoff row allowed keeping an equivalent); a mutation replacing the final drain with a no-op fails it.
+
+### Test Results
+
+2034 passed, 2 skipped, 9 deselected; `-m e2e` 9 passed. Coverage 93.59%; `usage_meter.py` 93% → 95%, `storage_ops_meter.py` 100% → 100%, `web/service.py` unchanged.
+
+### Subagent Verdicts
+
+- `code-reviewer`: BLOCKED (resolved) → fixed. The AC13 test checked disk existence, so the owner's untracked local `scripts/servers.txt` would have failed the suite and the pre-commit test hook in the main checkout after merge; and the `.gitignore` line for it had been removed, which would have un-ignored that file. Now the test checks tracked files and the ignore line is restored. Mutations on AC13 (a stale reference) and AC14 (an unclosed coroutine; a skipped final flush) were caught.
+- `security-auditor`: N/A — no auth, secrets or config-loading change (one `web/service.py` call site renamed to `aclose()`).
+
+### Linked Issues
+
+- #294, #286 — closed by the wave 4 PR

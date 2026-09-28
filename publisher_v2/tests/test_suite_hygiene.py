@@ -639,3 +639,94 @@ def test_default_run_deselects_e2e(pytestconfig: pytest.Config) -> None:
         if not marked:
             unmarked.append(path.name)
     assert not unmarked, "tests/e2e modules without `pytestmark = pytest.mark.e2e`: " + ", ".join(unmarked)
+
+
+REPO_ROOT = TESTS_ROOT.parents[1]
+
+# AC13 (#294): dead scripts and shims that must stay deleted.
+_REMOVED_PATHS = (
+    "scripts/heroku_hetzner_clone.py",
+    "scripts/servers.txt",
+    "scripts/migrate_features.py",
+    "scripts/cleanup_features.py",
+    "scripts/refine_features.py",
+    "scripts/rename_artifacts.py",
+    "publisher_v2/src/publisher_v2/tools/__main__.py",
+    "publisher_v2/src/publisher_v2/web/sidecar_parser.py",
+    "publisher_v2/tests/test_scripts_heroku_hetzner_clone.py",
+)
+# Basenames and module paths of the removed files. ``services.sidecar_parser`` (the real module)
+# does not match; ``python -m publisher_v2.tools.migrate_storage`` does not match either.
+_REMOVED_REFERENCE = re.compile(
+    r"heroku_hetzner_clone"
+    r"|\bservers\.txt\b"
+    r"|\b(?:migrate|cleanup|refine)_features\b"
+    r"|\brename_artifacts\b"
+    r"|\btools[./]__main__\b"
+    r"|python3? -m publisher_v2\.tools(?![.\w])"
+    r"|\bweb[./]sidecar_parser\b"
+)
+# Dated historical records keep describing what existed when they were written; only live
+# code, config, workflows, agent guidance and current docs must stop pointing at removed files.
+# Keep this narrow: a live doc that still names a removed file is fixed, not exempted.
+_HISTORICAL_PREFIXES = (
+    "code_v1/",
+    "docs_v1/",
+    "docs_v2/08_Epics/",
+    "docs_v2/09_Reviews/",
+    "docs_v2/roadmap/archive/",
+    # Subagent memory: dated review notes, the same class of historical record as the above.
+    ".claude/agent-memory/",
+)
+_REFERENCE_EXEMPT_FILES = frozenset(
+    {
+        # An ignore entry for a deleted file is harmless and keeps an owner's local copy untracked.
+        ".gitignore",
+        # Dated test report: describes the suite as it was on that day.
+        "docs_v2/10_Testing/TEST_EXECUTION_REPORT_2025-12-21.md",
+        # The specs that ordered or recorded the deletion must name what they deleted.
+        "docs_v2/roadmap/PUB-060_test-and-docs-hygiene.md",
+        "docs_v2/roadmap/PUB-084_dry-review-standalone-batch.md",
+        "docs_v2/roadmap/PUB-084_handoff.md",
+        "docs_v2/roadmap/PUB-084_summary.md",
+    }
+)
+
+
+def test_removed_scripts_are_not_referenced() -> None:
+    """AC13: the clone script, servers.txt, the docs-migration scripts, ``tools/__main__.py`` and the
+    ``web/sidecar_parser.py`` shim are no longer tracked, and no tracked live file references them.
+
+    Absence is checked against the tracked-file list, not the disk: an untracked, gitignored local
+    copy (an owner's ``scripts/servers.txt``) is not part of the repo and must not fail the suite.
+    """
+    import subprocess  # nosec B404 - fixed argv, no shell
+
+    listed = subprocess.run(  # noqa: S603  # nosec B603 B607 - fixed argv, no shell
+        ["git", "ls-files", "-z"],  # noqa: S607
+        cwd=REPO_ROOT,
+        capture_output=True,
+        check=True,
+    ).stdout.decode("utf-8")
+    tracked = set(filter(None, listed.split("\0")))
+    present = [rel for rel in _REMOVED_PATHS if rel in tracked]
+
+    this_file = THIS_FILE.relative_to(REPO_ROOT).as_posix()
+    offenders: list[str] = []
+    for rel in sorted(tracked):
+        if rel == this_file or rel in _REFERENCE_EXEMPT_FILES or rel.startswith(_HISTORICAL_PREFIXES):
+            continue
+        path = REPO_ROOT / rel
+        if not path.is_file():
+            continue
+        try:
+            text = path.read_text("utf-8")
+        except UnicodeDecodeError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), 1):
+            match = _REMOVED_REFERENCE.search(line)
+            if match:
+                offenders.append(f"{rel}:{lineno}: {match.group(0)}")
+
+    assert not present, "delete the dead scripts/shims (#294): " + ", ".join(present)
+    assert not offenders, "tracked files still reference removed scripts/shims (#294):\n" + "\n".join(offenders)

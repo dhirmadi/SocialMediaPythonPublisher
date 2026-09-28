@@ -151,7 +151,7 @@ class TestDrainLoopBackoffSemantics:
         await meter.flush()
 
         # The failed batch stays pending with its original key ...
-        assert meter.pending_batch_count() == 1
+        assert len(meter._pending) == 1
         original_key = meter._pending[0][0]
         assert meter._pending[0][1] == 9
 
@@ -168,7 +168,7 @@ class TestDrainLoopBackoffSemantics:
         await meter.flush()
         assert client.post_usage.await_count == 2
         assert client.post_usage.await_args.kwargs["idempotency_key"] == original_key
-        assert meter.pending_batch_count() == 0
+        assert len(meter._pending) == 0
 
     async def test_drain_attempt_timeout_is_bounded_and_logged(
         self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
@@ -189,25 +189,8 @@ class TestDrainLoopBackoffSemantics:
 
         joined = " ".join(rec.getMessage() for rec in caplog.records)
         assert "storage_ops_drain_attempt_timeout" in joined
-        assert meter.pending_batch_count() == 1
+        assert len(meter._pending) == 1
         assert meter._pending[0][1] == 11
-
-    async def test_drain_task_failure_is_logged_not_silent(self, caplog: pytest.LogCaptureFixture) -> None:
-        """Spec risk: a background drain that dies must log storage_ops_drain_task_failed."""
-        import logging
-
-        meter, client, _ = _build_meter(count=0)
-        # A malformed pending entry makes _drain_pending itself blow up (not _post_batch,
-        # which swallows everything) — the defensive branch must surface it.
-        meter._pending.append(("bad-entry",))  # type: ignore[arg-type]
-
-        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
-        meter._ensure_drain_task()
-        await _settle(meter._drain_task)
-
-        joined = " ".join(rec.getMessage() for rec in caplog.records)
-        assert "storage_ops_drain_task_failed" in joined
-        meter._pending.clear()
 
 
 class TestAclose:
@@ -228,7 +211,7 @@ class TestAclose:
         await meter.flush()  # drains 0 -> nothing pending
         storage.drain_ops_count = MagicMock(return_value=13)
         await meter.flush()  # drains 13, post fails -> stays pending
-        assert meter.pending_batch_count() == 1
+        assert len(meter._pending) == 1
 
         storage.drain_ops_count = MagicMock(return_value=0)
         await meter.aclose()
@@ -236,7 +219,7 @@ class TestAclose:
         assert periodic.cancelled() or periodic.done()
         assert meter._periodic_task is None
         assert meter._drain_task is None
-        assert meter.pending_batch_count() == 0
+        assert len(meter._pending) == 0
         assert client.post_usage.await_count == 2
 
     async def test_aclose_deadline_logs_undrained_queue_and_never_raises(
@@ -259,17 +242,18 @@ class TestAclose:
         assert "storage_ops_meter_undrained_queue" in joined
         undrained = [rec for rec in caplog.records if "storage_ops_meter_undrained_queue" in rec.getMessage()]
         assert '"remaining": 1' in undrained[-1].getMessage()
-        assert meter.pending_batch_count() == 1
+        assert len(meter._pending) == 1
 
-    async def test_stop_periodic_flush_delegates_to_aclose(self) -> None:
+    async def test_aclose_stops_periodic_flush_and_posts_final_drain(self) -> None:
+        """#286: ``stop_periodic_flush`` (a pure alias) is gone; ``aclose`` is the one shutdown path."""
         meter, client, storage = _build_meter()
         storage.drain_ops_count = MagicMock(return_value=4)
         meter.start_periodic_flush()
 
-        await meter.stop_periodic_flush()
+        await meter.aclose()
 
         assert meter._periodic_task is None
-        assert meter.pending_batch_count() == 0
+        assert len(meter._pending) == 0
         client.post_usage.assert_awaited_once()
         assert client.post_usage.await_args.kwargs["quantity"] == 4
 
@@ -280,7 +264,7 @@ class TestAclose:
         await meter.aclose()
         await meter.aclose()
 
-        assert meter.pending_batch_count() == 0
+        assert len(meter._pending) == 0
         client.post_usage.assert_not_awaited()
 
 
@@ -381,15 +365,17 @@ class TestPendingQueueBounds:
     async def test_oldest_batch_dropped_when_pending_cap_exceeded(self, caplog: pytest.LogCaptureFixture) -> None:
         import logging
 
+        from publisher_v2.services import storage_ops_meter as mod
+
         meter, client, storage = _build_meter()
         storage.drain_ops_count = MagicMock(return_value=1)
         client.post_usage = AsyncMock(side_effect=_hang_forever)
 
         caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
-        for _ in range(meter._pending_max + 2):
+        for _ in range(mod._PENDING_MAX + 2):
             meter._enqueue_drained_batch()
 
-        assert meter.pending_batch_count() == meter._pending_max
+        assert len(meter._pending) == mod._PENDING_MAX
         joined = " ".join(rec.getMessage() for rec in caplog.records)
         assert "storage_ops_pending_batch_dropped" in joined
         meter._pending.clear()
@@ -410,14 +396,12 @@ class TestPendingQueueBounds:
         await meter._cancel_task(meter._drain_task)
         meter._pending.clear()
 
-    async def test_drain_task_cancellation_is_not_reported_as_failure(self, caplog: pytest.LogCaptureFixture) -> None:
-        import logging
-
+    async def test_drain_task_cancellation_is_not_reported_as_failure(self) -> None:
+        """A cancelled drain task ends cancelled; nothing swallows the cancellation."""
         meter, client, storage = _build_meter()
         storage.drain_ops_count = MagicMock(return_value=6)
         client.post_usage = AsyncMock(side_effect=_hang_forever)
 
-        caplog.set_level(logging.WARNING, logger="publisher_v2.storage_ops_metering")
         await meter.flush()
         task = meter._drain_task
         assert task is not None
@@ -427,8 +411,6 @@ class TestPendingQueueBounds:
             await task
 
         assert task.cancelled()
-        joined = " ".join(rec.getMessage() for rec in caplog.records)
-        assert "storage_ops_drain_task_failed" not in joined
         meter._pending.clear()
 
 
@@ -477,7 +459,7 @@ class TestSlowButAliveOrchestrator:
         await _settle(meter._drain_task)
 
         assert client.post_usage.await_count == 1
-        assert meter.pending_batch_count() == 0, (
+        assert len(meter._pending) == 0, (
             "slow-but-alive orchestrator batch was dropped by the drain deadline "
             f"(deadline {mod._DRAIN_ATTEMPT_TIMEOUT_SECONDS}s vs response {slow_response_seconds}s, scaled)"
         )
@@ -504,3 +486,68 @@ class TestSlowButAliveOrchestrator:
         kwargs = client.post_usage.await_args.kwargs
         assert "retry" in kwargs, "drain post must pass a per-call retry override"
         assert kwargs["retry"].max_attempts == 1
+
+
+class TestSharedBackgroundPlumbing:
+    """PUB-084 AC14 (#286): one shared ``_spawn_if_loop``, no alias/test-only wrappers, module constant cap."""
+
+    def test_spawn_if_loop_without_running_loop_is_noop(self) -> None:
+        """AC14: with no running loop the shared helper schedules nothing, returns None and closes the
+        coroutine (so no "coroutine was never awaited" warning); both meters use that one helper."""
+        import warnings
+
+        from publisher_v2.services import storage_ops_meter, usage_meter
+        from publisher_v2.services.usage_meter import _spawn_if_loop
+
+        ran: list[int] = []
+
+        async def _work() -> None:
+            ran.append(1)
+
+        coro = _work()
+        with warnings.catch_warnings():
+            warnings.simplefilter("error", RuntimeWarning)
+            result = _spawn_if_loop(coro)
+
+        assert result is None
+        assert coro.cr_frame is None, "the unscheduled coroutine must be closed, not leaked"
+        assert ran == []
+        assert storage_ops_meter._spawn_if_loop is usage_meter._spawn_if_loop, (
+            "both meters must schedule background work through the one shared _spawn_if_loop"
+        )
+
+    async def test_spawn_if_loop_with_running_loop_returns_the_task(self) -> None:
+        """AC14 counterpart: inside a running loop the helper schedules the coroutine and returns its task."""
+        from publisher_v2.services.usage_meter import _spawn_if_loop
+
+        ran: list[int] = []
+
+        async def _work() -> None:
+            ran.append(1)
+
+        task = _spawn_if_loop(_work())
+
+        assert isinstance(task, asyncio.Task)
+        await task
+        assert ran == [1]
+
+    def test_storage_ops_meter_has_no_alias_or_test_only_wrappers(self) -> None:
+        """#286: ``stop_periodic_flush`` (alias of ``aclose``), ``pending_batch_count`` (test-only) and the
+        ``_drain_loop`` catch-all around ``_drain_pending`` are deleted."""
+        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
+
+        leftovers = [
+            name
+            for name in ("stop_periodic_flush", "pending_batch_count", "_drain_loop")
+            if hasattr(StorageOpsMeter, name)
+        ]
+        assert leftovers == []
+
+    def test_pending_cap_is_a_module_constant(self) -> None:
+        """#286: the pending-batch cap is a module constant, not a per-instance attribute nobody overrides."""
+        from publisher_v2.services import storage_ops_meter as mod
+
+        meter, _client, _storage = _build_meter()
+
+        assert getattr(mod, "_PENDING_MAX", None) == 12
+        assert not hasattr(meter, "_pending_max")

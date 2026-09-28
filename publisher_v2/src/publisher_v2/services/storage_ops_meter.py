@@ -23,6 +23,7 @@ from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from publisher_v2.config.orchestrator_client import RetryConfig
+from publisher_v2.services.usage_meter import _spawn_if_loop
 from publisher_v2.utils.logging import log_json
 
 if TYPE_CHECKING:
@@ -43,6 +44,8 @@ _DRAIN_ATTEMPT_TIMEOUT_SECONDS = 8.0
 _ACLOSE_DEADLINE_SECONDS = 10.0
 # PUB-061 (#215): drain posts opt out of the client's inner retry layer.
 _SINGLE_ATTEMPT_RETRY = RetryConfig(max_attempts=1)
+# #92: cap on undelivered batches kept for retry; the oldest is dropped beyond it.
+_PENDING_MAX = 12
 
 
 class StorageOpsMeter:
@@ -71,7 +74,6 @@ class StorageOpsMeter:
         # retry dedupes correctly upstream. Bounded to avoid unbounded growth
         # during a long orchestrator outage.
         self._pending: list[tuple[str, int, str]] = []  # (idem_key, count, occurred_at)
-        self._pending_max = 12
 
     async def flush(self) -> None:
         """Drain the counter, enqueue the batch, and return. Never raises, never blocks.
@@ -91,10 +93,6 @@ class StorageOpsMeter:
         # post_usage suspends the drain task, never this coroutine.
         await asyncio.sleep(0)
 
-    def pending_batch_count(self) -> int:
-        """Return how many drained batches are still undelivered."""
-        return len(self._pending)
-
     def _enqueue_drained_batch(self) -> None:
         """Drain the storage counter into ``_pending``. Synchronous and fast."""
         count = self._storage.drain_ops_count()
@@ -110,7 +108,7 @@ class StorageOpsMeter:
         now = datetime.now(UTC)
         idem_key = f"r2ops:{self._tenant_id}:{now.strftime('%Y-%m-%d')}:{now.strftime('%H')}:{uuid.uuid4()}"
         self._pending.append((idem_key, count, now.isoformat()))
-        while len(self._pending) > self._pending_max:
+        while len(self._pending) > _PENDING_MAX:
             dropped_key, dropped_count, _ = self._pending.pop(0)
             log_json(
                 self._logger,
@@ -125,33 +123,10 @@ class StorageOpsMeter:
         """Start the background drain task unless one is already running."""
         if self._drain_task is not None and not self._drain_task.done():
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:  # pragma: no cover — no loop (sync/CLI context)
-            return
-        self._drain_task = loop.create_task(self._drain_loop())
-
-    async def _drain_loop(self) -> None:
-        """Make one pass over the pending queue, then exit.
-
-        Unlike ``UsageMeter._drain_loop`` this exits rather than looping forever;
-        ``flush()``/``aclose()`` restart it. A batch leaves ``_pending`` only after
-        ``_post_batch`` returns True, so ``pending_batch_count()`` stays accurate
-        while an attempt is in flight.
-        """
-        try:
-            await self._drain_pending()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # defensive: a silent death under-bills
-            log_json(
-                self._logger,
-                logging.WARNING,
-                "storage_ops_drain_task_failed",
-                tenant_id=self._tenant_id,
-                pending_batches=len(self._pending),
-                error=str(exc),
-            )
+        # Unlike ``UsageMeter._drain_loop`` this makes one pass and exits;
+        # ``flush()``/``aclose()`` restart it. ``_post_batch`` never raises, so no
+        # catch-all wrapper is needed.
+        self._drain_task = _spawn_if_loop(self._drain_pending())
 
     async def _drain_pending(self) -> None:
         """Attempt each batch pending at entry exactly once, then return.
@@ -238,15 +213,7 @@ class StorageOpsMeter:
         """
         if self._periodic_task is not None and not self._periodic_task.done():
             return
-        try:
-            loop = asyncio.get_running_loop()
-            self._periodic_task = loop.create_task(self._periodic_loop())
-        except RuntimeError:
-            pass
-
-    async def stop_periodic_flush(self) -> None:
-        """Cancel the periodic task and drain what is left. Never raises."""
-        await self.aclose()
+        self._periodic_task = _spawn_if_loop(self._periodic_loop())
 
     async def aclose(self) -> None:
         """Stop the background tasks and drain remaining batches under a deadline.

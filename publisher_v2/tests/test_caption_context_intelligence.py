@@ -331,8 +331,8 @@ class TestUpdateSidecarWithCaption:
     async def test_updates_existing_sidecar_with_caption(self) -> None:
         """When a sidecar exists, update it with the published caption."""
         from publisher_v2.services.sidecar import update_sidecar_with_caption
+        from publisher_v2.services.sidecar_parser import parse_sidecar_text
         from publisher_v2.utils.captions import build_caption_sidecar
-        from publisher_v2.web.sidecar_parser import parse_sidecar_text
 
         existing_sidecar = build_caption_sidecar(
             "Original SD caption",
@@ -370,7 +370,7 @@ class TestUpdateSidecarWithCaption:
     async def test_creates_minimal_sidecar_when_none_exists(self) -> None:
         """When no sidecar exists, create a minimal one with the caption."""
         from publisher_v2.services.sidecar import update_sidecar_with_caption
-        from publisher_v2.web.sidecar_parser import parse_sidecar_text
+        from publisher_v2.services.sidecar_parser import parse_sidecar_text
 
         class MockStorage:
             written_content: str | None = None

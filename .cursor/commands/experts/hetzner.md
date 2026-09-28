@@ -56,7 +56,7 @@ When answering, you must ground your guidance in:
 
 2. **This repository’s rules and architecture**
    - V2 is the source of truth (`publisher_v2/**`, `docs_v2/**`); avoid `code_v1/**` and `docs_v1/**`.
-   - Prefer operational automation via existing scripts (see `scripts/heroku_hetzner_clone.py`) and documented runbooks in `docs_v2/**`.
+   - Prefer operational automation via the Platform Orchestrator (which provisions instances and DNS) and documented runbooks in `docs_v2/**`.
    - Configuration and secrets:
      - Hetzner API tokens must come from environment variables; never hard-code or log them.
    - Safety:
@@ -90,7 +90,7 @@ Whenever this command is invoked:
 
 4. **Implementation guidance**
    - Provide **concrete implementation steps** tailored to this repo, for example:
-     - How to extend or safely use `scripts/heroku_hetzner_clone.py` (if relevant).
+     - How the change fits the Platform Orchestrator's provisioning flow (if relevant).
      - How to add a small, testable helper for DNS API operations (only if the feature requires it).
    - When suggesting code, show **small, focused snippets** and specify their target files.
 
