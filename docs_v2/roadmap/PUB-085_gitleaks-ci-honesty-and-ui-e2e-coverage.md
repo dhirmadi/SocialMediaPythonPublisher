@@ -21,6 +21,7 @@ As the maintainer, I want CI to claim only the gates it actually runs, and the a
 ## Owner decisions
 
 - 2026-09-28: address #303 and #305 after PUB-084. For #303 the implementer chose "local-only, stated honestly" over adding another secret scanner to CI: TruffleHog already scans every PR and main-push diff and the full history weekly (verified findings only), the GitGuardian GitHub App scans PRs (the "GitGuardian Security Checks" check; the ggshield step in `security-scan.yml` is skipped because the repo has no `GITGUARDIAN_API_KEY` secret), and detect-secrets scans all files. The owner may reverse this.
+- 2026-09-28: part B pinned that failed upload entries survived when new files were enqueued. The owner ruled this a defect: enqueuing new files clears every finished entry, failed as well as completed, so the queue shows only the new batch.
 
 ## Desired Outcome
 
@@ -50,8 +51,15 @@ CI no longer runs or claims a gitleaks gate it cannot enforce, and the docs say 
 - AC2: Given `.pre-commit-config.yaml`, when it is read, then the `gitleaks` hook is still configured, and `SECURITY.md` names gitleaks as a local commit-time hook and names the scanners that run in CI
 - AC3: Given each #305 behaviour, when the e2e suite runs, then a flow asserting it passes; a behaviour judged not worth pinning is listed on #305 with the reason
 - AC4: Given the default `uv run pytest`, when it runs, then no e2e test is selected (unchanged)
+- AC6: Given an upload queue holding a completed entry and a failed entry, when new files are enqueued, then both finished entries are cleared and only the new batch is shown; entries still queued, uploading or waiting to retry are never cleared, so enqueuing during an upload keeps the in-flight entries; the queue's auto-hide after a clean batch never drops or stops entries enqueued since (including files picked while the previous batch's grid refresh is still running); and a pick the client rejects entirely (e.g. only unsupported types) leaves the queue, its Retry buttons and any pending auto-hide unchanged
 - AC5: Given this item ships, when its PRs merge, then #303 and #305 are closed with `Closes #N`
 
 ## Related
 
 - PUB-084 (#291 review), PUB-055 (CI security gates), PUB-078 (CI cleanup)
+
+## Change Log
+
+- 2026-09-28 — Owner decision: enqueuing clears failed as well as completed upload entries; AC6 added.
+- 2026-09-28 — AC6 extended: the auto-hide timer after a clean batch must not drop a batch enqueued within its delay (the re-reading upload loop would otherwise stop on the emptied queue).
+- 2026-09-28 — AC6 extended after review: the grid-refresh window and rejected-only picks are covered.

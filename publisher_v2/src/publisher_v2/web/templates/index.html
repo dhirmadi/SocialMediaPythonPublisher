@@ -1848,6 +1848,7 @@
     let uploadQueue = [];          // [{file, name, status, progress, retries, error}]
     let uploadTimestamps = [];     // timestamps of completed uploads for rate limiting
     let uploadQueueProcessing = false;
+    let uploadAutoHideTimer = null; // PUB-085 AC6: pending auto-hide, cancelled by a new batch
     let activeProgressBarEl = null; // direct reference for O(1) progress updates
 
     // PUB-042: lock the grid panel while uploads are processing.
@@ -1891,9 +1892,25 @@
       }
     }
 
+    function cancelUploadAutoHide() {
+      clearTimeout(uploadAutoHideTimer);
+      uploadAutoHideTimer = null;
+    }
+
+    function scheduleUploadAutoHide() {
+      cancelUploadAutoHide();
+      uploadAutoHideTimer = setTimeout(() => {
+        uploadAutoHideTimer = null;
+        // Defence in depth: never hide or clear while another batch is uploading or waiting to upload.
+        // Cannot currently fire: only one pending auto-hide can exist, armed only when idle and clean,
+        // cancelled by any new batch.
+        if (uploadQueueProcessing || uploadQueue.some(e => e.status === "queued")) return;
+        uploadQueue.length = 0;
+        uploadQueueEl.classList.add("hidden");
+      }, AUTO_HIDE_DELAY_MS);
+    }
+
     function enqueueFiles(files) {
-      // Clear completed entries from previous batches
-      uploadQueue = uploadQueue.filter(e => e.status === "failed");
       const newEntries = [];
       for (const file of files) {
         if (!["image/jpeg", "image/png"].includes(file.type)) {
@@ -1913,7 +1930,16 @@
           error: null,
         });
       }
+      // A pick the client rejects entirely changes nothing (the "Skipped" toasts above say why).
       if (newEntries.length === 0) return;
+      // PUB-085 AC6: a new batch cancels any pending auto-hide from the previous one, then clears finished
+      // entries (done or failed), keeping anything still queued, uploading or waiting. Mutate in place:
+      // a running processUploadQueue reads this array.
+      cancelUploadAutoHide();
+      for (let i = uploadQueue.length - 1; i >= 0; i--) {
+        const status = uploadQueue[i].status;
+        if (status === "done" || status === "failed") uploadQueue.splice(i, 1);
+      }
       uploadQueue.push(...newEntries);
       uploadQueueEl.classList.remove("hidden");
       uploadQueueDismiss.classList.add("hidden");
@@ -2002,7 +2028,6 @@
 
     function dismissUploadQueue() {
       dismissQueue(uploadQueue, uploadQueueEl, uploadQueueDismiss);
-      uploadQueue = [];
     }
 
     function retryUpload(index) {
@@ -2111,8 +2136,9 @@
       setUploadLockState(true);
       uploadQueueDismiss.classList.add("hidden");
       try {
-        for (const entry of uploadQueue) {
-          if (entry.status !== "queued") continue;
+        // Re-read the queue each pass so entries enqueued (or cleared) mid-run are never skipped.
+        let entry;
+        while ((entry = uploadQueue.find(e => e.status === "queued"))) {
           await uploadWithRetry(entry);
         }
       } finally {
@@ -2135,14 +2161,12 @@
         showToast(`${failedEntries.length} upload(s) failed: ${names}`, "error");
       }
 
-      // Auto-hide queue after a delay if all done (no failures)
+      // Auto-hide queue after a delay if all done (no failures). A batch picked during the grid refresh
+      // started its own loop; that loop arms the auto-hide when it finishes, so this one must not.
       const hasFailed = failedEntries.length > 0;
       try { renderUploadQueue(); } catch (_) { /* error boundary */ }
-      if (!hasFailed) {
-        setTimeout(() => {
-          uploadQueue = [];
-          uploadQueueEl.classList.add("hidden");
-        }, AUTO_HIDE_DELAY_MS);
+      if (!hasFailed && !uploadQueueProcessing) {
+        scheduleUploadAutoHide();
       }
     }
 
