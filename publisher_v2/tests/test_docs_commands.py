@@ -160,56 +160,110 @@ def test_readme_does_not_teach_the_removed_ini_configuration() -> None:
     assert "[openAI]" not in readme, "README still documents INI sections"
 
 
-_ENV_ASSIGNMENT = re.compile(r"^(?P<key>[A-Z][A-Z0-9_]*)=(?P<value>.*)$", re.MULTILINE)
+_ENV_ASSIGNMENT = re.compile(r"^(?P<key>[A-Z][A-Z0-9_]*)=(?P<value>.*)$")
+_H2 = re.compile(r"^## .*$", re.MULTILINE)
+_CONFIG_HEADING = re.compile(r"^## [^\n]*\bConfiguration\b[^\n]*$", re.MULTILINE)
+
+
+def _readme_env_example() -> tuple[dict[str, str], dict[str, str]]:
+    """The `.env` example README teaches under its "## ... Configuration" heading.
+
+    Returns ``(secrets, dynamic_config)``: KEY=VALUE lines below the ``# Secrets``
+    comment and below the ``# Dynamic config`` comment of the first ```bash block
+    in that section. Matched on the heading text so decoration (emoji) can change.
+    """
+    readme = (REPO_ROOT / "README.md").read_text()
+    heading = _CONFIG_HEADING.search(readme)
+    if heading is None:
+        pytest.fail("README has no '## ... Configuration' section; the env-example checks cannot run")
+    next_heading = _H2.search(readme, heading.end())
+    section = readme[heading.end() : next_heading.start() if next_heading else len(readme)]
+
+    fence = section.find("```bash")
+    if fence == -1:
+        pytest.fail("README Configuration section has no ```bash .env example")
+    body_start = fence + len("```bash")
+    body_end = section.find("```", body_start)
+    if body_end == -1:
+        pytest.fail("README Configuration section's ```bash block is not closed")
+
+    secrets: dict[str, str] = {}
+    dynamic: dict[str, str] = {}
+    current: dict[str, str] | None = None
+    for raw in section[body_start:body_end].splitlines():
+        line = raw.strip()
+        if line.startswith("#"):
+            label = line.lstrip("#").strip().lower()
+            if label.startswith("secrets"):
+                current = secrets
+            elif label.startswith("dynamic config"):
+                current = dynamic
+            continue
+        match = _ENV_ASSIGNMENT.match(line)
+        if match and current is not None:
+            current[match.group("key")] = match.group("value").strip()
+
+    if not secrets or not dynamic:
+        pytest.fail(
+            "README .env example lost its '# Secrets' or '# Dynamic config' section: "
+            f"secrets={sorted(secrets)}, dynamic={sorted(dynamic)}"
+        )
+    return secrets, dynamic
 
 
 def _readme_dynamic_config_block() -> dict[str, str]:
-    """The `.env` excerpt README teaches under "Dynamic config in `.env`"."""
-    readme = (REPO_ROOT / "README.md").read_text()
-    start = readme.index("**Dynamic config in `.env`", readme.index("Configuration (Essentials)"))
-    block = readme[
-        readme.index("```bash", start) + len("```bash") : readme.index("```", readme.index("```bash", start) + 7)
-    ]
-    return {m.group("key"): m.group("value").strip() for m in _ENV_ASSIGNMENT.finditer(block)}
+    """The JSON-valued env vars README teaches under ``# Dynamic config``."""
+    return _readme_env_example()[1]
+
+
+def _readme_documented_secrets() -> set[str]:
+    """The secret env vars README teaches under ``# Secrets``; they drift the same way."""
+    return set(_readme_env_example()[0])
 
 
 def test_the_readme_env_example_loads_through_the_real_loader(monkeypatch) -> None:
     """Failure mode (a): the documented config must survive the real loader, not a fake."""
+    import json
+
     from publisher_v2.config.loader import load_application_config
 
     monkeypatch.setattr("publisher_v2.config.loader.load_dotenv", lambda *args, **kwargs: None)
-    for key in ("CAPTIONFILE_SETTINGS", "STORAGE_PROVIDER", "INSTA_PASSWORD", "TELEGRAM_BOT_TOKEN"):
-        monkeypatch.delenv(key, raising=False)
-    for key, value in (
-        ("DROPBOX_APP_KEY", "k"),
-        ("DROPBOX_APP_SECRET", "s"),
-        ("DROPBOX_REFRESH_TOKEN", "r"),
-        ("OPENAI_API_KEY", "sk-test"),
-        ("EMAIL_PASSWORD", "pw"),
+    for key in (
+        "CAPTIONFILE_SETTINGS",
+        "CONTENT_SETTINGS",
+        "EMAIL_SERVER",
+        "EMAIL_PASSWORD",
+        "STORAGE_PROVIDER",
+        "INSTA_PASSWORD",
+        "TELEGRAM_BOT_TOKEN",
     ):
-        monkeypatch.setenv(key, value)
+        monkeypatch.delenv(key, raising=False)
 
-    documented = _readme_dynamic_config_block()
-    expected = {"STORAGE_PATHS", "PUBLISHERS", "EMAIL_SERVER", "OPENAI_SETTINGS", "CONTENT_SETTINGS"}
+    secrets, documented = _readme_env_example()
+    expected = {"STORAGE_PATHS", "PUBLISHERS", "OPENAI_SETTINGS"}
     assert expected <= documented.keys(), documented
-    for key, value in documented.items():
+    # Only what the README tells a reader to put in .env: a secret the loader
+    # needs but README omits must fail here, not be papered over by the test.
+    for key, value in {**secrets, **documented}.items():
         monkeypatch.setenv(key, value)
 
     config = load_application_config()
 
-    assert config.dropbox.image_folder == "/Photos/bondage_fetlife"
-    assert config.platforms.email_enabled is True
-    # The fields README claims come from EMAIL_SERVER really do.
-    assert config.email is not None
-    assert config.email.sender == "you@gmail.com"
-    assert config.email.smtp_server == "smtp.gmail.com"
-    assert config.email.smtp_port == 587
-    assert config.email.caption_target == "subject"
-    assert config.content.archive is True
+    storage = json.loads(documented["STORAGE_PATHS"])
+    assert config.dropbox.image_folder == storage["root"] == "/Photos/my_folder"
+    assert config.dropbox.archive_folder == f"{storage['root']}/{storage['archive']}" == "/Photos/my_folder/archive"
+
+    (telegram_entry,) = [p for p in json.loads(documented["PUBLISHERS"]) if p["type"] == "telegram"]
+    assert config.platforms.telegram_enabled is True
+    assert config.telegram is not None
+    assert config.telegram.channel_id == telegram_entry["channel_id"]
+
+    openai_settings = json.loads(documented["OPENAI_SETTINGS"])
+    assert config.openai.vision_model == openai_settings["vision_model"] == "gpt-4o"
+    assert config.openai.caption_model == openai_settings["caption_model"] == "gpt-4o-mini"
 
 
 _QUOTED_ENV_NAME = re.compile(r"[\"']([A-Z][A-Z0-9_]{2,})[\"']")
-_README_SECRET = re.compile(r"`([A-Z][A-Z0-9_]{2,})`")
 
 
 def _env_names_the_code_reads() -> set[str]:
@@ -221,13 +275,6 @@ def _env_names_the_code_reads() -> set[str]:
     """
     src = REPO_ROOT / "publisher_v2" / "src" / "publisher_v2"
     return {name for path in src.rglob("*.py") for name in _QUOTED_ENV_NAME.findall(path.read_text())}
-
-
-def _readme_documented_secrets() -> set[str]:
-    """The bullet list above the `.env` excerpt names secrets too, and they drift the same way."""
-    readme = (REPO_ROOT / "README.md").read_text()
-    start = readme.index("**Secrets in `.env`", readme.index("Configuration (Essentials)"))
-    return set(_README_SECRET.findall(readme[start : readme.index("**Dynamic config in `.env`", start)]))
 
 
 def test_every_env_var_the_readme_documents_is_one_the_code_reads() -> None:

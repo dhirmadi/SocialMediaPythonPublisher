@@ -142,6 +142,7 @@ DROPBOX_APP_KEY=your_key
 DROPBOX_APP_SECRET=your_secret
 DROPBOX_REFRESH_TOKEN=your_token
 OPENAI_API_KEY=sk-...
+TELEGRAM_BOT_TOKEN=your_bot_token
 
 # Dynamic config (JSON-valued env vars)
 STORAGE_PATHS={"root": "/Photos/my_folder", "archive": "archive"}
