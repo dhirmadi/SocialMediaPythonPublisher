@@ -1,174 +1,238 @@
-## Social Media Python Publisher — V2
+<div align="center">
 
-[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+# 📸 Social Media Publisher
 
-Modern, reliable, and privacy‑aware publishing pipeline for photos. V2 uses OpenAI (vision + copy), Dropbox for storage, and pluggable publishers (Email/FetLife, Telegram, Instagram). It’s built with uv, strict config validation, retries/backoff, rate limiting, SHA256 de‑duplication, and a safe Preview Mode.
+**AI-powered photo publishing pipeline — from Dropbox to Telegram, Instagram, Email & more**
 
----
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-3776ab?logo=python&logoColor=white)](https://www.python.org/downloads/)
+[![CI](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/workflows/code-quality.yml/badge.svg)](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/workflows/code-quality.yml)
+[![Security](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/workflows/security-scan.yml/badge.svg)](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/workflows/security-scan.yml)
+[![uv](https://img.shields.io/badge/uv-package%20manager-de5fe9?logo=uv)](https://github.com/astral-sh/uv)
+[![Ruff](https://img.shields.io/badge/ruff-linter%20%26%20formatter-d7ff64?logo=ruff&logoColor=black)](https://github.com/astral-sh/ruff)
+[![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue)](LICENSE)
 
-### 📚 Documentation (Start Here)
-
-- V2 docs live in `docs_v2/`:
-  - Overview: `docs_v2/01_Overview/README.md` (start here)
-  - Architecture: `docs_v2/03_Architecture/ARCHITECTURE.md`, `docs_v2/03_Architecture/SYSTEM_DESIGN.md`
-  - Specification & configuration: `docs_v2/02_Specifications/SPECIFICATION.md`, `docs_v2/05_Configuration/CONFIGURATION.md`
-  - Epics & features (canonical): `docs_v2/08_Epics/README.md`
-  - AI prompts & models: `docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md`
-  - Preview mode: `docs_v2/08_Epics/000_v2_foundation/000_preview_mode/000_feature.md`
-  - Reviews & testing: `docs_v2/09_Reviews/REVIEW_SUMMARY.md`, `docs_v2/10_Testing/`
-- V1 docs have been archived to `docs_v1/`
+</div>
 
 ---
 
-### 🚀 What You Get (Highlights)
+Drop your photos in Dropbox. The publisher picks them up, generates platform-tailored captions with OpenAI Vision, and posts them — to Telegram channels, Instagram, email lists (including FetLife), or any combination. A mobile-first web admin UI lets you curate, analyze, and publish manually when you want control.
 
-- OpenAI‑only AI strategy with separate models for best cost/quality
-- Dropbox as source of truth for images; server‑side archive moves and sidecar handling
-- Platform‑aware caption formatting (length, hashtags, constraints)
-- Stable‑Diffusion‑ready caption sidecar `.txt` files and extended JSON analysis metadata
-- SHA256 de‑duplication to avoid reposting the same image
-- Tenacity‑based retries and async rate limiting on external calls
-- Secure temp files (0600), secrets via `.env`, structured JSON logs
-- Optional FastAPI web interface for previewing, analyzing, and publishing with admin‑only controls
-- CLI flags for `--select`, `--dry-publish`, and safe `--preview`
-- Email/FetLife publisher with caption placement control, subject prefixes, no hashtags, ≤240 chars, punctuation sanitization, and optional confirmation email with tags
+<!-- TODO: Add a screenshot of the web UI here
+![Web Admin UI](docs_v2/assets/web-ui-screenshot.png)
+-->
 
----
+## ✨ Key Features
 
-### 🚀 Quick Start (uv)
+| | Feature | Details |
+|:---:|---------|---------|
+| 🤖 | **AI-Generated Captions** | OpenAI Vision analyzes each image; separate models for vision analysis and caption writing optimize cost vs. quality |
+| 🎯 | **Platform-Adaptive** | Captions are tailored per platform — length, tone, hashtags, and formatting rules are all platform-aware |
+| 🗣️ | **Brand Voice Matching** | Feed the AI your writing samples and it matches your personal voice and style |
+| 🏷️ | **Smart Hashtags** | Context-aware hashtag generation tuned to each platform's culture |
+| 📦 | **Dropbox Integration** | Images sourced from Dropbox; server-side archive moves keep your folder clean |
+| 🔁 | **Deduplication** | SHA256 content hashing prevents reposting the same image — ever |
+| 🌐 | **Web Admin UI** | Mobile-first FastAPI interface for browsing, analyzing, curating, and publishing photos |
+| 📤 | **Multi-Platform** | Telegram, Instagram, Email/FetLife out of the box — Bluesky and Mastodon on the [roadmap](#-roadmap) |
+| ☁️ | **Multi-Tenant** | Designed for the [Platform Orchestrator](https://github.com/dhirmadi/platform-orchestrator) — run multiple independent instances from one deployment |
+| 🔒 | **Secure by Default** | Auth0 login, signed admin cookies, structured logging with secret redaction |
+| 👁️ | **Safe Preview Mode** | Full dry-run with zero side effects — see exactly what would be published without touching anything |
 
-#### Prerequisites
-- Python 3.12+
-- uv
+## 🏗️ How It Works
 
-#### Install
+```mermaid
+flowchart LR
+    subgraph Sources
+        DB[(Dropbox)]
+        WEB[Web Admin UI]
+    end
+
+    subgraph Pipeline ["Publisher V2 Pipeline"]
+        direction LR
+        V["🔍 Vision Analysis\n(GPT-4o)"]
+        C["✍️ Caption Generator\n(GPT-4o-mini)"]
+        P["📤 Publish Engine"]
+        V --> C --> P
+    end
+
+    subgraph Platforms
+        TG[Telegram]
+        IG[Instagram]
+        EM[Email / FetLife]
+        BS[Bluesky 🔜]
+        MA[Mastodon 🔜]
+    end
+
+    DB --> V
+    WEB --> V
+    P --> TG & IG & EM & BS & MA
+
+    style Pipeline fill:#1a1a2e,stroke:#16213e,color:#e0e0e0
+    style Sources fill:#0f3460,stroke:#16213e,color:#e0e0e0
+    style Platforms fill:#533483,stroke:#16213e,color:#e0e0e0
+```
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+- **Python 3.12+**
+- **[uv](https://docs.astral.sh/uv/)** — fast Python package manager
+
+### Install & Run
+
 ```bash
+# Clone the repo
+git clone https://github.com/dhirmadi/SocialMediaPythonPublisher.git
+cd SocialMediaPythonPublisher
+
+# Install dependencies
 uv sync
-```
 
-#### Run (Preview)
-```bash
+# Copy the example env and fill in your API keys
+cp dotenv.v2.example .env
+# Edit .env with your Dropbox, OpenAI, and publisher credentials
+
+# Preview mode — see what would happen, no side effects
 make preview-v2
-```
 
-#### Run (Live)
-```bash
+# Publish for real
 make run-v2
 ```
 
-**Full Configuration Guide:** See `docs_v2/05_Configuration/CONFIGURATION.md` for:
-- Complete secrets, dynamic config, and static config reference
-- OpenAI model selection and prompt customization
-- FetLife email options and platform limits
-- Feature toggles and internationalization
+### Run the Web UI
 
----
+```bash
+uv run uvicorn publisher_v2.web.app:app --reload
+# Open http://localhost:8000
+```
 
-### 🧭 CLI Flags
+## 🧭 CLI
 
-- configuration is env-first: `STORAGE_PATHS`, `PUBLISHERS`, `OPENAI_SETTINGS` plus secrets (`--config` is still accepted for compatibility but the file is ignored — INI support was removed in #97 stage 4)
-- `--select <filename>` select an exact image in Dropbox folder. It picks the file, it does **not** bypass the already-published check: a file whose content hash is already recorded as posted exits 1 with `Already published: <filename>` (#139, so a double-click or a re-run cannot post the same image twice). To republish deliberately, see [Republishing an already-posted image](#republishing-an-already-posted-image).
-- `--dry-publish` run end‑to‑end but skip platform publishing + archiving
-- `--preview` human‑readable output; no platform calls, no archive, no cache updates
+All commands go through `make` or `uv run`:
 
-Preview mode shows: image details (temp link, SHA256), vision analysis (description/mood/tags/safety), final caption with length, per‑platform formatting, and for Email/FetLife the subject preview, caption placement, and subject mode.
+```bash
+# Preview (safe, read-only — no side effects)
+make preview-v2
 
-#### Republishing an already-posted image
+# Publish a specific image
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --select my-photo.jpg
 
-`--preview` and `--dry-publish` are exempt from the check and always run. To actually publish again:
+# Dry run — full pipeline, skips actual platform calls and archiving
+PYTHONPATH=publisher_v2/src uv run python publisher_v2/src/publisher_v2/app.py --dry-publish
+```
 
-- **With a database** (`DATABASE_URL` set): the per-platform rows carry the state. Publishing again is allowed once a platform's row is no longer `published` — a `failed` row is retried automatically by the next run.
-- **Without a database**: the posted hashes live in `posted.json` under `$XDG_CACHE_HOME/publisher_v2` (default `~/.cache/publisher_v2/posted.json`). Remove the image's SHA256 entry from that file and re-run `--select`. Print the hash first with `--preview`, which reports it without changing any state.
+Preview mode shows: image details (temp link, SHA256), vision analysis (description, mood, tags, safety rating), final caption with character count, per-platform formatting, and for Email/FetLife the subject preview and caption placement.
 
-There is no `--force` flag by design: the check exists because a double-click used to post the same image twice.
-
----
-
-### ⚙️ Configuration (Essentials)
+## ⚙️ Configuration
 
 Publisher V2 uses a **three-layer configuration model**:
 
-1. **Secrets** (`.env` only) — API keys, passwords, tokens
-2. **Dynamic Config** (`.env`, JSON-valued env vars) — Feature toggles, platform settings, folders
-3. **Static Config** (YAML files) — AI prompts, platform limits, UI text
+| Layer | Source | What goes here |
+|-------|--------|---------------|
+| **Secrets** | `.env` only | API keys, passwords, tokens |
+| **Dynamic config** | `.env` (JSON-valued) | Feature toggles, platform settings, folders |
+| **Static config** | YAML files | AI prompts, platform limits, UI text |
 
-INI configuration was removed in #97 stage 4; `--config` is still accepted but the file is ignored.
-
-**Secrets in `.env` (git‑ignored):**
-- `DROPBOX_APP_KEY`, `DROPBOX_APP_SECRET`, `DROPBOX_REFRESH_TOKEN`
-- `OPENAI_API_KEY`
-- Optional: `EMAIL_PASSWORD`, `TELEGRAM_BOT_TOKEN`, `INSTA_PASSWORD` (the Telegram channel is not a secret — it comes from the `PUBLISHERS` entry's `channel_id`)
-
-**Dynamic config in `.env` (excerpt):**
+<details>
+<summary><strong>Example <code>.env</code> (click to expand)</strong></summary>
 
 ```bash
-STORAGE_PATHS={"root": "/Photos/bondage_fetlife", "archive": "archive"}
-PUBLISHERS=[{"type": "fetlife", "recipient": "12345-abc@upload.fetlife.com", "caption_target": "subject", "subject_mode": "normal"}]
-EMAIL_SERVER={"sender": "you@gmail.com", "smtp_server": "smtp.gmail.com", "smtp_port": 587}
-CONFIRMATION_SETTINGS={"confirmation_to_sender": true, "confirmation_tags_count": 5}
-CONTENT_SETTINGS={"hashtag_string": "", "archive": true, "debug": false}
+# Secrets
+DROPBOX_APP_KEY=your_key
+DROPBOX_APP_SECRET=your_secret
+DROPBOX_REFRESH_TOKEN=your_token
+OPENAI_API_KEY=sk-...
+
+# Dynamic config (JSON-valued env vars)
+STORAGE_PATHS={"root": "/Photos/my_folder", "archive": "archive"}
+PUBLISHERS=[{"type": "telegram", "channel_id": "-100..."}]
 OPENAI_SETTINGS={"vision_model": "gpt-4o", "caption_model": "gpt-4o-mini"}
 ```
 
-SMTP transport (`sender`, `smtp_server`, `smtp_port`) lives in `EMAIL_SERVER`, not in the `PUBLISHERS` entry; the entry carries only what is specific to the publisher.
+</details>
 
-Per-tenant AI prompts (`system_prompt`, `role_prompt`, `voice_profile`) come from the orchestrator runtime config, not from a local file. See `dotenv.v2.example` and `docs_v2/05_Configuration/CONFIGURATION.md` for the full reference.
+📖 **Full reference:** [`docs_v2/05_Configuration/CONFIGURATION.md`](docs_v2/05_Configuration/CONFIGURATION.md) — all env vars, OpenAI model selection, platform-specific options, feature toggles, and i18n.
 
----
+## 📁 Project Structure
 
-### 🗃️ Repository Layout
-- `publisher_v2/` — V2 application and tests
-- `docs_v2/` — V2 documentation (source of truth)
-- `code_v1/` — Archived V1 code
-- `docs_v1/` — Archived V1 documentation
-
----
-
-### 🧩 Dependencies
-
-- uv is the canonical dependency manager (`pyproject.toml`, `uv.lock`).
-- Need pip files? Export from uv:
-  - `make export-reqs` → generates `requirements.txt`
-  - `make export-reqs-dev` → generates `requirements-dev.txt`
-
----
-
-### 🔐 Security & Privacy
-- Secrets live in `.env`; never in git
-- Structured logging with redaction (e.g., `sk-` keys)
-- Temp files are 0600 and cleaned up; session files are git‑ignored
-- Cursor/IDE artifacts and local scripts are ignored in `.gitignore`
-
----
-
-### 🧪 Testing
-- `uv run pytest -v` (async tests supported)
-- Or `make test` for coverage + report
-
----
-
-### 🌐 V2 Web Interface (MVP)
-
-An optional minimal web interface is available, built on FastAPI:
-
-- Shows a random image from the configured Dropbox folder.
-- Lets you trigger AI analysis & caption generation (admin‑only).
-- Lets you publish using the existing publishers (admin‑only).
-- HTTP auth (`WEB_AUTH_TOKEN` Bearer or `WEB_AUTH_USER`/`WEB_AUTH_PASS` Basic) satisfies the transport-level check on mutating endpoints. Admin-gated actions additionally require the signed, short‑lived, host‑bound `pv2_admin` cookie a browser obtains by logging in: the library routes enforce that unconditionally, and the image routes enforce it whenever admin mode is configured. A valid cookie alone satisfies the transport check by default; set `WEB_REQUIRE_HEADER_AUTH_WITH_COOKIE=1` to require header auth alongside it.
-- Mobile‑first, single‑page UI with admin‑only controls hidden for non‑admin users.
-
-To run locally:
-
-```bash
-# Configure via environment (see dotenv.v2.example); no INI file is used.
-uv run uvicorn publisher_v2.web.app:app --reload
+```
+publisher_v2/
+├── src/publisher_v2/
+│   ├── app.py              # CLI entrypoint
+│   ├── config/             # Pydantic v2 config models, loaders, credentials
+│   ├── core/               # Domain models, WorkflowOrchestrator, exceptions
+│   ├── services/
+│   │   ├── ai/             # OpenAI Vision analysis + caption generation
+│   │   ├── storage/        # Dropbox adapter, R2 managed storage
+│   │   └── publishers/     # Telegram, Instagram, Email/FetLife
+│   ├── utils/              # Logging, rate limiting, state, image processing
+│   └── web/                # FastAPI app, Auth0 auth, routers, templates
+└── tests/                  # Comprehensive test suite, 85%+ coverage
 ```
 
-Then open `http://localhost:8000` in your browser. See `docs_v2/08_Epics/002_web_admin_curation_ux/005_web_interface_mvp/005_feature.md` for details.
+## 🧪 Development
 
----
+```bash
+make install-dev    # Install with dev dependencies
+make format         # Format + auto-fix lint (ruff)
+make lint           # Lint check
+make type-check     # mypy
+make test           # Tests + coverage report
+make check          # All of the above
+```
 
-### 📄 License
+| Tool | Purpose | Config |
+|------|---------|--------|
+| [uv](https://docs.astral.sh/uv/) | Package management | `pyproject.toml` + `uv.lock` |
+| [ruff](https://docs.astral.sh/ruff/) | Linting + formatting | `pyproject.toml [tool.ruff]` |
+| [mypy](https://mypy.readthedocs.io/) | Type checking | `pyproject.toml [tool.mypy]` |
+| [pytest](https://docs.pytest.org/) | Testing (async-native) | `pyproject.toml [tool.pytest]` |
+| [pre-commit](https://pre-commit.com/) | Git hooks: ruff, bandit, detect-secrets, gitleaks | `.pre-commit-config.yaml` |
 
-MIT License — see [LICENSE](LICENSE).
+## 📚 Documentation
+
+Detailed documentation lives in [`docs_v2/`](docs_v2/):
+
+- **[System Design](docs_v2/03_Architecture/SYSTEM_DESIGN.md)** — goals, scope, user journeys
+- **[Architecture](docs_v2/03_Architecture/ARCHITECTURE.md)** — components, interfaces, deployment
+- **[Configuration](docs_v2/05_Configuration/CONFIGURATION.md)** — env vars, feature flags, i18n
+- **[Specification](docs_v2/02_Specifications/SPECIFICATION.md)** — API contracts, data models
+- **[AI & Prompts](docs_v2/07_AI/AI_PROMPTS_AND_MODELS.md)** — model selection, prompting strategies
+- **[Security & Privacy](docs_v2/04_Security_Privacy/SECURITY_PRIVACY.md)** — secrets, sessions, PII
+- **[Product Roadmap](docs_v2/roadmap/README.md)** — 80+ items tracked, 55+ shipped
+
+## 🗺️ Roadmap
+
+The project follows a [spec-driven roadmap](docs_v2/roadmap/README.md) with 80+ tracked items. Current priorities:
+
+- 🔜 **Bluesky publisher** ([PUB-027](docs_v2/roadmap/PUB-027_bluesky-publisher.md))
+- 🔜 **Mastodon / Fediverse publisher** ([PUB-030](docs_v2/roadmap/PUB-030_mastodon-fediverse-publisher.md))
+- 🔜 **Caption candidate selection** ([PUB-052](docs_v2/roadmap/PUB-052_caption-candidate-selection.md)) — generate multiple candidates and pick the best
+- 🏗️ **Shared-dyno tenant isolation** ([PUB-053](docs_v2/roadmap/PUB-053_shared-dyno-isolation.md))
+- 🏗️ **Workflow stages refactor** ([PUB-058](docs_v2/roadmap/PUB-058_workflow-stages-and-layering.md))
+
+See the full [roadmap](docs_v2/roadmap/README.md) for the complete backlog and execution order.
+
+## 🤝 Contributing
+
+Contributions are welcome! This project uses a **spec-driven, test-first** workflow:
+
+1. **Check the [roadmap](docs_v2/roadmap/README.md)** — your idea might already be tracked
+2. **[Open an issue](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues)** to discuss the change before writing code
+3. **Write tests first** (TDD) — tests codify the expected behavior
+4. **Keep it focused** — small, surgical PRs are preferred over wide refactors
+5. **Run the quality gates** before submitting:
+   ```bash
+   make check   # format + lint + type-check + tests
+   ```
+
+### Code Style
+
+- Python 3.12+, line length 120, double quotes
+- Type annotations on all public functions
+- Structured logging via `log_json` — never `print()`
+- Async functions must stay non-blocking
+
+## 📄 License
+
+This project is licensed under the **GNU General Public License v3.0** — see the [LICENSE](LICENSE) file for details.

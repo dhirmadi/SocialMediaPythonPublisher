@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "Automate social media content distribution with AI-generated captions"
 authors = [{name = "Your Name", email = "you@example.com"}]
 readme = "README.md"
-license = {text = "MIT"}
+license = {text = "GPL-3.0-or-later"}
 requires-python = ">=3.12,<4.0"
 dependencies = [
     "dropbox>=11.0.0",
