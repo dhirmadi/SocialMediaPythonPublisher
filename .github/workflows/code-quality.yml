@@ -39,10 +39,9 @@ jobs:
 
   pre-commit:
     # Enforces .pre-commit-config.yaml in CI, not only on whichever machines
-    # happen to have run `pre-commit install`. Four of its hooks —
-    # detect-secrets, gitleaks, pydocstyle and an actually-gating bandit — run
-    # nowhere else: the bandit step in security-scan.yml is `|| true`, so it
-    # uploads a report rather than failing a build. Until this job existed, a
+    # happen to have run `pre-commit install`. Three of its hooks —
+    # detect-secrets, pydocstyle and an actually-gating bandit — run nowhere
+    # else in CI: no other workflow runs bandit. Until this job existed, a
     # clone without the git hook installed was subject to none of them, and the
     # config described a posture the repo did not have.
     runs-on: ubuntu-latest
@@ -67,6 +66,13 @@ jobs:
       # correct drifted line numbers and then fails; if this job goes red on
       # that file, run `uv run pre-commit run detect-secrets --all-files`
       # locally, stage the result, and commit it. Do not hand-edit the baseline.
+      # gitleaks is skipped here because its pinned hook (`gitleaks git
+      # --pre-commit --staged`) scans only staged changes and a CI checkout
+      # stages none, so it would pass without checking anything. It runs
+      # locally on `git commit`; in CI, TruffleHog (secret-scan.yml) covers
+      # PR and main-push diffs and a weekly verified full-history scan.
+      env:
+        SKIP: gitleaks
       run: |
         uv run pre-commit run --all-files --show-diff-on-failure
 

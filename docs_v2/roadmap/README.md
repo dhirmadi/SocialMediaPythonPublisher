@@ -103,6 +103,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-082 | AI | [Consume the Orchestrator's Per-Instance Caption Overrides](PUB-082_runtime-platform-captions.md) | P1 | M | PUB-046, PUB-051 | Proposal |
 | PUB-083 | Web UI | [Close the Tenant Factory Shutdown Race](PUB-083_tenant-factory-shutdown-race.md) | P2 | S | — (before PUB-053 #197) | Proposal |
 | PUB-084 | Foundation | [DRY Review Standalone Batch](PUB-084_dry-review-standalone-batch.md) | P2 | L | — (waves 1-2 before PUB-054, PUB-056) | In Progress |
+| PUB-085 | Foundation | [Gitleaks CI Honesty and Admin-UI Behaviour Coverage](PUB-085_gitleaks-ci-honesty-and-ui-e2e-coverage.md) | P2 | M | PUB-084 | Not Started |
 | **New Platforms** ||||||
 | PUB-027 | Publishing | [Bluesky Publisher](PUB-027_bluesky-publisher.md) | P1 | S | PUB-059 | Not Started |
 | PUB-030 | Publishing | [Mastodon / Fediverse Publisher](PUB-030_mastodon-fediverse-publisher.md) | P1 | S | PUB-059 | Not Started |
