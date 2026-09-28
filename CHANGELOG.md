@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - PUB-084: DRY Review Standalone Batch
+- **Test isolation:** autouse `XDG_CACHE_HOME` per test; no test touches the developer's real `~/.cache` posted-state
+- **Instagram:** dropped the unused `tenant` parameter; one module-level session key; documented single-instance-per-database limit
+- **Test fakes:** `FakeOpenAI` with scripted replay replaces eleven hand-rolled OpenAI chains; `make_app_config` replaces per-file config builders; web fakes each defined once; 19 unused conftest fixtures deleted
+- **Route-auth matrix:** 15 admin routes × 14 scenarios with real guards; no test patches out `require_auth`/`require_admin`
+- **CI tooling:** pre-commit ruff hooks run the `uv.lock`-pinned version; one shared `.github/actions/setup` composite action; one TruffleHog step per event; `make check-secrets` replaces duplicated pipeline steps
+- **Browser tests:** `pytest-playwright` e2e suite replaces ~140 `index.html` source-grep tests; covers upload lock, bulk-delete retry, curation actions, logout, analyze and grid delete
+- **Dead code:** deleted `heroku_hetzner_clone.py`, four migration scripts, `tools/__main__.py`, `web/sidecar_parser.py` shim; shared `_spawn_if_loop` in meters
+- **Caption limits:** `format_caption` truncates with `smart_truncate`; output never exceeds the platform limit; email subject reserves room for `"Private: "`/`"Avatar: "` prefix
+- **JS dedup:** `index.html` −140 lines via shared `postImageAction`, `deleteLibraryObject`, `DEFAULT_FEATURES`, and image-list loader
+- **Logout fix:** click handler registered once instead of on every `disableButtons()` call (#272)
+
 ### Changed - PUB-080: Re-baseline the Caption Eval From Live Output
 - The caption-eval snapshot and thresholds now come from live `gpt-4o-mini` output (five nightly
   runs on `main` @ `4e146ad`, 2026-09-27) instead of PUB-049's synthetic bootstrap, so the nightly

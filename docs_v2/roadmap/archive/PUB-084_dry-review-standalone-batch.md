@@ -6,8 +6,11 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | L |
-| **Status** | In Progress |
+| **Status** | Done |
+| **Shipped date** | 2026-09-28 |
 | **Dependencies** | — (waves 1-2 are prerequisites for PUB-054, PUB-056 step 1 and PUB-058) |
+
+**Verified:** PRs [#301](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/301), [#302](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/302), [#304](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/304), [#306](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/306), [#310](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/310), [#311](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/311); last merge commit `3d92959`; 2066 passed / 1 skipped, coverage 93.56% overall; ruff check + ruff format --check clean; mypy clean.
 
 ## User Story
 
@@ -78,30 +81,30 @@ The eleven issues are closed. The suite no longer touches the developer's home d
 
 ## Acceptance Criteria
 
-- AC1: Given the autouse test setup, when any test runs, then `XDG_CACHE_HOME` points inside that test's temp dir and `utils.state` resolves its cache path there, never under the real home directory
-- AC2: Given `publisher_v2/tests`, when it is searched, then no per-file `XDG_CACHE_HOME` fixture and no `bypass_dedup` fixture exist
-- AC3: Given `InstagramPublisher`, when its constructor signature is inspected, then it has no `tenant` parameter, and every session-store call uses one module-level key
-- AC4: Given `FakeOpenAI` with a script of payloads and an exception, when the client is called repeatedly, then it replays them in order, and no test file outside `caption_pipeline_fakes.py` defines an OpenAI response chain or patches `AsyncOpenAI` by hand
-- AC5: Given `publisher_v2/tests`, when it is parsed, then no class subclasses `AIService`
-- AC6: Given every fixture defined in a `conftest.py`, when test files are scanned, then each has at least one user
-- AC7: Given `make_app_config(**overrides)`, when called with overrides, then they are applied on top of valid defaults, and direct `ApplicationConfig(` construction in tests is limited to the helper and to tests of the model itself
-- AC8: Given `tests/web`, when it is parsed, then each of the S3, Dropbox, OpenAI, Telegram-bot and SMTP fakes is defined once, and the S3 fake's `head_object` answers per key
-- AC9: Given the running app's admin routes, when the route-auth inventory is compared with them, then every admin route (including library routes) is in the inventory, the inventory holds no source line numbers, and no test replaces `require_auth` or `require_admin` with a no-op
-- AC10: Given `publisher_v2/tests`, when it is searched, then no test regex-matches a JavaScript function body in `index.html`, and one parametrised test asserts the required element ids and `data-*` hooks from a single page fetch
-- AC11: Given the `e2e` suite in a headless browser, when the four flows run (upload lock, bulk-delete retry, one request per keep/remove/delete, one logout request after repeated actions), then each passes; given the default `uv run pytest`, then `e2e` tests are deselected and no browser is required
-- AC12: Given `publisher_v2/tests`, when test bodies are compared with constants stripped, then no two test functions are identical unless listed in an explicit allowlist with a reason, and `test_requirements_files.py` contains no Markdown parser
-- AC13: Given the repository, when its tracked files are listed, then the clone script, `servers.txt`, the four docs-migration scripts, `tools/__main__.py` and `web/sidecar_parser.py` are absent and nothing references them
-- AC14: Given no running event loop, when a meter schedules a background task, then it is a no-op through the one shared helper; given `aclose`, then pending batches are still flushed
-- AC15: Given any caption and platform, when `format_caption` runs, then the result is at most the platform limit and cut at a sentence or word boundary by `smart_truncate`
-- AC16: Given `subject_mode` private or avatar and a caption at the email limit, when `EmailPublisher` builds the subject, then prefix plus caption is at most the email limit
-- AC17: Given the phase-2 metadata fixtures, when `build_metadata_phase2` runs, then its output is byte-identical to before the refactor
-- AC18: Given `_create_vision_completion`, when the client raises `TypeError`, then the error propagates and no second request is made
-- AC19: Given `index.html` after the JS dedup, when the element-contract test and the `e2e` flows run, then they pass without their expectations being edited
-- AC20: Given this item ships, when its implementing PRs merge, then #272, #273, #277, #281, #286, #294, #295, #296, #297, #298, #299 and #300 are closed with `Closes #N` in the PR body of the wave that resolves each
-- AC21: Given `.pre-commit-config.yaml`, when its ruff hooks are read, then they are `repo: local` hooks whose entry runs ruff through `uv run`, and no `ruff-pre-commit` repo remains
-- AC22: Given the workflows triggered by a pull request or a push to `main`, when their steps are listed, then exactly one TruffleHog step runs per event
-- AC23: Given every workflow job that runs `uv sync`, when its steps are read, then it installs through `.github/actions/setup` and has no inline `setup-uv`, `uv sync` or `setup-python` step
-- AC24: Given `security-scan.yml`, when its steps are read, then the committed-secrets check runs `make check-secrets` and no step consists only of `echo` lines
+- ✅ AC1: Given the autouse test setup, when any test runs, then `XDG_CACHE_HOME` points inside that test's temp dir and `utils.state` resolves its cache path there, never under the real home directory
+- ✅ AC2: Given `publisher_v2/tests`, when it is searched, then no per-file `XDG_CACHE_HOME` fixture and no `bypass_dedup` fixture exist
+- ✅ AC3: Given `InstagramPublisher`, when its constructor signature is inspected, then it has no `tenant` parameter, and every session-store call uses one module-level key
+- ✅ AC4: Given `FakeOpenAI` with a script of payloads and an exception, when the client is called repeatedly, then it replays them in order, and no test file outside `caption_pipeline_fakes.py` defines an OpenAI response chain or patches `AsyncOpenAI` by hand
+- ✅ AC5: Given `publisher_v2/tests`, when it is parsed, then no class subclasses `AIService`
+- ✅ AC6: Given every fixture defined in a `conftest.py`, when test files are scanned, then each has at least one user
+- ✅ AC7: Given `make_app_config(**overrides)`, when called with overrides, then they are applied on top of valid defaults, and direct `ApplicationConfig(` construction in tests is limited to the helper and to tests of the model itself
+- ✅ AC8: Given `tests/web`, when it is parsed, then each of the S3, Dropbox, OpenAI, Telegram-bot and SMTP fakes is defined once, and the S3 fake's `head_object` answers per key
+- ✅ AC9: Given the running app's admin routes, when the route-auth inventory is compared with them, then every admin route (including library routes) is in the inventory, the inventory holds no source line numbers, and no test replaces `require_auth` or `require_admin` with a no-op
+- ✅ AC10: Given `publisher_v2/tests`, when it is searched, then no test regex-matches a JavaScript function body in `index.html`, and one parametrised test asserts the required element ids and `data-*` hooks from a single page fetch
+- ✅ AC11: Given the `e2e` suite in a headless browser, when the four flows run (upload lock, bulk-delete retry, one request per keep/remove/delete, one logout request after repeated actions), then each passes; given the default `uv run pytest`, then `e2e` tests are deselected and no browser is required
+- ✅ AC12: Given `publisher_v2/tests`, when test bodies are compared with constants stripped, then no two test functions are identical unless listed in an explicit allowlist with a reason, and `test_requirements_files.py` contains no Markdown parser
+- ✅ AC13: Given the repository, when its tracked files are listed, then the clone script, `servers.txt`, the four docs-migration scripts, `tools/__main__.py` and `web/sidecar_parser.py` are absent and nothing references them
+- ✅ AC14: Given no running event loop, when a meter schedules a background task, then it is a no-op through the one shared helper; given `aclose`, then pending batches are still flushed
+- ✅ AC15: Given any caption and platform, when `format_caption` runs, then the result is at most the platform limit and cut at a sentence or word boundary by `smart_truncate`
+- ✅ AC16: Given `subject_mode` private or avatar and a caption at the email limit, when `EmailPublisher` builds the subject, then prefix plus caption is at most the email limit
+- ✅ AC17: Given the phase-2 metadata fixtures, when `build_metadata_phase2` runs, then its output is byte-identical to before the refactor
+- ✅ AC18: Given `_create_vision_completion`, when the client raises `TypeError`, then the error propagates and no second request is made
+- ✅ AC19: Given `index.html` after the JS dedup, when the element-contract test and the `e2e` flows run, then they pass without their expectations being edited
+- ✅ AC20: Given this item ships, when its implementing PRs merge, then #272, #273, #277, #281, #286, #294, #295, #296, #297, #298, #299 and #300 are closed with `Closes #N` in the PR body of the wave that resolves each
+- ✅ AC21: Given `.pre-commit-config.yaml`, when its ruff hooks are read, then they are `repo: local` hooks whose entry runs ruff through `uv run`, and no `ruff-pre-commit` repo remains
+- ✅ AC22: Given the workflows triggered by a pull request or a push to `main`, when their steps are listed, then exactly one TruffleHog step runs per event
+- ✅ AC23: Given every workflow job that runs `uv sync`, when its steps are read, then it installs through `.github/actions/setup` and has no inline `setup-uv`, `uv sync` or `setup-python` step
+- ✅ AC24: Given `security-scan.yml`, when its steps are read, then the committed-secrets check runs `make check-secrets` and no step consists only of `echo` lines
 
 ## Implementation Notes
 
@@ -117,8 +120,8 @@ The eleven issues are closed. The suite no longer touches the developer's home d
 ## Related
 
 - Tracker [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291); owner decisions recorded on 2026-09-27
-- [PUB-060](PUB-060_test-and-docs-hygiene.md) — wave 4 obsoletes two of its bullets (clone-script assertion, `normalize_name`)
-- [PUB-053](PUB-053_shared-dyno-isolation.md) — #201 sequencing decision above
+- [PUB-060](../PUB-060_test-and-docs-hygiene.md) — wave 4 obsoletes two of its bullets (clone-script assertion, `normalize_name`)
+- [PUB-053](../PUB-053_shared-dyno-isolation.md) — #201 sequencing decision above
 - [#146](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/146) — FetLife 240 measurement behind AC16
 
 ## Change Log
