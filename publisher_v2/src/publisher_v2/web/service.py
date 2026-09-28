@@ -364,7 +364,7 @@ class WebImageService:
         meter = self._storage_ops_meter
         if meter is not None:
             try:
-                await meter.stop_periodic_flush()
+                await meter.aclose()
             except Exception:
                 log_json(self.logger, logging.WARNING, "storage_ops_meter_close_failed", exc_info=True)
         usage_meter = self._usage_meter

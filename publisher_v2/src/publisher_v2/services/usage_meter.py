@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Coroutine
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from publisher_v2.core.models import AIUsage
 from publisher_v2.utils.logging import log_json
@@ -21,6 +22,20 @@ if TYPE_CHECKING:
 
 _QUEUE_MAX = 1000
 _BATCH_MAX = 20
+
+
+def _spawn_if_loop[T](coro: Coroutine[Any, Any, T]) -> asyncio.Task[T] | None:
+    """Schedule ``coro`` on the running loop and return its task.
+
+    With no running loop (sync/CLI context) the coroutine is closed unscheduled
+    and ``None`` is returned. Shared by the usage and storage-ops meters.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        coro.close()
+        return None
+    return loop.create_task(coro)
 
 
 class UsageMeter:
@@ -63,19 +78,14 @@ class UsageMeter:
         self._ensure_drainer()
 
     async def emit_all(self, usages: list[AIUsage], metric: str = "ai_tokens", unit: str = "tokens") -> None:
-        """Enqueue usage for all non-None, non-zero entries."""
+        """Enqueue every entry via ``emit``, which skips None and zero-token usage."""
         for u in usages:
-            if u is not None and u.total_tokens > 0:
-                await self.emit(u, metric=metric, unit=unit)
+            await self.emit(u, metric=metric, unit=unit)
 
     def _ensure_drainer(self) -> None:
         if self._drainer is not None and not self._drainer.done():
             return
-        try:
-            loop = asyncio.get_running_loop()
-        except RuntimeError:  # pragma: no cover — no loop (sync test context)
-            return
-        self._drainer = loop.create_task(self._drain_loop())
+        self._drainer = _spawn_if_loop(self._drain_loop())
 
     async def _drain_loop(self) -> None:
         while True:

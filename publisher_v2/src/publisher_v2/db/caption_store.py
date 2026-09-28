@@ -13,7 +13,6 @@ from publisher_v2.db.models import CaptionHistory
 
 logger = logging.getLogger("publisher_v2.db.caption_store")
 
-_DEFAULT_RETENTION_DAYS = 90
 _DEFAULT_MIN_KEEP = 20
 
 
@@ -95,22 +94,6 @@ class CaptionStore:
 
         return rows_inserted
 
-    async def fetch_recent_by_platform(
-        self,
-        tenant: str,
-        platforms: list[str] | None = None,
-        limit: int = 8,
-    ) -> dict[str, list[str]]:
-        """Fetch recent captions grouped by platform.
-
-        Returns a dict mapping platform name to a list of caption strings,
-        ordered most-recent-first. Each platform gets up to ``limit`` captions.
-
-        Uses a single query with a window function to avoid N+1 round-trips.
-        """
-        rows = await self.fetch_recent_with_angles_by_platform(tenant, platforms=platforms, limit=limit)
-        return {platform: [caption for caption, _angle in items] for platform, items in rows.items()}
-
     async def fetch_recent_with_angles_by_platform(
         self,
         tenant: str,
@@ -119,8 +102,8 @@ class CaptionStore:
     ) -> dict[str, list[tuple[str, str | None]]]:
         """Fetch recent ``(caption, angle)`` pairs grouped by platform (PUB-051).
 
-        Same selection and ordering as ``fetch_recent_by_platform`` (most-recent-first,
-        up to ``limit`` per platform); ``angle`` is the stored content-angle key, or
+        Most-recent-first, up to ``limit`` per platform, in a single query with a
+        window function (no N+1 round-trips); ``angle`` is the stored content-angle key, or
         None for rows written before the column existed. Stored values are returned
         as-is: the rotation, not the store, decides what an unknown key means.
         """

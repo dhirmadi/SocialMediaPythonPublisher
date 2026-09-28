@@ -722,3 +722,183 @@ def test_gitleaks_config_only_allowlists_the_detect_secrets_baseline() -> None:
         if key in allowlist
     ]
     assert not suppressing, f"{GITLEAKS_CONFIG} suppresses more than the baseline path: {suppressing}"
+
+
+# PUB-085 #303: the gitleaks hook runs `gitleaks git --pre-commit --staged`, so on
+# CI's fresh checkout (nothing staged) it scans nothing. CI must skip it openly
+# and stop claiming it as a gate; SECURITY.md must say where it does run.
+CODE_QUALITY_WORKFLOW = ".github/workflows/code-quality.yml"
+SECURITY_DOC = "SECURITY.md"
+
+# Other hooks/scanners a comment might enumerate alongside gitleaks as CI gates.
+_OTHER_HOOK_NAMES = re.compile(r"detect-secrets|pydocstyle|bandit|ruff|mypy|trufflehog", re.IGNORECASE)
+# Words that make a gitleaks sentence an explanation of the skip rather than a claim of enforcement.
+_SKIP_EXPLANATION = re.compile(r"\bskip|\bstaged\b|\blocal", re.IGNORECASE)
+# `SKIP=gitleaks uv run pre-commit ...`, `export SKIP="a,b"`, `SKIP='a'` inside a run script.
+_INLINE_SKIP = re.compile(r"(?:^|[\s;&(])(?:export\s+)?SKIP=(?:\"([^\"]*)\"|'([^']*)'|(\S+))")
+
+
+def _comment_blocks(text: str) -> list[list[str]]:
+    """Contiguous runs of whole-line YAML comments (`#` stripped); each trailing comment is its own block."""
+    blocks: list[list[str]] = []
+    current: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            current.append(stripped.lstrip("#").strip())
+            continue
+        if current:
+            blocks.append(current)
+            current = []
+        trailing = re.search(r"\s#\s(.*)$", line)
+        if trailing:
+            blocks.append([trailing.group(1).strip()])
+    if current:
+        blocks.append(current)
+    return blocks
+
+
+def _sentences(block: list[str]) -> list[str]:
+    return [sentence for sentence in re.split(r"(?<=[.!?])\s+", " ".join(block)) if sentence]
+
+
+def _skip_values(step: dict[str, Any], job: dict[str, Any], document: dict[str, Any]) -> list[str]:
+    """Every SKIP the step's pre-commit invocation sees: step/job/workflow `env:` and inline assignments."""
+    values: list[str] = []
+    for scope in (step, job, document):
+        env = scope.get("env")
+        if isinstance(env, dict) and "SKIP" in env:
+            values.append(str(env["SKIP"]))
+    for match in _INLINE_SKIP.finditer(str(step.get("run") or "")):
+        values.append(next(group for group in match.groups() if group is not None))
+    return values
+
+
+def _step_comment_text(text: str, step_name: str) -> str:
+    """Comment lines directly above the named step plus every comment inside the step's own block."""
+    lines = text.splitlines()
+    header = re.compile(rf"^\s*-\s+name:\s*['\"]?{re.escape(step_name)}['\"]?\s*$")
+    start = next((index for index, line in enumerate(lines) if header.match(line)), None)
+    assert start is not None, f"could not find the `{step_name}` step in {CODE_QUALITY_WORKFLOW}"
+    indent = len(lines[start]) - len(lines[start].lstrip())
+
+    collected: list[str] = []
+    above = start - 1
+    while above >= 0 and lines[above].strip().startswith("#"):
+        collected.insert(0, lines[above].strip())
+        above -= 1
+
+    block = [lines[start]]
+    for line in lines[start + 1 :]:
+        if line.strip():
+            current = len(line) - len(line.lstrip())
+            if current < indent or (current == indent and line.lstrip().startswith("-")):
+                break
+        block.append(line)
+    collected.extend(line[line.index("#") :].strip() for line in block if "#" in line)
+    return " ".join(comment.lstrip("#").strip() for comment in collected)
+
+
+def test_ci_precommit_job_skips_gitleaks_and_says_why() -> None:
+    """AC1: CI's pre-commit step skips gitleaks explicitly, and no comment claims gitleaks as a CI gate."""
+    text = _read(CODE_QUALITY_WORKFLOW)
+    document = _parse(CODE_QUALITY_WORKFLOW)
+    job = _jobs(document).get("pre-commit")
+    assert job is not None, f"{CODE_QUALITY_WORKFLOW} has no `pre-commit` job"
+
+    runners = [step for step in _job_steps(job) if re.search(r"\bpre-commit\s+run\b", str(step.get("run") or ""))]
+    assert runners, f"the `pre-commit` job in {CODE_QUALITY_WORKFLOW} has no step running `pre-commit run`"
+
+    for step in runners:
+        label = _step_label(step)
+        skip_values = _skip_values(step, job, document)
+        skipped = {hook.strip() for value in skip_values for hook in value.split(",")}
+        assert "gitleaks" in skipped, (
+            f"step `{label}` runs pre-commit without SKIP containing gitleaks (SKIP values: {skip_values!r}); "
+            "the hook scans only staged changes, so on CI's clean checkout it checks nothing"
+        )
+
+        # The step's existing detect-secrets note already says "locally, stage the
+        # result", so the explanation must tie gitleaks to staged/local in one sentence.
+        why = _step_comment_text(text, str(step.get("name")))
+        assert any(
+            re.search(r"gitleaks", sentence, re.IGNORECASE) and re.search(r"staged|local", sentence, re.IGNORECASE)
+            for sentence in _sentences([why])
+        ), (
+            f"step `{label}` skips gitleaks without an adjacent comment explaining why "
+            f"(expected a sentence naming gitleaks and 'staged' or 'local'); comment text: {why!r}"
+        )
+
+    # A sentence naming gitleaks is a claim of CI enforcement when it says the hook
+    # runs "nowhere else", or lists it next to other gates without explaining the skip.
+    claims = [
+        sentence
+        for block in _comment_blocks(text)
+        for sentence in _sentences(block)
+        if re.search(r"gitleaks", sentence, re.IGNORECASE)
+        and (
+            re.search(r"nowhere else", sentence, re.IGNORECASE)
+            or (_OTHER_HOOK_NAMES.search(sentence) and not _SKIP_EXPLANATION.search(sentence))
+        )
+    ]
+    assert not claims, f"{CODE_QUALITY_WORKFLOW} still has a comment listing gitleaks as a hook CI enforces: {claims}"
+
+
+def _paragraphs(text: str) -> list[str]:
+    return [" ".join(paragraph.split()) for paragraph in re.split(r"\n\s*\n", text) if paragraph.strip()]
+
+
+# `\blocal\b` or the literal `git commit` -- NOT a bare `commit`, which also matches inside "pre-commit".
+_LOCAL_HOOK_WORDING = re.compile(r"\blocal\b|\bgit commit\b", re.IGNORECASE)
+_CI_WORD = re.compile(r"\bCI\b")
+_ENFORCEMENT_WORDING = re.compile(r"enforc|\bblock|\bgate", re.IGNORECASE)
+# Only skip wording exempts a CI-enforcement sentence: "a local hook and a blocking CI gate" is still a CI claim.
+_SKIP_WORDING = re.compile(r"\bskip", re.IGNORECASE)
+
+
+def _gitleaks_doc_problems(text: str) -> list[str]:
+    """Why the gitleaks sentences of `text` misdescribe the hook; empty when they are honest."""
+    sentences = [
+        sentence
+        for paragraph in _paragraphs(text)
+        for sentence in _sentences([paragraph])
+        if re.search(r"gitleaks", sentence, re.IGNORECASE)
+    ]
+    if not sentences:
+        return ["does not mention gitleaks at all"]
+    problems = []
+    if not any(_LOCAL_HOOK_WORDING.search(sentence) for sentence in sentences):
+        problems.append(f"never describes gitleaks as a local hook that runs on `git commit`: {sentences}")
+    for sentence in sentences:
+        if _CI_WORD.search(sentence) and _ENFORCEMENT_WORDING.search(sentence) and not _SKIP_WORDING.search(sentence):
+            problems.append(f"claims gitleaks is enforced in CI: {sentence!r}")
+    return problems
+
+
+def test_gitleaks_is_documented_as_a_local_hook() -> None:
+    """AC2: the gitleaks hook stays configured; SECURITY.md says it is local and names the CI secret scanners."""
+    config = _parse(PRECOMMIT_CONFIG)
+    hook_ids = [
+        hook.get("id")
+        for repo in config.get("repos") or []
+        if isinstance(repo, dict)
+        for hook in repo.get("hooks") or []
+        if isinstance(hook, dict)
+    ]
+    assert "gitleaks" in hook_ids, f"{PRECOMMIT_CONFIG} no longer configures the `gitleaks` hook"
+
+    text = _read(SECURITY_DOC)
+    problems = _gitleaks_doc_problems(text)
+    assert not problems, f"{SECURITY_DOC}: " + "; ".join(problems)
+
+    paragraphs = _paragraphs(text)
+
+    whole = " ".join(paragraphs)
+    for scanner in ("TruffleHog", "detect-secrets"):
+        assert re.search(re.escape(scanner), whole, re.IGNORECASE), (
+            f"{SECURITY_DOC} does not name {scanner}, one of the secret scanners that runs in CI"
+        )
+    assert any(
+        re.search(r"\bCI\b|GitHub Actions|workflow", paragraph) and re.search(r"trufflehog", paragraph, re.IGNORECASE)
+        for paragraph in paragraphs
+    ), f"{SECURITY_DOC} names TruffleHog but never in a paragraph saying it runs in CI"

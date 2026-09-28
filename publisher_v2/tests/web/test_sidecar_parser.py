@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from publisher_v2.web.sidecar_parser import parse_sidecar_text, rehydrate_sidecar_view
+from publisher_v2.services.sidecar_parser import parse_sidecar_text, rehydrate_sidecar_view
 
 
 def test_parse_sidecar_empty() -> None:

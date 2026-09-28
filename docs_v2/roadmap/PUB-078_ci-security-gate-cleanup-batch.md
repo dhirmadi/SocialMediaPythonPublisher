@@ -22,7 +22,7 @@ three separate PRs that each touch the same helpers in `test_ci_security_gates.p
 PUB-055 SHA-pinned every action in `security-scan.yml` and `secret-scan.yml`, and its own summary
 called `code-quality.yml` "the natural next place to apply the same policy" — it was left tag-pinned
 because it was out of scope, not because it was safe to skip. Since #229, `code-quality.yml` runs
-the `pre-commit` job, which is where bandit, detect-secrets and gitleaks actually block; in substance
+the `pre-commit` job, which is where bandit and detect-secrets actually block; in substance
 it is a security gate whose actions can still move underneath us. It also still carries a comment at
 line 55 describing the `bandit -r .` step that #236 deleted from `security-scan.yml`.
 
@@ -130,3 +130,4 @@ version is declared once, or a test asserts every occurrence agrees and fails on
 - 2026-09-27 — Created by merging PUB-067, PUB-068 and PUB-069 at the user's request to reduce the
   number of separately-tracked security roadmap items (12 → fewer, grouped by shared file/tooling).
 - 2026-09-27 — Noted that #295 is delivered by PUB-084 wave 2b and what that changes for AC1.
+- 2026-09-28 — gitleaks is local-only since PUB-085 (#303).

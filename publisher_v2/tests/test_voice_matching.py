@@ -155,7 +155,7 @@ class TestMultiPromptIntegration:
             role_prompt="role",
             analysis=_make_analysis(),
             specs=specs,
-            history=["A previous caption."],
+            history={"telegram": ["A previous caption."]},
         )
         assert "Voice line one." in prompt
         assert "A previous caption." in prompt

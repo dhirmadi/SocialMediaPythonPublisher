@@ -123,6 +123,60 @@ async def test_email_publisher_sends_and_confirms(tmp_path: Path, monkeypatch: p
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "caption",
+    [" ".join(f"word{i % 7}abc" for i in range(60)), "x" * 400],
+    ids=["word_boundary_cut", "no_boundary_cut"],
+)
+@pytest.mark.parametrize("subject_mode", ["normal", "private", "avatar"])
+async def test_fetlife_subject_truncation_uses_ascii_ellipsis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, subject_mode: str, caption: str
+) -> None:
+    """PUB-084 wave 5: an over-limit FetLife subject is cut with "...", never the unicode ellipsis.
+
+    FetLife may strip "\u2026" (``_sanitize_for_fetlife`` rewrites it for that reason), and the
+    prefix still counts toward the subject limit (#146).
+    """
+    from publisher_v2.utils.captions import platform_caption_limit
+
+    smtp = _DummySMTP()
+    monkeypatch.setattr("publisher_v2.services.publishers.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.email.asyncio.to_thread", fake_to_thread)
+
+    image_path = tmp_path / "image.jpg"
+    with Image.new("RGB", (10, 10), color="red") as img:
+        img.save(image_path)
+
+    config = EmailConfig(
+        sender="sender@example.com",
+        recipient="upload@example.com",
+        password="pwd",
+        smtp_server="smtp.example.com",
+        caption_target="subject",
+        subject_mode=subject_mode,
+        confirmation_to_sender=False,
+    )
+    publisher = EmailPublisher(config=config, enabled=True)
+
+    limit = platform_caption_limit("email")
+    assert len(caption) > limit
+    result = await publisher.publish(str(image_path), caption)
+
+    assert result.success is True
+    msg = email.message_from_string(smtp.sent_messages[0][2])
+    subject = "".join(
+        part.decode(enc or "utf-8") if isinstance(part, bytes) else part for part, enc in decode_header(msg["Subject"])
+    )
+    assert len(subject) <= limit, f"{subject_mode}: {len(subject)} > {limit}"
+    assert "\u2026" not in subject, f"{subject_mode}: unicode ellipsis in subject tail {subject[-20:]!r}"
+    assert subject.endswith("..."), f"{subject_mode}: got tail {subject[-20:]!r}"
+
+
+@pytest.mark.asyncio
 async def test_email_publisher_confirmation_uses_admin_login_emails(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -1275,3 +1329,58 @@ async def test_instagram_relogin_uses_one_key(monkeypatch: pytest.MonkeyPatch, t
     methods = {method for method, _ in store.calls}
     assert {"clear", "save", "set_blocked_until"} <= methods, store.calls
     assert {key for _, key in store.calls} == {INSTAGRAM_SESSION_KEY}, store.calls
+
+
+# --- PUB-084 AC16 (#281): the FetLife subject prefix counts toward the email limit ------
+
+
+@pytest.mark.parametrize("caption_target", ["subject", "both"])
+@pytest.mark.parametrize(("subject_mode", "prefix"), [("normal", ""), ("private", "Private: "), ("avatar", "Avatar: ")])
+async def test_prefixed_subject_never_exceeds_email_limit(
+    subject_mode: str, prefix: str, caption_target: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Owner decision on #281: ``"Private: "``/``"Avatar: "`` counts toward the 240-character
+    FetLife subject limit measured in #146, so a caption already at the limit is shortened to
+    make room for the prefix — on the service message and the confirmation copy alike."""
+    from email.header import make_header
+
+    from publisher_v2.config.static_loader import get_static_config
+
+    limit = get_static_config().platform_limits.email.max_caption_length
+    assert limit, "static config has no email caption limit"
+
+    smtp = _DummySMTP()
+    monkeypatch.setattr("publisher_v2.services.publishers.email.smtplib.SMTP", lambda *args, **kwargs: smtp)
+
+    async def fake_to_thread(func, *args, **kwargs):
+        return func(*args, **kwargs)
+
+    monkeypatch.setattr("publisher_v2.services.publishers.email.asyncio.to_thread", fake_to_thread)
+
+    image_path = tmp_path / "image.jpg"
+    with Image.new("RGB", (10, 10), color="red") as img:
+        img.save(image_path)
+
+    config = EmailConfig(
+        sender="sender@example.com",
+        recipient="upload@example.com",
+        password="pwd",
+        smtp_server="smtp.example.com",
+        caption_target=caption_target,
+        subject_mode=subject_mode,
+        confirmation_to_sender=True,
+    )
+    publisher = EmailPublisher(config=config, enabled=True)
+    words = " ".join(f"rope{i}" for i in range(100))
+    caption = words[: limit - 1].rstrip() + "."
+    caption = caption + "a" * (limit - len(caption)) if len(caption) < limit else caption
+    assert len(caption) == limit
+
+    result = await publisher.publish(str(image_path), caption)
+
+    assert result.success is True, result.error
+    assert len(smtp.sent_messages) == 2
+    for _sender, _rcpts, raw in smtp.sent_messages:
+        subject = str(make_header(decode_header(email.message_from_string(raw)["Subject"])))
+        assert subject.startswith(prefix), subject
+        assert len(subject) <= limit, f"{subject_mode}/{caption_target}: subject is {len(subject)} > {limit}"

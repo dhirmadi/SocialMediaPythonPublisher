@@ -67,7 +67,7 @@ async def test_sidecar_with_platform_captions_roundtrips_caption_generated() -> 
     so later Analyze calls can serve the social caption instead of the SD prompt."""
     from publisher_v2.core.models import ImageAnalysis
     from publisher_v2.services.sidecar import generate_and_upload_sidecar
-    from publisher_v2.web.sidecar_parser import parse_sidecar_text
+    from publisher_v2.services.sidecar_parser import parse_sidecar_text
 
     config = make_app_config(content={"archive": True}, captionfile={"extended_metadata_enabled": False})
     storage = _FakeSidecarStorage()

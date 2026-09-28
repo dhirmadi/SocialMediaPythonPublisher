@@ -2,9 +2,7 @@
 
 The web layer depends on services/core, never the reverse. #144 removed the
 last exception — services/tenant_factory.py, a re-export shim with no
-importers — so the allowlist is now empty. (The reverse shim,
-web/sidecar_parser.py, imports in the allowed direction and needs no
-exemption.)
+importers — so the allowlist is now empty.
 """
 
 from __future__ import annotations

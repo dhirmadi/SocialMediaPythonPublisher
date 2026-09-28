@@ -119,7 +119,9 @@ Please provide:
 
 5. **Security Scanning**
 
-   CI enforces two blocking gates; both can be reproduced locally.
+   CI enforces three blocking gates: dependency vulnerabilities, code security and secret
+   scanning. The first two can be reproduced locally with the commands below; secret scanning is
+   split between a local commit-time hook and CI-only scanners.
 
    - **Dependency vulnerabilities** — `security-scan.yml` runs `pip-audit` (OSV-backed) as a
      blocking step. It fails the build on any advisory that is not listed in
@@ -134,6 +136,17 @@ Please provide:
      ```bash
      uv run pre-commit run bandit --all-files
      ```
+
+   - **Secret scanning** — gitleaks runs as a local pre-commit hook on `git commit`, scanning
+     only the staged changes; the CI `pre-commit` job skips it, because a CI checkout stages
+     nothing. In CI, secrets are scanned by TruffleHog (`secret-scan.yml`: the diff of every pull
+     request and every push to `main`, plus a weekly and manually triggerable full-history scan
+     that reports verified findings only) and detect-secrets (all files, in the `pre-commit` job
+     of `code-quality.yml`; locally, `uv run pre-commit run detect-secrets --all-files`). Pull
+     requests are also scanned by the GitGuardian GitHub App, which reports the "GitGuardian
+     Security Checks" PR check. The ggshield step in `security-scan.yml` runs only when a
+     `GITGUARDIAN_API_KEY` Actions secret exists; this repository has none, so that step is
+     skipped.
 
    **Accepting an advisory (the ignore list).** If an advisory has no fix or does not apply,
    add an `[[ignore]]` entry to `.github/pip-audit-ignore.toml`. Every entry needs an `id`, a

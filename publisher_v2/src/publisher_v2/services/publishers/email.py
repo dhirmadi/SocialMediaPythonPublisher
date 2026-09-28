@@ -16,7 +16,7 @@ from publisher_v2.config.schema import EmailConfig
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import PublishResult
 from publisher_v2.services.publishers.base import Publisher
-from publisher_v2.utils.captions import normalize_tags
+from publisher_v2.utils.captions import normalize_tags, platform_caption_limit, smart_truncate
 from publisher_v2.utils.logging import log_publisher_publish, now_monotonic
 
 logger = logging.getLogger("publisher_v2.publishers.email")
@@ -137,7 +137,11 @@ class EmailPublisher(Publisher):
                     prefix = prefix_map.get((config.subject_mode or "normal").lower(), "")
 
                     if config.caption_target.lower() == "subject" or config.caption_target.lower() == "both":
-                        service_subject = f"{prefix}{caption}"
+                        # #281: the prefix counts toward the FetLife subject limit (#146).
+                        subject_caption = smart_truncate(
+                            caption, platform_caption_limit("email") - len(prefix), ellipsis="..."
+                        )
+                        service_subject = f"{prefix}{subject_caption}"
                         service_body = caption
                     else:  # "body"
                         service_subject = f"{prefix}Photo upload"

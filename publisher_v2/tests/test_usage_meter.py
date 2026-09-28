@@ -164,3 +164,26 @@ class TestNonBlockingEmit:
         await meter.emit(self._usage("x", 3))
         await meter.aclose()
         assert client.post_usage.await_count == 1
+
+
+# --- PUB-084 AC14 (#286): emit_all delegates filtering to emit ---
+
+
+@pytest.mark.asyncio
+async def test_emit_all_delegates_every_entry_to_emit() -> None:
+    """#286: ``emit_all`` does not repeat ``emit``'s None/zero-token filter; it hands every entry to ``emit``."""
+    client = AsyncMock()
+    meter = UsageMeter(client=client, tenant_id="t1")
+    usages = [
+        AIUsage(response_id="a", prompt_tokens=1, completion_tokens=1, total_tokens=2),
+        None,
+        AIUsage(response_id="z", prompt_tokens=0, completion_tokens=0, total_tokens=0),
+        AIUsage(response_id="b", prompt_tokens=2, completion_tokens=2, total_tokens=4),
+    ]
+
+    with patch.object(meter, "emit", AsyncMock()) as emit:
+        await meter.emit_all(usages, metric="m", unit="u")  # type: ignore[arg-type]
+
+    assert [call.args[0] for call in emit.await_args_list] == usages
+    for call in emit.await_args_list:
+        assert call.kwargs == {"metric": "m", "unit": "u"}

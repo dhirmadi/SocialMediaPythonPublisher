@@ -592,7 +592,7 @@ class WorkflowOrchestrator:
                     log_json(self.logger, logging.INFO, "caption_generation_start", correlation_id=correlation_id)
                 caption_start = now_monotonic()
                 # PUB-035: Fetch caption history for context intelligence
-                caption_history: dict[str, list[str]] | list[str] | None = None
+                caption_history: dict[str, list[str]] | None = None
                 history_angles: dict[str, list[str | None]] | None = None
                 history_cfg = get_static_config().ai_prompts.caption_history
                 # Caption history is DB-only post-cleanup. When no caption_store
