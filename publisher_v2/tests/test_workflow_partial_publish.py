@@ -23,8 +23,11 @@ from publisher_v2.services.publishers.base import Publisher
 
 
 @pytest.fixture
-async def publish_store():
-    engine = create_async_engine("sqlite+aiosqlite:///:memory:", echo=False)
+async def publish_store(tmp_path):
+    # File-backed on purpose: a CancelledError mid-DB-await invalidates the
+    # connection, and with ``:memory:`` (StaticPool) the replacement connection
+    # is a brand-new empty database — "no such table" instead of the real result.
+    engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path / 'publish.db'}", echo=False)
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     factory = async_sessionmaker(bind=engine, expire_on_commit=False, class_=AsyncSession)
@@ -307,11 +310,14 @@ class _CountingAnalyzer:
         self.calls = 0
         self._fail = fail
         self._delay = delay
+        # Set on entry to analyze(): the run is provably mid-AI-stage (lease held).
+        self.started = asyncio.Event()
 
     async def analyze(self, url_or_bytes: str | bytes) -> Any:
         from publisher_v2.core.models import ImageAnalysis
 
         self.calls += 1
+        self.started.set()
         if self._delay:
             await asyncio.sleep(self._delay)
         if self._fail:
@@ -487,21 +493,23 @@ async def test_cancelled_run_still_releases_its_lease(publish_store: PublishStor
     calls: dict[str, int] = {}
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], calls)]
     storage = _ArchiveTrackingStorage(images=["test.jpg"])
+    analyzer = _CountingAnalyzer(delay=5.0)
     orchestrator = WorkflowOrchestrator(
         make_app_config(content={"archive": True}),
         storage,
-        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        stub_ai_service(analyzer),
         publishers,
         tenant="t1",
         publish_store=publish_store,
     )
 
     task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
-    await asyncio.sleep(0.05)
+    # Barrier, not a sleep: cancel only once the run is inside the AI stage.
+    await asyncio.wait_for(analyzer.started.wait(), timeout=10)
     task.cancel()
     with contextlib.suppress(asyncio.CancelledError):
         await task
-    await asyncio.sleep(0.05)  # let the shielded release finish
+    # No settle sleep: execute() awaits the shielded release before it re-raises.
 
     rows = await _lease_rows(publish_store)
     assert [r.status for r in rows if r.status == "leased"] == []
@@ -518,10 +526,11 @@ async def test_a_cancelled_run_stays_cancelled(publish_store: PublishStore) -> N
     ``execute()`` would never fire.
     """
     publishers: list[Publisher] = [_ScriptedPublisher("telegram", [True], {})]
+    analyzer = _CountingAnalyzer(delay=5.0)
     orchestrator = WorkflowOrchestrator(
         make_app_config(content={"archive": True}),
         _ArchiveTrackingStorage(images=["test.jpg"]),
-        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        stub_ai_service(analyzer),
         publishers,
         tenant="t1",
         publish_store=publish_store,
@@ -538,9 +547,11 @@ async def test_a_cancelled_run_stays_cancelled(publish_store: PublishStore) -> N
     publish_store.mark = _slow_mark  # type: ignore[method-assign]
 
     task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
-    await asyncio.sleep(0.05)
+    # Barrier, not a sleep: a cancel that lands before the lease exists never
+    # reaches mark(), and ``releasing.wait()`` would then hang forever.
+    await asyncio.wait_for(analyzer.started.wait(), timeout=10)
     task.cancel()
-    await releasing.wait()
+    await asyncio.wait_for(releasing.wait(), timeout=10)
     task.cancel()  # lands while the shielded release is running
 
     with pytest.raises(asyncio.CancelledError):

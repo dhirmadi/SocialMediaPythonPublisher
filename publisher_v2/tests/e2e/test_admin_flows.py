@@ -8,18 +8,17 @@ from __future__ import annotations
 
 import json
 import re
-import threading
 from pathlib import PurePosixPath
 from typing import Any
 
 import pytest
 from botocore.exceptions import ClientError
 from caption_pipeline_fakes import VISION_NEUTRAL
-from playwright.sync_api import Locator, Page, Request, Route, expect
+from playwright.sync_api import Locator, Page, Route, expect
 
 from publisher_v2.utils.captions import build_caption_sidecar
 
-from .conftest import SEED_IMAGES, LiveApp, image_key, jpeg_bytes
+from .conftest import SEED_IMAGES, LiveApp, held_uploads, image_key, jpeg_bytes, open_grid, record_requests
 
 pytestmark = pytest.mark.e2e
 
@@ -33,25 +32,6 @@ UPLOAD_LOCKED_CONTROLS = (
     "#grid-select-toggle",
     "#grid-delete-selected",
 )
-_S3_HOLD_TIMEOUT_S = 30.0
-
-
-def _record(page: Page, method: str, path: re.Pattern[str]) -> list[Request]:
-    """Collect every request the page issues with ``method`` whose URL path matches ``path``."""
-    seen: list[Request] = []
-
-    def _on_request(request: Request) -> None:
-        if request.method == method and path.search(request.url.split("?", 1)[0]):
-            seen.append(request)
-
-    page.on("request", _on_request)
-    return seen
-
-
-def _open_grid(page: Page) -> None:
-    with page.expect_response(lambda r: "/api/library/objects" in r.url and r.ok):
-        page.locator("#btn-back-to-grid").click()
-    expect(page.locator("#panel-grid")).to_be_visible()
 
 
 def test_upload_queue_locks_controls_while_uploading(admin_page: Page, live_app: LiveApp) -> None:
@@ -60,19 +40,11 @@ def test_upload_queue_locks_controls_while_uploading(admin_page: Page, live_app:
     The S3 put for the upload is held open, so the queue is mid-upload for as long as the test
     looks; releasing it lets the queue finish and the lock lifts.
     """
-    release = threading.Event()
-    real_put = live_app.s3.put_object
-
-    def held_put(**kwargs: Any) -> dict[str, Any]:
-        release.wait(timeout=_S3_HOLD_TIMEOUT_S)
-        return real_put(**kwargs)
-
-    live_app.s3.put_object = held_put  # type: ignore[method-assign]
     page = admin_page
-    _open_grid(page)
+    open_grid(page)
     grid_panel = page.locator("#panel-grid")
     banner = page.locator("#upload-queue-status")
-    try:
+    with held_uploads(live_app):
         with page.expect_request(lambda r: r.method == "POST" and r.url.endswith("/api/library/upload")) as upload:
             page.locator("#grid-upload-input").set_input_files(
                 files=[{"name": "delta.jpg", "mimeType": "image/jpeg", "buffer": jpeg_bytes((10, 200, 10))}]
@@ -82,8 +54,6 @@ def test_upload_queue_locks_controls_while_uploading(admin_page: Page, live_app:
         expect(grid_panel).to_have_class(re.compile(r"\buploading-active\b"))
         for selector in UPLOAD_LOCKED_CONTROLS:
             expect(page.locator(selector)).to_be_disabled()
-    finally:
-        release.set()
 
     expect(page.locator("#upload-queue-summary")).to_have_text("1/1 done")
     expect(banner).to_be_hidden()
@@ -113,8 +83,8 @@ def test_bulk_delete_retries_failed_items(admin_page: Page, live_app: LiveApp) -
 
     live_app.s3.delete_object = delete_failing_once  # type: ignore[method-assign]
     page = admin_page
-    deletes = _record(page, "DELETE", re.compile(r"/api/library/objects/[^/]+$"))
-    _open_grid(page)
+    deletes = record_requests(page, "DELETE", re.compile(r"/api/library/objects/[^/]+$"))
+    open_grid(page)
     expect(page.locator("#grid-container [data-filename]")).to_have_count(3)
 
     page.locator("#grid-select-toggle").click()
@@ -139,7 +109,7 @@ def test_bulk_delete_retries_failed_items(admin_page: Page, live_app: LiveApp) -
 def test_curation_action_sends_one_request(admin_page: Page, live_app: LiveApp, action: str) -> None:
     """One click on Keep/Remove/Delete sends exactly one request for that action, and it succeeds."""
     page = admin_page
-    sent = _record(page, "POST", re.compile(rf"/api/images/[^/]+/{action}$"))
+    sent = record_requests(page, "POST", re.compile(rf"/api/images/[^/]+/{action}$"))
 
     # The action's own response, then the random image the page advances to, then idle buttons.
     with (
@@ -166,7 +136,7 @@ def test_logout_sends_one_request_after_repeated_actions(admin_page: Page) -> No
             page.locator("#btn-next").click()
         expect(page.locator("#btn-next")).to_be_enabled()
 
-    logouts = _record(page, "POST", re.compile(r"/api/auth/logout$"))
+    logouts = record_requests(page, "POST", re.compile(r"/api/auth/logout$"))
     with page.expect_response(lambda r: r.request in logouts):
         page.locator("#btn-admin-logout").click()
     # Logged out: the page reloaded on "/" and offers the login button again.
@@ -308,8 +278,8 @@ def test_analyze_shows_the_generated_captions(admin_page: Page, live_app: LiveAp
     """
     page, fake = admin_page, live_app.openai
     fake.script = [{**VISION_NEUTRAL, "sd_caption": SCRIPTED_SD_CAPTION}, SCRIPTED_CAPTIONS]
-    analyzes = _record(page, "POST", re.compile(r"/api/images/[^/]+/analyze$"))
-    publishes = _record(page, "POST", re.compile(r"/api/images/[^/]+/publish$"))
+    analyzes = record_requests(page, "POST", re.compile(r"/api/images/[^/]+/analyze$"))
+    publishes = record_requests(page, "POST", re.compile(r"/api/images/[^/]+/publish$"))
 
     with page.expect_response(lambda r: r.request in analyzes, timeout=15_000) as analyze_response:
         page.locator("#btn-analyze").click()
@@ -331,9 +301,9 @@ def test_analyze_shows_the_generated_captions(admin_page: Page, live_app: LiveAp
 def test_grid_single_delete_removes_the_image(admin_page: Page, live_app: LiveApp) -> None:
     """A tile's own delete control (confirm accepted) deletes that one object and drops its tile."""
     page = admin_page
-    deletes = _record(page, "DELETE", re.compile(r"/api/library/objects/[^/]+$"))
-    library_lists = _record(page, "GET", re.compile(r"/api/library/objects$"))
-    _open_grid(page)
+    deletes = record_requests(page, "DELETE", re.compile(r"/api/library/objects/[^/]+$"))
+    library_lists = record_requests(page, "GET", re.compile(r"/api/library/objects$"))
+    open_grid(page)
     total = len(SEED_IMAGES)
     tiles = page.locator("#grid-container [data-filename]")
     expect(tiles).to_have_count(total)

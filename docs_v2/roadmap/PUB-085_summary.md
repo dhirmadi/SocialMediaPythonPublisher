@@ -1,6 +1,6 @@
 # PUB-085 — Gitleaks CI Honesty and Admin-UI Behaviour Coverage: Implementation Summary
 
-**Status:** In Progress (part A complete; part B in review)
+**Status:** Implementation Complete (parts A and B)
 **Date:** 2026-09-28
 
 ## Part A — Gitleaks CI honesty (#303)
@@ -30,4 +30,37 @@
 
 ### Linked Issues
 
-- #303 — closed by the part A PR
+- #303 — closed by the part A PR (#313)
+
+## Part B — Admin-UI behaviour coverage (#305)
+
+Test-only; `index.html` unchanged. All ten behaviours passed on the current page, so no defect was found.
+
+### Files Changed
+
+- `publisher_v2/tests/e2e/test_ui_behaviours.py` — new: ten Playwright flows against the real app (loopback, `FakeS3`, scripted OpenAI fake, minted admin cookie, no fixed sleeps).
+- `publisher_v2/tests/e2e/conftest.py` — `open_admin_page` (reusable, with a dialog policy), and `record_requests`, `open_grid` and `held_uploads` moved here from the test files so each exists once.
+- `publisher_v2/tests/e2e/test_admin_flows.py` — uses the shared helpers; every assertion unchanged.
+
+### Acceptance Criteria
+
+- [x] AC3 — each #305 behaviour pinned (tests: `test_back_to_grid_opens_the_page_holding_the_current_image`, `test_back_to_grid_falls_back_when_the_page_is_empty`, `test_page_size_is_remembered_across_reloads`, `test_page_size_control_is_locked_while_uploading`, `test_rate_limited_upload_waits_and_retries`, `test_enqueuing_clears_completed_queue_entries`, `test_escape_leaves_multi_select_and_items_expose_aria`, `test_leaving_the_page_while_uploading_is_guarded`, `test_selecting_a_grid_item_while_uploading_asks_first`, `test_password_auth_mode_never_shows_a_password_prompt`). None dropped.
+- [x] AC4 — the default run still deselects `e2e` (test: `test_default_run_deselects_e2e`).
+
+### Notes
+
+- Two flows shape one response in the browser with `page.route`, as their docstrings say. The 429: the real limiter's 60 s window is longer than the client's 5 s backoff, so every retry would get another 429; only the first upload is answered in the browser, and the retry reaches the real app. The `password` auth mode: the app only reports `auth0` or `none`, so only that field of the real response is rewritten.
+- `test_enqueuing_clears_completed_queue_entries` pins current behaviour: failed entries stay when new files are enqueued. Whether they should also clear is an open owner question on #305.
+- The password flow detects a navigating hidden button in under a second: it records navigations and uses a same-page fetch as a barrier, instead of racing the URL.
+
+### Test Results
+
+`-m e2e`: 21 passed, stable over repeated fixed-order and random-order runs. Default suite: 2089 passed, 21 deselected. 22 template mutants, each built to break one flow's behaviour, all failed.
+
+### Subagent Verdicts
+
+- `code-reviewer`: PASS WITH NITS. Names match the handoff, there are no sleeps, both `page.route` uses are justified, and the `test_admin_flows.py` refactor is a pure extraction. The nit, a hidden-button navigation surfacing only as a 30 s timeout, is fixed. `security-auditor` was not needed: the change is tests only.
+
+### Linked Issues
+
+- #305 — closed by the part B PR
