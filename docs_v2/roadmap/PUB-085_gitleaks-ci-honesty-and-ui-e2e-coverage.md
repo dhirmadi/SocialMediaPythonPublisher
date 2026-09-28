@@ -6,7 +6,7 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | M |
-| **Status** | Not Started |
+| **Status** | In Progress |
 | **Dependencies** | PUB-084 (done) |
 
 ## User Story

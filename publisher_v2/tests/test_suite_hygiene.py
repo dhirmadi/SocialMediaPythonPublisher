@@ -682,6 +682,8 @@ _REFERENCE_EXEMPT_FILES = frozenset(
     {
         # An ignore entry for a deleted file is harmless and keeps an owner's local copy untracked.
         ".gitignore",
+        # Release history records what each release deleted, by name.
+        "CHANGELOG.md",
         # Dated test report: describes the suite as it was on that day.
         "docs_v2/10_Testing/TEST_EXECUTION_REPORT_2025-12-21.md",
         # The specs that ordered or recorded the deletion must name what they deleted.
