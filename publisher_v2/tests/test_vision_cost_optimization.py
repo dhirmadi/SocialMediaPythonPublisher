@@ -352,14 +352,25 @@ class TestAnalyzeResizeAndDetail:
         image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
         assert image_part["image_url"]["detail"] == "low"
 
-    async def test_ac03_zero_max_dimension_passes_url_directly(
-        self, patch_httpx_download, monkeypatch: pytest.MonkeyPatch
+    @pytest.mark.parametrize(
+        ("width", "height", "url"),
+        [
+            pytest.param(
+                2000, 2000, "https://signed.example.com/no-resize.jpg", id="ac03_zero_max_dimension_passes_url_directly"
+            ),
+            pytest.param(
+                4000, 6000, "https://signed.example.com/legacy.jpg", id="ac21_legacy_behavior_no_resize_high_detail"
+            ),
+        ],
+    )
+    async def test_no_resize_passes_url_directly(
+        self, patch_httpx_download, monkeypatch: pytest.MonkeyPatch, width, height, url
     ) -> None:
-        calls = patch_httpx_download(_make_jpeg(2000, 2000))
+        calls = patch_httpx_download(_make_jpeg(width, height))
         analyzer = _build_analyzer(vision_max_dimension=0, vision_detail="high")
         create_mock = _stub_client_create(analyzer)
 
-        url = "https://signed.example.com/no-resize.jpg"
+        url = url
         await analyzer.analyze(url)
         # No download should occur when max_dimension == 0
         assert calls["count"] == 0
@@ -395,20 +406,6 @@ class TestAnalyzeResizeAndDetail:
         img = Image.open(io.BytesIO(decoded))
         # 4000:6000 = 2:3 -> 683:1024 (within 1px)
         assert abs(img.size[0] / img.size[1] - 2 / 3) < 0.01
-
-    async def test_ac21_legacy_behavior_no_resize_high_detail(self, patch_httpx_download) -> None:
-        """AC-21: max_dim=0, detail='high' restores pre-PUB-041 behavior."""
-        calls = patch_httpx_download(_make_jpeg(4000, 6000))
-        analyzer = _build_analyzer(vision_max_dimension=0, vision_detail="high")
-        create_mock = _stub_client_create(analyzer)
-
-        url = "https://signed.example.com/legacy.jpg"
-        await analyzer.analyze(url)
-        assert calls["count"] == 0  # no download
-        kwargs = create_mock.calls[-1]
-        image_part = next(p for p in kwargs["messages"][1]["content"] if p["type"] == "image_url")
-        assert image_part["image_url"]["url"] == url
-        assert image_part["image_url"]["detail"] == "high"
 
 
 # ---------------------------------------------------------------------------

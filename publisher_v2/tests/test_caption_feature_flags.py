@@ -61,15 +61,17 @@ class TestContentConfigVoiceProfile:
         cfg = ContentConfig(voice_profile=["example caption"])
         assert cfg.voice_profile == ["example caption"]
 
-    def test_voice_profile_rejects_empty_strings(self) -> None:
-        """AC-03: Empty strings are rejected."""
+    @pytest.mark.parametrize(
+        "blank",
+        [
+            pytest.param("", id="voice_profile_rejects_empty_strings"),
+            pytest.param("   ", id="voice_profile_rejects_whitespace_only"),
+        ],
+    )
+    def test_voice_profile_rejects_blank_entries(self, blank) -> None:
+        """AC-03: Empty and whitespace-only strings are rejected."""
         with pytest.raises(ValidationError):
-            ContentConfig(voice_profile=[""])
-
-    def test_voice_profile_rejects_whitespace_only(self) -> None:
-        """AC-03: Whitespace-only strings are rejected."""
-        with pytest.raises(ValidationError):
-            ContentConfig(voice_profile=["   "])
+            ContentConfig(voice_profile=[blank])
 
     def test_voice_profile_rejects_more_than_20(self) -> None:
         """AC-03: More than 20 entries rejected."""
@@ -189,23 +191,19 @@ class TestBuildAppConfigV1:
 class TestStandaloneEnvVars:
     """AC-09/AC-10: load_application_config reads new env vars."""
 
-    def test_feature_alt_text_env_false(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """AC-09: FEATURE_ALT_TEXT=false → alt_text_enabled=False."""
+    @pytest.mark.parametrize(
+        ("expected", "env_value", "default", "var_name"),
+        [
+            pytest.param(False, "false", True, "FEATURE_ALT_TEXT", id="feature_alt_text_env_false"),
+            pytest.param(True, None, True, "FEATURE_ALT_TEXT", id="feature_alt_text_env_absent"),
+            pytest.param(True, "true", False, "FEATURE_VOICE_MATCHING", id="feature_voice_matching_env_true"),
+        ],
+    )
+    def test_feature_env_var(self, monkeypatch: pytest.MonkeyPatch, expected, env_value, default, var_name) -> None:
+        """AC-09: FEATURE_ALT_TEXT=false → False, absent → default True; FEATURE_VOICE_MATCHING=true → True."""
         from publisher_v2.config.loader import parse_bool_env
 
-        assert parse_bool_env("false", True, var_name="FEATURE_ALT_TEXT") is False
-
-    def test_feature_alt_text_env_absent(self) -> None:
-        """AC-09: FEATURE_ALT_TEXT absent → default True."""
-        from publisher_v2.config.loader import parse_bool_env
-
-        assert parse_bool_env(None, True, var_name="FEATURE_ALT_TEXT") is True
-
-    def test_feature_voice_matching_env_true(self) -> None:
-        """AC-09: FEATURE_VOICE_MATCHING=true → voice_matching_enabled=True."""
-        from publisher_v2.config.loader import parse_bool_env
-
-        assert parse_bool_env("true", False, var_name="FEATURE_VOICE_MATCHING") is True
+        assert parse_bool_env(env_value, default, var_name=var_name) is expected
 
     def test_content_settings_voice_profile(self) -> None:
         """AC-10: CONTENT_SETTINGS JSON with voice_profile → parsed into ContentConfig."""

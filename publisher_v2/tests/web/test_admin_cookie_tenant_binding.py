@@ -50,18 +50,18 @@ def _request_with_state(
     return request
 
 
-def test_cookie_minted_for_tenant_a_rejected_on_tenant_b(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("tenant", "host", "accepted"),
+    [
+        pytest.param("b", "b.example.test", False, id="cookie_minted_for_tenant_a_rejected_on_tenant_b"),
+        pytest.param("a", "a.example.test", True, id="cookie_minted_for_tenant_a_accepted_on_tenant_a"),
+    ],
+)
+def test_cookie_minted_for_tenant_a(monkeypatch: pytest.MonkeyPatch, tenant, host, accepted) -> None:
     monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
     cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
-    request = _request_with_state(cookie, tenant="b", host="b.example.test")
-    assert is_admin_request(request) is False
-
-
-def test_cookie_minted_for_tenant_a_accepted_on_tenant_a(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("WEB_SESSION_SECRET", "test-secret")
-    cookie = mint_admin_cookie_value(tenant="a", host="a.example.test", mode="auth0")
-    request = _request_with_state(cookie, tenant="a", host="a.example.test")
-    assert is_admin_request(request) is True
+    request = _request_with_state(cookie, tenant=tenant, host=host)
+    assert is_admin_request(request) is accepted
 
 
 def test_legacy_cookie_without_tenant_claim_rejected(monkeypatch: pytest.MonkeyPatch) -> None:

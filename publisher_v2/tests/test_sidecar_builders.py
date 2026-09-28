@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pytest
 from caption_pipeline_fakes import make_app_config
 
 from publisher_v2.services.sidecar_parser import parse_sidecar_text
@@ -188,13 +189,31 @@ def test_malformed_json_metadata_value_is_logged(caplog) -> None:
     assert any("sidecar_metadata_json_invalid" in e and "caption_generated" in e for e in events)
 
 
-def test_corrupt_caption_generated_warns_once_per_read(caplog) -> None:
+@pytest.mark.parametrize(
+    "sidecar",
+    [
+        pytest.param(
+            "sd\n\n# ---\n# caption_generated: {not parseable\n", id="corrupt_caption_generated_warns_once_per_read"
+        ),
+        pytest.param(
+            "sd\n\n# ---\n# caption_generated: !json {bad\n", id="a_corrupt_marked_value_warns_only_once_per_read"
+        ),
+    ],
+)
+def test_a_corrupt_caption_generated_warns_once_per_read(caplog, sidecar) -> None:
+    """The parser and the view both warned for the same unreadable value; it must warn once.
+
+    The marked row originally used a quoted value (`"a" or "b\\n"`). Once the encoded
+    form became an explicit `!json ` marker, a merely-quoted value is ordinary text and
+    warns nowhere — correctly. A marked value that will not decode is the shape that
+    genuinely warns, so the once-per-read guarantee is pinned there too.
+    """
     import logging
 
     from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
 
     with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
-        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: {not parseable\n")
+        view = rehydrate_sidecar_view(sidecar)
     assert view["caption_generated"] is None
     assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1
 
@@ -350,19 +369,30 @@ def test_every_line_break_python_recognises_is_encoded() -> None:
         assert metadata["caption"] == value, f"{breaker!r} was not preserved"
 
 
-def test_a_single_line_caption_containing_a_backslash_sequence_is_untouched() -> None:
-    """Quoted + a literal backslash escape must not be mistaken for JSON.
+@pytest.mark.parametrize(
+    "value",
+    [
+        # Quoted + a literal backslash escape must not be mistaken for JSON. These read back
+        # verbatim before the encoding change, and rewriting them would corrupt real captions:
+        # a Windows path, an escaped quote, or text that merely mentions `\\n`.
+        pytest.param('"Type \\n for a newline"', id="backslash-n-mentioned"),
+        pytest.param('"C:\\\\Users\\\\me"', id="backslash-windows-path"),
+        pytest.param('"He said \\"hi\\""', id="backslash-escaped-quote"),
+        # The marker is an on-disk contract, so the builder must escape it too. Otherwise a
+        # caption literally beginning `!json "` is read back as the string it appears to
+        # encode, silently losing its prefix and quotes.
+        pytest.param('!json "hi"', id="marker-then-quoted"),
+        pytest.param("!json hello", id="marker-then-text"),
+        pytest.param("!json [1,2]", id="marker-then-list"),
+    ],
+)
+def test_a_single_line_caption_round_trips_untouched(value: str) -> None:
+    """A single-line caption that looks encoded (backslash escapes, the `!json ` marker) reads back verbatim."""
+    text = build_caption_sidecar("sd", {"caption": value})
+    _, metadata = parse_sidecar_text(text)
 
-    These read back verbatim before the encoding change, and rewriting them
-    would corrupt real captions: a Windows path, an escaped quote, or text that
-    merely mentions `\\n`.
-    """
-    for value in ('"Type \\n for a newline"', '"C:\\\\Users\\\\me"', '"He said \\"hi\\""'):
-        text = build_caption_sidecar("sd", {"caption": value})
-        _, metadata = parse_sidecar_text(text)
-
-        assert metadata is not None
-        assert metadata["caption"] == value, f"{value!r} was rewritten"
+    assert metadata is not None
+    assert metadata["caption"] == value, f"{value!r} did not survive"
 
 
 def test_recovery_does_not_turn_a_caption_into_a_dict() -> None:
@@ -378,26 +408,6 @@ def test_recovery_does_not_turn_a_caption_into_a_dict() -> None:
 
     assert metadata is not None
     assert metadata["caption"] == "{'a': 'b'}"
-
-
-def test_a_corrupt_marked_value_warns_only_once_per_read(caplog) -> None:
-    """The parser and the view both warned for the same unreadable value.
-
-    This originally used a quoted value (`"a" or "b\\n"`). Once the encoded
-    form became an explicit `!json ` marker, a merely-quoted value is ordinary
-    text and warns nowhere — correctly. A marked value that will not decode is
-    the shape that genuinely warns, so the once-per-read guarantee is pinned
-    there instead.
-    """
-    import logging
-
-    from publisher_v2.services.sidecar_parser import rehydrate_sidecar_view
-
-    with caplog.at_level(logging.WARNING, logger="publisher_v2.services.sidecar_parser"):
-        view = rehydrate_sidecar_view("sd\n\n# ---\n# caption_generated: !json {bad\n")
-
-    assert view["caption_generated"] is None
-    assert sum("sidecar_metadata_json_invalid" in r.getMessage() for r in caplog.records) == 1
 
 
 def test_a_merely_quoted_value_is_ordinary_text_and_warns_nowhere(caplog) -> None:
@@ -432,20 +442,6 @@ def test_a_corrupt_marked_value_is_logged_not_swallowed(caplog) -> None:
         assert metadata["caption"] == corrupt
         assert "sidecar_metadata_json_invalid" in caplog.text, corrupt
         assert "IMG_7.jpg.txt" in caplog.text, corrupt
-
-
-def test_a_caption_that_starts_with_the_marker_round_trips() -> None:
-    """The marker is an on-disk contract, so the builder must escape it too.
-
-    Otherwise a caption literally beginning `!json "` is read back as the
-    string it appears to encode, silently losing its prefix and quotes.
-    """
-    for value in ('!json "hi"', "!json hello", "!json [1,2]"):
-        text = build_caption_sidecar("sd", {"caption": value})
-        _, metadata = parse_sidecar_text(text)
-
-        assert metadata is not None
-        assert metadata["caption"] == value, f"{value!r} did not survive"
 
 
 def test_an_undetectable_caption_generated_value_is_still_reported(caplog) -> None:

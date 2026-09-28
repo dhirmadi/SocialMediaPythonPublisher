@@ -111,26 +111,34 @@ def test_thumbnail_endpoint_rejects_invalid_size(client_with_mock):
     assert response.status_code == 422  # Validation error
 
 
-def test_thumbnail_endpoint_404_not_found(client_with_mock):
-    """Thumbnail endpoint returns 404 for missing images."""
+@pytest.mark.parametrize(
+    ("error", "path", "status", "detail"),
+    [
+        pytest.param(
+            "Failed to get thumbnail: path/not_found",
+            "/api/images/nonexistent.jpg/thumbnail",
+            404,
+            "not found",
+            id="thumbnail_endpoint_404_not_found",
+        ),
+        pytest.param(
+            "Connection timeout",
+            "/api/images/test.jpg/thumbnail",
+            500,
+            "internal error",
+            id="thumbnail_endpoint_500_on_error",
+        ),
+    ],
+)
+def test_thumbnail_endpoint_storage_error_status(client_with_mock, error, path, status, detail):
+    """Thumbnail endpoint returns 404 for missing images and 500 on unexpected errors."""
     client, mock_service = client_with_mock
-    mock_service._error = StorageError("Failed to get thumbnail: path/not_found")
+    mock_service._error = StorageError(error)
 
-    response = client.get("/api/images/nonexistent.jpg/thumbnail")
+    response = client.get(path)
 
-    assert response.status_code == 404
-    assert "not found" in response.json()["detail"].lower()
-
-
-def test_thumbnail_endpoint_500_on_error(client_with_mock):
-    """Thumbnail endpoint returns 500 on unexpected errors."""
-    client, mock_service = client_with_mock
-    mock_service._error = StorageError("Connection timeout")
-
-    response = client.get("/api/images/test.jpg/thumbnail")
-
-    assert response.status_code == 500
-    assert "internal error" in response.json()["detail"].lower()
+    assert response.status_code == status
+    assert detail in response.json()["detail"].lower()
 
 
 def test_thumbnail_endpoint_requires_admin_when_auto_view_disabled(monkeypatch: pytest.MonkeyPatch):

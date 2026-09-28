@@ -120,9 +120,17 @@ def _build_web_service(
 
 
 class TestWebServiceWiring:
-    def test_meter_not_created_when_flag_false(self) -> None:
-        """AC-C2: feature disabled → no meter constructed."""
-        svc = _build_web_service(storage_ops_enabled=False, orchestrated=True, managed=True)
+    @pytest.mark.parametrize(
+        ("storage_ops_enabled", "orchestrated", "managed"),
+        [
+            pytest.param(False, True, True, id="meter_not_created_when_flag_false"),
+            pytest.param(True, False, True, id="meter_none_in_standalone_mode"),
+            pytest.param(True, True, False, id="meter_none_when_storage_not_managed"),
+        ],
+    )
+    def test_meter_none_when_not_metered(self, storage_ops_enabled, orchestrated, managed) -> None:
+        """AC-C2/AC-C4: flag off, standalone mode, or no ManagedStorage → no meter."""
+        svc = _build_web_service(storage_ops_enabled=storage_ops_enabled, orchestrated=orchestrated, managed=managed)
         assert svc._storage_ops_meter is None
 
     def test_meter_created_when_flag_true_orchestrator_mode(self) -> None:
@@ -131,16 +139,6 @@ class TestWebServiceWiring:
 
         svc = _build_web_service(storage_ops_enabled=True, orchestrated=True, managed=True)
         assert isinstance(svc._storage_ops_meter, StorageOpsMeter)
-
-    def test_meter_none_in_standalone_mode(self) -> None:
-        """AC-C4: standalone mode → meter is None regardless of flag."""
-        svc = _build_web_service(storage_ops_enabled=True, orchestrated=False, managed=True)
-        assert svc._storage_ops_meter is None
-
-    def test_meter_none_when_storage_not_managed(self) -> None:
-        """No ManagedStorage → meter not built (per spec wiring)."""
-        svc = _build_web_service(storage_ops_enabled=True, orchestrated=True, managed=False)
-        assert svc._storage_ops_meter is None
 
     async def test_analyze_and_caption_calls_flush(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """AC-C6: analyze_and_caption() calls flush() after the analysis path."""

@@ -54,140 +54,68 @@ def _setup_s3_list(library_service: MagicMock, objects: list[dict], is_truncated
 
 
 # ---------------------------------------------------------------------------
-# AC1: Sort by name ascending
+# AC1-AC3, AC14: sort by name / last_modified / size, both orders; no params = name asc
 # ---------------------------------------------------------------------------
 
 
-class TestSortNameAsc:
-    def test_sort_name_asc(
+class TestSort:
+    # SAMPLE_S3_OBJECTS: alpha < bravo_sunset < charlie < delta by name, by DT1..DT4 and by 1000..4000 bytes.
+    @pytest.mark.parametrize(
+        ("query", "expected"),
+        [
+            pytest.param(
+                "?sort=name&order=asc",
+                ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"],
+                id="AC1-name-asc",
+            ),
+            pytest.param(
+                "?sort=name&order=desc", ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"], id="name-desc"
+            ),
+            pytest.param(
+                "?sort=last_modified&order=desc",
+                ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"],
+                id="AC2-last-modified-desc-newest-first",
+            ),
+            pytest.param(
+                "?sort=last_modified&order=asc",
+                ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"],
+                id="last-modified-asc-oldest-first",
+            ),
+            pytest.param(
+                "?sort=size&order=asc",
+                ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"],
+                id="AC3-size-asc-smallest-first",
+            ),
+            pytest.param(
+                "?sort=size&order=desc",
+                ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"],
+                id="size-desc-largest-first",
+            ),
+            pytest.param(
+                "", ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"], id="AC14-no-params-name-asc"
+            ),
+        ],
+    )
+    def test_sort_orders_objects(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        query: str,
+        expected: list[str],
     ) -> None:
-        """AC1: sort=name&order=asc returns objects sorted by lowercase basename ascending."""
+        """sort/order order the objects by lowercase basename, last_modified or size."""
         _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc",
+            f"/api/library/objects{query}",
             headers=admin_headers,
             cookies=admin_cookies,
         )
         assert res.status_code == 200
         names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"]
-
-    def test_sort_name_desc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """sort=name&order=desc returns objects sorted by lowercase basename descending."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=name&order=desc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"]
-
-
-# ---------------------------------------------------------------------------
-# AC2: Sort by last_modified
-# ---------------------------------------------------------------------------
-
-
-class TestSortLastModified:
-    def test_sort_last_modified_desc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC2: sort=last_modified&order=desc returns newest first."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=last_modified&order=desc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        # DT4 > DT3 > DT2 > DT1 → delta, charlie, bravo_sunset, alpha
-        assert names == ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"]
-
-    def test_sort_last_modified_asc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """sort=last_modified&order=asc returns oldest first."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=last_modified&order=asc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"]
-
-
-# ---------------------------------------------------------------------------
-# AC3: Sort by size
-# ---------------------------------------------------------------------------
-
-
-class TestSortSize:
-    def test_sort_size_asc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC3: sort=size&order=asc returns smallest first."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=size&order=asc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        # 1000, 2000, 3000, 4000 → alpha, bravo_sunset, charlie, delta
-        assert names == ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"]
-
-    def test_sort_size_desc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """sort=size&order=desc returns largest first."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=size&order=desc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["delta.jpeg", "charlie.jpg", "bravo_sunset.jpg", "alpha.png"]
+        assert names == expected
 
 
 # ---------------------------------------------------------------------------
@@ -196,30 +124,23 @@ class TestSortSize:
 
 
 class TestInvalidParams:
-    def test_invalid_sort_returns_400(
+    @pytest.mark.parametrize(
+        "url",
+        [
+            pytest.param("/api/library/objects?sort=invalid", id="invalid_sort_returns_400"),
+            pytest.param("/api/library/objects?order=invalid", id="invalid_order_returns_400"),
+        ],
+    )
+    def test_invalid_param_returns_400(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
+        url,
     ) -> None:
-        """AC4: sort=invalid returns 400."""
+        """AC4: sort=invalid or order=invalid returns 400."""
         res = managed_app.get(
-            "/api/library/objects?sort=invalid",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 400
-        assert "detail" in res.json()
-
-    def test_invalid_order_returns_400(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-    ) -> None:
-        """AC4: order=invalid returns 400."""
-        res = managed_app.get(
-            "/api/library/objects?order=invalid",
+            url,
             headers=admin_headers,
             cookies=admin_cookies,
         )
@@ -228,157 +149,95 @@ class TestInvalidParams:
 
 
 # ---------------------------------------------------------------------------
-# AC5: Filter by q (substring match)
+# AC5-AC7, AC10: filter by q (substring, case-insensitive, sanitised), empty results
 # ---------------------------------------------------------------------------
 
 
 class TestFilterQ:
-    def test_filter_q_substring_match(
+    @pytest.mark.parametrize(
+        ("q", "expected"),
+        [
+            pytest.param("sunset", ["bravo_sunset.jpg"], id="AC5-substring-match"),
+            pytest.param("ALPHA", ["alpha.png"], id="AC5-case-insensitive"),
+            # AC7: /, \\ and .. are stripped and the cleaned substring is used: "../alpha" -> "alpha".
+            pytest.param("../alpha", ["alpha.png"], id="AC7-strips-path-traversal"),
+        ],
+    )
+    def test_filter_q_matches_basenames(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        q: str,
+        expected: list[str],
     ) -> None:
-        """AC5: q=sunset returns only objects whose basename contains 'sunset'."""
         _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?q=sunset",
+            f"/api/library/objects?q={q}",
             headers=admin_headers,
             cookies=admin_cookies,
         )
         assert res.status_code == 200
         names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["bravo_sunset.jpg"]
+        assert names == expected
 
-    def test_filter_q_case_insensitive(
+    @pytest.mark.parametrize(
+        "q",
+        [
+            pytest.param("", id="AC6-empty"),
+            pytest.param("%20%20", id="AC6-whitespace-only"),
+            pytest.param("/../", id="AC7-empty-after-strip"),
+        ],
+    )
+    def test_filter_q_blank_returns_all(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        q: str,
     ) -> None:
-        """AC5: q matching is case-insensitive."""
+        """A q that is empty, whitespace or empty once sanitised is no filter at all."""
         _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?q=ALPHA",
+            f"/api/library/objects?q={q}",
             headers=admin_headers,
             cookies=admin_cookies,
         )
         assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["alpha.png"]
+        assert len(res.json()["objects"]) == 4
 
-    def test_filter_q_no_match(
+    @pytest.mark.parametrize(
+        ("query", "total_in_window"),
+        [
+            pytest.param("?q=nonexistent", 0, id="q-no-match"),
+            pytest.param("?offset=100", 4, id="AC10-offset-beyond-total"),
+        ],
+    )
+    def test_empty_page_is_not_an_error(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        query: str,
+        total_in_window: int,
     ) -> None:
-        """q with no matches returns empty objects and total_in_window=0."""
+        """No match, or an offset past the window, returns objects:[] with the window's size."""
         _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?q=nonexistent",
+            f"/api/library/objects{query}",
             headers=admin_headers,
             cookies=admin_cookies,
         )
         assert res.status_code == 200
         data = res.json()
         assert data["objects"] == []
-        assert data["total_in_window"] == 0
-
-
-# ---------------------------------------------------------------------------
-# AC6: Empty q treated as no filter
-# ---------------------------------------------------------------------------
-
-
-class TestFilterQEmpty:
-    def test_filter_q_empty_returns_all(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC6: q= (empty) returns all objects."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?q=",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        assert len(res.json()["objects"]) == 4
-
-    def test_filter_q_whitespace_returns_all(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC6: q with only whitespace returns all objects."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?q=%20%20",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        assert len(res.json()["objects"]) == 4
-
-
-# ---------------------------------------------------------------------------
-# AC7: Path traversal sanitization
-# ---------------------------------------------------------------------------
-
-
-class TestFilterQSanitization:
-    def test_filter_q_strips_path_traversal(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC7: q containing /, \\, .. has those stripped; cleaned substring is used."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        # "../alpha" → stripped to "alpha"
-        res = managed_app.get(
-            "/api/library/objects?q=../alpha",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["alpha.png"]
-
-    def test_filter_q_becomes_empty_after_strip(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC7: q that becomes empty after stripping → no filter (all returned)."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        # "/../" → stripped to empty
-        res = managed_app.get(
-            "/api/library/objects?q=/../",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        assert len(res.json()["objects"]) == 4
+        assert data["total_in_window"] == total_in_window
 
 
 # ---------------------------------------------------------------------------
@@ -458,51 +317,33 @@ class TestResponseFields:
 
 
 # ---------------------------------------------------------------------------
-# AC10: Offset beyond total returns empty list
-# ---------------------------------------------------------------------------
-
-
-class TestOffsetBeyondTotal:
-    def test_offset_beyond_total_returns_empty(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC10: offset >= total_in_window returns objects:[] (not an error)."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?offset=100",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["objects"] == []
-        assert data["total_in_window"] == 4
-
-
-# ---------------------------------------------------------------------------
 # AC11: Scan budget truncation
 # ---------------------------------------------------------------------------
 
 
 class TestScanBudget:
-    def test_scan_budget_truncation(
+    @pytest.mark.parametrize(
+        ("budget_env", "budget"),
+        [
+            pytest.param("2", 2, id="scan_budget_truncation"),
+            pytest.param("3", 3, id="scan_budget_env_override"),
+        ],
+    )
+    def test_scan_budget_truncates_listing(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
         monkeypatch: pytest.MonkeyPatch,
+        budget_env,
+        budget,
     ) -> None:
-        """AC11: When scan_budget is reached, truncated=true."""
-        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "2")
+        """AC11/AC12: when scan_budget (LIBRARY_SCAN_BUDGET overrides the default) is reached, truncated=true."""
+        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", budget_env)
 
         # S3 returns 2 objects then says IsTruncated=True (more exist)
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS[:2], is_truncated=True)
+        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS[:budget], is_truncated=True)
 
         res = managed_app.get(
             "/api/library/objects?sort=name&order=asc",
@@ -512,31 +353,7 @@ class TestScanBudget:
         assert res.status_code == 200
         data = res.json()
         assert data["truncated"] is True
-        assert data["total_in_window"] == 2
-
-    def test_scan_budget_env_override(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """AC12: LIBRARY_SCAN_BUDGET env var overrides default."""
-        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "3")
-
-        # Return 3 objects, S3 says more exist
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS[:3], is_truncated=True)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["truncated"] is True
-        assert data["total_in_window"] == 3
+        assert data["total_in_window"] == budget
 
     def test_scan_budget_invalid_env_fallback(
         self,
@@ -621,71 +438,6 @@ class TestLegacyCursorPath:
 
 
 # ---------------------------------------------------------------------------
-# AC14: Default (no params) returns name-sorted ascending
-# ---------------------------------------------------------------------------
-
-
-class TestDefaultBehavior:
-    def test_default_no_params_returns_name_asc(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """AC14: No parameters returns name-sorted ascending."""
-        _setup_s3_list(library_service, SAMPLE_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        names = [obj["key"] for obj in res.json()["objects"]]
-        assert names == ["alpha.png", "bravo_sunset.jpg", "charlie.jpg", "delta.jpeg"]
-
-
-# ---------------------------------------------------------------------------
-# AC15–18: Web UI controls (template snapshot tests)
-# ---------------------------------------------------------------------------
-
-
-class TestUIControls:
-    """PUB-033 moved these controls from #panel-library into #panel-grid.
-
-    The unified grid panel now exposes search/sort/order/pagination
-    via the grid-* element ids.
-    """
-
-    def test_ui_search_input_exists(self, managed_app: TestClient) -> None:
-        """Grid panel has a search input."""
-        res = managed_app.get("/")
-        assert res.status_code == 200
-        assert 'id="grid-search"' in res.text
-
-    def test_ui_sort_controls_exist(self, managed_app: TestClient) -> None:
-        """Grid panel has sort dropdown and order toggle."""
-        res = managed_app.get("/")
-        assert res.status_code == 200
-        assert 'id="grid-sort"' in res.text
-        assert 'id="grid-order-toggle"' in res.text
-
-    def test_ui_result_count_container(self, managed_app: TestClient) -> None:
-        """Grid panel has result count display element."""
-        res = managed_app.get("/")
-        assert res.status_code == 200
-        assert 'id="grid-result-count"' in res.text
-
-    def test_ui_prev_next_buttons(self, managed_app: TestClient) -> None:
-        """Grid panel has Previous and Next pagination buttons."""
-        res = managed_app.get("/")
-        assert res.status_code == 200
-        assert 'id="grid-prev"' in res.text
-        assert 'id="grid-next"' in res.text
-
-
-# ---------------------------------------------------------------------------
 # Combined: filter + sort + pagination
 # ---------------------------------------------------------------------------
 
@@ -750,30 +502,32 @@ class TestCombined:
 
 
 class TestSanitizeFilter:
-    def test_sanitize_none(self) -> None:
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            pytest.param(None, id="sanitize_none"),
+            pytest.param("", id="sanitize_empty"),
+            pytest.param("   ", id="sanitize_whitespace_only"),
+            pytest.param("/../", id="sanitize_becomes_empty_after_strip"),
+        ],
+    )
+    def test_sanitize_blank_returns_none(self, raw) -> None:
         from publisher_v2.web.routers.library import _sanitize_filter
 
-        assert _sanitize_filter(None) is None
+        assert _sanitize_filter(raw) is None
 
-    def test_sanitize_empty(self) -> None:
+    @pytest.mark.parametrize(
+        ("expected", "raw"),
+        [
+            pytest.param("etcpasswd", "../etc/passwd", id="sanitize_strips_slashes"),
+            pytest.param("testpath", "test\\path", id="sanitize_strips_backslash"),
+            pytest.param("testfile", "test\x00file", id="sanitize_strips_null_bytes"),
+        ],
+    )
+    def test_sanitize_strips_path_characters(self, expected, raw) -> None:
         from publisher_v2.web.routers.library import _sanitize_filter
 
-        assert _sanitize_filter("") is None
-
-    def test_sanitize_strips_slashes(self) -> None:
-        from publisher_v2.web.routers.library import _sanitize_filter
-
-        assert _sanitize_filter("../etc/passwd") == "etcpasswd"
-
-    def test_sanitize_strips_backslash(self) -> None:
-        from publisher_v2.web.routers.library import _sanitize_filter
-
-        assert _sanitize_filter("test\\path") == "testpath"
-
-    def test_sanitize_strips_null_bytes(self) -> None:
-        from publisher_v2.web.routers.library import _sanitize_filter
-
-        assert _sanitize_filter("test\x00file") == "testfile"
+        assert _sanitize_filter(raw) == expected
 
     def test_sanitize_max_length(self) -> None:
         from publisher_v2.web.routers.library import _sanitize_filter
@@ -782,16 +536,6 @@ class TestSanitizeFilter:
         result = _sanitize_filter(long_q)
         assert result is not None
         assert len(result) == 100
-
-    def test_sanitize_whitespace_only(self) -> None:
-        from publisher_v2.web.routers.library import _sanitize_filter
-
-        assert _sanitize_filter("   ") is None
-
-    def test_sanitize_becomes_empty_after_strip(self) -> None:
-        from publisher_v2.web.routers.library import _sanitize_filter
-
-        assert _sanitize_filter("/../") is None
 
 
 # ---------------------------------------------------------------------------
@@ -810,17 +554,18 @@ class TestGetScanBudget:
         monkeypatch.delenv("LIBRARY_SCAN_BUDGET", raising=False)
         assert _get_scan_budget(load_runtime_settings()) == 5000
 
-    def test_env_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize(
+        ("env_value", "expected"),
+        [
+            pytest.param("1000", 1000, id="env_override"),
+            pytest.param("abc", 5000, id="invalid_env_fallback"),
+        ],
+    )
+    def test_scan_budget_env(self, monkeypatch: pytest.MonkeyPatch, env_value, expected) -> None:
         from publisher_v2.web.routers.library import _get_scan_budget
 
-        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "1000")
-        assert _get_scan_budget(load_runtime_settings()) == 1000
-
-    def test_invalid_env_fallback(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from publisher_v2.web.routers.library import _get_scan_budget
-
-        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", "abc")
-        assert _get_scan_budget(load_runtime_settings()) == 5000
+        monkeypatch.setenv("LIBRARY_SCAN_BUDGET", env_value)
+        assert _get_scan_budget(load_runtime_settings()) == expected
 
 
 # ---------------------------------------------------------------------------
@@ -836,104 +581,82 @@ MANY_S3_OBJECTS = [_make_s3_object(f"tenant/instance/img_{i:03d}.jpg", 1000 + i,
 class TestAnchorKey:
     """Grid should open on the page containing the anchor image."""
 
-    def test_anchor_key_returns_correct_page(
+    @pytest.mark.parametrize(
+        ("url", "offset", "anchor"),
+        [
+            pytest.param(
+                "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_015.jpg",
+                15,
+                "img_015.jpg",
+                id="anchor_key_returns_correct_page",
+            ),
+            pytest.param(
+                "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_002.jpg",
+                0,
+                "img_002.jpg",
+                id="anchor_key_first_page",
+            ),
+            pytest.param(
+                "/api/library/objects?sort=name&order=desc&limit=5&anchor_key=img_002.jpg",
+                15,
+                "img_002.jpg",
+                id="anchor_key_respects_sort_order",
+            ),
+        ],
+    )
+    def test_anchor_key_returns_page_containing_it(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        url,
+        offset,
+        anchor,
     ) -> None:
-        """anchor_key=img_015.jpg with limit=5 should return page 4 (offset 15)."""
+        """anchor_key returns the page holding it: page 4 (offset 15), the first page, and in desc order."""
         _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_015.jpg",
+            url,
             headers=admin_headers,
             cookies=admin_cookies,
         )
         assert res.status_code == 200
         data = res.json()
-        assert data["anchor_offset"] == 15
+        assert data["anchor_offset"] == offset
         names = [obj["key"] for obj in data["objects"]]
-        assert "img_015.jpg" in names
+        assert anchor in names
 
-    def test_anchor_key_first_page(
+    @pytest.mark.parametrize(
+        ("url", "first_key"),
+        [
+            pytest.param(
+                "/api/library/objects?sort=name&order=asc&limit=5&offset=10&anchor_key=nonexistent.jpg",
+                "img_010.jpg",
+                id="anchor_key_not_found_keeps_offset",
+            ),
+            pytest.param(
+                "/api/library/objects?sort=name&order=asc&limit=5&offset=5",
+                "img_005.jpg",
+                id="anchor_key_without_value_returns_normal_page",
+            ),
+        ],
+    )
+    def test_anchor_key_absent_keeps_offset(
         self,
         managed_app: TestClient,
         admin_headers: dict,
         admin_cookies: dict,
         library_service: MagicMock,
+        url,
+        first_key,
     ) -> None:
-        """anchor_key on the first page returns anchor_offset=0."""
+        """An unknown or absent anchor_key leaves anchor_offset null and the caller's offset in force."""
         _setup_s3_list(library_service, MANY_S3_OBJECTS)
 
         res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc&limit=5&anchor_key=img_002.jpg",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["anchor_offset"] == 0
-        names = [obj["key"] for obj in data["objects"]]
-        assert "img_002.jpg" in names
-
-    def test_anchor_key_not_found_keeps_offset(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """When anchor_key is not in the list, anchor_offset is null and caller's offset is used."""
-        _setup_s3_list(library_service, MANY_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc&limit=5&offset=10&anchor_key=nonexistent.jpg",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["anchor_offset"] is None
-        names = [obj["key"] for obj in data["objects"]]
-        assert names[0] == "img_010.jpg"
-
-    def test_anchor_key_respects_sort_order(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """anchor_key with desc order finds the correct page in reversed list."""
-        _setup_s3_list(library_service, MANY_S3_OBJECTS)
-
-        # In desc order, img_019 is first and img_000 is last
-        # img_002 would be near the end (index 17 in desc), page = 17 // 5 * 5 = 15
-        res = managed_app.get(
-            "/api/library/objects?sort=name&order=desc&limit=5&anchor_key=img_002.jpg",
-            headers=admin_headers,
-            cookies=admin_cookies,
-        )
-        assert res.status_code == 200
-        data = res.json()
-        assert data["anchor_offset"] == 15
-        names = [obj["key"] for obj in data["objects"]]
-        assert "img_002.jpg" in names
-
-    def test_anchor_key_without_value_returns_normal_page(
-        self,
-        managed_app: TestClient,
-        admin_headers: dict,
-        admin_cookies: dict,
-        library_service: MagicMock,
-    ) -> None:
-        """No anchor_key param returns anchor_offset=null and uses normal offset."""
-        _setup_s3_list(library_service, MANY_S3_OBJECTS)
-
-        res = managed_app.get(
-            "/api/library/objects?sort=name&order=asc&limit=5&offset=5",
+            url,
             headers=admin_headers,
             cookies=admin_cookies,
         )
@@ -941,7 +664,7 @@ class TestAnchorKey:
         data = res.json()
         assert data["anchor_offset"] is None
         names = [obj["key"] for obj in data["objects"]]
-        assert names[0] == "img_005.jpg"
+        assert names[0] == first_key
 
     def test_anchor_key_with_filter(
         self,

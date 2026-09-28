@@ -155,24 +155,20 @@ async def test_caption_override_skips_ai_and_uses_provided_caption(monkeypatch: 
     assert "User approved caption" in publisher.received_caption
 
 
+@pytest.mark.parametrize(
+    "caption_override",
+    [
+        pytest.param("", id="caption_override_empty_string_falls_through_to_ai"),
+        pytest.param("   ", id="caption_override_whitespace_only_falls_through_to_ai"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_caption_override_empty_string_falls_through_to_ai(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_caption_override_blank_falls_through_to_ai(monkeypatch: pytest.MonkeyPatch, caption_override) -> None:
     publisher = _StubPublisher()
     orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
     cfg.content.debug = False
 
-    await orchestrator.execute(caption_override="")
-
-    assert generator.calls >= 1
-
-
-@pytest.mark.asyncio
-async def test_caption_override_whitespace_only_falls_through_to_ai(monkeypatch: pytest.MonkeyPatch) -> None:
-    publisher = _StubPublisher()
-    orchestrator, cfg, _, _, generator, _ = _make_orchestrator(monkeypatch, [publisher])
-    cfg.content.debug = False
-
-    await orchestrator.execute(caption_override="   ")
+    await orchestrator.execute(caption_override=caption_override)
 
     assert generator.calls >= 1
 

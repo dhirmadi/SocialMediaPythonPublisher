@@ -267,16 +267,37 @@ class TestContentHashing:
         assert result == [("photo.jpg", "etag1"), ("photo2.png", "etag2")]
 
 
-# AC13: asyncio.to_thread wrapping (verified by mock — sync methods are called from thread)
+# AC13: the blocking boto3 client never runs on the event loop
 class TestAsyncWrapping:
-    async def test_list_images_uses_to_thread(self, storage, mock_s3_client) -> None:
+    async def test_list_images_does_not_block_the_event_loop(self, storage, mock_s3_client) -> None:
+        """While a slow S3 listing is in flight, other coroutines on the loop keep running."""
+        import asyncio
+        import time
+
+        def _slow_pages(**_kwargs):  # type: ignore[no-untyped-def]
+            time.sleep(0.3)  # a blocking network call
+            return [{"Contents": [{"Key": "folder/a.jpg"}]}]
+
         paginator = MagicMock()
-        paginator.paginate.return_value = [{"Contents": []}]
+        paginator.paginate.side_effect = _slow_pages
         mock_s3_client.get_paginator.return_value = paginator
 
-        # If to_thread is used, the sync S3 client methods are called successfully
-        result = await storage.list_images("folder")
-        assert isinstance(result, list)
+        ticks = 0
+
+        async def _ticker() -> None:
+            nonlocal ticks
+            while True:
+                await asyncio.sleep(0.01)
+                ticks += 1
+
+        ticker = asyncio.create_task(_ticker())
+        try:
+            result = await storage.list_images("folder")
+        finally:
+            ticker.cancel()
+
+        assert result == ["a.jpg"]
+        assert ticks >= 5, f"the loop was blocked during the S3 call (ticker ran {ticks} times)"
 
 
 # AC14: Transient error retry

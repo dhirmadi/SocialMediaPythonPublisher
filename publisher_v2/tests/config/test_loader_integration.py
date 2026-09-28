@@ -105,12 +105,14 @@ class TestEnvFirstStoragePaths:
             assert config.dropbox.folder_keep == "/EnvPhotos/favorites"
             assert config.dropbox.folder_remove == "/EnvPhotos/trash"
 
-    def test_missing_storage_paths_raises(self, full_ini_file, base_env_vars, empty_env_file):
-        """#97 stage 4: no INI fallback — missing STORAGE_PATHS is a hard error."""
+    @pytest.mark.parametrize("missing", ["STORAGE_PATHS", "OPENAI_SETTINGS"])
+    def test_missing_required_env_raises(self, full_ini_file, base_env_vars, empty_env_file, missing: str):
+        """#97 stage 4: no INI fallback — a missing STORAGE_PATHS or OPENAI_SETTINGS is a hard error."""
         from publisher_v2.core.exceptions import ConfigurationError
 
-        env = {**base_env_vars, "PUBLISHERS": "[]", "OPENAI_SETTINGS": "{}"}
-        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match="STORAGE_PATHS"):
+        env = {**base_env_vars, "STORAGE_PATHS": '{"root": "/Photos"}', "PUBLISHERS": "[]", "OPENAI_SETTINGS": "{}"}
+        del env[missing]
+        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match=missing):
             load_application_config(full_ini_file, empty_env_file)
 
 
@@ -185,18 +187,6 @@ class TestEnvFirstOpenAI:
             assert config.openai.vision_model == "gpt-4-vision"
             assert config.openai.caption_model == "gpt-3.5-turbo"
             assert config.openai.system_prompt == "ENV system"
-
-    def test_missing_openai_settings_raises(self, full_ini_file, base_env_vars, empty_env_file):
-        """#97 stage 4: no INI fallback — missing OPENAI_SETTINGS is a hard error."""
-        from publisher_v2.core.exceptions import ConfigurationError
-
-        env = {
-            **base_env_vars,
-            "STORAGE_PATHS": '{"root": "/Photos"}',
-            "PUBLISHERS": "[]",
-        }
-        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match="OPENAI_SETTINGS"):
-            load_application_config(full_ini_file, empty_env_file)
 
 
 class TestEnvFirstContent:
@@ -314,23 +304,6 @@ class TestDeprecationWarnings:
 class TestConfigSourceLogging:
     """Test config source is logged correctly."""
 
-    def test_logs_env_vars_source(self, minimal_ini_file, base_env_vars, caplog, empty_env_file):
-        """Logs 'env_vars' source when all config from env."""
-        import logging
-
-        caplog.set_level(logging.INFO)
-        env = {
-            **base_env_vars,
-            "STORAGE_PATHS": '{"root": "/Photos"}',
-            "PUBLISHERS": "[]",
-            "OPENAI_SETTINGS": "{}",
-            "CONTENT_SETTINGS": "{}",
-            "CAPTIONFILE_SETTINGS": "{}",
-        }
-        with mock.patch.dict(os.environ, env, clear=True):
-            load_application_config(minimal_ini_file, empty_env_file)
-            assert "Config source: env_vars" in caplog.text
-
     def test_env_vars_source_logged_even_with_ini_path(self, full_ini_file, base_env_vars, caplog, empty_env_file):
         """#97 stage 4: env_vars is the only config source, INI path or not."""
         import logging
@@ -345,6 +318,30 @@ class TestConfigSourceLogging:
         with mock.patch.dict(os.environ, env, clear=True):
             load_application_config(full_ini_file, empty_env_file)
             assert "Config source: env_vars" in caplog.text
+
+
+class TestKeepRemoveFeatureFlags:
+    """Keep/remove curation is on unless FEATURE_KEEP_CURATE / FEATURE_REMOVE_CURATE turn it off."""
+
+    @pytest.mark.parametrize(
+        ("flags", "enabled"),
+        [
+            pytest.param({}, True, id="default-enabled"),
+            pytest.param({"FEATURE_KEEP_CURATE": "false", "FEATURE_REMOVE_CURATE": "0"}, False, id="disabled"),
+        ],
+    )
+    def test_keep_remove_feature_flags(self, base_env_vars, empty_env_file, flags: dict, enabled: bool) -> None:
+        env = {
+            **base_env_vars,
+            **flags,
+            "STORAGE_PATHS": '{"root": "/Photos"}',
+            "PUBLISHERS": "[]",
+            "OPENAI_SETTINGS": "{}",
+        }
+        with mock.patch.dict(os.environ, env, clear=True):
+            config = load_application_config(None, empty_env_file)
+        assert config.features.keep_enabled is enabled
+        assert config.features.remove_enabled is enabled
 
 
 class TestMultiplePublishers:

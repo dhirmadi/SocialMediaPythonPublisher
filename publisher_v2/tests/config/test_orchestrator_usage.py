@@ -112,62 +112,29 @@ async def test_post_usage_duplicate_idempotency_key_success() -> None:
     assert call_count == 2
 
 
-# --- AC-A4: 422 raises UsageMeteringError with metric ---
+# --- AC-A4/AC-A5/AC-A6: 422 and 404 raise UsageMeteringError, 403 raises CredentialResolutionError ---
 
 
 @pytest.mark.asyncio
-async def test_post_usage_422_raises_usage_metering_error() -> None:
-    """AC-A4: 422 response raises UsageMeteringError with the metric name in the message."""
+@pytest.mark.parametrize(
+    ("status", "body", "error", "match"),
+    [
+        # AC-A4: the metric name is in the message.
+        pytest.param(422, {"error": "invalid_metric"}, UsageMeteringError, "ai_tokens", id="422-AC-A4"),
+        pytest.param(403, {"error": "forbidden"}, CredentialResolutionError, None, id="403-AC-A5"),
+        pytest.param(404, {"error": "not_found"}, UsageMeteringError, "Tenant not found", id="404-AC-A6"),
+    ],
+)
+async def test_post_usage_client_error_raises(
+    status: int, body: dict, error: type[Exception], match: str | None
+) -> None:
+    """A 4xx from the usage endpoint surfaces as the matching domain error."""
 
     async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(422, json={"error": "invalid_metric"})
+        return httpx.Response(status, json=body)
 
     orch = _make_client(httpx.MockTransport(handler))
-    with pytest.raises(UsageMeteringError, match="ai_tokens"):
-        await orch.post_usage(
-            tenant_id="t-1",
-            metric="ai_tokens",
-            quantity=10,
-            unit="tokens",
-            idempotency_key="k",
-            occurred_at="now",
-        )
-
-
-# --- AC-A5: 403 raises CredentialResolutionError ---
-
-
-@pytest.mark.asyncio
-async def test_post_usage_403_raises_credential_resolution_error() -> None:
-    """AC-A5: 403 response raises CredentialResolutionError."""
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(403, json={"error": "forbidden"})
-
-    orch = _make_client(httpx.MockTransport(handler))
-    with pytest.raises(CredentialResolutionError):
-        await orch.post_usage(
-            tenant_id="t-1",
-            metric="ai_tokens",
-            quantity=10,
-            unit="tokens",
-            idempotency_key="k",
-            occurred_at="now",
-        )
-
-
-# --- AC-A6: 404 raises UsageMeteringError ---
-
-
-@pytest.mark.asyncio
-async def test_post_usage_404_raises_usage_metering_error() -> None:
-    """AC-A6: 404 response raises UsageMeteringError."""
-
-    async def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(404, json={"error": "not_found"})
-
-    orch = _make_client(httpx.MockTransport(handler))
-    with pytest.raises(UsageMeteringError, match="Tenant not found"):
+    with pytest.raises(error, match=match):
         await orch.post_usage(
             tenant_id="t-1",
             metric="ai_tokens",

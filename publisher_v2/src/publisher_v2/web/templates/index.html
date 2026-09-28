@@ -1385,20 +1385,6 @@
     function disableButtons(disabled) {
       const nextShouldBeDisabled = disabled || (!isAdmin && !featureConfig.auto_view_enabled);
       btnNext.disabled = nextShouldBeDisabled;
-      if (btnAdminLogout) {
-        // #91 (SEC-8): logout is a CSRF-protected POST, not a GET link.
-        btnAdminLogout.addEventListener("click", async () => {
-          try {
-            await fetch("/api/auth/logout", {
-              method: "POST",
-              headers: { "X-Requested-With": "XMLHttpRequest" }
-            });
-          } catch (e) {
-            console.warn("Logout request failed", e);
-          }
-          window.location.href = "/";
-        });
-      }
       if (btnAnalyze) {
         btnAnalyze.disabled = disabled || !isAdmin || !featureConfig.analyze_caption_enabled;
       }
@@ -2723,6 +2709,19 @@
               window.location.href = "/auth/login";
           }
       });
+
+      // #91 (SEC-8): logout is a CSRF-protected POST, not a GET link. Registered
+      // once here (#272); the window.fetch wrapper adds the X-Requested-With marker.
+      if (btnAdminLogout) {
+        btnAdminLogout.addEventListener("click", async () => {
+          try {
+            await fetch("/api/auth/logout", { method: "POST" });
+          } catch (e) {
+            console.warn("Logout request failed", e);
+          }
+          window.location.href = "/";
+        });
+      }
     }
 
     function showToast(message, type = "info") {

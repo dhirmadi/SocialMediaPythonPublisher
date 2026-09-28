@@ -110,18 +110,15 @@ async def test_image_details_carry_platform_limits(client: httpx.AsyncClient) ->
 
 
 async def test_served_ui_has_per_platform_editors_and_no_fixed_240(client: httpx.AsyncClient) -> None:
+    """The per-platform editor container replaces the single shared editor.
+
+    What the editors do is pinned in the browser (tests/e2e/test_admin_flows.py): each counter uses
+    its platform's limit, not a fixed 240; publish sends ``{captions}``, or the legacy ``{caption}``
+    while every editor holds the untouched legacy text; a partly filled set is stopped in the UI.
+    """
     html = (await client.get("/")).text
     assert 'id="caption-editors"' in html
     assert 'id="caption-text"' not in html  # the single shared editor is gone
-    assert "const maxLen = 240" not in html
-    assert "const maxLen = platformLimits[platform];" in html
-    # Publish sends the per-platform dict, not one caption for everyone — except
-    # when every editor still holds the untouched legacy caption, which goes back
-    # in the legacy shape rather than as N copies of the same text.
-    assert "{ captions }" in html
-    assert "allLegacyUnedited" in html
-    # A partly filled set is stopped in the UI too (the server answers 400).
-    assert "missingCaptionPlatforms(captions)" in html
 
 
 async def test_partial_captions_rejected_so_email_never_borrows_telegram_text(
@@ -254,34 +251,33 @@ class TestALegacyEditStillWins:
 
         return rehydrate_sidecar_view(build_caption_sidecar("sd prompt", metadata))
 
-    def test_the_edited_scalar_is_shown_for_every_platform(self) -> None:
+    @pytest.mark.parametrize(
+        ("caption", "caption_edited", "telegram_caption"),
+        [
+            pytest.param(
+                "OPERATOR EDITED, stored the old way",
+                "True",
+                "OPERATOR EDITED, stored the old way",
+                id="the_edited_scalar_is_shown_for_every_platform",
+            ),
+            pytest.param("AI email", "False", "AI telegram", id="an_unedited_legacy_sidecar_still_shows_the_ai_dict"),
+        ],
+    )
+    def test_the_platform_captions_shown(self, caption, caption_edited, telegram_caption) -> None:
         from publisher_v2.web.service import _generated_captions
 
         view = self._view(
             {
-                "caption": "OPERATOR EDITED, stored the old way",
-                "caption_edited": "True",
+                "caption": caption,
+                "caption_edited": caption_edited,
                 "caption_generated": {"telegram": "AI telegram", "email": "AI email"},
             }
         )
 
         assert _generated_captions(view) == {
-            "telegram": "OPERATOR EDITED, stored the old way",
-            "email": "OPERATOR EDITED, stored the old way",
+            "telegram": telegram_caption,
+            "email": caption,
         }
-
-    def test_an_unedited_legacy_sidecar_still_shows_the_ai_dict(self) -> None:
-        from publisher_v2.web.service import _generated_captions
-
-        view = self._view(
-            {
-                "caption": "AI email",
-                "caption_edited": "False",
-                "caption_generated": {"telegram": "AI telegram", "email": "AI email"},
-            }
-        )
-
-        assert _generated_captions(view) == {"telegram": "AI telegram", "email": "AI email"}
 
     def test_the_new_key_beats_a_legacy_edit(self) -> None:
         from publisher_v2.web.service import _generated_captions
@@ -310,11 +306,6 @@ async def test_a_bad_caption_dict_is_400_even_for_a_missing_file(client: httpx.A
     assert "cover every enabled platform" in res.text
 
 
-async def test_the_served_ui_treats_a_spread_legacy_caption_as_legacy(client: httpx.AsyncClient) -> None:
-    """#147: the server spreads a legacy edit across platforms, so "came from the
-    scalar" no longer identifies it — the UI has to compare the text instead, or
-    an untouched legacy caption is published back as N identical copies."""
-    html = (await client.get("/")).text
-
-    assert "const fromLegacy = !!legacyCaption && text === legacyCaption;" in html
-    assert "allLegacyUnedited" in html
+# #147: the server spreads a legacy edit across platforms, so "came from the scalar" no longer
+# identifies it; the UI compares the text instead. That is pinned in the browser by
+# tests/e2e/test_admin_flows.py::test_publish_sends_the_legacy_shape_until_a_caption_is_edited.

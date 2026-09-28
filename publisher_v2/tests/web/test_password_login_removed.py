@@ -154,7 +154,6 @@ def test_index_has_no_password_prompt_and_says_when_auth0_missing(monkeypatch: p
     assert 'type="password"' not in html
     assert "admin-password" not in html
     assert "/api/admin/login" not in html
-    assert 'featureConfig.auth_mode === "password"' not in html
 
     class _Ancestry(HTMLParser):
         def __init__(self) -> None:

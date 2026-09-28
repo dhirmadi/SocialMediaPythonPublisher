@@ -37,22 +37,40 @@ def _ignore_file(tmp_path: Path, body: str) -> Path:
     return path
 
 
-def test_an_expired_entry_raises_instead_of_silently_passing(tmp_path: Path) -> None:
-    """AC6: a lapsed acceptance forces a re-review; it is not applied anyway."""
-    path = _ignore_file(
-        tmp_path,
-        """
+@pytest.mark.parametrize(
+    ("toml", "today", "needle"),
+    [
+        pytest.param(
+            """
 [[ignore]]
 id = "GHSA-expired-0000-0000"
 reason = "No upstream fix at the time it was accepted."
 expires = "2026-01-31"
 """,
-    )
+            date(2026, 2, 1),
+            "GHSA-expired-0000-0000",
+            id="an_expired_entry_raises_instead_of_silently_passing",
+        ),
+        pytest.param(
+            """
+[[ignore]]
+reason = "Someone forgot which advisory this is about."
+expires = "2026-12-31"
+""",
+            date(2026, 1, 1),
+            "id",
+            id="an_entry_without_an_id_raises",
+        ),
+    ],
+)
+def test_an_invalid_entry_raises(tmp_path: Path, toml: str, today: date, needle: str) -> None:
+    """AC6: a lapsed acceptance forces a re-review (it is not applied anyway); an entry without an id raises too."""
+    path = _ignore_file(tmp_path, toml)
 
     with pytest.raises(ValueError) as excinfo:
-        _module().load_ignore_entries(path, today=date(2026, 2, 1))
+        _module().load_ignore_entries(path, today=today)
 
-    assert "GHSA-expired-0000-0000" in str(excinfo.value)
+    assert needle in str(excinfo.value)
 
 
 def test_unexpired_entries_yield_their_ignore_vuln_flags(tmp_path: Path) -> None:
@@ -92,54 +110,40 @@ expires = "2026-09-26"
     assert _module().load_ignore_entries(path, today=date(2026, 9, 26)) == ["GHSA-edge-3333-eeee"]
 
 
-def test_an_entry_without_an_id_raises(tmp_path: Path) -> None:
-    path = _ignore_file(
-        tmp_path,
-        """
-[[ignore]]
-reason = "Someone forgot which advisory this is about."
-expires = "2026-12-31"
-""",
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        _module().load_ignore_entries(path, today=date(2026, 1, 1))
-
-    assert "id" in str(excinfo.value)
-
-
-def test_an_entry_without_a_reason_raises(tmp_path: Path) -> None:
-    path = _ignore_file(
-        tmp_path,
-        """
+@pytest.mark.parametrize(
+    ("toml", "advisory", "field"),
+    [
+        pytest.param(
+            """
 [[ignore]]
 id = "GHSA-noreason-4444-ffff"
 expires = "2026-12-31"
 """,
-    )
-
-    with pytest.raises(ValueError) as excinfo:
-        _module().load_ignore_entries(path, today=date(2026, 1, 1))
-
-    assert "GHSA-noreason-4444-ffff" in str(excinfo.value)
-    assert "reason" in str(excinfo.value)
-
-
-def test_an_entry_without_an_expires_date_raises(tmp_path: Path) -> None:
-    path = _ignore_file(
-        tmp_path,
-        """
+            "GHSA-noreason-4444-ffff",
+            "reason",
+            id="an_entry_without_a_reason_raises",
+        ),
+        pytest.param(
+            """
 [[ignore]]
 id = "GHSA-noexpiry-5555-9999"
 reason = "An ignore with no end date is a permanent silent skip."
 """,
-    )
+            "GHSA-noexpiry-5555-9999",
+            "expires",
+            id="an_entry_without_an_expires_date_raises",
+        ),
+    ],
+)
+def test_an_entry_missing_a_field_raises(tmp_path: Path, toml: str, advisory: str, field: str) -> None:
+    """An entry without a reason or an expiry date raises, naming the advisory and the field."""
+    path = _ignore_file(tmp_path, toml)
 
     with pytest.raises(ValueError) as excinfo:
         _module().load_ignore_entries(path, today=date(2026, 1, 1))
 
-    assert "GHSA-noexpiry-5555-9999" in str(excinfo.value)
-    assert "expires" in str(excinfo.value)
+    assert advisory in str(excinfo.value)
+    assert field in str(excinfo.value)
 
 
 def test_a_file_with_no_ignore_key_yields_no_entries(tmp_path: Path) -> None:

@@ -1,6 +1,6 @@
 # PUB-084 — DRY Review Standalone Batch: Implementation Summary
 
-**Status:** In Progress (waves 1, 2 and 2b complete; waves 3-5 remain)
+**Status:** In Progress (waves 1, 2, 2b and 3 complete; waves 4-5 remain)
 **Date:** 2026-09-27
 
 One section per wave; each wave ships as its own PR.
@@ -152,3 +152,42 @@ Pulled in from PUB-078 by the owner after waves 1 and 2 each needed several comm
 
 - #295 — closed by the wave 2b PR
 - #303 — filed from the audit: the gitleaks pre-commit hook scans only staged changes, so in CI it scans nothing. It predates this wave, and this wave does not fix it.
+
+## Wave 3 — Browser tests and pruning (#299, #272, #300)
+
+### Files Changed
+
+- `publisher_v2/src/publisher_v2/web/templates/index.html` — the only production change (#272): the logout click handler is registered once in `initAdminControls()` instead of on every `disableButtons()` call (16 call sites; one click sent 10 POSTs). The explicit `X-Requested-With` header was dropped because the global fetch wrapper, installed first, adds it to every mutating request; the e2e flow now asserts the header on the wire.
+- `pyproject.toml`, `uv.lock` — `pytest-playwright` dev dependency (owner-approved); `e2e` marker; default `addopts` deselect `-m "not e2e"`, so the default run and the commit hook need no browser.
+- `.github/workflows/code-quality.yml` — new `e2e` job: checkout (`persist-credentials: false`), the shared setup action, `playwright install --with-deps chromium`, `pytest -m e2e`.
+- `publisher_v2/tests/web/test_index_contract.py` — new: one page fetch, 48 parametrised rows for ids, attributes, zones, `hidden`/`admin-only` classes and select options. Replaces seven source-grep files (143 tests), deleted with the owner's approval.
+- `publisher_v2/tests/e2e/` — new: the real app under uvicorn on `127.0.0.1:0`, `FakeS3` imported from `web/conftest`, an admin cookie minted with the app's signer, no fixed sleeps. Nine flows: upload lock (plus the grid refresh and the CSRF header), bulk-delete retry, one request per keep/remove/delete, one logout request carrying the CSRF header, per-platform caption limits, legacy caption shape on publish, and publish blocked on an empty platform caption.
+- #300 pruning: upload stream tests merged into `web/test_library_upload.py` with four route-level cases re-added for deleted mocked ones; `test_requirements_files.py` 315 → 78 lines (a fenced-block regex keeps both guarantees; indented code blocks are no longer scanned); keep/remove config tests folded into `config/`; about 65 groups of identical tests parametrised or de-duplicated; tests of test doubles and existence-only tests deleted; `test_managed_storage`'s `to_thread` test rewritten as a behavioural "does not block the event loop" test (mutation-proven).
+- `web_integration/test_web_admin_endpoints.py` — `test_auth_logout_cookie_only_without_xrw_is_csrf_blocked` pins CSRF on the logout path the UI calls (the existing test only covered the `/api/admin/logout` alias).
+- `publisher_v2/tests/test_suite_hygiene.py` — AC10-AC12 ratchets. The source-grep guard flags `function <name>` and JS statement syntax (`const`/`let`/`var`, `=>`, `===`, statement `;`, `.addEventListener(`, identifier calls), while allowing element-contract checks.
+
+### Acceptance Criteria
+
+- [x] AC10 — no test greps `index.html` function bodies or statements; one parametrised element contract from one fetch (tests: `test_no_test_greps_index_html_function_bodies`, `test_index_exposes_required_hook`)
+- [x] AC11 — the four required flows pass in a headless browser; default run deselects `e2e` (tests: `test_upload_queue_locks_controls_while_uploading`, `test_bulk_delete_retries_failed_items`, `test_curation_action_sends_one_request`, `test_logout_sends_one_request_after_repeated_actions`, `test_default_run_deselects_e2e`). Three further flows replace JS-statement greps found in review.
+- [x] AC12 — no identical test bodies, empty allowlist (test: `test_no_identical_test_bodies`)
+
+### Test Results
+
+Default run: 2064 passed, 2 skipped, 9 deselected. `-m e2e`: 9 passed, stable across repeated runs (about 4s). Coverage 93.56% (missed lines 492 → 491; `web/routers/library.py` +0.23pp; no module dropped).
+
+### Subagent Verdicts
+
+- `code-reviewer`: PASS WITH NITS — gates green; mutations on the template (unfixed #272, broken upload lock, no-op retry, a dropped `multiple` attribute) each failed the right test; 15+ parametrised groups sampled with no weakened expectation. Nits applied: JS-statement greps the guard missed, a duplicate id test, a readable timeout on the curation flow, and the grid-refresh check.
+- `security-auditor`: PASS WITH NITS — the fetch wrapper covers the logout POST, and a cookie-only logout without the header still gets 403; the e2e harness is loopback-only with placeholder secrets and no production change; the new dependencies have no known advisories; no security test lost in pruning. Nits applied: `persist-credentials: false`, the header assertion in e2e, and the committed `/api/auth/logout` CSRF test.
+
+### Linked Issues
+
+- #299, #272, #300 — closed by the wave 3 PR
+- #305 — filed with the owner's agreement: UI behaviours that were pinned only by source greps and are not in the four spec'd flows (back-to-grid page, page-size persistence, 429 retry loop, queue clearing, Escape/ARIA, unload guards, plus two notes from review)
+
+### Notes
+
+- Some grep-only UI behaviours now have no test and are tracked in #305 (owner decision, option a).
+- The `playwright install --with-deps` step downloads Chromium from Microsoft's CDN without a hash pin; exposure is limited by the job's read-only permissions and lack of secrets.
+- `.gitleaks.toml` (owner-approved, option a): keeps gitleaks' default rules and allowlists only `^\.secrets\.baseline$`. Parametrising config tests moved two existing placeholder entries in the detect-secrets baseline; gitleaks' generic-api-key rule then read their unchanged SHA-1 hashes as newly added keys and blocked the commit. Checked against gitleaks v8.22.1's config schema; a fake key in any other file is still reported (verified with the hook's own binary). Pinned by `test_gitleaks_config_only_allowlists_the_detect_secrets_baseline`, which fails on any other allowlisted path or on any regex, stopword, commit or rule exclusion. The pattern is anchored, so it applies to repo-relative scans (as the hook runs); a manual `gitleaks dir /absolute/path` would still report the baseline.

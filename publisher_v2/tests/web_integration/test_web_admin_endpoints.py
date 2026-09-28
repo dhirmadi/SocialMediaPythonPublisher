@@ -57,3 +57,13 @@ def test_admin_logout_without_csrf_header_is_blocked(client: TestClient) -> None
     _become_admin(client)
     res = client.post("/api/admin/logout")  # no CSRF header
     assert res.status_code == 403
+
+
+def test_auth_logout_cookie_only_without_xrw_is_csrf_blocked(client: TestClient) -> None:
+    """The UI's logout route, not just the alias: a cookie-only POST without X-Requested-With is
+    refused by the CSRF middleware, and the admin session survives it."""
+    _become_admin(client)
+    res = client.post("/api/auth/logout")  # admin cookie only, no X-Requested-With
+    assert res.status_code == 403, res.text
+    assert res.json()["detail"] == "CSRF check failed"
+    assert client.get("/api/admin/status").json()["admin"] is True

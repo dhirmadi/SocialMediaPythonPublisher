@@ -40,12 +40,6 @@ def _build_meter(count: int = 0):
 
 
 class TestStorageOpsMeter:
-    def test_storage_ops_meter_exists_with_flush_method(self) -> None:
-        """AC-B1: class exists and exposes flush()."""
-        from publisher_v2.services.storage_ops_meter import StorageOpsMeter
-
-        assert hasattr(StorageOpsMeter, "flush")
-
     async def test_flush_calls_post_usage_with_correct_args(self) -> None:
         """AC-B2: flush POSTs with correct metric/unit/source/quantity."""
         meter, client, storage = _build_meter(count=42)

@@ -511,37 +511,29 @@ class TestPublisherInitialization:
 class TestMainSync:
     """Tests for the synchronous main() entrypoint."""
 
-    def test_main_raises_system_exit_on_success(
+    @pytest.mark.parametrize(
+        "code",
+        [
+            pytest.param(0, id="main_raises_system_exit_on_success"),
+            pytest.param(1, id="main_raises_system_exit_on_failure"),
+        ],
+    )
+    def test_main_exits_with_main_async_code(
         self,
         monkeypatch: pytest.MonkeyPatch,
+        code,
     ) -> None:
-        """main() raises SystemExit with code 0 on success."""
+        """main() exits with main_async's code: 0 on success, 1 on failure."""
 
         async def mock_main_async():
-            return 0
+            return code
 
         monkeypatch.setattr("publisher_v2.app.main_async", mock_main_async)
 
         with pytest.raises(SystemExit) as exc_info:
             main()
 
-        assert exc_info.value.code == 0
-
-    def test_main_raises_system_exit_on_failure(
-        self,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        """main() raises SystemExit with code 1 on failure."""
-
-        async def mock_main_async():
-            return 1
-
-        monkeypatch.setattr("publisher_v2.app.main_async", mock_main_async)
-
-        with pytest.raises(SystemExit) as exc_info:
-            main()
-
-        assert exc_info.value.code == 1
+        assert exc_info.value.code == code
 
 
 # ---------------------------------------------------------------------------

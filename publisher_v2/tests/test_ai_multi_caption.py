@@ -135,39 +135,31 @@ class TestGenerateMulti:
 
 
 class TestPlatformStylesInPrompt:
+    @pytest.mark.parametrize(
+        ("platform", "caption", "style", "max_length", "style_word"),
+        [
+            pytest.param(
+                "telegram", "t", "conversational, emoji-friendly", 4096, "conversational", id="telegram_style_in_prompt"
+            ),
+            pytest.param(
+                "instagram", "i", "hook-first, hashtags naturally", 2200, "hook-first", id="instagram_style_in_prompt"
+            ),
+        ],
+    )
     @pytest.mark.asyncio
-    async def test_telegram_style_in_prompt(self, fake_openai) -> None:
-        """AC5: Telegram prompt includes conversational style."""
-        response = json.dumps({"telegram": "t"})
+    async def test_platform_style_in_prompt(
+        self, fake_openai, platform, caption, style, max_length, style_word
+    ) -> None:
+        """AC5/AC6: the Telegram (conversational) and Instagram (hook-first) prompts carry their style."""
+        response = json.dumps({platform: caption})
         completions = fake_openai(script=[response])
 
         gen = CaptionGeneratorOpenAI(_default_config())
-        specs = {
-            "telegram": CaptionSpec(
-                platform="telegram", style="conversational, emoji-friendly", hashtags="#tag", max_length=4096
-            )
-        }
+        specs = {platform: CaptionSpec(platform=platform, style=style, hashtags="#tag", max_length=max_length)}
         _result, _usage = await gen.generate_multi(_make_analysis(), specs)
 
         user_msg = completions.calls[0]["messages"][-1]["content"]
-        assert "conversational" in user_msg.lower()
-
-    @pytest.mark.asyncio
-    async def test_instagram_style_in_prompt(self, fake_openai) -> None:
-        """AC6: Instagram prompt includes hook-first style."""
-        response = json.dumps({"instagram": "i"})
-        completions = fake_openai(script=[response])
-
-        gen = CaptionGeneratorOpenAI(_default_config())
-        specs = {
-            "instagram": CaptionSpec(
-                platform="instagram", style="hook-first, hashtags naturally", hashtags="#tag", max_length=2200
-            )
-        }
-        _result, _usage = await gen.generate_multi(_make_analysis(), specs)
-
-        user_msg = completions.calls[0]["messages"][-1]["content"]
-        assert "hook-first" in user_msg.lower()
+        assert style_word in user_msg.lower()
 
     @pytest.mark.asyncio
     async def test_email_style_in_prompt(self, fake_openai) -> None:

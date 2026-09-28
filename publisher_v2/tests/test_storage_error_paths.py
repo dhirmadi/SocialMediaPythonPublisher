@@ -103,12 +103,19 @@ class TestIsSidecarNotFoundError:
         exc = ApiError("req", MockError(), "msg", "en")
         assert DropboxStorage._is_sidecar_not_found_error(exc) is False
 
-    def test_returns_false_when_path_error_but_not_not_found(self) -> None:
-        """Verify returns False when path error is not 'not_found'."""
+    @pytest.mark.parametrize(
+        "not_found",
+        [
+            pytest.param(True, id="returns_true_when_path_not_found"),
+            pytest.param(False, id="returns_false_when_path_error_but_not_not_found"),
+        ],
+    )
+    def test_detects_not_found_only(self, not_found) -> None:
+        """Verify returns True only when the path error is 'not_found'."""
 
         class MockPathError:
             def is_not_found(self) -> bool:
-                return False
+                return not_found
 
         class MockError:
             def is_path(self) -> bool:
@@ -118,24 +125,7 @@ class TestIsSidecarNotFoundError:
                 return MockPathError()
 
         exc = ApiError("req", MockError(), "msg", "en")
-        assert DropboxStorage._is_sidecar_not_found_error(exc) is False
-
-    def test_returns_true_when_path_not_found(self) -> None:
-        """Verify returns True when path error is 'not_found'."""
-
-        class MockPathError:
-            def is_not_found(self) -> bool:
-                return True
-
-        class MockError:
-            def is_path(self) -> bool:
-                return True
-
-            def get_path(self) -> MockPathError:
-                return MockPathError()
-
-        exc = ApiError("req", MockError(), "msg", "en")
-        assert DropboxStorage._is_sidecar_not_found_error(exc) is True
+        assert DropboxStorage._is_sidecar_not_found_error(exc) is not_found
 
 
 class TestGetFileMetadataErrorHandling:

@@ -52,17 +52,6 @@ def test_invalid_model_name_rejected():
         OpenAIConfig(api_key="sk-test123", vision_model="")
 
 
-def test_explicit_separate_models_override():
-    """Test that explicitly setting separate models works"""
-    config = OpenAIConfig(
-        api_key="sk-test123",
-        vision_model="gpt-4o",
-        caption_model="gpt-4o-mini",
-    )
-    assert config.vision_model == "gpt-4o"
-    assert config.caption_model == "gpt-4o-mini"
-
-
 def test_all_supported_model_prefixes():
     """Test that all supported model prefixes are accepted"""
     valid_models = [

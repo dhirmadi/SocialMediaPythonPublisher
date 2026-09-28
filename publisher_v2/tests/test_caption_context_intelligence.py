@@ -104,7 +104,8 @@ class TestExamplesInPrompt:
         assert prompt.count("The way light catches jute") == 1, prompt
         assert "STYLE REFERENCES" in prompt
 
-    def test_prompt_omits_examples_when_empty(self) -> None:
+    def test_prompt_omits_examples_and_guidance_when_empty(self) -> None:
+        """Empty examples leave out the voice-examples section; empty guidance (Part B, AC3/AC4) the guidance one."""
         from publisher_v2.services.ai import build_platform_block
 
         spec = CaptionSpec(
@@ -112,6 +113,7 @@ class TestExamplesInPrompt:
         )
         block = build_platform_block(1, "telegram", spec)
         assert "Voice examples" not in block
+        assert "Guidance" not in block
 
 
 # ---------------------------------------------------------------------------
@@ -144,15 +146,6 @@ class TestTrendGuidance:
         block = build_platform_block(1, "telegram", spec)
         assert "Guidance" in block
         assert "Short captions preferred in 2026." in block
-
-    def test_prompt_omits_guidance_when_empty(self) -> None:
-        from publisher_v2.services.ai import build_platform_block
-
-        spec = CaptionSpec(
-            platform="telegram", style="conversational", hashtags="#art", max_length=4096, examples=(), guidance=""
-        )
-        block = build_platform_block(1, "telegram", spec)
-        assert "Guidance" not in block
 
 
 # ---------------------------------------------------------------------------

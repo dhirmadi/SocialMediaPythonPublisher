@@ -41,19 +41,19 @@ class TestModelLifecycle:
         assert lc.recommended_replacement == "gpt-4o-2026-01"
         assert lc.severity == "warning"
 
-    def test_severity_info(self) -> None:
-        """AC-01: severity='info' is valid."""
+    @pytest.mark.parametrize(
+        "severity",
+        [
+            pytest.param("info", id="severity_info"),
+            pytest.param("critical", id="severity_critical"),
+        ],
+    )
+    def test_severity(self, severity) -> None:
+        """AC-01: severity='info' and 'critical' are valid."""
         from publisher_v2.config.schema import ModelLifecycle
 
-        lc = ModelLifecycle(warning="w", shutdown_date="d", recommended_replacement="r", severity="info")
-        assert lc.severity == "info"
-
-    def test_severity_critical(self) -> None:
-        """AC-01: severity='critical' is valid."""
-        from publisher_v2.config.schema import ModelLifecycle
-
-        lc = ModelLifecycle(warning="w", shutdown_date="d", recommended_replacement="r", severity="critical")
-        assert lc.severity == "critical"
+        lc = ModelLifecycle(warning="w", shutdown_date="d", recommended_replacement="r", severity=severity)
+        assert lc.severity == severity
 
     def test_unknown_severity_rejected(self) -> None:
         """AC-02: Unknown severity raises ValidationError."""
@@ -72,7 +72,7 @@ class TestOpenAIConfigLifecycle:
     """AC-03/AC-04: OpenAIConfig lifecycle fields."""
 
     def test_defaults_none(self) -> None:
-        """AC-03: Both lifecycle fields default to None."""
+        """AC-03/AC-09/AC-16: both lifecycle fields default to None (v1 parsing and standalone mode alike)."""
         cfg = OpenAIConfig()
         assert cfg.vision_model_lifecycle is None
         assert cfg.caption_model_lifecycle is None
@@ -163,16 +163,6 @@ class TestBuildAppConfigV2Lifecycle:
         assert result is None
 
 
-class TestBuildAppConfigV1Lifecycle:
-    """AC-09: v1 parsing → both None."""
-
-    def test_v1_defaults(self) -> None:
-        """AC-09: v1 defaults are None."""
-        cfg = OpenAIConfig()
-        assert cfg.vision_model_lifecycle is None
-        assert cfg.caption_model_lifecycle is None
-
-
 # ---------------------------------------------------------------------------
 # Part D — Warning emitter (AC-10..AC-14)
 # ---------------------------------------------------------------------------
@@ -254,18 +244,3 @@ class TestEmitModelLifecycleWarnings:
             assert "sk-secret" not in record.message
             assert "api_key" not in record.message
             assert "credentials_ref" not in record.message
-
-
-# ---------------------------------------------------------------------------
-# Part E — Standalone mode (AC-16)
-# ---------------------------------------------------------------------------
-
-
-class TestStandaloneMode:
-    """AC-16: Standalone mode → both None, no warnings."""
-
-    def test_standalone_defaults(self) -> None:
-        """AC-16: OpenAIConfig defaults → no lifecycle."""
-        cfg = OpenAIConfig()
-        assert cfg.vision_model_lifecycle is None
-        assert cfg.caption_model_lifecycle is None

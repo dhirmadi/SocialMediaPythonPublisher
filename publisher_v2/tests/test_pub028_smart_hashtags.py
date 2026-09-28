@@ -253,15 +253,17 @@ class TestGenerateHashtagBranching:
 
 
 class TestAiPromptsYamlPlatformHashtags:
-    def test_telegram_hashtags_disabled(self) -> None:
-        """AC-06: telegram.hashtags == false."""
+    @pytest.mark.parametrize(
+        "platform",
+        [
+            pytest.param("telegram", id="telegram_hashtags_disabled"),
+            pytest.param("email", id="email_hashtags_disabled_regression"),
+        ],
+    )
+    def test_platform_hashtags_disabled(self, platform) -> None:
+        """AC-06/AC-07: telegram.hashtags and email.hashtags are false."""
         registry = get_static_config().ai_prompts.platform_captions
-        assert registry["telegram"].hashtags is False
-
-    def test_email_hashtags_disabled_regression(self) -> None:
-        """AC-07: email.hashtags remains false."""
-        registry = get_static_config().ai_prompts.platform_captions
-        assert registry["email"].hashtags is False
+        assert registry[platform].hashtags is False
 
     def test_telegram_caption_spec_has_no_hashtag_seeds(self) -> None:
         """AC-06: With telegram.hashtags=false, telegram CaptionSpec.hashtags is empty."""

@@ -6,17 +6,6 @@ from publisher_v2.config.source import clear_config_source_cache, get_config_sou
 from publisher_v2.core.exceptions import ConfigurationError
 
 
-def test_protocol_shape_smoke(env_first_config: None) -> None:
-    # Just ensure factory returns an object with required methods.
-    # #135: env via the shared fixture (monkeypatch) — this test used to write
-    # os.environ directly and leak env-first config into every later test.
-    clear_config_source_cache()
-    src = get_config_source()
-    assert hasattr(src, "get_config")
-    assert hasattr(src, "get_credentials")
-    assert hasattr(src, "is_orchestrated")
-
-
 def test_factory_selection(monkeypatch: pytest.MonkeyPatch, mock_dropbox_env, mock_openai_env) -> None:
     # Default: env-first
     monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos"}')

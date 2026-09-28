@@ -453,18 +453,19 @@ class TestErrorHandling:
         assert result.copied == 1
         assert result.errors == 1
 
-    async def test_exit_code_1_on_errors(self) -> None:
-        """Migration result with errors should signal exit code 1."""
+    @pytest.mark.parametrize(
+        ("copied", "errors"),
+        [
+            pytest.param(1, 1, id="exit_code_1_on_errors"),
+            pytest.param(2, 0, id="exit_code_0_no_errors"),
+        ],
+    )
+    async def test_exit_code(self, copied, errors) -> None:
+        """Migration result with errors signals exit code 1; a clean run 0."""
         from publisher_v2.tools.migrate_storage import MigrationResult
 
-        result = MigrationResult(copied=1, skipped=0, errors=1, total_files=2, total_bytes=100)
-        assert result.exit_code == 1
-
-    async def test_exit_code_0_no_errors(self) -> None:
-        from publisher_v2.tools.migrate_storage import MigrationResult
-
-        result = MigrationResult(copied=2, skipped=0, errors=0, total_files=2, total_bytes=100)
-        assert result.exit_code == 0
+        result = MigrationResult(copied=copied, skipped=0, errors=errors, total_files=2, total_bytes=100)
+        assert result.exit_code == errors
 
 
 # ---------------------------------------------------------------------------

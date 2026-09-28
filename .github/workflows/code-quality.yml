@@ -100,6 +100,30 @@ jobs:
         name: codecov-umbrella
       continue-on-error: true
 
+  e2e:
+    # PUB-084 #299: headless-browser flows against the real app. Deselected
+    # from the default pytest run (pyproject addopts `-m "not e2e"`), so they
+    # only run here, where Chromium is installed.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v7
+      with:
+        persist-credentials: false
+
+    - name: Set up uv and the project
+      uses: ./.github/actions/setup
+
+    - name: Install Chromium for Playwright
+      run: |
+        uv run playwright install --with-deps chromium
+
+    - name: Run the e2e suite
+      run: |
+        uv run pytest -m e2e -p no:randomly -v
+
   caption-eval:
     # PUB-049: the offline caption evaluation harness. No key, no network, no
     # extra permissions — it only reads the committed fixtures and fails the
