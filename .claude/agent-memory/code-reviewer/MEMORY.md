@@ -5,7 +5,7 @@
 - [Prompt register review traps](prompt-register-review-traps.md) — tenant system_prompt drops banned list; vision 512 cap; directive vs brief; forbid YAML
 - [instagrapi review traps](instagrapi-review-traps.md) — challenge auto-resolve/input(), rupload raises PhotoNotUpload not LoginRequired
 - [Upload streaming review traps](upload-streaming-review-traps.md) — botocore copies bytearray Body, PNG verify IDAT copy, uvicorn drains after 413, parse errors 500
-- [Publish lease expiry review traps](lease-expiry-review-traps.md) — SQLite server_default CURRENT_TIMESTAMP defeats leased_at CAS; _select_image ignores preview; TTL vs publish timeout
+- [Publish lease expiry review traps](lease-expiry-review-traps.md) — SQLite CURRENT_TIMESTAMP CAS; _select_image preview; TTL vs timeout; PUB-086 unfenced-release mutant survives
 - [Thumbnail cache review traps](thumbnail-cache-review-traps.md) — #140 key-without-ETag; router hook misses curation paths; per-process cache; presign isn't billed
 - [Coverage gate review traps](coverage-gate-review-traps.md) — cwd-relative coverage config kills source/fail_under; bare --cov works; fail_under breaks partial runs
 - [Layering guard review traps](layering-guard-review-traps.md) — #142 AST guard: widened, new non-storage target/source FP; presence-resume orphans sidecars; async_main untested

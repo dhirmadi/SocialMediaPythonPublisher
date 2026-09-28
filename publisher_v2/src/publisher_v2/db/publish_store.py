@@ -61,8 +61,21 @@ class PublishStore:
         # layer reads from the environment on every acquire_lease.
         self._lease_ttl_seconds = lease_ttl_seconds
 
-    async def acquire_lease(self, tenant: str, content_hash: str, platforms: list[str]) -> dict[str, datetime]:
+    async def acquire_lease(
+        self,
+        tenant: str,
+        content_hash: str,
+        platforms: list[str],
+        owned: dict[str, datetime] | None = None,
+    ) -> dict[str, datetime]:
         """Claim platforms for this run. Returns ``{platform: lease token}`` for the ones it owns.
+
+        PUB-086 (#315): pass ``owned`` to have each token recorded into the caller's
+        mapping as the lease is taken, so a claim cut short (timeout, cancellation)
+        still tells the caller which rows it may hold. A token is recorded just
+        before its commit and withdrawn if the commit shows the lease was lost; a
+        token whose commit was interrupted may name a row that never landed, which
+        is harmless because every release is fenced on that exact token.
 
         The token is the exact ``leased_at`` this run stamped. Passing it back to
         ``mark`` fences the write: a run whose lease was reclaimed after its TTL
@@ -91,7 +104,8 @@ class PublishStore:
             if self._lease_ttl_seconds is not None
             else load_runtime_settings().publish_lease_ttl_seconds
         )
-        owned: dict[str, datetime] = {}
+        if owned is None:
+            owned = {}
         for platform in platforms:
             async with self._session_factory() as session:
                 existing = (
@@ -117,11 +131,12 @@ class PublishStore:
                             leased_at=token,
                         )
                     )
+                    owned[platform] = token
                     try:
                         await session.commit()
-                        owned[platform] = token
                     except IntegrityError:
                         # Lost the race to a concurrent run — it owns the lease.
+                        del owned[platform]
                         await session.rollback()
                 elif existing.status == "failed":
                     token = datetime.now(UTC)
@@ -141,10 +156,10 @@ class PublishStore:
                         )
                         .execution_options(synchronize_session=False)
                     )
-                    await session.commit()
                     if getattr(result, "rowcount", 0) == 1:
                         # Lost the race to a concurrent re-lease attempt otherwise.
                         owned[platform] = token
+                    await session.commit()
                 elif existing.status == "leased" and _is_stale(existing.leased_at, ttl_seconds):
                     # #139: the run holding this lease crashed between the lease
                     # and the mark. Reclaim with a single conditional UPDATE that
@@ -169,9 +184,11 @@ class PublishStore:
                         .values(status="leased", leased_at=token, error=None, finished_at=None)
                         .execution_options(synchronize_session=False)
                     )
-                    await session.commit()
-                    if getattr(result, "rowcount", 0) == 1:
+                    reclaimed = getattr(result, "rowcount", 0) == 1
+                    if reclaimed:
                         owned[platform] = token
+                    await session.commit()
+                    if reclaimed:
                         log_json(
                             logger,
                             logging.WARNING,
