@@ -173,50 +173,6 @@ class TestCaptionHistoryConfig:
         assert cfg.max_tokens_budget == 500
 
 
-class TestCaptionHistoryPrompt:
-    """AC6/AC8: History is injected into prompt with anti-repetition instructions."""
-
-    def test_build_history_block_with_captions(self) -> None:
-        # #82: history is rendered as constraints (openings/closings to avoid),
-        # never as full quoted captions that anchor the model's style.
-        from publisher_v2.services.ai import build_history_block
-
-        captions = [
-            "Caption one about quiet mornings in the studio today",
-            "Did you notice the second one at all here?",
-        ]
-        block = build_history_block(captions)
-        assert "openings to avoid" in block.lower()
-        # PUB-051 AC2: the closing-pattern constraint is deleted (was: asserted present).
-        assert "closing pattern" not in block.lower()
-        for full in captions:
-            assert full not in block
-
-    def test_build_history_block_empty(self) -> None:
-        from publisher_v2.services.ai import build_history_block
-
-        assert build_history_block([]) == ""
-
-
-class TestTokenBudget:
-    """AC11: History context does not exceed max_tokens_budget."""
-
-    def test_truncate_history_by_token_budget(self) -> None:
-        from publisher_v2.services.ai import truncate_history_to_budget
-
-        # Each caption ~10 tokens (~40 chars). Budget of 30 tokens should fit ~3.
-        captions = [f"Caption number {i} with some words here." for i in range(10)]
-        result = truncate_history_to_budget(captions, max_tokens_budget=30)
-        assert len(result) <= 4  # tightened from < 10
-        assert result[-1] == captions[-1]
-
-    def test_budget_zero_returns_empty(self) -> None:
-        from publisher_v2.services.ai import truncate_history_to_budget
-
-        result = truncate_history_to_budget(["A caption"], max_tokens_budget=0)
-        assert result == []
-
-
 class TestSidecarEditTracking:
     """AC9: Sidecar stores caption_generated alongside caption when edited."""
 
@@ -306,7 +262,7 @@ class TestHistoryIntegration:
             "Previous caption two asking what you would notice first?",
         ]
 
-        await gen.generate_multi(analysis, specs, history=history)
+        await gen.generate_multi(analysis, specs, history={"telegram": history})
 
         assert len(captured_prompts) == 1
         prompt = captured_prompts[0]

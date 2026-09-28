@@ -21,6 +21,7 @@ from dataclasses import dataclass
 
 import pytest
 import uvicorn
+from caption_pipeline_fakes import FakeOpenAI, install_fake_openai
 from PIL import Image
 from playwright.sync_api import Page, expect
 from web import conftest as web_conftest
@@ -42,8 +43,13 @@ E2E_ENV = {
     "PUBLISHERS": json.dumps([TELEGRAM_PUBLISHER, FETLIFE_PUBLISHER]),
     "EMAIL_SERVER": json.dumps({"sender": "bot@example.com", "smtp_server": "smtp.example", "smtp_port": 587}),
     "EMAIL_PASSWORD": "pw",  # pragma: allowlist secret
+    # Guard: should a real OpenAI SDK client ever be built despite the fake below, it talks to the
+    # discard port on loopback and fails fast, instead of reaching api.openai.com.
+    "OPENAI_BASE_URL": "http://127.0.0.1:9/v1",
 }
 SEED_IMAGES = ("alpha.jpg", "bravo.jpg", "charlie.jpg")
+# The caption platforms E2E_ENV's publishers enable (FetLife captions under the email key).
+E2E_PLATFORMS = ["telegram", "email"]
 
 
 def jpeg_bytes(color: tuple[int, int, int] = (120, 80, 60)) -> bytes:
@@ -65,14 +71,20 @@ class LiveApp:
     base_url: str
     host: str
     s3: FakeS3
+    openai: FakeOpenAI
 
 
 @pytest.fixture
-def live_app(managed_real_app: Callable[..., FakeS3]) -> Iterator[LiveApp]:
-    """Serve the real app on 127.0.0.1:<free port> with ``SEED_IMAGES`` in the bucket."""
+def live_app(managed_real_app: Callable[..., FakeS3], monkeypatch: pytest.MonkeyPatch) -> Iterator[LiveApp]:
+    """Serve the real app on 127.0.0.1:<free port> with ``SEED_IMAGES`` in the bucket.
+
+    Every ``AsyncOpenAI`` the server builds is the shared ``FakeOpenAI``, installed before the
+    server starts; a test scripts it through ``live_app.openai.script``.
+    """
     from publisher_v2.web.app import app
 
     s3 = managed_real_app(env=E2E_ENV)
+    openai = install_fake_openai(monkeypatch, FakeOpenAI(E2E_PLATFORMS))
     for name in SEED_IMAGES:
         s3.add(image_key(name), jpeg_bytes())
 
@@ -88,7 +100,7 @@ def live_app(managed_real_app: Callable[..., FakeS3]) -> Iterator[LiveApp]:
     thread.start()
     host = f"127.0.0.1:{port}"
     try:
-        yield LiveApp(base_url=f"http://{host}", host=host, s3=s3)
+        yield LiveApp(base_url=f"http://{host}", host=host, s3=s3, openai=openai)
     finally:
         server.should_exit = True
         thread.join(timeout=10)

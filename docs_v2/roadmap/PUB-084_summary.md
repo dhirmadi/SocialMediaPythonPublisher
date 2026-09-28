@@ -1,6 +1,6 @@
 # PUB-084 — DRY Review Standalone Batch: Implementation Summary
 
-**Status:** In Progress (waves 1, 2, 2b, 3 and 4 complete; wave 5 remains)
+**Status:** Implementation Complete (all waves: 1, 2, 2b, 3, 4 and 5)
 **Date:** 2026-09-27
 
 One section per wave; each wave ships as its own PR.
@@ -222,3 +222,41 @@ No production behaviour change.
 ### Linked Issues
 
 - #294, #286 — closed by the wave 4 PR
+
+## Wave 5 — Caption limits and JS dedup (#281, #277)
+
+### Files Changed
+
+- `utils/captions.py` — `smart_truncate` moved here (`services/ai.py` re-imports it; `ai.py` already imports this module, so the reverse would be circular); one `platform_caption_limit(platform)` lookup (unknown platforms fall back to generic; checks `model_fields` so a name like `copy` can't resolve to a pydantic method); `format_caption` ends with `smart_truncate`, so output never exceeds the limit and cuts at a sentence or word boundary. The FetLife/email path uses an ASCII `...` (`_sanitize_for_fetlife` exists because FetLife may strip `…`). `_trim_to_length` (which dropped hashtags while claiming to keep them) deleted. One `_HASHTAG_RE`; a shared emoji base class that each caller composes into exactly its previous class.
+- `services/publishers/email.py` — in subject/both mode the subject is `prefix + smart_truncate(caption, limit - len(prefix), ellipsis="...")`, so `"Private: "`/`"Avatar: "` plus the caption fits FetLife's measured 240; the body keeps the full caption; the confirmation copy reuses the subject.
+- `services/ai.py` — history narrowed to `dict[str, list[str]] | None` (also in `core/workflow.py`); the flat-list branch, `build_history_block` and `truncate_history_to_budget` deleted; the `TypeError` retry in `_create_vision_completion` removed (it re-sent the request without `max_tokens` to suit old test doubles and could hide real SDK errors); one module logger; one `_sha256_seed` for `senses_seed` and `sample_voice_examples`.
+- `db/caption_store.py` — test-only `fetch_recent_by_platform` and unused `_DEFAULT_RETENTION_DAYS` deleted; remaining queries stay tenant-scoped.
+- `utils/captions.py` `build_metadata_phase2` — a (field, key) table loop with one list-cleaning helper; output byte-identical.
+- `web/templates/index.html` (#277, −140 lines) — one `postImageAction` for analyze/publish/keep/remove/delete (every message, endpoint and check order kept; publish's caption checks and confirm in `preparePublish`); `deleteLibraryObject`/`removeFromGrid`/`processDeleteQueue` for single, bulk and retry deletes; one `DEFAULT_FEATURES` (merged key by key with `??`, so a server `null` can't override a default and unknown keys aren't copied); one `fetchImageList` (the two caches stay separate); dead `#env-indicator` and `data.images` fallback removed. Accepted changes on single grid delete: the error toasts use the shared messages, and the selection label now updates.
+- `docs_v2/02_Specifications/SPECIFICATION.md` — history section describes the current per-platform flow.
+- Tests: AC15-AC18 targets; pins written against the old code before the refactor (both emoji classes, exact seed values, phase-2 metadata); FetLife ASCII-ellipsis tests for both paths; tests of deleted helpers retired, read-back and fetch tests repointed to `fetch_recent_with_angles_by_platform` (keeping ordering, limit and tenant-isolation coverage), four flat-history tests converted to the dict shape; two new e2e flows (analyze, single grid delete). The e2e harness now installs the scripted OpenAI fake before the server starts and points `OPENAI_BASE_URL` at `127.0.0.1:9`, so no test can reach the real API.
+
+### Acceptance Criteria
+
+- [x] AC15 — `format_caption` never exceeds the platform limit and cuts with `smart_truncate` (test: `test_format_caption_never_exceeds_platform_limit`, 25 cases; plus `test_fetlife_truncation_uses_ascii_ellipsis`)
+- [x] AC16 — prefix + caption ≤ the email limit in every subject mode (tests: `test_prefixed_subject_never_exceeds_email_limit`, `test_fetlife_subject_truncation_uses_ascii_ellipsis`)
+- [x] AC17 — phase-2 metadata byte-identical (test: `test_build_metadata_phase2_output_unchanged`, captured from the pre-refactor code)
+- [x] AC18 — a vision `TypeError` propagates with one request (test: `test_vision_completion_type_error_is_not_retried`)
+- [x] AC19 — `web/test_index_contract.py` unedited and every existing e2e flow body unchanged; all pass after the JS dedup. Analyze and single grid delete, the two actions no flow covered, gained e2e flows (mutation-checked: seven template mutants caught) in place of a manual smoke test.
+
+### Caption-harness evidence
+
+The handoff asks for a live caption-harness run against the PUB-080 baseline. The code reviewer instead dumped every prompt builder (`_build_multi_prompt` with dict/None/empty history, with and without voice examples), both seed functions, both emoji functions and `format_caption` for every platform on the same fixtures in `main` and in this branch: byte-identical except over-limit captions, the intended AC15 change. **No generated prompt text changes.** Whether this replaces the live run is the owner's call (recorded in the PR).
+
+### Test Results
+
+2087 passed, 2 skipped, 11 deselected; `-m e2e` 11 passed across repeated and random-order runs. Coverage 94%, every touched module unchanged (`utils/captions.py` 99%, `services/ai.py` 96%, `publishers/email.py` 96%, `db/caption_store.py` 97%, `utils/caption_metrics.py` 93%).
+
+### Subagent Verdicts
+
+- `code-reviewer`: PASS WITH NITS — gates green; guards confirmed green on the old code and targets red on it; mutations on AC15, AC16 and AC18 caught; behaviour outside the ACs byte-identical. Nits applied: selection label after single delete, ASCII ellipsis on the FetLife paths, test import from `utils.captions`.
+- `security-auditor`: PASS — CSRF, admin gating, confirm-before-request order, URL encoding and CSP intact in the deduplicated JS; no new XSS sinks; the email subject is truncated before the header-injection guard; caption-store queries stay tenant-scoped; the e2e harness cannot reach OpenAI.
+
+### Linked Issues
+
+- #281, #277 — closed by the wave 5 PR

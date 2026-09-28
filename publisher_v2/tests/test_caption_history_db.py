@@ -43,6 +43,11 @@ async def store(db_session_factory):
 # ---------------------------------------------------------------------------
 
 
+def _captions(rows: dict[str, list[tuple[str, str | None]]]) -> dict[str, list[str]]:
+    """Caption text only, from ``fetch_recent_with_angles_by_platform``'s (caption, angle) pairs."""
+    return {platform: [caption for caption, _angle in items] for platform, items in rows.items()}
+
+
 class TestCaptionStoreSaveFetch:
     async def test_save_batch_and_fetch_by_platform(self, store: CaptionStore) -> None:
         saved = await store.save_captions_batch(
@@ -51,20 +56,20 @@ class TestCaptionStoreSaveFetch:
         )
         assert saved == 2
 
-        by_platform = await store.fetch_recent_by_platform("t1", platforms=["email", "telegram"])
+        by_platform = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email", "telegram"]))
         assert "email" in by_platform
         assert "telegram" in by_platform
         assert by_platform["email"] == ["Short caption"]
         assert by_platform["telegram"] == ["Longer telegram caption here"]
 
     async def test_fetch_by_platform_returns_empty_for_unknown(self, store: CaptionStore) -> None:
-        result = await store.fetch_recent_by_platform("t1", platforms=["instagram"])
+        result = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["instagram"]))
         assert result == {}
 
     async def test_fetch_by_platform_ordering_most_recent_first(self, store: CaptionStore) -> None:
         for i in range(5):
             await store.save_captions_batch(tenant="t1", captions_by_platform={"email": f"Caption {i}"})
-        by_platform = await store.fetch_recent_by_platform("t1", platforms=["email"], limit=5)
+        by_platform = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"], limit=5))
         assert by_platform["email"] == ["Caption 4", "Caption 3", "Caption 2", "Caption 1", "Caption 0"]
 
     async def test_fetch_by_platform_multi_platform_ordering(self, store: CaptionStore) -> None:
@@ -73,13 +78,13 @@ class TestCaptionStoreSaveFetch:
                 tenant="t1", captions_by_platform={"email": f"Email {i}", "telegram": f"Telegram {i}"}
             )
 
-        by_platform = await store.fetch_recent_by_platform("t1", platforms=["email"])
+        by_platform = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"]))
         assert by_platform["email"] == ["Email 2", "Email 1", "Email 0"]
 
     async def test_fetch_by_platform_respects_limit(self, store: CaptionStore) -> None:
         for i in range(10):
             await store.save_captions_batch(tenant="t1", captions_by_platform={"email": f"Cap {i}"})
-        by_platform = await store.fetch_recent_by_platform("t1", platforms=["email"], limit=3)
+        by_platform = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"], limit=3))
         assert len(by_platform["email"]) == 3
         assert by_platform["email"][0] == "Cap 9"
 
@@ -89,17 +94,10 @@ class TestCaptionStoreTenantIsolation:
         await store.save_captions_batch(tenant="t1", captions_by_platform={"email": "Tenant 1 caption"})
         await store.save_captions_batch(tenant="t2", captions_by_platform={"email": "Tenant 2 caption"})
 
-        t1 = await store.fetch_recent_by_platform("t1", platforms=["email"])
-        t2 = await store.fetch_recent_by_platform("t2", platforms=["email"])
+        t1 = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"]))
+        t2 = _captions(await store.fetch_recent_with_angles_by_platform("t2", platforms=["email"]))
         assert t1["email"] == ["Tenant 1 caption"]
         assert t2["email"] == ["Tenant 2 caption"]
-
-    async def test_fetch_by_platform_tenant_isolation(self, store: CaptionStore) -> None:
-        await store.save_captions_batch(tenant="t1", captions_by_platform={"email": "T1 email"})
-        await store.save_captions_batch(tenant="t2", captions_by_platform={"email": "T2 email"})
-
-        by_platform = await store.fetch_recent_by_platform("t1", platforms=["email"])
-        assert by_platform["email"] == ["T1 email"]
 
 
 class TestCaptionStoreMetadata:
@@ -176,7 +174,7 @@ class TestCaptionStoreRetention:
             await session.commit()
 
         await store.prune_expired("t1", retention_days=90, min_keep_per_platform=0)
-        remaining = await store.fetch_recent_by_platform("t1", platforms=["email"], limit=100)
+        remaining = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"], limit=100))
         assert len(remaining["email"]) == 3
         assert all(r.startswith("New") for r in remaining["email"])
 
@@ -196,7 +194,7 @@ class TestCaptionStoreRetention:
             await session.commit()
 
         await store.prune_expired("t1", retention_days=90, min_keep_per_platform=20)
-        remaining = await store.fetch_recent_by_platform("t1", platforms=["email"], limit=100)
+        remaining = _captions(await store.fetch_recent_with_angles_by_platform("t1", platforms=["email"], limit=100))
         assert len(remaining["email"]) == 10
 
     async def test_prune_zero_retention_is_noop(self, store: CaptionStore) -> None:
@@ -270,20 +268,6 @@ class TestMultiPromptPerPlatformHistory:
         assert '"Telegram cap 1"' in prompt
         assert "Recent openings to avoid" in prompt
 
-    def test_flat_list_history_still_works(self) -> None:
-        from publisher_v2.core.models import CaptionSpec, ImageAnalysis
-        from publisher_v2.services.ai import CaptionGeneratorOpenAI
-
-        analysis = ImageAnalysis(description="test", mood="moody", tags=["art"], nsfw=False)
-        specs = {"email": CaptionSpec(platform="email", style="intimate", max_length=240, hashtags="")}
-        history = ["Cap 1", "Cap 2"]
-
-        prompt, _ = CaptionGeneratorOpenAI._build_multi_prompt("Write captions:", analysis, specs, history)
-
-        # #82: flat legacy history also renders as constraints.
-        assert "openings to avoid" in prompt.lower()
-        assert '"Cap 1"' in prompt  # ≤6 words → opening equals the caption
-
     def test_none_history_produces_no_block(self) -> None:
         from publisher_v2.core.models import CaptionSpec, ImageAnalysis
         from publisher_v2.services.ai import CaptionGeneratorOpenAI
@@ -307,7 +291,6 @@ class TestWorkflowCaptionHistory:
         from publisher_v2.core.workflow import WorkflowOrchestrator
 
         mock_store = AsyncMock(spec=CaptionStore)
-        mock_store.fetch_recent_by_platform.return_value = {}
         mock_store.save_captions_batch.return_value = 2
 
         config = MagicMock()
@@ -417,8 +400,6 @@ class TestCaptionStoreAngles:
 
         assert result["email"] == [("Newer", "moment"), ("Legacy", None)]
         assert result["telegram"] == [("Newer T", "craft"), ("Legacy T", None)]
-        # The existing reader keeps its dict[str, list[str]] contract.
-        assert (await store.fetch_recent_by_platform("t1", platforms=["email"]))["email"] == ["Newer", "Legacy"]
 
 
 async def test_caption_history_holds_one_row_per_successfully_published_platform_only(

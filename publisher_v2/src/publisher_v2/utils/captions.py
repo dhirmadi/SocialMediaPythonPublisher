@@ -8,6 +8,16 @@ from typing import Any
 from publisher_v2.config.static_loader import get_static_config
 from publisher_v2.core.models import ImageAnalysis
 
+_HASHTAG_RE = re.compile(r"#\w+", re.UNICODE)
+
+# The base emoji character class shared with ``utils.caption_metrics``: arrows and
+# symbols, misc technical through dingbats, misc symbols and arrows, and the
+# pictograph planes. Callers compose their own class from it (bracket-less, so it
+# can be dropped into a larger ``[...]``).
+EMOJI_BASE_CHARS = "\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\U0001f000-\U0001faff"
+# Variation selectors U+FE00-U+FE0F.
+EMOJI_VARIATION_SELECTORS = "\ufe00-\ufe0f"
+
 
 def normalize_generated_hashtags(text: str, max_count: int = 30) -> str:
     """Normalize AI-generated hashtags inside ``text`` (PUB-028).
@@ -28,7 +38,7 @@ def normalize_generated_hashtags(text: str, max_count: int = 30) -> str:
         seen[lower] = lower
         return lower
 
-    out = re.sub(r"#\w+", _replace, text)
+    out = _HASHTAG_RE.sub(_replace, text)
     # Collapse the whitespace gaps left by removed duplicates / overflow tokens.
     out = re.sub(r"[ \t]{2,}", " ", out)
     return out.rstrip()
@@ -59,19 +69,49 @@ _MAX_LEN = {
 }
 
 
-def _trim_to_length(text: str, max_len: int) -> str:
-    if len(text) <= max_len:
+def smart_truncate(text: str, max_length: int, ellipsis: str = "…") -> str:
+    """Truncate text to max_length while respecting word boundaries.
+
+    Tries to cut at sentence end (. ! ?) first, then at word boundary.
+    A sentence-end cut needs no ellipsis — the text ends where a sentence does.
+    A word-boundary cut appends one, and only that path reserves room for it.
+    """
+    if len(text) <= max_length:
         return text
-    # Favor keeping full hashtags at the end; truncate before trailing hashtags if possible
-    parts = re.split(r"(\s#)", text)
-    base = parts[0]
-    if len(base) + 1 <= max_len:
-        return (base[: max_len - 1]).rstrip() + "…"
-    return text[: max_len - 1].rstrip() + "…"
+
+    # #138: a cut at a sentence end needs no ellipsis, so search the full budget
+    # for one first (a sentence end is followed by a space in the original text).
+    for i in range(max_length - 1, -1, -1):
+        if text[i] in ".!?" and (i + 1 >= len(text) or text[i + 1] == " "):
+            return text[: i + 1]
+
+    # Leave room for ellipsis
+    target_len = max_length - len(ellipsis)
+    if target_len <= 0:
+        return ellipsis[:max_length]
+
+    truncated = text[:target_len]
+
+    # Fall back to word boundary - find last space
+    last_space = truncated.rfind(" ")
+    if last_space > 0:
+        return truncated[:last_space].rstrip(".,;:!?-") + ellipsis
+
+    # No good boundary found, just cut
+    return truncated.rstrip() + ellipsis
+
+
+def platform_caption_limit(platform: str) -> int:
+    """The hard caption length for ``platform`` from static config (unknown platforms use generic)."""
+    p = platform.lower()
+    limits = get_static_config().platform_limits
+    spec = getattr(limits, p) if p in type(limits).model_fields else limits.generic
+    key = p if p in _MAX_LEN else "generic"
+    return spec.max_caption_length or _MAX_LEN[key]
 
 
 def _limit_instagram_hashtags(text: str, max_hashtags: int) -> str:
-    hashtags = re.findall(r"#\w+", text)
+    hashtags = _HASHTAG_RE.findall(text)
     if len(hashtags) <= max_hashtags:
         return text
     # Keep the first N, remove extras
@@ -80,7 +120,7 @@ def _limit_instagram_hashtags(text: str, max_hashtags: int) -> str:
     def repl(m):
         return m.group(0) if m.group(0) in keep else ""
 
-    text = re.sub(r"#\w+", repl, text)
+    text = _HASHTAG_RE.sub(repl, text)
     # Normalize spaces
     return re.sub(r"\s{2,}", " ", text).strip()
 
@@ -115,8 +155,8 @@ def format_caption(platform: str, caption: str, smart_hashtags: bool = False) ->
     Instagram caps the hashtag count; email (the FetLife path) strips hashtags
     entirely and normalizes punctuation; Telegram is left as-is. Any unknown
     platform falls back to the generic limits. The result is trimmed to the
-    platform maximum, with an ellipsis added and whole trailing hashtags kept
-    where possible.
+    platform maximum by ``smart_truncate`` (a sentence end, else a word boundary
+    plus an ellipsis); the limit wins over keeping trailing hashtags (#281).
 
     Args:
         platform: Platform name, matched case-insensitively.
@@ -125,19 +165,8 @@ def format_caption(platform: str, caption: str, smart_hashtags: bool = False) ->
             no-op for email, which strips hashtags anyway.
     """
     p = platform.lower()
-    static_limits = get_static_config().platform_limits
-    if p == "instagram":
-        max_len = static_limits.instagram.max_caption_length or _MAX_LEN["instagram"]
-        max_hashtags = static_limits.instagram.max_hashtags or 30
-    elif p == "telegram":
-        max_len = static_limits.telegram.max_caption_length or _MAX_LEN["telegram"]
-        max_hashtags = None
-    elif p == "email":
-        max_len = static_limits.email.max_caption_length or _MAX_LEN["email"]
-        max_hashtags = None
-    else:
-        max_len = static_limits.generic.max_caption_length or _MAX_LEN["generic"]
-        max_hashtags = None
+    max_len = platform_caption_limit(p)
+    max_hashtags = (get_static_config().platform_limits.instagram.max_hashtags or 30) if p == "instagram" else None
     formatted = caption.strip()
     # PUB-028: clean AI-generated hashtags before platform-specific processing.
     # Email strips all hashtags below, so the normalization is a no-op there.
@@ -147,11 +176,12 @@ def format_caption(platform: str, caption: str, smart_hashtags: bool = False) ->
         formatted = _limit_instagram_hashtags(formatted, max_hashtags or 30)
     elif p == "email":
         # FetLife email path: strip all hashtags entirely
-        formatted = re.sub(r"#\w+", "", formatted)
+        formatted = _HASHTAG_RE.sub("", formatted)
         formatted = _sanitize_for_fetlife(formatted)
     # Telegram can keep as-is (supports 4096 chars)
-    formatted = _trim_to_length(formatted, max_len)
-    return formatted
+    # #281: the hard limit wins over keeping trailing hashtags.
+    # FetLife is ASCII-only, so the email path truncates with "..." not "…".
+    return smart_truncate(formatted, max_len, ellipsis="..." if p == "email" else "…")
 
 
 def build_metadata_phase1(
@@ -189,43 +219,44 @@ def build_metadata_phase1(
     return meta
 
 
+# (ImageAnalysis field, sidecar key) in output order. ``materials`` and
+# ``art_style`` are the sidecar names for ``clothing_or_accessories`` and ``style``.
+_PHASE2_TEXT_FIELDS: tuple[tuple[str, str], ...] = (
+    ("subject", "subject"),
+    ("lighting", "lighting"),
+    ("pose", "pose"),
+    ("camera", "camera"),
+    ("clothing_or_accessories", "materials"),
+    ("style", "art_style"),
+    ("composition", "composition"),
+    ("background", "background"),
+    ("color_palette", "color_palette"),
+    ("alt_text", "alt_text"),
+    ("distinctive_detail", "distinctive_detail"),
+)
+_PHASE2_LIST_FIELDS: tuple[tuple[str, str], ...] = (
+    ("tags", "tags"),
+    ("aesthetic_terms", "aesthetic_terms"),
+    ("safety_labels", "moderation"),
+)
+
+
+def _clean_str_list(values: list[Any]) -> list[str]:
+    """Stringify ``values``, dropping entries that are blank once stripped."""
+    return [str(v) for v in values if str(v).strip()]
+
+
 def build_metadata_phase2(analysis: ImageAnalysis) -> dict[str, Any]:
     """Build Phase 2 contextual metadata from analysis. Omit missing/empty fields."""
     meta: dict[str, Any] = {}
-    # Core contextual fields
-    if getattr(analysis, "subject", None):
-        meta["subject"] = analysis.subject
-    if getattr(analysis, "lighting", None):
-        meta["lighting"] = analysis.lighting
-    if getattr(analysis, "pose", None):
-        meta["pose"] = analysis.pose
-    if getattr(analysis, "camera", None):
-        meta["camera"] = analysis.camera
-    # Map 'materials' to clothing_or_accessories if present
-    materials = getattr(analysis, "clothing_or_accessories", None)
-    if materials:
-        meta["materials"] = materials
-    if getattr(analysis, "style", None):
-        meta["art_style"] = analysis.style
-    if getattr(analysis, "composition", None):
-        meta["composition"] = analysis.composition
-    if getattr(analysis, "background", None):
-        meta["background"] = analysis.background
-    if getattr(analysis, "color_palette", None):
-        meta["color_palette"] = analysis.color_palette
-    if getattr(analysis, "alt_text", None):
-        meta["alt_text"] = analysis.alt_text
-    if getattr(analysis, "distinctive_detail", None):
-        meta["distinctive_detail"] = analysis.distinctive_detail
-    tags = getattr(analysis, "tags", None) or []
-    if isinstance(tags, list) and tags:
-        meta["tags"] = [str(t) for t in tags if str(t).strip()]
-    aesthetics = getattr(analysis, "aesthetic_terms", None) or []
-    if isinstance(aesthetics, list) and aesthetics:
-        meta["aesthetic_terms"] = [str(a) for a in aesthetics if str(a).strip()]
-    moderation = getattr(analysis, "safety_labels", None) or []
-    if isinstance(moderation, list) and moderation:
-        meta["moderation"] = [str(m) for m in moderation if str(m).strip()]
+    for field, key in _PHASE2_TEXT_FIELDS:
+        value = getattr(analysis, field, None)
+        if value:
+            meta[key] = value
+    for field, key in _PHASE2_LIST_FIELDS:
+        values = getattr(analysis, field, None) or []
+        if isinstance(values, list) and values:
+            meta[key] = _clean_str_list(values)
     return meta
 
 
@@ -394,9 +425,8 @@ def caption_opening(caption: str, word_count: int = 6) -> str:
     return " ".join(caption.strip().strip('"').split()[:word_count])
 
 
-_HASHTAG_RE = re.compile(r"#\w+", re.UNICODE)
 # Pictographs, dingbats, arrows/symbols blocks, variation selectors and the ZWJ.
-_EMOJI_RE = re.compile("[\u2190-\u21ff\u2300-\u27bf\u2b00-\u2bff\ufe00-\ufe0f\u200d\U0001f000-\U0001faff]")
+_EMOJI_RE = re.compile(f"[{EMOJI_BASE_CHARS}{EMOJI_VARIATION_SELECTORS}\u200d]")
 
 
 def strip_emoji_and_hashtags(caption: str) -> str:

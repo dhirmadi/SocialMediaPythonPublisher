@@ -179,3 +179,28 @@ async def test_non_json_vision_reply_retried_once_at_same_resolution_before_fall
     assert set(per_call.values()) == {2}, f"attempts per vision call before fallback: {list(per_call.values())}"
     # The fallback path still produced an analysis.
     assert analysis.description
+
+
+# ---------- PUB-084 AC18 (#281): a TypeError from the SDK is a bug, not a retry signal ----------
+
+
+async def test_vision_completion_type_error_is_not_retried(fake_openai) -> None:
+    """``_create_vision_completion`` used to re-issue the request without ``max_tokens`` on any
+    ``TypeError`` to suit test doubles; that hides real SDK bugs. The error must propagate
+    (``analyze`` wraps it in ``AIServiceError``, chained) after exactly one request."""
+    from caption_pipeline_fakes import default_vision_payload, openai_config
+
+    fake = fake_openai(script=[TypeError("unexpected keyword argument"), default_vision_payload(1, {})])
+    analyzer = VisionAnalyzerOpenAI(openai_config())
+
+    with pytest.raises((TypeError, AIServiceError)) as excinfo:
+        await analyzer.analyze("http://tmp-url")
+
+    chain: list[BaseException] = []
+    err: BaseException | None = excinfo.value
+    while err is not None:
+        chain.append(err)
+        err = err.__cause__
+    assert any(isinstance(e, TypeError) for e in chain), chain
+    assert len(fake.calls) == 1, f"expected one vision request, got {len(fake.calls)}"
+    assert fake.calls[0].get("max_tokens") == analyzer.max_completion_tokens

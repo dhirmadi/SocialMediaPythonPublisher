@@ -707,7 +707,6 @@
       <h1 id="app-title">{{ web_ui_text.header_title or "Publisher V2 Web" }}</h1>
     </div>
     <div class="header-right">
-      <span id="env-indicator" class="status"></span>
       <a id="btn-admin" class="secondary" href="#" style="text-decoration: none; display: inline-block; text-align: center; color: #e5e7eb; padding: 0.75rem 1rem;">
         {{ web_ui_text.buttons.admin or "Admin" }}
       </a>
@@ -905,7 +904,6 @@
     const imagePlaceholder = document.getElementById("image-placeholder");
     const statusEl = document.getElementById("status");
     const detailsEl = document.getElementById("details");
-    const envIndicator = document.getElementById("env-indicator");
     const captionEditorsEl = document.getElementById("caption-editors");
     const btnNext = document.getElementById("btn-next");
     const btnFullSize = document.getElementById("btn-fullsize");
@@ -995,7 +993,8 @@
     let reviewIndex = -1;
 
     let isAdmin = false;
-    let featureConfig = {
+    // Used until /api/config/features answers, when it fails, and for any flag it leaves out.
+    const DEFAULT_FEATURES = Object.freeze({
       analyze_caption_enabled: true,
       publish_enabled: true,
       keep_enabled: true,
@@ -1005,7 +1004,8 @@
       library_enabled: false,
       auth_mode: "none",
       storage_provider: "dropbox",
-    };
+    });
+    let featureConfig = { ...DEFAULT_FEATURES };
 
     function isManagedStorage() {
       return featureConfig.storage_provider === "managed";
@@ -1075,13 +1075,21 @@
       }
     }
 
+    // GET /api/images/list -> filenames, or null when the server refuses. Callers keep their own
+    // copies: reviewList is edited as images are curated, browseImageList is a TTL cache.
+    async function fetchImageList() {
+      const res = await fetch("/api/images/list");
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.filenames || [];
+    }
+
     async function ensureReviewList() {
       if (reviewList.length > 0) return;
       try {
-        const res = await fetch("/api/images/list");
-        if (!res.ok) return;
-        const data = await res.json();
-        reviewList = data.filenames || data.images || [];
+        const filenames = await fetchImageList();
+        if (!filenames) return;
+        reviewList = filenames;
         if (currentFilename) {
           const idx = reviewList.indexOf(currentFilename);
           if (idx !== -1) reviewIndex = idx;
@@ -1403,47 +1411,22 @@
     }
 
     async function fetchFeatureConfig() {
-      const fallback = {
-        analyze_caption_enabled: true,
-        publish_enabled: true,
-        keep_enabled: true,
-        remove_enabled: true,
-        delete_enabled: false,
-        auto_view_enabled: false,
-        library_enabled: false,
-        auth_mode: "none",
-        storage_provider: "dropbox",
-      };
       try {
         const res = await fetch("/api/config/features");
         if (!res.ok) {
           console.warn("Failed to fetch feature config, defaulting to all enabled");
-          return fallback;
+          return { ...DEFAULT_FEATURES };
         }
         const data = await res.json();
-        return {
-          analyze_caption_enabled: data.analyze_caption_enabled ?? true,
-          publish_enabled: data.publish_enabled ?? true,
-          keep_enabled: data.keep_enabled ?? true,
-          remove_enabled: data.remove_enabled ?? true,
-          delete_enabled: data.delete_enabled ?? false,
-          auto_view_enabled: data.auto_view_enabled ?? false,
-          library_enabled: data.library_enabled ?? false,
-          auth_mode: data.auth_mode ?? "none",
-          storage_provider: data.storage_provider ?? "dropbox",
-        };
+        // Only the known flags; a missing or null one keeps its default.
+        return Object.fromEntries(Object.entries(DEFAULT_FEATURES).map(([key, value]) => [key, data[key] ?? value]));
       } catch (error) {
         console.error("Error fetching feature config:", error);
-        return fallback;
+        return { ...DEFAULT_FEATURES };
       }
     }
 
     function updateAdminUI() {
-      // Hide the env indicator (no longer needed)
-      if (envIndicator) {
-        envIndicator.classList.add("hidden");
-      }
-
       // #137: Auth0 is the only admin login.
       const authConfigured = featureConfig.auth_mode === "auth0";
 
@@ -1553,32 +1536,53 @@
       updateAdminState(admin);
     }
 
-    async function apiAnalyze(forceRefresh = false) {
+    // POST /api/images/<current>/<action> for the admin image actions. opts: busy (activity while it
+    // runs), gerund (for the generic error), expired (401/403 message), query (URL suffix),
+    // prepare (async, runs before the request; returns the JSON body, or false to stop).
+    // onOk(data) handles the success response.
+    async function postImageAction(action, opts, onOk) {
       if (!currentFilename) {
         setActivity("No image selected.");
         return;
       }
       if (!isAdmin) {
-        setActivity("Admin mode required to analyze.");
+        setActivity(`Admin mode required to ${action}.`);
         return;
       }
-      setActivity(forceRefresh ? "Regenerating caption…" : "Analyzing image…");
+      const body = opts.prepare ? await opts.prepare() : undefined;
+      if (body === false) return;
+      setActivity(opts.busy);
       disableButtons(true);
       try {
-        const suffix = forceRefresh ? "?force_refresh=true" : "";
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/analyze${suffix}`, {
+        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/${action}${opts.query || ""}`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" }
+          headers: { "Content-Type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
           if (res.status === 401 || res.status === 403) {
             updateAdminState(false);
-            throw new Error("Admin session expired, please log in again.");
+            throw new Error(opts.expired || "Admin session expired, please log in again.");
           }
-          throw new Error(err.detail || err.error || "Failed to analyze image");
+          throw new Error(err.detail || err.error || `Failed to ${action} image`);
         }
-        const data = await res.json();
+        await onOk(await res.json());
+      } catch (e) {
+        console.error(e);
+        setActivity(e.message || `Error ${opts.gerund} image.`);
+      } finally {
+        disableButtons(false);
+      }
+    }
+
+    function apiAnalyze(forceRefresh = false) {
+      const opts = {
+        busy: forceRefresh ? "Regenerating caption…" : "Analyzing image…",
+        gerund: "analyzing",
+        query: forceRefresh ? "?force_refresh=true" : "",
+      };
+      return postImageAction("analyze", opts, (data) => {
         // #80: never fall back to sd_caption — it's an SD prompt, not a caption.
         setCaptions(data.platform_captions, data.platform_limits, data.caption);
         setCachedState(Boolean(data.cached));
@@ -1590,13 +1594,7 @@
         };
         setDetails(`<div><strong>Analysis:</strong></div><pre><code>${escapeHtml(JSON.stringify(meta, null, 2))}</code></pre>`);
         setActivity(data.cached ? "Caption served from cache." : "Analysis complete; caption generated.");
-      } catch (e) {
-        console.error(e);
-        const msg = e.message || "Error analyzing image.";
-        setActivity(msg);
-      } finally {
-        disableButtons(false);
-      }
+      });
     }
 
     function getPaginationRange(current, total) {
@@ -1633,12 +1631,11 @@
       if (!forceRefresh && browseImageList && (now - browseListTimestamp) <= BROWSE_CACHE_TTL) {
         return;
       }
-      const res = await fetch("/api/images/list");
-      if (!res.ok) {
+      const filenames = await fetchImageList();
+      if (!filenames) {
         throw new Error("Failed to load image list.");
       }
-      const data = await res.json();
-      browseImageList = data.filenames || data.images || [];
+      browseImageList = filenames;
       browseListTimestamp = now;
     }
 
@@ -1739,7 +1736,7 @@
           del.textContent = "×";
           del.addEventListener("click", (e) => {
             e.stopPropagation();
-            handleGridDelete(fname, item);
+            handleGridDelete(fname);
           });
           item.appendChild(del);
         }
@@ -2149,27 +2146,41 @@
       }
     }
 
-    async function handleGridDelete(filename, itemEl) {
-      if (!confirm(`Delete ${filename}?`)) return;
+    // DELETE one library object. Never throws: {ok: true} or {ok: false, error: <message>}.
+    async function deleteLibraryObject(name) {
       try {
-        const res = await fetch(`/api/library/objects/${encodeURIComponent(filename)}`, { method: "DELETE" });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          showToast(err.detail || "Delete failed", "error");
-          return;
-        }
-        showToast(`Deleted: ${filename}`, "success");
-        if (itemEl && itemEl.parentNode) itemEl.parentNode.removeChild(itemEl);
-        // Update local state
-        const idx = gridImages.indexOf(filename);
-        if (idx !== -1) {
-          gridImages.splice(idx, 1);
-          if (gridTotal > 0) gridTotal--;
-        }
-        updateResultCount();
+        const res = await fetch(`/api/library/objects/${encodeURIComponent(name)}`, { method: "DELETE" });
+        if (res.ok) return { ok: true, error: null };
+        const err = await res.json().catch(() => ({}));
+        return { ok: false, error: err.detail || `Delete failed (${res.status})` };
       } catch (err) {
-        showToast("Delete error: " + err.message, "error");
+        return { ok: false, error: err.message || "Network error" };
       }
+    }
+
+    // Drop a deleted object from the grid's state, the selection and the DOM.
+    function removeFromGrid(name) {
+      const idx = gridImages.indexOf(name);
+      if (idx !== -1) {
+        gridImages.splice(idx, 1);
+        if (gridTotal > 0) gridTotal--;
+      }
+      selectedFiles.delete(name);
+      const el = gridContainer.querySelector(`[data-filename="${CSS.escape(name)}"]`);
+      if (el) el.remove();
+    }
+
+    async function handleGridDelete(filename) {
+      if (!confirm(`Delete ${filename}?`)) return;
+      const result = await deleteLibraryObject(filename);
+      if (!result.ok) {
+        showToast(result.error, "error");
+        return;
+      }
+      showToast(`Deleted: ${filename}`, "success");
+      removeFromGrid(filename);
+      updateSelectionUI();
+      updateResultCount();
     }
 
     // ---------------------------------------------------------------
@@ -2296,43 +2307,8 @@
         status: "queued",  // queued | deleting | done | failed
         error: null,
       }));
-      deleteQueueProcessing = true;
       deleteQueueEl.classList.remove("hidden");
-      deleteQueueDismiss.classList.add("hidden");
-      renderDeleteQueue();
-
-      // Process sequentially
-      for (const entry of deleteQueue) {
-        if (entry.status !== "queued") continue;
-        entry.status = "deleting";
-        renderDeleteQueue();
-        try {
-          const res = await fetch(`/api/library/objects/${encodeURIComponent(entry.name)}`, { method: "DELETE" });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            entry.status = "failed";
-            entry.error = err.detail || `Delete failed (${res.status})`;
-          } else {
-            entry.status = "done";
-            const idx = gridImages.indexOf(entry.name);
-            if (idx !== -1) {
-              gridImages.splice(idx, 1);
-              if (gridTotal > 0) gridTotal--;
-            }
-            selectedFiles.delete(entry.name);
-            // Remove from DOM via data-filename (O(1) lookup)
-            const el = gridContainer.querySelector(`[data-filename="${CSS.escape(entry.name)}"]`);
-            if (el) el.remove();
-          }
-        } catch (err) {
-          entry.status = "failed";
-          entry.error = err.message || "Network error";
-        }
-        renderDeleteQueue();
-      }
-
-      deleteQueueProcessing = false;
-      updateResultCount();
+      await processDeleteQueue();
 
       const failedEntries = deleteQueue.filter(e => e.status === "failed");
       if (failedEntries.length > 0) {
@@ -2378,36 +2354,24 @@
       entry.status = "queued";
       entry.error = null;
       renderDeleteQueue();
-      if (!deleteQueueProcessing) processDeleteRetries();
+      if (!deleteQueueProcessing) processDeleteQueue();
     }
 
-    async function processDeleteRetries() {
+    // Delete every queued entry in order; used by the bulk delete and by Retry.
+    async function processDeleteQueue() {
       deleteQueueProcessing = true;
       deleteQueueDismiss.classList.add("hidden");
       for (const entry of deleteQueue) {
         if (entry.status !== "queued") continue;
         entry.status = "deleting";
         renderDeleteQueue();
-        try {
-          const res = await fetch(`/api/library/objects/${encodeURIComponent(entry.name)}`, { method: "DELETE" });
-          if (!res.ok) {
-            const err = await res.json().catch(() => ({}));
-            entry.status = "failed";
-            entry.error = err.detail || `Delete failed (${res.status})`;
-          } else {
-            entry.status = "done";
-            const idx = gridImages.indexOf(entry.name);
-            if (idx !== -1) {
-              gridImages.splice(idx, 1);
-              if (gridTotal > 0) gridTotal--;
-            }
-            selectedFiles.delete(entry.name);
-            const el = gridContainer.querySelector(`[data-filename="${CSS.escape(entry.name)}"]`);
-            if (el) el.remove();
-          }
-        } catch (err) {
+        const result = await deleteLibraryObject(entry.name);
+        if (result.ok) {
+          entry.status = "done";
+          removeFromGrid(entry.name);
+        } else {
           entry.status = "failed";
-          entry.error = err.message || "Network error";
+          entry.error = result.error;
         }
         renderDeleteQueue();
       }
@@ -2486,16 +2450,8 @@
       });
     }
 
-    async function apiPublish() {
-      if (!currentFilename) {
-        setActivity("No image selected.");
-        return;
-      }
-      if (!isAdmin) {
-        setActivity("Admin mode required to publish.");
-        return;
-      }
-
+    // #147: the publish body, after the caption checks and the confirm dialog; false when stopped.
+    async function preparePublish() {
       const captions = collectCaptions();
       // #147: every editor still showing the legacy single caption, unedited —
       // send the legacy shape rather than a per-platform dict of identical text.
@@ -2512,38 +2468,24 @@
         // #147: never publish one platform's text to another; fill every caption or none.
         const names = missing.map((platform) => PLATFORM_LABELS[platform] || platform).join(", ");
         setActivity(`Write a caption for ${names}, or clear all captions to let AI write them.`);
-        return;
+        return false;
       }
 
       const confirmed = await showPublishConfirm(captions, isPlaceholder);
       if (!confirmed) {
         setActivity("Publish cancelled.");
-        return;
+        return false;
       }
+      return allLegacyUnedited
+        ? { caption: Object.values(captions)[0] }
+        : isPlaceholder
+          ? { caption: null }
+          : { captions };
+    }
 
-      setActivity("Publishing image\u2026");
-      disableButtons(true);
-      try {
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/publish`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(
-            allLegacyUnedited
-              ? { caption: Object.values(captions)[0] }
-              : isPlaceholder
-                ? { caption: null }
-                : { captions }
-          )
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (res.status === 401 || res.status === 403) {
-            updateAdminState(false);
-            throw new Error("Admin session expired, please log in again.");
-          }
-          throw new Error(err.detail || err.error || "Failed to publish image");
-        }
-        const data = await res.json();
+    function apiPublish() {
+      const opts = { busy: "Publishing image\u2026", gerund: "publishing", prepare: preparePublish };
+      return postImageAction("publish", opts, async (data) => {
         const results = JSON.stringify(data.results || {}, null, 2);
         if (data.any_success) {
           setActivity(`Publish complete${data.archived ? " and archived." : "."}`);
@@ -2553,136 +2495,55 @@
           setDetails(`<div><strong>Publish results:</strong></div><pre><code>${escapeHtml(results)}</code></pre>`);
           setActivity("Publish completed but no platforms reported success; see details.");
         }
-      } catch (e) {
-        console.error(e);
-        const msg = e.message || "Error publishing image.";
-        setActivity(msg);
-      } finally {
-        disableButtons(false);
-      }
+      });
     }
 
-    async function apiKeep() {
-      if (!currentFilename) {
-        setActivity("No image selected.");
-        return;
-      }
-      if (!isAdmin) {
-        setActivity("Admin mode required to keep.");
-        return;
-      }
-      setActivity("Keeping image…");
-      disableButtons(true);
-      try {
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/keep`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (res.status === 401 || res.status === 403) {
-            updateAdminState(false);
-            throw new Error("Admin session expired or keep disabled, please log in again.");
-          }
-          throw new Error(err.detail || err.error || "Failed to keep image");
-        }
-        const data = await res.json();
+    function apiKeep() {
+      const opts = {
+        busy: "Keeping image…",
+        gerund: "keeping",
+        expired: "Admin session expired or keep disabled, please log in again.",
+      };
+      return postImageAction("keep", opts, async (data) => {
         setActivity(`Moved to keep: ${data.filename} → ${data.destination_folder || "(configured keep folder)"}.`);
         await advanceAfterCurate();
-      } catch (e) {
-        console.error(e);
-        const msg = e.message || "Error keeping image.";
-        setActivity(msg);
-      } finally {
-        disableButtons(false);
-      }
+      });
     }
 
-    async function apiRemove() {
-      if (!currentFilename) {
-        setActivity("No image selected.");
-        return;
-      }
-      if (!isAdmin) {
-        setActivity("Admin mode required to remove.");
-        return;
-      }
-      setActivity("Removing image…");
-      disableButtons(true);
-      try {
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/remove`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (res.status === 401 || res.status === 403) {
-            updateAdminState(false);
-            throw new Error("Admin session expired or remove disabled, please log in again.");
-          }
-          throw new Error(err.detail || err.error || "Failed to remove image");
-        }
-        const data = await res.json();
+    function apiRemove() {
+      const opts = {
+        busy: "Removing image…",
+        gerund: "removing",
+        expired: "Admin session expired or remove disabled, please log in again.",
+      };
+      return postImageAction("remove", opts, async (data) => {
         setActivity(
           `Moved to remove folder (not deleted): ${data.filename} → ${data.destination_folder || "(configured remove folder)"}`
         );
         await advanceAfterCurate();
-      } catch (e) {
-        console.error(e);
-        const msg = e.message || "Error removing image.";
-        setActivity(msg);
-      } finally {
-        disableButtons(false);
-      }
+      });
     }
 
-    async function apiDelete() {
-      if (!currentFilename) {
-        setActivity("No image selected.");
-        return;
-      }
-      if (!isAdmin) {
-        setActivity("Admin mode required to delete.");
-        return;
-      }
-
-      // CONFIRMATION DIALOG - CRITICAL FOR SAFETY
-      const confirmed = confirm(
-        `⚠️ WARNING: This will PERMANENTLY DELETE the image from Dropbox.\n\n` +
-        `File: ${currentFilename}\n\n` +
-        `This action CANNOT be undone.\n\n` +
-        `Are you absolutely sure?`
-      );
-
-      if (!confirmed) {
-        return;  // User cancelled
-      }
-
-      setActivity("Deleting image permanently…");
-      disableButtons(true);
-      try {
-        const res = await fetch(`/api/images/${encodeURIComponent(currentFilename)}/delete`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-        });
-        if (!res.ok) {
-          const err = await res.json().catch(() => ({}));
-          if (res.status === 401 || res.status === 403) {
-            updateAdminState(false);
-            throw new Error("Admin session expired or delete disabled, please log in again.");
-          }
-          throw new Error(err.detail || err.error || "Failed to delete image");
-        }
-        const data = await res.json();
+    function apiDelete() {
+      const opts = {
+        busy: "Deleting image permanently…",
+        gerund: "deleting",
+        expired: "Admin session expired or delete disabled, please log in again.",
+        // CONFIRMATION DIALOG - CRITICAL FOR SAFETY. No body; false stops (user cancelled).
+        prepare: async () => {
+          const confirmed = confirm(
+            `⚠️ WARNING: This will PERMANENTLY DELETE the image from Dropbox.\n\n` +
+            `File: ${currentFilename}\n\n` +
+            `This action CANNOT be undone.\n\n` +
+            `Are you absolutely sure?`
+          );
+          return confirmed ? undefined : false;
+        },
+      };
+      return postImageAction("delete", opts, async (data) => {
         setActivity(`Permanently deleted: ${data.filename}`);
         await advanceAfterCurate();
-      } catch (e) {
-        console.error(e);
-        const msg = e.message || "Error deleting image.";
-        setActivity(msg);
-      } finally {
-        disableButtons(false);
-      }
+      });
     }
 
     function initAdminControls() {
