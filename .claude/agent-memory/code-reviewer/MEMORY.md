@@ -28,3 +28,4 @@
 - [e2e/playwright review traps](e2e-playwright-review-traps.md) - PUB-084 wave 3: disabled button hides double listeners, AC10 guard misses JS statement pins, sandbox mutation recipe
 - [Dead-file guard review traps](dead-file-guard-review-traps.md) - PUB-084 wave 4: disk-vs-index deleted-file guards, untracked servers.txt in main checkout
 - [Caption limit dedup review traps](caption-limit-dedup-review-traps.md) - PUB-084 wave 5: HEAD-vs-new prompt dump recipe, sandbox python -c limits, grid delete selection UI residue
+- [Secret-scan docs review traps](secret-scan-docs-review-traps.md) - PUB-085: GitGuardian always skipped (no key), \bcommit matches pre-commit, two-gates undercount
