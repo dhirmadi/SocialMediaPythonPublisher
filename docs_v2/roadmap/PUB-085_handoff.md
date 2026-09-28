@@ -17,7 +17,13 @@ Two parts, one PR each, from worktree `../SocialMediaPythonPublisher-pub084` on 
 | AC3 | `test_page_size_is_remembered_across_reloads` | `e2e/test_ui_behaviours.py` |
 | AC3 | `test_page_size_control_is_locked_while_uploading` | `e2e/test_ui_behaviours.py` |
 | AC3 | `test_rate_limited_upload_waits_and_retries` | `e2e/test_ui_behaviours.py` |
-| AC3 | `test_enqueuing_clears_completed_queue_entries` | `e2e/test_ui_behaviours.py` |
+| AC3, AC6 | `test_enqueuing_clears_finished_queue_entries` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_enqueuing_mid_upload_keeps_in_flight_entries` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_enqueuing_mid_upload_after_a_failure_sends_every_file` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_auto_hide_never_drops_a_batch_enqueued_after_a_clean_one` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_auto_hide_never_drops_a_batch_picked_during_the_grid_refresh` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_auto_hide_never_drops_a_batch_after_two_overlapping_clean_ones` | `e2e/test_ui_behaviours.py` |
+| AC6 | `test_picking_only_rejected_files_leaves_the_queue_untouched` | `e2e/test_ui_behaviours.py` |
 | AC3 | `test_escape_leaves_multi_select_and_items_expose_aria` | `e2e/test_ui_behaviours.py` |
 | AC3 | `test_leaving_the_page_while_uploading_is_guarded` | `e2e/test_ui_behaviours.py` |
 | AC3 | `test_selecting_a_grid_item_while_uploading_asks_first` | `e2e/test_ui_behaviours.py` |

@@ -44,13 +44,13 @@ Test-only; `index.html` unchanged. All ten behaviours passed on the current page
 
 ### Acceptance Criteria
 
-- [x] AC3 — each #305 behaviour pinned (tests: `test_back_to_grid_opens_the_page_holding_the_current_image`, `test_back_to_grid_falls_back_when_the_page_is_empty`, `test_page_size_is_remembered_across_reloads`, `test_page_size_control_is_locked_while_uploading`, `test_rate_limited_upload_waits_and_retries`, `test_enqueuing_clears_completed_queue_entries`, `test_escape_leaves_multi_select_and_items_expose_aria`, `test_leaving_the_page_while_uploading_is_guarded`, `test_selecting_a_grid_item_while_uploading_asks_first`, `test_password_auth_mode_never_shows_a_password_prompt`). None dropped.
+- [x] AC3 — each #305 behaviour pinned (tests: `test_back_to_grid_opens_the_page_holding_the_current_image`, `test_back_to_grid_falls_back_when_the_page_is_empty`, `test_page_size_is_remembered_across_reloads`, `test_page_size_control_is_locked_while_uploading`, `test_rate_limited_upload_waits_and_retries`, `test_enqueuing_clears_finished_queue_entries`, `test_escape_leaves_multi_select_and_items_expose_aria`, `test_leaving_the_page_while_uploading_is_guarded`, `test_selecting_a_grid_item_while_uploading_asks_first`, `test_password_auth_mode_never_shows_a_password_prompt`). None dropped.
 - [x] AC4 — the default run still deselects `e2e` (test: `test_default_run_deselects_e2e`).
 
 ### Notes
 
 - Two flows shape one response in the browser with `page.route`, as their docstrings say. The 429: the real limiter's 60 s window is longer than the client's 5 s backoff, so every retry would get another 429; only the first upload is answered in the browser, and the retry reaches the real app. The `password` auth mode: the app only reports `auth0` or `none`, so only that field of the real response is rewritten.
-- `test_enqueuing_clears_completed_queue_entries` pins current behaviour: failed entries stay when new files are enqueued. Whether they should also clear is an open owner question on #305.
+- Enqueuing new files originally kept failed entries (pinned in part B). The owner ruled that a defect on 2026-09-28 (AC6): enqueuing now clears every finished entry, failed as well as completed, and keeps entries still in flight.
 - The password flow detects a navigating hidden button in under a second: it records navigations and uses a same-page fetch as a barrier, instead of racing the URL.
 
 ### Test Results
@@ -63,4 +63,47 @@ Test-only; `index.html` unchanged. All ten behaviours passed on the current page
 
 ### Linked Issues
 
-- #305 — closed by the part B PR
+- #305 — closed by the part B PR (#314)
+
+## Upload queue fix (AC6, owner decision 2026-09-28)
+
+Part B pinned that failed upload entries survived when new files were enqueued; the owner ruled that a defect. Fixing it exposed that the queue also dropped uploads in several concurrent cases, each now pinned by a test that failed on the old page.
+
+### Files Changed
+
+- `publisher_v2/src/publisher_v2/web/templates/index.html`:
+  - `enqueueFiles` validates first. A pick the client rejects entirely changes nothing. Otherwise it cancels any pending auto-hide, removes finished (done or failed) entries in place, and appends the new batch. It keeps anything still queued, uploading or waiting to retry, and keeps the array object a running loop holds.
+  - `processUploadQueue` re-reads the queue until nothing is queued. `for...of` skipped a file once entries were removed in place.
+  - The auto-hide timer is armed only when the batch was clean and no other loop is running, and only through `scheduleUploadAutoHide()`. It is cancelled only through `cancelUploadAutoHide()`, so at most one auto-hide is ever pending.
+  - The callback's guard is kept as defence in depth and documented as unable to fire.
+  - `dismissUploadQueue` no longer reassigns the array.
+- `publisher_v2/tests/e2e/test_ui_behaviours.py`: the old queue test is renamed and re-expected as a spec change, and six AC6 flows exist in total.
+
+### Acceptance Criteria
+
+- [x] AC6 is covered by these tests:
+  - `test_enqueuing_clears_finished_queue_entries`
+  - `test_enqueuing_mid_upload_keeps_in_flight_entries`
+  - `test_enqueuing_mid_upload_after_a_failure_sends_every_file`
+  - `test_auto_hide_never_drops_a_batch_enqueued_after_a_clean_one`
+  - `test_auto_hide_never_drops_a_batch_picked_during_the_grid_refresh`
+  - `test_auto_hide_never_drops_a_batch_after_two_overlapping_clean_ones`
+  - `test_picking_only_rejected_files_leaves_the_queue_untouched`
+
+### Defects found along the way (all on `main` before this change)
+
+- Picking files mid-upload kept only failed entries, so the in-flight upload vanished from the queue.
+- Removing an earlier entry during a run made the loop skip a later file, which was never sent.
+- A clean batch's 5 s auto-hide could empty the queue under a second batch and stop it.
+- A timer armed by a loop still in its grid refresh, or orphaned by two overlapping clean batches, could later hide a failed entry and its Retry button.
+- A pick of only rejected files left stale rows with dead Retry buttons.
+
+### Verification
+
+- The seven AC6 tests pass across many random-order runs. The full e2e suite (27) and the default suite (2089) pass.
+- Each fix step has a template mutant that fails the test it targets. All AC6 tests fail on the `main` template.
+
+### Subagent Verdicts
+
+- `code-reviewer`: BLOCKED twice, then PASS. B1 was the grid-refresh arming race and B2 the orphaned timer; the reviewer found both by probe. W2 was the rejected-only pick. The fixes and tests above resolve them. The reviewer also re-ran the mirror order of B2.
+- `security-auditor`: not run. The change is client-side queue logic with no auth or CSRF change; the XHR `X-Requested-With` header is unchanged.

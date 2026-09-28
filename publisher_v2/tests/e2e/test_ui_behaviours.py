@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import json
 import re
+from collections import Counter
+from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
@@ -33,6 +35,8 @@ UPLOAD_URL = "/api/library/upload"
 GRID_TILES = "#grid-container [data-filename]"
 # The client's first 429 backoff (RETRY_BACKOFF_MS in index.html).
 RETRY_BACKOFF_MS = 5_000
+# How long an all-done upload queue stays on screen (AUTO_HIDE_DELAY_MS in index.html).
+AUTO_HIDE_DELAY_MS = 5_000
 # Short, so a missing dialog or close fails in seconds rather than after the 30 s default.
 _EVENT_TIMEOUT_MS = 5_000
 
@@ -238,13 +242,21 @@ def test_rate_limited_upload_waits_and_retries(live_app: LiveApp, page: Page) ->
     assert image_key("delta.jpg") in live_app.s3.objects
 
 
-def test_enqueuing_clears_completed_queue_entries(admin_page: Page, live_app: LiveApp) -> None:
-    """GH-60: picking new files drops the finished entries of earlier batches; failed ones stay for Retry.
+def test_enqueuing_clears_finished_queue_entries(live_app: LiveApp, page: Page) -> None:
+    """GH-60, PUB-085 AC6: picking new files drops every finished entry, so the queue shows only the new batch.
+
+    Spec change (owner decision 2026-09-28): this flow first pinned that a failed entry survived the
+    next pick, keeping its Retry button. The owner ruled that a defect: completed and failed entries
+    are both cleared, and the summary counts only the new batch.
 
     The failure is the real app's: alpha.jpg already exists, so its upload is refused with 409.
     A batch with a failure never auto-hides, so the queue is still on screen for the second pick.
+    The second batch succeeds, which arms the auto-hide timer; the page clock is paused before that
+    pick so the timer cannot empty the queue under the assertions, then jumped to show it firing.
     """
-    page = admin_page
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    queue = page.locator("#upload-queue")
     names = page.locator("#upload-queue-list .uq-name")
     summary = page.locator("#upload-queue-summary")
     open_grid(page)
@@ -252,14 +264,437 @@ def test_enqueuing_clears_completed_queue_entries(admin_page: Page, live_app: Li
     _upload(page, "delta.jpg", "alpha.jpg")
     expect(summary).to_have_text("1/2 done, 1 failed")
     expect(names).to_have_text(["delta.jpg", "alpha.jpg"])
+    expect(page.get_by_role("button", name="Retry for alpha.jpg")).to_be_visible()
 
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
     with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.ok):
         _upload(page, "echo.jpg")
 
-    expect(names).to_have_text(["alpha.jpg", "echo.jpg"])
-    expect(summary).to_have_text("1/2 done, 1 failed")
-    expect(page.get_by_role("button", name="Retry for alpha.jpg")).to_be_visible()
+    expect(names).to_have_text(["echo.jpg"])
+    expect(page.get_by_role("button", name=re.compile(r"^Retry for "))).to_have_count(0)
+    expect(summary).to_have_text("1/1 done")
+    expect(queue).to_be_visible()
     assert image_key("echo.jpg") in live_app.s3.objects
+
+    # With no stale failure left, the new, all-done batch auto-hides like any other.
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS)
+    expect(queue).to_be_hidden()
+
+
+def test_enqueuing_mid_upload_keeps_in_flight_entries(live_app: LiveApp, page: Page) -> None:
+    """PUB-085 AC6: picking files while an upload runs keeps the in-flight entry; the new file queues after it.
+
+    Only finished entries are cleared on enqueue. ``held_uploads`` keeps delta.jpg's S3 put open, so
+    delta.jpg is still uploading when echo.jpg is picked. The page clock is paused before the pick so
+    the all-done auto-hide cannot empty the queue under the final assertions.
+    """
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    rows = page.locator("#upload-queue-list .upload-queue-item")
+    names = page.locator("#upload-queue-list .uq-name")
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    with held_uploads(live_app) as release:
+        with page.expect_request(lambda r: r.method == "POST" and r.url.endswith(UPLOAD_URL)):
+            _upload(page, "delta.jpg")
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+
+        _upload(page, "echo.jpg")
+
+        expect(names).to_have_text(["delta.jpg", "echo.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+        expect(rows.nth(1)).to_have_class(re.compile(r"\buq-queued\b"))
+        assert image_key("delta.jpg") not in live_app.s3.objects
+
+        with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.ok):
+            release.set()
+
+    expect(page.locator("#upload-queue-summary")).to_have_text("2/2 done")
+    expect(names).to_have_text(["delta.jpg", "echo.jpg"])
+    expect(rows).to_have_class([re.compile(r"\buq-done\b"), re.compile(r"\buq-done\b")])
+    assert image_key("delta.jpg") in live_app.s3.objects
+    assert image_key("echo.jpg") in live_app.s3.objects
+
+
+def test_enqueuing_mid_upload_after_a_failure_sends_every_file(
+    live_app: LiveApp, page: Page, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-085 AC6: clearing a failed entry that sits before the running upload must not skip the next file.
+
+    alpha.jpg fails first (the real app's 409: it already exists); delta.jpg's S3 put is then held
+    (``held_uploads``), and echo.jpg is picked while delta.jpg uploads. Clearing alpha.jpg shifts the
+    entries left under the running queue loop; a loop that walks array positions then steps past
+    echo.jpg, which stays queued and is never sent. Every file must be sent exactly once. The page
+    clock is paused so the all-done auto-hide cannot empty the queue under the final assertions.
+
+    The browser does not expose an XHR file body, so "sent once per file" is counted at the S3
+    boundary (puts per key) plus the total number of upload POSTs (alpha.jpg's 409 never reaches S3).
+    """
+    puts: Counter[str] = Counter()
+    real_put = live_app.s3.put_object
+
+    def _counting_put(**kwargs: Any) -> dict[str, Any]:
+        puts[kwargs["Key"]] += 1
+        return real_put(**kwargs)
+
+    monkeypatch.setattr(live_app.s3, "put_object", _counting_put)
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    uploads = record_requests(page, "POST", re.compile(re.escape(UPLOAD_URL) + "$"))
+    rows = page.locator("#upload-queue-list .upload-queue-item")
+    names = page.locator("#upload-queue-list .uq-name")
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    with held_uploads(live_app) as release:
+        _upload(page, "alpha.jpg", "delta.jpg")
+        expect(names).to_have_text(["alpha.jpg", "delta.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-failed\b"))
+        expect(rows.nth(1)).to_have_class(re.compile(r"\buq-uploading\b"))
+
+        _upload(page, "echo.jpg")
+
+        expect(names).to_have_text(["delta.jpg", "echo.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+        expect(rows.nth(1)).to_have_class(re.compile(r"\buq-queued\b"))
+        release.set()
+
+    expect(page.locator("#upload-queue-summary")).to_have_text("2/2 done")
+    expect(names).to_have_text(["delta.jpg", "echo.jpg"])
+    expect(rows).to_have_class([re.compile(r"\buq-done\b"), re.compile(r"\buq-done\b")])
+    assert len(uploads) == 3  # alpha.jpg (409), delta.jpg, echo.jpg: no file skipped, none sent twice
+    assert puts[image_key("delta.jpg")] == 1
+    assert puts[image_key("echo.jpg")] == 1
+    assert puts[image_key("alpha.jpg")] == 0
+    assert image_key("delta.jpg") in live_app.s3.objects
+    assert image_key("echo.jpg") in live_app.s3.objects
+
+
+def test_auto_hide_never_drops_a_batch_enqueued_after_a_clean_one(
+    live_app: LiveApp, page: Page, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-085 AC6: the auto-hide armed by a clean batch must not empty or hide a batch picked within its delay.
+
+    delta.jpg uploads cleanly, which arms the all-done auto-hide timer (the final render shows the
+    dismiss button, then the timer is set). Within the delay, echo.jpg and foxtrot.jpg are picked and
+    echo.jpg's S3 put is held (``held_uploads``); the page clock then jumps past delta.jpg's delay
+    while echo.jpg is still uploading. Picking the new batch must cancel that pending auto-hide: this
+    flow pins the cancel-on-enqueue path. (A guard inside the timer callback alone would also pass
+    here; the timer armed while another batch already runs is pinned by
+    ``test_auto_hide_never_drops_a_batch_picked_during_the_grid_refresh``.) A timer left armed that
+    empties the queue stops the running loop on the emptied array: foxtrot.jpg is never sent and the
+    panel vanishes. The batch must finish, and the panel hide only after its own clean finish plus
+    its own delay.
+
+    Sends are counted at the S3 boundary (puts per key) plus the number of upload POSTs.
+    """
+    puts: Counter[str] = Counter()
+    real_put = live_app.s3.put_object
+
+    def _counting_put(**kwargs: Any) -> dict[str, Any]:
+        puts[kwargs["Key"]] += 1
+        return real_put(**kwargs)
+
+    monkeypatch.setattr(live_app.s3, "put_object", _counting_put)
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    uploads = record_requests(page, "POST", re.compile(re.escape(UPLOAD_URL) + "$"))
+    queue = page.locator("#upload-queue")
+    dismiss = page.locator("#upload-queue-dismiss")
+    summary = page.locator("#upload-queue-summary")
+    rows = page.locator("#upload-queue-list .upload-queue-item")
+    names = page.locator("#upload-queue-list .uq-name")
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    _upload(page, "delta.jpg")
+    expect(summary).to_have_text("1/1 done")
+    expect(dismiss).to_be_visible()  # the final render; the auto-hide timer is armed right after it
+    assert len(uploads) == 1
+
+    with held_uploads(live_app) as release:
+        with page.expect_request(lambda r: r.method == "POST" and r.url.endswith(UPLOAD_URL)):
+            _upload(page, "echo.jpg", "foxtrot.jpg")
+        expect(names).to_have_text(["echo.jpg", "foxtrot.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+
+        # delta.jpg's auto-hide delay elapses while echo.jpg is still uploading.
+        page.clock.fast_forward(AUTO_HIDE_DELAY_MS)
+
+        expect(queue).to_be_visible()
+        expect(names).to_have_text(["echo.jpg", "foxtrot.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+        expect(rows.nth(1)).to_have_class(re.compile(r"\buq-queued\b"))
+        release.set()
+
+        expect(summary).to_have_text("2/2 done")
+
+    expect(dismiss).to_be_visible()  # batch 2's final render: its own auto-hide timer is armed now
+    expect(names).to_have_text(["echo.jpg", "foxtrot.jpg"])
+    expect(rows).to_have_class([re.compile(r"\buq-done\b"), re.compile(r"\buq-done\b")])
+    assert len(uploads) == 3  # delta.jpg, echo.jpg, foxtrot.jpg: nothing dropped, nothing sent twice
+    assert puts[image_key("delta.jpg")] == 1
+    assert puts[image_key("echo.jpg")] == 1
+    assert puts[image_key("foxtrot.jpg")] == 1
+    assert image_key("foxtrot.jpg") in live_app.s3.objects
+
+    # The clean second batch hides on its own delay, not before.
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS - 1)
+    expect(queue).to_be_visible()
+    page.clock.fast_forward(1)
+    expect(queue).to_be_hidden()
+
+
+def _wait_for_held(page: Page, held: list[Route]) -> None:
+    """Let Playwright dispatch pending route events until ``held`` has captured a route (bounded)."""
+    for _ in range(200):
+        if held:
+            return
+        page.evaluate("() => 0")
+    raise AssertionError("the grid listing request was never intercepted")
+
+
+def test_auto_hide_never_drops_a_batch_picked_during_the_grid_refresh(live_app: LiveApp, page: Page) -> None:
+    """PUB-085 AC6: a clean batch finishing while another batch runs must not arm an auto-hide over it.
+
+    The queue loop releases its lock before it refreshes the grid, so files can be picked while a
+    finished batch still waits on that refresh; they start a second loop. The first loop must not
+    then arm its all-done auto-hide: the second batch is running, and if it finishes with a failure
+    inside the delay, a stale timer empties the queue and hides the panel, losing the failed entry
+    and its Retry button.
+
+    delta.jpg uploads cleanly; its grid refresh (the library listing) is held in the browser
+    (``page.route``). echo.jpg (S3 put held, ``held_uploads``) and alpha.jpg (the real app's 409: it
+    already exists) are picked, then the listing is released: the first loop finishes (delta.jpg's
+    tile appears) while echo.jpg still uploads. echo.jpg is then released and alpha.jpg fails. The page
+    clock is paused throughout and jumped past the delay at the end.
+    """
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    uploads = record_requests(page, "POST", re.compile(re.escape(UPLOAD_URL) + "$"))
+    queue = page.locator("#upload-queue")
+    dismiss = page.locator("#upload-queue-dismiss")
+    summary = page.locator("#upload-queue-summary")
+    rows = page.locator("#upload-queue-list .upload-queue-item")
+    names = page.locator("#upload-queue-list .uq-name")
+    retry_alpha = page.get_by_role("button", name="Retry for alpha.jpg")
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    hold_next_listing: list[bool] = []
+    held: list[Route] = []
+
+    def _hold_listing(route: Route) -> None:
+        if hold_next_listing:
+            hold_next_listing.clear()
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(re.compile(r"/api/library/objects(\?|$)"), _hold_listing)
+    hold_next_listing.append(True)
+    with page.expect_request(lambda r: r.method == "GET" and LIBRARY_LIST.search(r.url.split("?", 1)[0]) is not None):
+        _upload(page, "delta.jpg")
+    expect(summary).to_have_text("1/1 done")
+    _wait_for_held(page, held)
+    assert len(uploads) == 1
+
+    with held_uploads(live_app) as release:
+        with page.expect_request(lambda r: r.method == "POST" and r.url.endswith(UPLOAD_URL)):
+            _upload(page, "echo.jpg", "alpha.jpg")
+        expect(names).to_have_text(["echo.jpg", "alpha.jpg"])
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+
+        # delta.jpg's loop finishes its grid refresh while echo.jpg is still uploading.
+        held.pop().continue_()
+        expect(page.locator('#grid-container [data-filename="delta.jpg"]')).to_be_visible()
+        expect(rows.nth(0)).to_have_class(re.compile(r"\buq-uploading\b"))
+
+        with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409):
+            release.set()
+
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(page.get_by_text("1 upload(s) failed: alpha.jpg")).to_have_count(1)
+    expect(dismiss).to_be_visible()  # the second batch's final render
+    assert len(uploads) == 3
+
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS + 1)
+
+    expect(queue).to_be_visible()
+    expect(names).to_have_text(["echo.jpg", "alpha.jpg"])
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(retry_alpha).to_be_visible()
+    failed_toasts = page.get_by_text("1 upload(s) failed: alpha.jpg")
+    toasts_before = failed_toasts.count()
+    with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409, timeout=_EVENT_TIMEOUT_MS):
+        retry_alpha.click()
+    expect(failed_toasts).to_have_count(toasts_before + 1)  # the retry's batch has finished
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(dismiss).to_be_visible()
+    assert len(uploads) == 4  # delta.jpg, echo.jpg, alpha.jpg, and alpha.jpg's one retry
+
+
+def test_auto_hide_never_drops_a_batch_after_two_overlapping_clean_ones(live_app: LiveApp, page: Page) -> None:
+    """PUB-085 AC6: two clean batches finishing out of order must not leave an auto-hide nothing can cancel.
+
+    Batch A (delta.jpg) uploads cleanly; its grid refresh (the library listing) is held in the browser
+    (``page.route``). Batch B (echo.jpg) is picked and finishes completely, its own refresh included,
+    so it arms its auto-hide. A's refresh is then let through and A arms its auto-hide too. If A's
+    timer replaces the only stored handle, B's timer is orphaned: batch C (foxtrot.jpg, plus alpha.jpg,
+    refused with the real app's 409 because it already exists) cancels only A's timer, C finishes with
+    a failure, and B's timer then empties the queue and hides the panel, losing alpha.jpg's failed row
+    and its Retry button.
+
+    A's held listing is answered with the real app's response captured when the request was made
+    (``route.fetch``), before echo.jpg existed: the late response shows no echo.jpg tile, so the
+    tile disappearing marks A's refresh done. The page clock is paused throughout and jumped past the
+    delay at the end.
+    """
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    uploads = record_requests(page, "POST", re.compile(re.escape(UPLOAD_URL) + "$"))
+    queue = page.locator("#upload-queue")
+    dismiss = page.locator("#upload-queue-dismiss")
+    summary = page.locator("#upload-queue-summary")
+    names = page.locator("#upload-queue-list .uq-name")
+    retry_alpha = page.get_by_role("button", name="Retry for alpha.jpg")
+    echo_tile = page.locator('#grid-container [data-filename="echo.jpg"]')
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    hold_next_listing: list[bool] = []
+    held: list[Route] = []
+    held_responses: list[Any] = []
+
+    def _hold_listing(route: Route) -> None:
+        if hold_next_listing:
+            hold_next_listing.clear()
+            held_responses.append(route.fetch())  # the listing as the server answers it now
+            held.append(route)
+        else:
+            route.continue_()
+
+    page.route(re.compile(r"/api/library/objects(\?|$)"), _hold_listing)
+
+    # Batch A: delta.jpg uploads cleanly; its grid refresh is held.
+    hold_next_listing.append(True)
+    with page.expect_request(lambda r: r.method == "GET" and LIBRARY_LIST.search(r.url.split("?", 1)[0]) is not None):
+        _upload(page, "delta.jpg")
+    expect(summary).to_have_text("1/1 done")
+    _wait_for_held(page, held)
+
+    # Batch B: echo.jpg finishes completely, its own grid refresh included, and arms its auto-hide.
+    _upload(page, "echo.jpg")
+    expect(echo_tile).to_be_visible()
+    expect(names).to_have_text(["echo.jpg"])
+    expect(summary).to_have_text("1/1 done")
+    expect(dismiss).to_be_visible()
+
+    # Batch A's refresh now completes (with the listing from before echo.jpg) and A arms its auto-hide.
+    held.pop().fulfill(response=held_responses.pop())
+    expect(echo_tile).to_have_count(0)
+    expect(page.locator('#grid-container [data-filename="delta.jpg"]')).to_be_visible()
+    assert len(uploads) == 2
+
+    # Batch C, picked within both delays, finishes with a failure.
+    with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409):
+        _upload(page, "foxtrot.jpg", "alpha.jpg")
+    expect(page.get_by_text("1 upload(s) failed: alpha.jpg")).to_have_count(1)
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(dismiss).to_be_visible()  # batch C's final render
+    assert len(uploads) == 4
+
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS + 1)  # past both A's and B's auto-hide delays
+
+    expect(queue).to_be_visible()
+    expect(names).to_have_text(["foxtrot.jpg", "alpha.jpg"])
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(retry_alpha).to_be_visible()
+    failed_toasts = page.get_by_text("1 upload(s) failed: alpha.jpg")
+    toasts_before = failed_toasts.count()
+    with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409, timeout=_EVENT_TIMEOUT_MS):
+        retry_alpha.click()
+    expect(failed_toasts).to_have_count(toasts_before + 1)  # the retry's batch has finished
+    expect(summary).to_have_text("1/2 done, 1 failed")
+    expect(dismiss).to_be_visible()
+    assert len(uploads) == 5  # delta.jpg, echo.jpg, foxtrot.jpg, alpha.jpg, and alpha.jpg's one retry
+    assert image_key("foxtrot.jpg") in live_app.s3.objects
+
+
+def test_picking_only_rejected_files_leaves_the_queue_untouched(live_app: LiveApp, page: Page) -> None:
+    """PUB-085 AC6: a pick the client rejects in full (here a GIF) enqueues nothing, so it changes nothing.
+
+    Only a pick that enqueues files clears the finished entries and cancels a pending auto-hide.
+
+    Part 1: delta.jpg uploads cleanly, arming the auto-hide; a GIF-only pick must leave delta.jpg's
+    row in place and the auto-hide still due on its original delay. Part 2: echo.jpg uploads
+    cleanly (arming a new auto-hide), then alpha.jpg is picked within that delay and fails (the real
+    app's 409: it already exists). That real pick cancels echo.jpg's auto-hide, so the panel stays
+    past its delay; a second GIF-only pick must leave alpha.jpg's failed row and a working Retry.
+    The page clock is paused throughout and jumped to fire the timers.
+    """
+    page.clock.install()
+    page = open_admin_page(live_app, page)
+    uploads = record_requests(page, "POST", re.compile(re.escape(UPLOAD_URL) + "$"))
+    queue = page.locator("#upload-queue")
+    dismiss = page.locator("#upload-queue-dismiss")
+    summary = page.locator("#upload-queue-summary")
+    names = page.locator("#upload-queue-list .uq-name")
+    retry_alpha = page.get_by_role("button", name="Retry for alpha.jpg")
+    input_el = page.locator("#grid-upload-input")
+    open_grid(page)
+    page.clock.pause_at(page.evaluate("Date.now()") + 1)
+
+    def _pick_gif(name: str) -> None:
+        input_el.set_input_files(files=[{"name": name, "mimeType": "image/gif", "buffer": b"GIF89a"}])
+        expect(page.get_by_text(f"Skipped {name}: only JPEG/PNG allowed")).to_be_visible()
+
+    # Part 1: a clean batch, then a GIF-only pick within its auto-hide delay.
+    _upload(page, "delta.jpg")
+    expect(summary).to_have_text("1/1 done")
+    expect(dismiss).to_be_visible()  # the final render; the auto-hide timer is armed right after it
+
+    _pick_gif("foxtrot.gif")
+
+    expect(queue).to_be_visible()
+    expect(names).to_have_text(["delta.jpg"])
+    expect(summary).to_have_text("1/1 done")
+    assert len(uploads) == 1
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS - 1)
+    expect(queue).to_be_visible()
+    page.clock.fast_forward(1)
+    expect(queue).to_be_hidden()  # delta.jpg's own auto-hide, not cancelled by the GIF
+
+    # Part 2: a clean batch, a failing one picked within its delay, then a GIF-only pick.
+    _upload(page, "echo.jpg")
+    expect(summary).to_have_text("1/1 done")
+    expect(dismiss).to_be_visible()  # echo.jpg's auto-hide is armed now
+    with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409):
+        _upload(page, "alpha.jpg")
+    expect(page.get_by_text("1 upload(s) failed: alpha.jpg")).to_have_count(1)
+    expect(dismiss).to_be_visible()  # alpha.jpg's batch has finished
+    expect(names).to_have_text(["alpha.jpg"])
+    expect(summary).to_have_text("0/1 done, 1 failed")
+
+    _pick_gif("golf.gif")
+
+    page.clock.fast_forward(AUTO_HIDE_DELAY_MS + 1)  # past echo.jpg's (cancelled) auto-hide
+    expect(queue).to_be_visible()
+    expect(names).to_have_text(["alpha.jpg"])
+    expect(summary).to_have_text("0/1 done, 1 failed")
+    expect(retry_alpha).to_be_visible()
+    assert len(uploads) == 3  # delta.jpg, echo.jpg, alpha.jpg
+
+    failed_toasts = page.get_by_text("1 upload(s) failed: alpha.jpg")
+    toasts_before = failed_toasts.count()
+    with page.expect_response(lambda r: r.url.endswith(UPLOAD_URL) and r.status == 409, timeout=_EVENT_TIMEOUT_MS):
+        retry_alpha.click()
+    expect(failed_toasts).to_have_count(toasts_before + 1)  # the retry's batch has finished
+    expect(dismiss).to_be_visible()
+    expect(names).to_have_text(["alpha.jpg"])
+    expect(summary).to_have_text("0/1 done, 1 failed")
+    assert len(uploads) == 4  # alpha.jpg's retry sent exactly one request
 
 
 # --- PUB-037: multi-select keyboard and ARIA --------------------------------------------------------
