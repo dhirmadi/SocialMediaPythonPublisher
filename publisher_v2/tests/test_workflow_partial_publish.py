@@ -666,3 +666,292 @@ async def test_a_stalled_run_cannot_mark_a_lease_that_was_reclaimed(publish_stor
 
         row = (await session.execute(select(PublishRecord))).scalars().one()
     assert row.status == "leased", "run A reopened a lease that run B was still holding"
+
+
+# --- PUB-086 (#315): leases committed before a cancellation are still released ---
+
+
+class _LeaseCommitGate:
+    """Parks the run right after the real commit of its first ``leased`` row.
+
+    Wraps ``AsyncSession.commit`` (the class the store's session factory builds).
+    The first commit that carries a new ``leased`` PublishRecord runs for real,
+    then sets ``committed`` and waits on ``hold``. The test cancels the run while
+    it is parked there — a lease row is durably committed, but the claim has not
+    returned to the workflow — and then sets ``hold`` so a claim that is allowed
+    to finish (shielded) can do so. Every other commit passes straight through.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from publisher_v2.db.models import PublishRecord
+
+        self.committed = asyncio.Event()
+        self.hold = asyncio.Event()
+        self._fired = False
+        original_commit = AsyncSession.commit
+        gate = self
+
+        async def _gated_commit(session: AsyncSession) -> None:
+            inserts_lease = any(isinstance(obj, PublishRecord) and obj.status == "leased" for obj in session.new)
+            await original_commit(session)
+            if inserts_lease and not gate._fired:
+                gate._fired = True
+                gate.committed.set()
+                await asyncio.wait_for(gate.hold.wait(), timeout=10)
+
+        monkeypatch.setattr(AsyncSession, "commit", _gated_commit)
+
+
+class _MarkRecorder:
+    """Records every real ``PublishStore.mark`` call (delegating to the original).
+
+    PUB-086 AC7/AC2: the release of a committed lease must be fenced by the lease
+    token the claim committed — an unfenced mark (``lease_token=None``) could
+    reopen a lease another run reclaimed.
+    """
+
+    def __init__(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        self.calls: list[tuple[str, str, Any]] = []
+        original_mark = PublishStore.mark
+        recorder = self
+
+        async def _recording_mark(
+            store: PublishStore,
+            tenant: str,
+            content_hash: str,
+            platform: str,
+            status: str,
+            post_id: str | None = None,
+            error: str | None = None,
+            lease_token: Any = None,
+        ) -> bool:
+            recorder.calls.append((platform, status, lease_token))
+            return await original_mark(
+                store, tenant, content_hash, platform, status, post_id=post_id, error=error, lease_token=lease_token
+            )
+
+        monkeypatch.setattr(PublishStore, "mark", _recording_mark)
+
+
+def _assert_releases_fenced_by_committed_tokens(recorder: _MarkRecorder, rows: list[Any], platforms: set[str]) -> None:
+    """Each committed lease was released by a mark carrying the row's own ``leased_at`` token."""
+    by_platform = {r.platform: r for r in rows}
+    released = {p for p, status, _ in recorder.calls if status == "failed"}
+    assert released == platforms, f"released {sorted(released)}, expected {sorted(platforms)}"
+    for platform, status, token in recorder.calls:
+        assert status == "failed"
+        assert token is not None, f"the release of {platform} was an unfenced mark (lease_token=None)"
+        committed = by_platform[platform].leased_at
+        if committed.tzinfo is None:
+            committed = committed.replace(tzinfo=token.tzinfo)
+        assert token == committed, f"the release of {platform} was not fenced by the token the claim committed"
+
+
+async def _cancel_at_first_lease_commit(task: asyncio.Task[Any], gate: _LeaseCommitGate) -> None:
+    await asyncio.wait_for(gate.committed.wait(), timeout=10)
+    task.cancel()
+    gate.hold.set()  # a shielded claim may now run to completion
+
+
+async def test_cancel_right_after_a_lease_commit_releases_it(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC1: a cancel landing right after the lease row commits must not wedge it."""
+    calls: dict[str, int] = {}
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        [_ScriptedPublisher("telegram", [True], calls)],
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    gate = _LeaseCommitGate(monkeypatch)
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await _cancel_at_first_lease_commit(task, gate)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=15)
+
+    rows = await _lease_rows(publish_store)
+    assert [r.platform for r in rows] == ["telegram"], "the lease row was committed before the cancel"
+    assert [r.status for r in rows if r.status == "leased"] == [], "the committed lease was left wedged"
+    assert calls == {}
+
+
+async def test_cancel_mid_claim_releases_every_committed_lease(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC2: every lease the run committed is released; another run's lease is untouched."""
+    # Another run already holds a fresh lease on "email" for the same image.
+    other_run = await publish_store.acquire_lease("t1", IMAGE_SHA256, ["email"])
+    assert set(other_run) == {"email"}
+
+    calls: dict[str, int] = {}
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        [
+            _ScriptedPublisher("telegram", [True], calls),
+            _ScriptedPublisher("instagram", [True], calls),
+            _ScriptedPublisher("email", [True], calls),
+        ],
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    gate = _LeaseCommitGate(monkeypatch)
+    marks = _MarkRecorder(monkeypatch)
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    # Parks after telegram's lease commit, before instagram is claimed.
+    await _cancel_at_first_lease_commit(task, gate)
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=15)
+
+    by_platform = {r.platform: r for r in await _lease_rows(publish_store)}
+    assert "telegram" in by_platform, "the first lease was committed before the cancel"
+    wedged = sorted(p for p, r in by_platform.items() if p != "email" and r.status == "leased")
+    assert wedged == [], f"leases this run committed were left wedged: {wedged}"
+
+    email = by_platform["email"]
+    assert email.status == "leased", "the other run's lease was touched"
+    token = other_run["email"]
+    stored = email.leased_at if email.leased_at.tzinfo else email.leased_at.replace(tzinfo=token.tzinfo)
+    assert stored == token, "the other run's lease token was rewritten"
+    this_run = {p for p in by_platform if p != "email"}
+    _assert_releases_fenced_by_committed_tokens(marks, list(by_platform.values()), this_run)
+    assert calls == {}
+
+
+async def test_cancel_during_claim_still_raises_cancelled(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC3: a cancellation delivered during the claim is not swallowed."""
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        [_ScriptedPublisher("telegram", [True], {}), _ScriptedPublisher("instagram", [True], {})],
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    gate = _LeaseCommitGate(monkeypatch)
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await _cancel_at_first_lease_commit(task, gate)
+    with contextlib.suppress(asyncio.CancelledError):
+        await asyncio.wait_for(asyncio.shield(task), timeout=15)
+
+    assert task.done()
+    assert task.cancelled(), f"the cancelled run returned a normal result: {task.result()!r}"
+
+
+async def test_second_cancel_during_claim_still_releases_committed_leases(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC6: a second cancel while the run waits for its shielded claim must not strand the lease."""
+    calls: dict[str, int] = {}
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer(delay=5.0)),
+        [_ScriptedPublisher("telegram", [True], calls), _ScriptedPublisher("instagram", [True], calls)],
+        tenant="t1",
+        publish_store=publish_store,
+    )
+    gate = _LeaseCommitGate(monkeypatch)
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await asyncio.wait_for(gate.committed.wait(), timeout=10)
+    task.cancel()
+    # Let the first cancellation be delivered: the run is now waiting for its
+    # shielded claim, which is still parked on the gate. Loop turns, not time.
+    for _ in range(5):
+        await asyncio.sleep(0)
+    assert not task.done()
+    task.cancel()  # the second cancel lands while the run waits for the claim
+    for _ in range(5):
+        await asyncio.sleep(0)
+    gate.hold.set()
+    with pytest.raises(asyncio.CancelledError):
+        await asyncio.wait_for(task, timeout=15)
+
+    rows = await _lease_rows(publish_store)
+    assert "telegram" in {r.platform for r in rows}, "the first lease was committed before the cancel"
+    wedged = sorted(r.platform for r in rows if r.status == "leased")
+    assert wedged == [], f"leases the claim committed were left wedged: {wedged}"
+    assert calls == {}
+
+
+async def test_claim_timeout_after_a_commit_releases_it(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC7: the claim's own timeout expiring after a lease commit must release that lease."""
+    from publisher_v2.config.runtime_settings import RuntimeSettings
+
+    calls: dict[str, int] = {}
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer()),
+        [_ScriptedPublisher("telegram", [True], calls), _ScriptedPublisher("instagram", [True], calls)],
+        tenant="t1",
+        publish_store=publish_store,
+        settings=RuntimeSettings(publish_claim_timeout_seconds=0.25),
+    )
+    # The gate holds after telegram's lease commit and is never released, so the
+    # claim budget expires mid-claim. That budget is the only wait in this test.
+    gate = _LeaseCommitGate(monkeypatch)
+    marks = _MarkRecorder(monkeypatch)
+
+    result = await asyncio.wait_for(orchestrator.execute(select_filename="test.jpg"), timeout=15)
+
+    assert gate.committed.is_set(), "the lease row was committed before the claim timed out"
+    assert result.success is False
+    assert result.error == "publish_store_unavailable"
+    rows = await _lease_rows(publish_store)
+    assert "telegram" in {r.platform for r in rows}
+    wedged = sorted(r.platform for r in rows if r.status == "leased")
+    assert wedged == [], f"leases committed before the claim timeout were left wedged: {wedged}"
+    _assert_releases_fenced_by_committed_tokens(marks, rows, {r.platform for r in rows})
+    assert calls == {}
+
+
+async def test_cancel_then_claim_timeout_releases_and_raises_cancelled(
+    publish_store: PublishStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """PUB-086 AC8: a cancel, then the claim timing out, still releases the lease and stays cancelled."""
+    from publisher_v2.config.runtime_settings import RuntimeSettings
+
+    calls: dict[str, int] = {}
+    orchestrator = WorkflowOrchestrator(
+        make_app_config(content={"archive": True}),
+        _ArchiveTrackingStorage(images=["test.jpg"]),
+        stub_ai_service(_CountingAnalyzer()),
+        [_ScriptedPublisher("telegram", [True], calls), _ScriptedPublisher("instagram", [True], calls)],
+        tenant="t1",
+        publish_store=publish_store,
+        settings=RuntimeSettings(publish_claim_timeout_seconds=1.0),
+    )
+    # The gate holds after telegram's lease commit and is not released (its own
+    # hold is bounded at 10s), so the 1s claim budget expires while the run
+    # is already waiting on its shielded claim after the cancel.
+    gate = _LeaseCommitGate(monkeypatch)
+    marks = _MarkRecorder(monkeypatch)
+
+    task = asyncio.create_task(orchestrator.execute(select_filename="test.jpg"))
+    await asyncio.wait_for(gate.committed.wait(), timeout=10)
+    task.cancel()
+    try:
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, timeout=15)
+    finally:
+        gate.hold.set()
+
+    rows = await _lease_rows(publish_store)
+    assert "telegram" in {r.platform for r in rows}, "the lease row was committed before the cancel"
+    wedged = sorted(r.platform for r in rows if r.status == "leased")
+    assert wedged == [], f"leases committed before the cancel and claim timeout were left wedged: {wedged}"
+    _assert_releases_fenced_by_committed_tokens(marks, rows, {r.platform for r in rows})
+    assert calls == {}

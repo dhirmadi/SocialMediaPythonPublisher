@@ -452,11 +452,39 @@ class WorkflowOrchestrator:
                 # Stamped before the claim round-trip so the release fence below
                 # can only ever over-estimate how fresh this run's lease is.
                 lease_claimed_at = now_monotonic()
-                try:
-                    publish_targets = await self._claim_publish_targets(
-                        lease_hash, enabled_publishers, publish_results, correlation_id
+                # PUB-086 (#315): the claim commits one lease row per platform, so a
+                # cancellation or the claim's own timeout landing mid-claim used to
+                # strand the rows already committed. The store records each token
+                # into claimed_tokens as it leases, and the claim runs as a shielded
+                # task: on cancel — however many times — wait for it to finish
+                # (bounded by publish_claim_timeout_seconds), hand what it leased to
+                # the finally below for a token-fenced release, then re-raise.
+                claimed_tokens: dict[str, datetime] = {}
+                claim = asyncio.create_task(
+                    self._claim_publish_targets(
+                        lease_hash, enabled_publishers, publish_results, correlation_id, claimed_tokens
                     )
+                )
+                try:
+                    publish_targets = await asyncio.shield(claim)
+                except asyncio.CancelledError:
+                    # A cancel waits for the bounded claim, so shutdown can overrun by
+                    # up to publish_claim_timeout_seconds. asyncio.wait never re-raises
+                    # the claim's own outcome, so nothing escapes before the handoff.
+                    while not claim.done():
+                        with contextlib.suppress(asyncio.CancelledError):
+                            await asyncio.wait({claim})
+                    self._lease_tokens.update(claimed_tokens)
+                    pending_leases = set(claimed_tokens)
+                    # Retrieve the outcome (no "exception never retrieved"); the
+                    # outer cancellation is what propagates.
+                    with contextlib.suppress(PublishStoreUnavailableError, asyncio.CancelledError):
+                        claim.result()
+                    raise
                 except PublishStoreUnavailableError:
+                    # PUB-086 AC7: rows the claim committed before it failed are
+                    # still this run's; the finally marks them failed (fenced).
+                    pending_leases = set(claimed_tokens)
                     # AC8 (#186): fail closed. A store is configured but could not
                     # be reached, so nothing is leased and nothing may be published.
                     # Not re-raised: the /publish call site reads success/error off
@@ -1078,6 +1106,7 @@ class WorkflowOrchestrator:
         enabled_publishers: list[Publisher],
         publish_results: dict[str, PublishResult],
         correlation_id: str,
+        claimed_tokens: dict[str, datetime] | None = None,
     ) -> list[Publisher]:
         """Lease platforms for this run (#85) and pre-fill publish_results.
 
@@ -1092,12 +1121,17 @@ class WorkflowOrchestrator:
         if store is None:  # pragma: no cover — caller guards
             return list(enabled_publishers)
         to_claim: list[str] = []
+        # PUB-086: filled by the store as each lease is taken, so a claim cut short
+        # by its timeout (or a cancellation) still leaves the caller what it holds.
+        if claimed_tokens is None:
+            claimed_tokens = {}
+        committed = claimed_tokens
 
         async def _claim() -> tuple[set[str], dict[str, datetime]]:
             nonlocal to_claim
             posted = await store.posted_platforms(self._tenant, lease_hash)
             to_claim = [p.platform_name for p in enabled_publishers if p.platform_name not in posted]
-            return posted, await store.acquire_lease(self._tenant, lease_hash, to_claim)
+            return posted, await store.acquire_lease(self._tenant, lease_hash, to_claim, owned=committed)
 
         try:
             # One budget covers both round-trips. At the default 10s it fires well
@@ -1108,6 +1142,8 @@ class WorkflowOrchestrator:
                 _claim(), timeout=self._settings.publish_claim_timeout_seconds
             )
         except Exception as exc:
+            # PUB-086 AC7: fence the release of whatever committed before the failure.
+            self._lease_tokens.update(committed)
             log_json(
                 self.logger,
                 logging.WARNING,

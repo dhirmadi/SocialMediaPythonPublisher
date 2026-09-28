@@ -45,3 +45,13 @@ therefore invisible to the user unless it is raised as an exception and mapped i
 **How to apply:** when a change adds a new `WorkflowResult(success=False, error=...)` return, check
 how the web layer surfaces it, and check the test actually asserts the second response, not just
 "no side effect happened".
+
+**6. PUB-086 (#315) shielded claim + pre-commit token recording (2026-09-28 review).**
+The claim runs as a task behind `asyncio.shield`; `acquire_lease(owned=...)` records each token BEFORE its commit.
+Mutation results: every new test red on origin/main except AC3 (cancel-not-swallowed guard, green pre-fix by nature).
+The one SURVIVING mutant: deleting `self._lease_tokens.update(committed)` in `_claim_publish_targets` except-path —
+the release then goes out as an UNFENCED `mark` (upsert, can create/overwrite another run's row) and every test stays green,
+because tests only assert "no leased row remains", never that the release carried a token. Always check release fencing
+with a spy on `store.mark(lease_token=...)`, not just the end-state rows. Also: if the claim task itself is cancelled,
+`claim.result()` re-raises CancelledError before `pending_leases` is set (leak until TTL, no harm).
+Round 2 (2026-09-28): cancel handler now loops `asyncio.wait({claim})` (never re-raises the claim's outcome) instead of `shield(claim)`, which leaked PSU out of the handler. AC8 (1.0s claim timeout after cancel) is the only test red on the shield-loop mutant. W1 fixed via `_MarkRecorder` token spy: dropping both `_lease_tokens.update` lines fails AC7+AC8. The handler's own update is an equivalent mutant (claim's return/except paths already fence) except when the claim task itself is cancelled (loop teardown), which is untested. Sandbox recipe: cp backup to scratchpad, perl -pi mutate, cp back, shasum file + `git -C <wt> diff | shasum` as separate commands (no heredocs, no cd+git chains).

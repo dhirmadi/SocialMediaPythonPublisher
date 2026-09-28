@@ -58,9 +58,19 @@ class _RecordingStore:
     async def posted_platforms(self, tenant: str, content_hash: str) -> set[str]:
         return set()
 
-    async def acquire_lease(self, tenant: str, content_hash: str, platforms: list[str]) -> dict[str, datetime]:
+    async def acquire_lease(
+        self,
+        tenant: str,
+        content_hash: str,
+        platforms: list[str],
+        owned: dict[str, datetime] | None = None,
+    ) -> dict[str, datetime]:
         now = datetime.now(UTC)
-        return {platform: now for platform in platforms}
+        tokens = {platform: now for platform in platforms}
+        if owned is not None:
+            # PUB-086: mirror the real store, which records each token as it is taken.
+            owned.update(tokens)
+        return tokens
 
     async def mark(
         self,
