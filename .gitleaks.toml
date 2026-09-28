@@ -1,0 +1,9 @@
+# Gitleaks configuration. Default rules apply to every file; the only exception is the
+# detect-secrets baseline, which stores one-way SHA-1 hashes of known test placeholders
+# that the generic-api-key rule would otherwise flag whenever its entries move.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "detect-secrets baseline: hashes only, no secret material"
+paths = ['''^\.secrets\.baseline$''']

@@ -751,33 +751,45 @@ class TestTheHistoryProbeReadsTheSignature:
         )
         return tree
 
-    def test_a_history_parameter_is_found(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("found", "params"),
+        [
+            pytest.param(True, "self, analysis, specs, history=None", id="a_history_parameter_is_found"),
+            pytest.param(
+                False, "self, analysis, specs, history_by_platform=None", id="a_similar_name_is_not_mistaken_for_it"
+            ),
+        ],
+    )
+    def test_the_history_parameter_is_detected(self, tmp_path: Path, found, params) -> None:
         mod = _module()
-        assert mod._baseline_takes_history(self._tree(tmp_path, "self, analysis, specs, history=None")) is True
+        assert mod._baseline_takes_history(self._tree(tmp_path, params)) is found
 
-    def test_a_multi_line_signature_is_read(self, tmp_path: Path) -> None:
+    @pytest.mark.parametrize(
+        ("params", "found"),
+        [
+            pytest.param(
+                "\n        self,\n        analysis,\n        specs,\n        history=None,\n    ",
+                True,
+                id="a_multi_line_signature_is_read",
+            ),
+            # The comment must sit inside a multi-line list, or the closing paren
+            # lands inside it and the file does not parse at all.
+            pytest.param(
+                "\n        self, analysis, specs,  # history goes here one day\n    ",
+                False,
+                id="a_comment_mentioning_history_is_not_a_parameter",
+            ),
+            pytest.param(
+                "self, analysis, specs, hook=(lambda: None), history=None",
+                True,
+                id="a_default_containing_a_bracket_does_not_truncate_the_list",
+            ),
+        ],
+    )
+    def test_the_signature_is_parsed_robustly(self, tmp_path: Path, params, found) -> None:
         mod = _module()
-        tree = self._tree(tmp_path, "\n        self,\n        analysis,\n        specs,\n        history=None,\n    ")
-        assert mod._baseline_takes_history(tree) is True
-
-    def test_a_similar_name_is_not_mistaken_for_it(self, tmp_path: Path) -> None:
-        mod = _module()
-        assert (
-            mod._baseline_takes_history(self._tree(tmp_path, "self, analysis, specs, history_by_platform=None"))
-            is False
-        )
-
-    def test_a_comment_mentioning_history_is_not_a_parameter(self, tmp_path: Path) -> None:
-        mod = _module()
-        # The comment must sit inside a multi-line list, or the closing paren
-        # lands inside it and the file does not parse at all.
-        tree = self._tree(tmp_path, "\n        self, analysis, specs,  # history goes here one day\n    ")
-        assert mod._baseline_takes_history(tree) is False
-
-    def test_a_default_containing_a_bracket_does_not_truncate_the_list(self, tmp_path: Path) -> None:
-        mod = _module()
-        tree = self._tree(tmp_path, "self, analysis, specs, hook=(lambda: None), history=None")
-        assert mod._baseline_takes_history(tree) is True
+        tree = self._tree(tmp_path, params)
+        assert mod._baseline_takes_history(tree) is found
 
     def test_an_unreadable_tree_fails_open(self, tmp_path: Path) -> None:
         """The worker then dies on image 1 and the run's own abort stops it there."""

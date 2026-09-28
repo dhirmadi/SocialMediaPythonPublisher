@@ -77,11 +77,16 @@ def test_login_redirect_no_config(client, mock_service):
         app.dependency_overrides = {}
 
 
+@pytest.mark.parametrize(
+    "email",
+    [
+        pytest.param("admin@example.com", id="callback_success"),
+        pytest.param("ADMIN@EXAMPLE.COM", id="callback_email_case_insensitive"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_callback_success(client, mock_service, mock_oauth):
-    mock_oauth.auth0.authorize_access_token.return_value = {
-        "userinfo": {"email": "admin@example.com", "email_verified": True}
-    }
+async def test_callback_success(client, mock_service, mock_oauth, email):
+    mock_oauth.auth0.authorize_access_token.return_value = {"userinfo": {"email": email, "email_verified": True}}
     app.dependency_overrides[get_request_service] = lambda request=None: mock_service
 
     try:
@@ -105,23 +110,6 @@ async def test_callback_email_mismatch(client, mock_service, mock_oauth):
         assert response.status_code == 303
         assert "auth_error=access_denied" in response.headers["location"]
         assert "pv2_admin" not in response.cookies
-    finally:
-        app.dependency_overrides = {}
-
-
-@pytest.mark.asyncio
-async def test_callback_email_case_insensitive(client, mock_service, mock_oauth):
-    # Test case sensitivity fix
-    mock_oauth.auth0.authorize_access_token.return_value = {
-        "userinfo": {"email": "ADMIN@EXAMPLE.COM", "email_verified": True}
-    }
-    app.dependency_overrides[get_request_service] = lambda request=None: mock_service
-
-    try:
-        response = client.get("/auth/callback?code=123&state=xyz", follow_redirects=False)
-        assert response.status_code == 303
-        assert response.headers["location"] == "/"
-        assert "pv2_admin" in response.cookies
     finally:
         app.dependency_overrides = {}
 
@@ -163,7 +151,32 @@ def test_auth0_config_parsing():
     assert cfg_empty.admin_emails_list == []
 
 
-def test_get_auth0_callback_url_localhost_preserves_port():
+@pytest.mark.parametrize(
+    ("path", "raw_path", "client_ip", "server_host", "server_port", "host_header", "expected"),
+    [
+        pytest.param(
+            "/auth/callback",
+            b"/auth/callback",
+            "127.0.0.1",
+            "localhost",
+            8089,
+            b"localhost:8089",
+            "http://localhost:8089/auth/callback",
+            id="get_auth0_callback_url_localhost_preserves_port",
+        ),
+        pytest.param(
+            "/auth/login",
+            b"/auth/login",
+            "10.0.0.1",
+            "staging.example.com",
+            443,
+            b"staging.example.com",
+            "https://staging.example.com/auth/callback",
+            id="get_auth0_callback_url_remote_host_forces_https",
+        ),
+    ],
+)
+def test_get_auth0_callback_url(path, raw_path, client_ip, server_host, server_port, host_header, expected):
     # Build a Request with localhost + explicit port
     from starlette.requests import Request
 
@@ -172,34 +185,15 @@ def test_get_auth0_callback_url_localhost_preserves_port():
         "http_version": "1.1",
         "method": "GET",
         "scheme": "http",
-        "path": "/auth/callback",
-        "raw_path": b"/auth/callback",
+        "path": path,
+        "raw_path": raw_path,
         "query_string": b"",
-        "headers": [(b"host", b"localhost:8089")],
-        "client": ("127.0.0.1", 50000),
-        "server": ("localhost", 8089),
+        "headers": [(b"host", host_header)],
+        "client": (client_ip, 50000),
+        "server": (server_host, server_port),
     }
     req = Request(scope)
-    assert get_auth0_callback_url(req) == "http://localhost:8089/auth/callback"
-
-
-def test_get_auth0_callback_url_remote_host_forces_https():
-    from starlette.requests import Request
-
-    scope = {
-        "type": "http",
-        "http_version": "1.1",
-        "method": "GET",
-        "scheme": "http",
-        "path": "/auth/login",
-        "raw_path": b"/auth/login",
-        "query_string": b"",
-        "headers": [(b"host", b"staging.example.com")],
-        "client": ("10.0.0.1", 50000),
-        "server": ("staging.example.com", 443),
-    }
-    req = Request(scope)
-    assert get_auth0_callback_url(req) == "https://staging.example.com/auth/callback"
+    assert get_auth0_callback_url(req) == expected
 
 
 def test_get_auth0_callback_url_without_hostname_returns_none():

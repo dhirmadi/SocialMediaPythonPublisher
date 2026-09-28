@@ -31,19 +31,17 @@ def test_newer_model_family_accepted():
     assert cfg.caption_model == "gpt-5-mini"
 
 
-def test_model_with_whitespace_rejected():
+@pytest.mark.parametrize(
+    "model",
+    [
+        pytest.param("bad model", id="model_with_whitespace_rejected"),
+        pytest.param("  ", id="empty_model_rejected"),
+    ],
+)
+def test_malformed_model_rejected(model):
     import pytest as _pytest
 
     from publisher_v2.config.schema import OpenAIConfig
 
     with _pytest.raises(ValueError):
-        OpenAIConfig(api_key="sk-test", caption_model="bad model")
-
-
-def test_empty_model_rejected():
-    import pytest as _pytest
-
-    from publisher_v2.config.schema import OpenAIConfig
-
-    with _pytest.raises(ValueError):
-        OpenAIConfig(api_key="sk-test", caption_model="  ")
+        OpenAIConfig(api_key="sk-test", caption_model=model)

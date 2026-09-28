@@ -48,51 +48,43 @@ class TestLoadEmailServerFromEnv:
             result = _load_email_server_from_env()
             assert result is None
 
-    def test_parses_minimal_config(self):
-        """Parses EMAIL_SERVER with only required sender field."""
-        env_value = '{"sender": "bot@example.com"}'
+    @pytest.mark.parametrize(
+        ("env_value", "expected"),
+        [
+            pytest.param(
+                '{"sender": "bot@example.com"}',
+                {"smtp_server": "smtp.gmail.com", "smtp_port": 587, "sender": "bot@example.com"},
+                id="minimal-sender-only-uses-defaults",
+            ),
+            pytest.param(
+                '{"smtp_server": "mail.custom.com", "smtp_port": 465, "sender": "noreply@custom.com"}',
+                {"smtp_server": "mail.custom.com", "smtp_port": 465, "sender": "noreply@custom.com"},
+                id="full",
+            ),
+        ],
+    )
+    def test_parses_config(self, env_value: str, expected: dict) -> None:
+        """Parses EMAIL_SERVER; only ``sender`` is required, SMTP host/port default."""
         with mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True):
-            result = _load_email_server_from_env()
-            assert result == {
-                "smtp_server": "smtp.gmail.com",  # default
-                "smtp_port": 587,  # default
-                "sender": "bot@example.com",
-            }
+            assert _load_email_server_from_env() == expected
 
-    def test_parses_full_config(self):
-        """Parses EMAIL_SERVER with all fields specified."""
-        env_value = '{"smtp_server": "mail.custom.com", "smtp_port": 465, "sender": "noreply@custom.com"}'
-        with mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True):
-            result = _load_email_server_from_env()
-            assert result == {
-                "smtp_server": "mail.custom.com",
-                "smtp_port": 465,
-                "sender": "noreply@custom.com",
-            }
-
-    def test_raises_when_sender_missing(self):
-        """Raises ConfigurationError when sender is missing."""
-        env_value = '{"smtp_server": "mail.custom.com"}'
+    @pytest.mark.parametrize(
+        ("env_value", "match"),
+        [
+            pytest.param('{"smtp_server": "mail.custom.com"}', "missing required field 'sender'", id="sender-missing"),
+            pytest.param(
+                '{"sender": "bot@example.com", "smtp_port": "not-a-number"}',
+                "smtp_port must be an integer",
+                id="smtp-port-not-integer",
+            ),
+            pytest.param("{not valid json}", "Invalid JSON in EMAIL_SERVER", id="invalid-json"),
+        ],
+    )
+    def test_raises_on_invalid_config(self, env_value: str, match: str) -> None:
+        """Raises ConfigurationError for a missing sender, a non-integer port, or invalid JSON."""
         with (
             mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="missing required field 'sender'"),
-        ):
-            _load_email_server_from_env()
-
-    def test_raises_when_smtp_port_not_integer(self):
-        """Raises ConfigurationError when smtp_port is not an integer."""
-        env_value = '{"sender": "bot@example.com", "smtp_port": "not-a-number"}'
-        with (
-            mock.patch.dict(os.environ, {"EMAIL_SERVER": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="smtp_port must be an integer"),
-        ):
-            _load_email_server_from_env()
-
-    def test_raises_on_invalid_json(self):
-        """Raises ConfigurationError on invalid JSON."""
-        with (
-            mock.patch.dict(os.environ, {"EMAIL_SERVER": "{not valid json}"}, clear=True),
-            pytest.raises(ConfigurationError, match="Invalid JSON in EMAIL_SERVER"),
+            pytest.raises(ConfigurationError, match=match),
         ):
             _load_email_server_from_env()
 
@@ -105,34 +97,31 @@ class TestLoadEmailServerFromEnv:
 class TestResolvePath:
     """Tests for _resolve_path function."""
 
-    def test_resolves_relative_path(self):
-        """Relative paths are resolved against base."""
-        assert _resolve_path("/dropbox/images", "archive") == "/dropbox/images/archive"
-
-    def test_resolves_absolute_path(self):
-        """Absolute paths are returned as-is."""
-        assert _resolve_path("/dropbox/images", "/other/archive") == "/other/archive"
-
-    def test_handles_trailing_slash_in_base(self):
-        """Trailing slashes in base are handled correctly."""
-        assert _resolve_path("/dropbox/images/", "archive") == "/dropbox/images/archive"
+    @pytest.mark.parametrize(
+        ("base", "path", "expected"),
+        [
+            pytest.param("/dropbox/images", "archive", "/dropbox/images/archive", id="relative-joined-to-base"),
+            pytest.param("/dropbox/images", "/other/archive", "/other/archive", id="absolute-returned-as-is"),
+            pytest.param("/dropbox/images/", "archive", "/dropbox/images/archive", id="trailing-slash-in-base"),
+        ],
+    )
+    def test_resolves_path(self, base: str, path: str, expected: str) -> None:
+        """Relative paths resolve against base (trailing slash or not); absolute paths are kept."""
+        assert _resolve_path(base, path) == expected
 
 
 class TestValidatePathNoTraversal:
     """Tests for _validate_path_no_traversal function."""
 
-    def test_allows_normal_path(self):
-        """Normal paths pass validation."""
-        _validate_path_no_traversal("/dropbox/images", "root")  # No exception
+    @pytest.mark.parametrize("path", ["/dropbox/images", "/dropbox/file.name.ext"])
+    def test_allows_path_without_traversal(self, path: str) -> None:
+        """Normal paths, including dots inside a filename, pass validation."""
+        _validate_path_no_traversal(path, "root")  # No exception
 
     def test_rejects_path_with_double_dot(self):
         """Paths containing '..' are rejected."""
         with pytest.raises(ConfigurationError, match="contains '..' which is not allowed"):
             _validate_path_no_traversal("/dropbox/../etc", "root")
-
-    def test_allows_path_with_dots_in_filename(self):
-        """Paths with dots in filenames are allowed."""
-        _validate_path_no_traversal("/dropbox/file.name.ext", "root")  # No exception
 
 
 class TestLoadStoragePathsFromEnv:
@@ -145,70 +134,72 @@ class TestLoadStoragePathsFromEnv:
             result = _load_storage_paths_from_env()
             assert result is None
 
-    def test_parses_minimal_config(self):
-        """Parses STORAGE_PATHS with only required root field."""
-        env_value = '{"root": "/Dropbox/MyPhotos"}'
+    @pytest.mark.parametrize(
+        ("env_value", "expected"),
+        [
+            pytest.param(
+                '{"root": "/Dropbox/MyPhotos"}',
+                {
+                    "root": "/Dropbox/MyPhotos",
+                    "archive": "/Dropbox/MyPhotos/archive",
+                    "keep": "/Dropbox/MyPhotos/keep",
+                    "remove": "/Dropbox/MyPhotos/reject",
+                },
+                id="minimal-root-only-uses-defaults",
+            ),
+            pytest.param(
+                '{"root": "/Photos", "archive": "sent", "keep": "favorites", "remove": "trash"}',
+                {"root": "/Photos", "archive": "/Photos/sent", "keep": "/Photos/favorites", "remove": "/Photos/trash"},
+                id="full-relative-subpaths-joined-to-root",
+            ),
+            pytest.param(
+                '{"root": "/Photos", "archive": "/Archive/sent"}',
+                {"root": "/Photos", "archive": "/Archive/sent", "keep": "/Photos/keep", "remove": "/Photos/reject"},
+                id="absolute-archive-kept",
+            ),
+            pytest.param(
+                '{"root": "/photos", "keep": "/elsewhere/keep", "remove": "/elsewhere/reject"}',
+                {
+                    "root": "/photos",
+                    "archive": "/photos/archive",
+                    "keep": "/elsewhere/keep",
+                    "remove": "/elsewhere/reject",
+                },
+                id="absolute-keep-remove-kept",
+            ),
+        ],
+    )
+    def test_parses_config(self, env_value: str, expected: dict) -> None:
+        """Parses STORAGE_PATHS: only ``root`` is required; relative subpaths join it, absolute ones are kept."""
         with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            result = _load_storage_paths_from_env()
-            assert result == {
-                "root": "/Dropbox/MyPhotos",
-                "archive": "/Dropbox/MyPhotos/archive",  # default
-                "keep": "/Dropbox/MyPhotos/keep",  # default
-                "remove": "/Dropbox/MyPhotos/reject",  # default
-            }
+            assert _load_storage_paths_from_env() == expected
 
-    def test_parses_full_config(self):
-        """Parses STORAGE_PATHS with all fields specified."""
-        env_value = '{"root": "/Photos", "archive": "sent", "keep": "favorites", "remove": "trash"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            result = _load_storage_paths_from_env()
-            assert result == {
-                "root": "/Photos",
-                "archive": "/Photos/sent",
-                "keep": "/Photos/favorites",
-                "remove": "/Photos/trash",
-            }
-
-    def test_parses_absolute_subpaths(self):
-        """Absolute paths for subfolders are preserved."""
-        env_value = '{"root": "/Photos", "archive": "/Archive/sent"}'
-        with mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True):
-            result = _load_storage_paths_from_env()
-            assert result["archive"] == "/Archive/sent"
-
-    def test_raises_when_root_missing(self):
-        """Raises ConfigurationError when root is missing."""
-        env_value = '{"archive": "sent"}'
+    @pytest.mark.parametrize(
+        ("env_value", "match"),
+        [
+            pytest.param('{"archive": "sent"}', "missing required field 'root'", id="root-missing"),
+            pytest.param('{"root": "relative/path"}', "must be an absolute path", id="root-not-absolute"),
+            pytest.param('{"root": "/Dropbox/../etc"}', "contains '..' which is not allowed", id="root-traversal"),
+            pytest.param(
+                '{"root": "/Dropbox", "archive": "../etc"}',
+                "contains '..' which is not allowed",
+                id="archive-traversal",
+            ),
+            pytest.param(
+                '{"root": "/Photos", "keep": "../escape"}', "contains '..' which is not allowed", id="keep-traversal"
+            ),
+            pytest.param(
+                '{"root": "/Photos", "keep": "sub/../dir"}',
+                "contains '..' which is not allowed",
+                id="keep-inner-traversal",
+            ),
+        ],
+    )
+    def test_raises_on_invalid_config(self, env_value: str, match: str) -> None:
+        """Raises ConfigurationError for a missing/relative root or a '..' in any path."""
         with (
             mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="missing required field 'root'"),
-        ):
-            _load_storage_paths_from_env()
-
-    def test_raises_when_root_not_absolute(self):
-        """Raises ConfigurationError when root is not absolute."""
-        env_value = '{"root": "relative/path"}'
-        with (
-            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="must be an absolute path"),
-        ):
-            _load_storage_paths_from_env()
-
-    def test_raises_when_root_has_traversal(self):
-        """Raises ConfigurationError when root contains '..'."""
-        env_value = '{"root": "/Dropbox/../etc"}'
-        with (
-            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="contains '..' which is not allowed"),
-        ):
-            _load_storage_paths_from_env()
-
-    def test_raises_when_archive_has_traversal(self):
-        """Raises ConfigurationError when archive contains '..'."""
-        env_value = '{"root": "/Dropbox", "archive": "../etc"}'
-        with (
-            mock.patch.dict(os.environ, {"STORAGE_PATHS": env_value}, clear=True),
-            pytest.raises(ConfigurationError, match="contains '..' which is not allowed"),
+            pytest.raises(ConfigurationError, match=match),
         ):
             _load_storage_paths_from_env()
 
@@ -353,23 +344,42 @@ class TestLoadPublishersFromEnv:
             assert instagram is None
             assert email is None
 
-    def test_telegram_missing_bot_token_raises(self):
-        """Raises ConfigurationError when TELEGRAM_BOT_TOKEN is missing."""
-        entries = [{"type": "telegram", "channel_id": "@test_channel"}]
-        with (
-            mock.patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ConfigurationError, match="TELEGRAM_BOT_TOKEN required"),
-        ):
-            _load_publishers_from_env(entries, None)
-
-    def test_telegram_missing_channel_id_raises(self):
-        """Raises ConfigurationError when channel_id is missing."""
-        entries = [{"type": "telegram"}]
-        with (
-            mock.patch.dict(os.environ, {"TELEGRAM_BOT_TOKEN": "test"}, clear=True),
-            pytest.raises(ConfigurationError, match="missing required field 'channel_id'"),
-        ):
-            _load_publishers_from_env(entries, None)
+    @pytest.mark.parametrize(
+        ("entry", "env", "match"),
+        [
+            pytest.param(
+                {"type": "telegram", "channel_id": "@test_channel"}, {}, "TELEGRAM_BOT_TOKEN required", id="tg-token"
+            ),
+            pytest.param(
+                {"type": "telegram"},
+                {"TELEGRAM_BOT_TOKEN": "test"},
+                "missing required field 'channel_id'",
+                id="tg-channel-id",
+            ),
+            pytest.param(
+                {"type": "fetlife", "recipient": "user@fetlife.com"}, {}, "EMAIL_PASSWORD required", id="fetlife-pass"
+            ),
+            pytest.param(
+                {"type": "fetlife"},
+                {"EMAIL_PASSWORD": "secret"},
+                "missing required field 'recipient'",
+                id="fetlife-recipient",
+            ),
+            pytest.param(
+                {"type": "instagram", "username": "photo_account"}, {}, "INSTA_PASSWORD required", id="insta-pass"
+            ),
+            pytest.param(
+                {"type": "instagram"},
+                {"INSTA_PASSWORD": "secret"},
+                "missing required field 'username'",
+                id="insta-username",
+            ),
+        ],
+    )
+    def test_publisher_missing_field_raises(self, entry: dict, env: dict, match: str) -> None:
+        """Raises ConfigurationError when a publisher's secret env var or required PUBLISHERS field is missing."""
+        with mock.patch.dict(os.environ, env, clear=True), pytest.raises(ConfigurationError, match=match):
+            _load_publishers_from_env([entry], None)
 
     def test_fetlife_publisher_with_email_server(self):
         """Parses FetLife publisher using EMAIL_SERVER settings."""
@@ -396,24 +406,6 @@ class TestLoadPublishersFromEnv:
             assert email.smtp_port == 25
             assert email.sender == ""
 
-    def test_fetlife_missing_password_raises(self):
-        """Raises ConfigurationError when EMAIL_PASSWORD is missing."""
-        entries = [{"type": "fetlife", "recipient": "user@fetlife.com"}]
-        with (
-            mock.patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ConfigurationError, match="EMAIL_PASSWORD required"),
-        ):
-            _load_publishers_from_env(entries, None)
-
-    def test_fetlife_missing_recipient_raises(self):
-        """Raises ConfigurationError when recipient is missing."""
-        entries = [{"type": "fetlife"}]
-        with (
-            mock.patch.dict(os.environ, {"EMAIL_PASSWORD": "secret"}, clear=True),
-            pytest.raises(ConfigurationError, match="missing required field 'recipient'"),
-        ):
-            _load_publishers_from_env(entries, None)
-
     def test_instagram_publisher(self):
         """Parses Instagram publisher from PUBLISHERS."""
         entries = [{"type": "instagram", "username": "photo_account"}]
@@ -423,24 +415,6 @@ class TestLoadPublishersFromEnv:
             assert instagram.username == "photo_account"
             assert instagram.password == "insta-secret"
             assert platforms.instagram_enabled is True
-
-    def test_instagram_missing_password_raises(self):
-        """Raises ConfigurationError when INSTA_PASSWORD is missing."""
-        entries = [{"type": "instagram", "username": "photo_account"}]
-        with (
-            mock.patch.dict(os.environ, {}, clear=True),
-            pytest.raises(ConfigurationError, match="INSTA_PASSWORD required"),
-        ):
-            _load_publishers_from_env(entries, None)
-
-    def test_instagram_missing_username_raises(self):
-        """Raises ConfigurationError when username is missing."""
-        entries = [{"type": "instagram"}]
-        with (
-            mock.patch.dict(os.environ, {"INSTA_PASSWORD": "secret"}, clear=True),
-            pytest.raises(ConfigurationError, match="missing required field 'username'"),
-        ):
-            _load_publishers_from_env(entries, None)
 
     def test_multiple_publishers(self):
         """Parses multiple publishers correctly."""

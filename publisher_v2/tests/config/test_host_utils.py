@@ -9,36 +9,28 @@ def test_normalize_host_lowercase_strips_port_and_dot() -> None:
     assert normalize_host("TeNaNt.Shibari.Photo:8080.") == "tenant.shibari.photo"
 
 
-@pytest.mark.parametrize(
-    "host",
-    [
-        "",
-        "   ",
-        " tenant.shibari.photo",
-        "tenant.shibari.photo ",
-        "localhost",
-        "www.tenant.shibari.photo",
-        "tenant..shibari.photo",
-        "127.0.0.1",
-        "[::1]",
-        "::1",
-        "dead:beef",
-    ],
-)
-def test_validate_host_rejects_invalid_shapes(host: str) -> None:
-    assert validate_host(host) is False
+_INVALID_HOSTS = [
+    "",
+    "   ",
+    " tenant.shibari.photo",
+    "tenant.shibari.photo ",
+    "localhost",
+    "www.tenant.shibari.photo",
+    "tenant..shibari.photo",
+    "127.0.0.1",
+    "[::1]",
+    "::1",
+    "dead:beef",
+]
+_VALID_HOSTS = ["tenant.shibari.photo", "tenant.shibari.photo:443", "foo.bar.shibari.photo"]
 
 
 @pytest.mark.parametrize(
-    "host",
-    [
-        "tenant.shibari.photo",
-        "tenant.shibari.photo:443",
-        "foo.bar.shibari.photo",
-    ],
+    ("host", "valid"), [(host, False) for host in _INVALID_HOSTS] + [(host, True) for host in _VALID_HOSTS]
 )
-def test_validate_host_accepts_reasonable_hosts(host: str) -> None:
-    assert validate_host(host) is True
+def test_validate_host(host: str, valid: bool) -> None:
+    """Rejects blank, padded, localhost/www, IP and malformed hosts; accepts tenant hosts with or without a port."""
+    assert validate_host(host) is valid
 
 
 def test_extract_tenant_from_base_domain() -> None:

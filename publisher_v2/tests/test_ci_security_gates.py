@@ -10,6 +10,7 @@ workflow files are read as text and parsed with `yaml.safe_load`.
 from __future__ import annotations
 
 import re
+import tomllib
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -682,3 +683,42 @@ def test_security_scan_has_no_noop_steps() -> None:
             problems.append(f"step `{label}` only echoes — it can never fail the build")
 
     assert not problems, f"{relative_path}:\n" + "\n".join(problems)
+
+
+GITLEAKS_CONFIG = ".gitleaks.toml"
+
+# Allowlist keys that would suppress findings by content, commit or rule
+# rather than by the one baseline path.
+_GITLEAKS_SUPPRESSING_KEYS = ("regexes", "stopwords", "commits", "rules", "targetRules")
+
+
+def test_gitleaks_config_only_allowlists_the_detect_secrets_baseline() -> None:
+    config = tomllib.loads(_read(GITLEAKS_CONFIG))
+
+    assert (config.get("extend") or {}).get("useDefault") is True, (
+        f"{GITLEAKS_CONFIG} must keep gitleaks' default rules via `[extend] useDefault = true`"
+    )
+
+    allowlists: list[dict[str, Any]] = []
+    if "allowlist" in config:
+        allowlists.append(config["allowlist"])
+    allowlists.extend(config.get("allowlists") or [])
+    for rule in config.get("rules") or []:
+        if "allowlist" in rule:
+            allowlists.append(rule["allowlist"])
+        allowlists.extend(rule.get("allowlists") or [])
+
+    paths = [path for allowlist in allowlists for path in allowlist.get("paths") or []]
+    assert len(paths) == 1, f"expected exactly one allowlisted path, got {paths!r}"
+    pattern = re.compile(paths[0])
+    assert pattern.search(".secrets.baseline"), f"{paths[0]!r} does not match .secrets.baseline"
+    for other in ("publisher_v2/tests/web/conftest.py", ".env", "secrets.baseline.bak", "x/.secrets.baseline"):
+        assert not pattern.search(other), f"{paths[0]!r} also allowlists {other}"
+
+    suppressing = [
+        f"{key}={allowlist[key]!r}"
+        for allowlist in allowlists
+        for key in _GITLEAKS_SUPPRESSING_KEYS
+        if key in allowlist
+    ]
+    assert not suppressing, f"{GITLEAKS_CONFIG} suppresses more than the baseline path: {suppressing}"

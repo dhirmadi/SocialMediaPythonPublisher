@@ -1,8 +1,8 @@
 """Tests for PUB-023: StorageProtocol extraction.
 
 Covers AC1 (protocol exists with 14 methods), AC3 (DropboxStorage satisfies protocol),
-AC4 (ThumbnailSize/ThumbnailFormat are StrEnum), AC5 (supports_content_hashing),
-AC6 (BaseDummyStorage satisfies protocol).
+AC4 (ThumbnailSize/ThumbnailFormat are StrEnum), AC5 (supports_content_hashing).
+AC6 (the test double satisfies the protocol) was a test of the double itself and is gone (#300).
 """
 
 from __future__ import annotations
@@ -12,7 +12,6 @@ from enum import StrEnum
 from unittest.mock import patch
 
 import pytest
-from caption_pipeline_fakes import BaseDummyStorage
 
 from publisher_v2.config.schema import DropboxConfig
 from publisher_v2.services.storage_protocol import StorageProtocol, ThumbnailFormat, ThumbnailSize
@@ -128,7 +127,7 @@ class TestDropboxStorageCompliance:
 
 
 class TestSupportsContentHashing:
-    """AC5: DropboxStorage.supports_content_hashing() returns True; BaseDummyStorage returns False."""
+    """AC5: DropboxStorage.supports_content_hashing() returns True."""
 
     def test_dropbox_storage_supports_content_hashing(self) -> None:
         with patch("dropbox.Dropbox"):
@@ -143,23 +142,6 @@ class TestSupportsContentHashing:
             )
             storage = DropboxStorage(cfg)
             assert storage.supports_content_hashing() is True
-
-    def test_base_dummy_storage_does_not_support_content_hashing(self) -> None:
-        storage = BaseDummyStorage()
-        assert storage.supports_content_hashing() is False
-
-
-# ---------------------------------------------------------------------------
-# AC6: BaseDummyStorage satisfies StorageProtocol
-# ---------------------------------------------------------------------------
-
-
-class TestBaseDummyStorageCompliance:
-    """AC6: BaseDummyStorage implements StorageProtocol."""
-
-    def test_base_dummy_storage_is_instance_of_protocol(self) -> None:
-        storage = BaseDummyStorage()
-        assert isinstance(storage, StorageProtocol)
 
 
 # ---------------------------------------------------------------------------

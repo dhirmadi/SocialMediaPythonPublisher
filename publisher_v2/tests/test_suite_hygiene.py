@@ -443,3 +443,199 @@ def test_no_test_patches_out_auth() -> None:
         rel = str(path.relative_to(TESTS_ROOT))
         offenders.extend(_auth_guard_replacements(rel, path.read_text(encoding="utf-8")))
     assert not offenders, "tests must not replace require_auth/require_admin:\n" + "\n".join(sorted(set(offenders)))
+
+
+# --- PUB-084 wave 3, #300 (AC12): no copy-pasted test bodies --------------------------------------
+
+# Test functions whose bodies are identical once constants are stripped, kept apart on purpose.
+# Key: "<path relative to tests/>::<Class.>test_name"; value: why it is not parametrised.
+# Every member of a duplicate group must be listed, and every entry must still match a live group.
+_IDENTICAL_BODY_ALLOWLIST: dict[str, str] = {}
+
+
+def _normalised_test_bodies() -> dict[str, list[str]]:
+    """Map each test body, constants stripped and docstring dropped, to the tests that share it."""
+    import ast
+
+    class _StripConstants(ast.NodeTransformer):
+        def visit_Constant(self, node: ast.Constant) -> ast.Constant:
+            return ast.Constant(value=None)
+
+    def _tests(scope: ast.AST, prefix: str) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
+        found: list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = []
+        for node in ast.iter_child_nodes(scope):
+            if isinstance(node, ast.ClassDef):
+                found.extend(_tests(node, f"{prefix}{node.name}."))
+            elif isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef) and node.name.startswith("test"):
+                found.append((f"{prefix}{node.name}", node))
+        return found
+
+    bodies: dict[str, list[str]] = {}
+    for path in sorted(TESTS_ROOT.rglob("test_*.py")):
+        rel = str(path.relative_to(TESTS_ROOT))
+        for qualname, func in _tests(ast.parse(path.read_text(encoding="utf-8")), ""):
+            body = list(func.body)
+            if body and isinstance(body[0], ast.Expr) and isinstance(body[0].value, ast.Constant):
+                body = body[1:]  # docstring
+            if not body:
+                continue
+            key = "\n".join(ast.dump(_StripConstants().visit(stmt)) for stmt in body)
+            bodies.setdefault(key, []).append(f"{rel}::{qualname}")
+    return bodies
+
+
+def test_no_identical_test_bodies() -> None:
+    """AC12: no two test functions share a body once constants are stripped, unless allowlisted.
+
+    Two tests that differ only in their literals are one test with a parameter table: use
+    ``pytest.mark.parametrize`` with a row per case. A pair kept apart on purpose goes in
+    ``_IDENTICAL_BODY_ALLOWLIST`` with the reason.
+    """
+    groups = [sorted(names) for names in _normalised_test_bodies().values() if len(names) > 1]
+    unexplained = [names for names in groups if not all(name in _IDENTICAL_BODY_ALLOWLIST for name in names)]
+    grouped = {name for names in groups for name in names}
+    stale = sorted(name for name in _IDENTICAL_BODY_ALLOWLIST if name not in grouped)
+    missing_reason = sorted(name for name, reason in _IDENTICAL_BODY_ALLOWLIST.items() if not reason.strip())
+    problems = [" = ".join(names) for names in sorted(unexplained)]
+    problems += [f"stale allowlist entry (no longer duplicated): {name}" for name in stale]
+    problems += [f"allowlist entry without a reason: {name}" for name in missing_reason]
+    assert not problems, (
+        f"{len(unexplained)} group(s) of identical test bodies (constants stripped) — parametrise them:\n"
+        + "\n".join(problems)
+    )
+
+
+# --- PUB-084 wave 3, #299 (AC10, AC11): no index.html source greps; e2e out of the default run ----
+
+# A JavaScript function declaration named in a test string: "function foo(", "async function foo\b".
+_JS_FUNCTION_DECL = re.compile(r"\bfunction\s+[A-Za-z_$][\w$]*")
+# JavaScript statement syntax in a test string: a pinned line of script, not an element contract.
+# An id/attribute check ('id="caption-editors"', 'data-filename="a.jpg"') matches none of these.
+_JS_STATEMENT = re.compile(
+    r"\b(?:const|let|var)\s+[A-Za-z_$][\w$]*"  # a declaration: "const maxLen = ..."
+    r"|=>|===|!=="  # an arrow function, a strict comparison
+    r"|\.addEventListener\("  # a handler registration
+    r"|[\w$)\]]\s*;\s*$"  # a statement ending in ";"
+    r"|[A-Za-z_$][\w$.]*\([\w$.,\s]*\)"  # a call on plain identifiers: "missingCaptionPlatforms(captions)"
+    r"|\{ [A-Za-z_$][\w$, ]* \}"  # object shorthand: "{ captions }"
+)
+_RE_SEARCHERS = frozenset({"search", "match", "fullmatch", "findall", "finditer", "compile", "sub", "split"})
+
+
+def _index_function_body_greps(rel: str, source: str) -> list[str]:
+    """Sites in one file that grep page script: a regex over, or an ``in`` check for, a JS function or statement."""
+    import ast
+
+    offenders: list[str] = []
+
+    def _flag(node: ast.AST) -> None:
+        if not (isinstance(node, ast.Constant) and isinstance(node.value, str)):
+            return
+        if _JS_FUNCTION_DECL.search(node.value) or _JS_STATEMENT.search(node.value):
+            offenders.append(f"{rel}:{node.lineno} {node.value[:60]!r}")
+
+    for node in ast.walk(ast.parse(source)):
+        # re.search(r"async function processUploadQueue\b.*?\n    \}", html, re.DOTALL)
+        if isinstance(node, ast.Call) and _w2_dotted(node.func).split(".")[-1] in _RE_SEARCHERS and node.args:
+            _flag(node.args[0])
+        # assert "function toggleMultiSelect()" in res.text
+        elif isinstance(node, ast.Compare) and any(isinstance(op, ast.In | ast.NotIn) for op in node.ops):
+            _flag(node.left)
+    return offenders
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        'match = re.search(r"async function backToGrid\\(\\)\\s*\\{(.*?)\\n    \\}", html, re.DOTALL)',
+        'assert "function toggleMultiSelect()" in res.text',
+        'assert "async function handleBulkDelete()" not in html',
+        'pattern = re.compile(r"function setUploadLockState\\b.*?\\n    \\}")',
+        # JavaScript statements, not just function declarations (#305 review nit).
+        'assert "const maxLen = platformLimits[platform];" in html',
+        'assert "let pending = 0" in html',
+        'assert "var legacy" not in html',
+        'assert "items.map((item) => item.name)" in html',
+        'assert "text === legacyCaption" in html',
+        "assert 'featureConfig.auth_mode !== \"auth0\"' in html",
+        "assert \"btn.addEventListener('click'\" in html",
+        'assert \'xhr.open("POST", "/api/library/upload");\' in html',
+        'assert "missingCaptionPlatforms(captions)" in html',
+        'assert "{ captions }" in html',
+        'assert re.search(r"const fromLegacy = .*;", html)',
+    ],
+)
+def test_index_function_body_scan_flags_every_grep_shape(snippet: str) -> None:
+    """AC10 guard self-check: a regex over, or a substring check for, a JS function or statement is an offence."""
+    assert _index_function_body_greps("test_example.py", snippet)
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        "assert 'id=\"caption-editors\"' in html",
+        "assert 'id=\"caption-text\"' not in html",
+        "assert 'data-filename=\"alpha.jpg\"' in html",
+        "assert 'type=\"password\"' not in html",
+        'assert "/api/admin/login" not in html',
+        'assert "cover every enabled platform" in res.text',
+        'assert "Publisher V2 Web" in res.text',
+    ],
+)
+def test_index_function_body_scan_allows_element_contract_checks(snippet: str) -> None:
+    """AC10 guard self-check: element ids, attributes and visible text stay checkable in served HTML."""
+    assert not _index_function_body_greps("test_example.py", snippet)
+
+
+def test_no_test_greps_index_html_function_bodies() -> None:
+    """AC10: no test regex-matches or substring-checks a JavaScript function in index.html's source.
+
+    Pin the page's element contract in ``web/test_index_contract.py`` (ids, attributes, zones) and
+    its behaviour in the browser flows under ``tests/e2e``; the script itself stays free to change.
+    """
+    offenders: list[str] = []
+    for path in sorted(TESTS_ROOT.rglob("*.py")):
+        if path.resolve() == THIS_FILE or "__pycache__" in path.parts:
+            continue
+        offenders.extend(_index_function_body_greps(path.relative_to(TESTS_ROOT).as_posix(), path.read_text("utf-8")))
+    assert not offenders, (
+        "tests grep index.html JavaScript (functions or statements) — pin ids/attributes in "
+        "web/test_index_contract.py and behaviour in tests/e2e instead:\n" + "\n".join(offenders)
+    )
+
+
+def test_default_run_deselects_e2e(pytestconfig: pytest.Config) -> None:
+    """AC11: the ``e2e`` marker is registered and pyproject addopts deselects it from the default run.
+
+    ``uv run pytest`` (and the commit hook, which runs it) therefore needs no browser; a ``-m`` on
+    the command line, e.g. ``uv run pytest -m e2e``, overrides the default expression. Every module
+    under ``tests/e2e`` carries the marker module-wide, so none of it leaks into the default run.
+    """
+    import ast
+    import tomllib
+
+    ini = tomllib.loads((pytestconfig.rootpath / "pyproject.toml").read_text("utf-8"))["tool"]["pytest"]["ini_options"]
+    markers = [line.split(":", 1)[0].strip() for line in ini.get("markers", [])]
+    assert "e2e" in markers, f"register the e2e marker in [tool.pytest.ini_options] markers: {markers}"
+
+    addopts = ini.get("addopts", [])
+    addopts = addopts.split() if isinstance(addopts, str) else list(addopts)
+    expressions = [addopts[i + 1] for i, opt in enumerate(addopts[:-1]) if opt == "-m"]
+    expressions += [opt.split("=", 1)[1] for opt in addopts if opt.startswith("-m=")]
+    assert expressions, f"addopts must pass a default -m expression deselecting e2e: {addopts}"
+    assert re.fullmatch(r"\s*not\s+e2e\s*", expressions[-1]), f"default -m must be 'not e2e', got {expressions[-1]!r}"
+
+    e2e_dir = TESTS_ROOT / "e2e"
+    assert e2e_dir.is_dir(), "the e2e suite lives in tests/e2e"
+    unmarked: list[str] = []
+    for path in sorted(e2e_dir.glob("test_*.py")):
+        tree = ast.parse(path.read_text("utf-8"))
+        marked = any(
+            isinstance(node, ast.Assign)
+            and any(isinstance(t, ast.Name) and t.id == "pytestmark" for t in node.targets)
+            and "e2e" in ast.unparse(node.value)
+            for node in tree.body
+        )
+        if not marked:
+            unmarked.append(path.name)
+    assert not unmarked, "tests/e2e modules without `pytestmark = pytest.mark.e2e`: " + ", ".join(unmarked)

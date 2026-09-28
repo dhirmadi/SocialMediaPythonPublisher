@@ -28,28 +28,22 @@ async def test_delete_image_calls_storage() -> None:
     assert storage.delete_calls == [("/Photos", "image.jpg")]
 
 
+@pytest.mark.parametrize(
+    ("preview_mode", "dry_run"),
+    [
+        pytest.param(True, False, id="delete_image_preview_mode_does_not_call_storage"),
+        pytest.param(False, True, id="delete_image_dry_run_does_not_call_storage"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_delete_image_preview_mode_does_not_call_storage() -> None:
+async def test_delete_image_side_effect_free_modes_do_not_call_storage(preview_mode, dry_run) -> None:
     cfg = make_app_config(
         dropbox={"folder_remove": "remove"}, features={"delete_enabled": True}, content={"archive": True}
     )
     storage = _DummyStorage()
     orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
 
-    await orchestrator.delete_image("image.jpg", preview_mode=True, dry_run=False)
-
-    assert storage.delete_calls == []
-
-
-@pytest.mark.asyncio
-async def test_delete_image_dry_run_does_not_call_storage() -> None:
-    cfg = make_app_config(
-        dropbox={"folder_remove": "remove"}, features={"delete_enabled": True}, content={"archive": True}
-    )
-    storage = _DummyStorage()
-    orchestrator = WorkflowOrchestrator(cfg, storage, stub_ai_service(), [])  # type: ignore[arg-type]
-
-    await orchestrator.delete_image("image.jpg", preview_mode=False, dry_run=True)
+    await orchestrator.delete_image("image.jpg", preview_mode=preview_mode, dry_run=dry_run)
 
     assert storage.delete_calls == []
 

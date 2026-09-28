@@ -81,17 +81,16 @@ def test_missing_required_env_vars_raises(valid_env_vars, monkeypatch):
         load_application_config()
 
 
-def test_load_config_missing_dropbox_env(valid_env_vars, monkeypatch):
-    """Missing DROPBOX_APP_KEY raises ConfigurationError."""
-    monkeypatch.delenv("DROPBOX_APP_KEY", raising=False)
-
-    with pytest.raises(ConfigurationError, match="Missing required environment variable"):
-        load_application_config()
-
-
-def test_load_config_missing_openai_key(valid_env_vars, monkeypatch):
-    """Missing OPENAI_API_KEY raises ConfigurationError."""
-    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+@pytest.mark.parametrize(
+    "missing",
+    [
+        pytest.param("DROPBOX_APP_KEY", id="load_config_missing_dropbox_env"),
+        pytest.param("OPENAI_API_KEY", id="load_config_missing_openai_key"),
+    ],
+)
+def test_load_config_missing_required_env(valid_env_vars, monkeypatch, missing):
+    """Missing DROPBOX_APP_KEY or OPENAI_API_KEY raises ConfigurationError."""
+    monkeypatch.delenv(missing, raising=False)
 
     with pytest.raises(ConfigurationError, match="Missing required environment variable"):
         load_application_config()

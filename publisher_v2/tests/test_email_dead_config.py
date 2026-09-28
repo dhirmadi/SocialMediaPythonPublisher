@@ -75,43 +75,38 @@ def _config(**overrides) -> EmailConfig:
     return EmailConfig(**base)
 
 
-async def test_smtp_timeout_from_static_config(smtp: _DummySMTP, image: str, monkeypatch) -> None:
-    """AC: SMTPLimits.timeout_seconds is honored instead of the hard-coded 30."""
+@pytest.mark.parametrize(
+    ("configured", "expected"),
+    [
+        pytest.param(12.5, 12.5, id="smtp_timeout_from_static_config"),
+        pytest.param(None, 30, id="smtp_timeout_defaults_to_30_when_unset"),
+    ],
+)
+async def test_smtp_timeout(smtp: _DummySMTP, image: str, monkeypatch, configured, expected) -> None:
+    """AC: SMTPLimits.timeout_seconds is honored instead of the hard-coded 30, which stays the default when unset."""
     from publisher_v2.config.static_loader import get_static_config
 
     static = get_static_config()
-    monkeypatch.setattr(static.service_limits.smtp, "timeout_seconds", 12.5)
+    monkeypatch.setattr(static.service_limits.smtp, "timeout_seconds", configured)
 
     publisher = EmailPublisher(config=_config(), enabled=True)
     result = await publisher.publish(image, "caption")
     assert result.success is True
-    assert smtp.init_kwargs.get("timeout") == 12.5
+    assert smtp.init_kwargs.get("timeout") == expected
 
 
-async def test_smtp_timeout_defaults_to_30_when_unset(smtp: _DummySMTP, image: str, monkeypatch) -> None:
-    from publisher_v2.config.static_loader import get_static_config
-
-    static = get_static_config()
-    monkeypatch.setattr(static.service_limits.smtp, "timeout_seconds", None)
-
-    publisher = EmailPublisher(config=_config(), enabled=True)
+@pytest.mark.parametrize(
+    "use_tls",
+    [
+        pytest.param(True, id="use_tls_true_calls_starttls"),
+        pytest.param(False, id="use_tls_false_skips_starttls"),
+    ],
+)
+async def test_use_tls_controls_starttls(smtp: _DummySMTP, image: str, use_tls) -> None:
+    publisher = EmailPublisher(config=_config(use_tls=use_tls), enabled=True)
     result = await publisher.publish(image, "caption")
     assert result.success is True
-    assert smtp.init_kwargs.get("timeout") == 30
-
-
-async def test_use_tls_true_calls_starttls(smtp: _DummySMTP, image: str) -> None:
-    publisher = EmailPublisher(config=_config(use_tls=True), enabled=True)
-    result = await publisher.publish(image, "caption")
-    assert result.success is True
-    assert smtp.starttls_called is True
-
-
-async def test_use_tls_false_skips_starttls(smtp: _DummySMTP, image: str) -> None:
-    publisher = EmailPublisher(config=_config(use_tls=False), enabled=True)
-    result = await publisher.publish(image, "caption")
-    assert result.success is True
-    assert smtp.starttls_called is False
+    assert smtp.starttls_called is use_tls
 
 
 async def test_use_tls_defaults_true(smtp: _DummySMTP, image: str) -> None:

@@ -49,21 +49,14 @@ def test_every_expected_gate_row_is_still_matched() -> None:
         assert not missing, f"{path.name} no longer has a parseable row for: {missing}"
 
 
-def test_type_check_command_is_identical_everywhere_it_appears() -> None:
+@pytest.mark.parametrize(("gate", "tool"), [("type check", "mypy"), ("tests", "pytest")])
+def test_command_is_identical_everywhere_it_appears(gate: str, tool: str) -> None:
     agents, claude = _gate_commands(AGENTS), _gate_commands(CLAUDE)
 
-    # AGENTS.md documents it twice: quick reference and quality gates.
-    assert len(agents["type check"]) >= 2, agents["type check"]
-    documented = set(agents["type check"]) | set(claude["type check"])
-    assert len(documented) == 1, f"the mypy command differs between/within the files: {sorted(documented)}"
-
-
-def test_test_command_is_identical_everywhere_it_appears() -> None:
-    agents, claude = _gate_commands(AGENTS), _gate_commands(CLAUDE)
-
-    assert len(agents["tests"]) >= 2, agents["tests"]
-    documented = set(agents["tests"]) | set(claude["tests"])
-    assert len(documented) == 1, f"the pytest command differs between/within the files: {sorted(documented)}"
+    # AGENTS.md documents each twice: quick reference and quality gates.
+    assert len(agents[gate]) >= 2, agents[gate]
+    documented = set(agents[gate]) | set(claude[gate])
+    assert len(documented) == 1, f"the {tool} command differs between/within the files: {sorted(documented)}"
 
 
 @pytest.mark.slow

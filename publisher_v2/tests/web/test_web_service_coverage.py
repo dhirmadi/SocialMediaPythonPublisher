@@ -67,9 +67,16 @@ class TestWebImageServiceTTLParsing:
 
             assert service._image_cache_ttl_seconds == 120.0
 
-    def test_uses_default_ttl_when_env_invalid(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-        """Verify WebImageService uses default TTL when env value is invalid."""
-        monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", "invalid")
+    @pytest.mark.parametrize(
+        "ttl",
+        [
+            pytest.param("invalid", id="uses_default_ttl_when_env_invalid"),
+            pytest.param("-10", id="ignores_negative_env_ttl"),
+        ],
+    )
+    def test_uses_default_ttl_when_env_unusable(self, monkeypatch: pytest.MonkeyPatch, tmp_path, ttl) -> None:
+        """Verify WebImageService uses the default TTL when the env value is invalid or negative."""
+        monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", ttl)
         monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
         monkeypatch.setenv("PUBLISHERS", "[]")
         monkeypatch.setenv("OPENAI_SETTINGS", "{}")
@@ -87,28 +94,6 @@ class TestWebImageServiceTTLParsing:
             service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
 
             # Should use the default from static config, not crash
-            assert service._image_cache_ttl_seconds > 0
-
-    def test_ignores_negative_env_ttl(self, monkeypatch: pytest.MonkeyPatch, tmp_path) -> None:
-        """Verify WebImageService ignores negative TTL values from env."""
-        monkeypatch.setenv("WEB_IMAGE_CACHE_TTL_SECONDS", "-10")
-        monkeypatch.setenv("STORAGE_PATHS", '{"root": "/Photos", "archive": "archive"}')
-        monkeypatch.setenv("PUBLISHERS", "[]")
-        monkeypatch.setenv("OPENAI_SETTINGS", "{}")
-        monkeypatch.setenv("DROPBOX_APP_KEY", "test_key")
-        monkeypatch.setenv("DROPBOX_APP_SECRET", "test_secret")
-        monkeypatch.setenv("DROPBOX_REFRESH_TOKEN", "test_refresh")
-        monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
-
-        with patch("publisher_v2.services.storage.dropbox.Dropbox"):
-            from publisher_v2.web.service import WebImageService
-
-            service = WebImageService()
-            # #91 (SEC-11): filename ops validate against the image listing.
-            service.storage.list_images = AsyncMock(return_value=["test.jpg", "nonexistent.jpg"])  # type: ignore[method-assign]
-            service.storage.download_image = AsyncMock(return_value=b"image-bytes")  # type: ignore[method-assign]
-
-            # Should use the default from static config (>0), not negative value
             assert service._image_cache_ttl_seconds > 0
 
 

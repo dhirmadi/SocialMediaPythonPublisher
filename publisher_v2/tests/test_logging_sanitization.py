@@ -9,23 +9,36 @@ from __future__ import annotations
 
 import logging
 
+import pytest
+
 from publisher_v2.utils.logging import SanitizingFilter, sanitize, setup_logging
 
 
 class TestSanitizeFunction:
     """Tests for the sanitize() function."""
 
-    def test_redacts_openai_api_key(self):
-        """OpenAI API keys should be redacted."""
-        msg = "Using API key sk-proj-abc123xyz789abcdefghijk"
-        assert "sk-proj-" not in sanitize(msg)
-        assert "[OPENAI_KEY_REDACTED]" in sanitize(msg)
-
-    def test_redacts_telegram_bot_token(self):
-        """Telegram bot tokens (format: 123456:ABC-xyz) should be redacted."""
-        msg = "Bot token: 123456789:ABC-xyz_123def456ghi"
-        assert "123456789:" not in sanitize(msg)
-        assert "[TELEGRAM_TOKEN_REDACTED]" in sanitize(msg)
+    @pytest.mark.parametrize(
+        ("msg", "secret_prefix", "marker"),
+        [
+            pytest.param(
+                "Using API key sk-proj-abc123xyz789abcdefghijk",
+                "sk-proj-",
+                "[OPENAI_KEY_REDACTED]",
+                id="redacts_openai_api_key",
+            ),
+            pytest.param(
+                "Bot token: 123456789:ABC-xyz_123def456ghi",
+                "123456789:",
+                "[TELEGRAM_TOKEN_REDACTED]",
+                id="redacts_telegram_bot_token",
+            ),
+        ],
+    )
+    def test_redacts_secret(self, msg, secret_prefix, marker):
+        """OpenAI API keys and Telegram bot tokens (format: 123456:ABC-xyz) should be redacted."""
+        msg = msg
+        assert secret_prefix not in sanitize(msg)
+        assert marker in sanitize(msg)
 
     def test_redacts_telegram_api_url(self):
         """Telegram API URLs containing bot tokens should be redacted."""

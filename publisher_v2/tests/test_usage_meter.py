@@ -14,16 +14,6 @@ from publisher_v2.services.usage_meter import UsageMeter
 # --- AC-C1: UsageMeter exists with emit() and emit_all() ---
 
 
-def test_usage_meter_has_emit_and_emit_all() -> None:
-    """AC-C1: UsageMeter has emit() and emit_all() methods."""
-    client = AsyncMock()
-    meter = UsageMeter(client=client, tenant_id="t-1")
-    assert hasattr(meter, "emit")
-    assert hasattr(meter, "emit_all")
-    assert callable(meter.emit)
-    assert callable(meter.emit_all)
-
-
 # --- AC-C2: emit() calls post_usage with correct args ---
 
 

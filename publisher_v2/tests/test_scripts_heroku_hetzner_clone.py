@@ -545,24 +545,21 @@ def test_delete_requires_servers_file(monkeypatch, tmp_path) -> None:  # type: i
     assert rc == 1
 
 
-def test_delete_empty_servers_file(monkeypatch, tmp_path) -> None:  # type: ignore[override]
+@pytest.mark.parametrize(
+    "servers_csv",
+    [
+        pytest.param("", id="delete_empty_servers_file"),
+        pytest.param(
+            "other,/Photos,https://app.herokuapp.com,https://other.shibari.photo,2024-01-01T00:00:00Z\n",
+            id="delete_no_matching_record",
+        ),
+    ],
+)
+def test_delete_without_a_matching_record(monkeypatch, tmp_path, servers_csv) -> None:  # type: ignore[override]
     module = _load_script_module()
     _install_noop_clients(module, monkeypatch)
     scripts_dir = _prepare_scripts_dir(module, tmp_path, monkeypatch)
-    (scripts_dir / "servers.txt").write_text("", encoding="utf-8")
-
-    rc = module.main(["--action", "delete", "--name", "ghost"])  # type: ignore[attr-defined]
-    assert rc == 1
-
-
-def test_delete_no_matching_record(monkeypatch, tmp_path) -> None:  # type: ignore[override]
-    module = _load_script_module()
-    _install_noop_clients(module, monkeypatch)
-    scripts_dir = _prepare_scripts_dir(module, tmp_path, monkeypatch)
-    (scripts_dir / "servers.txt").write_text(
-        "other,/Photos,https://app.herokuapp.com,https://other.shibari.photo,2024-01-01T00:00:00Z\n",
-        encoding="utf-8",
-    )
+    (scripts_dir / "servers.txt").write_text(servers_csv, encoding="utf-8")
 
     rc = module.main(["--action", "delete", "--name", "ghost"])  # type: ignore[attr-defined]
     assert rc == 1

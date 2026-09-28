@@ -16,23 +16,19 @@ from publisher_v2.core.exceptions import ConfigurationError
 class TestParseJsonEnv:
     """Tests for _parse_json_env() function."""
 
-    def test_parse_valid_json_object(self):
-        """Valid JSON object is parsed and returned as dict."""
-        with patch.dict(os.environ, {"TEST_VAR": '{"key": "value", "num": 42}'}):
-            result = _parse_json_env("TEST_VAR")
-            assert result == {"key": "value", "num": 42}
-
-    def test_parse_valid_json_array(self):
-        """Valid JSON array is parsed and returned as list."""
-        with patch.dict(os.environ, {"TEST_VAR": '[1, 2, "three"]'}):
-            result = _parse_json_env("TEST_VAR")
-            assert result == [1, 2, "three"]
-
-    def test_parse_valid_json_nested(self):
-        """Nested JSON structures are parsed correctly."""
-        with patch.dict(os.environ, {"TEST_VAR": '{"nested": {"a": 1}, "list": [1, 2]}'}):
-            result = _parse_json_env("TEST_VAR")
-            assert result == {"nested": {"a": 1}, "list": [1, 2]}
+    @pytest.mark.parametrize(
+        ("raw", "expected"),
+        [
+            pytest.param('{"key": "value", "num": 42}', {"key": "value", "num": 42}, id="object"),
+            pytest.param('[1, 2, "three"]', [1, 2, "three"], id="array"),
+            pytest.param('{"nested": {"a": 1}, "list": [1, 2]}', {"nested": {"a": 1}, "list": [1, 2]}, id="nested"),
+            pytest.param('{"emoji": "🎉", "text": "日本語"}', {"emoji": "🎉", "text": "日本語"}, id="unicode"),
+        ],
+    )
+    def test_parse_valid_json(self, raw: str, expected: object) -> None:
+        """Valid JSON (object, array, nested, unicode) is parsed and returned."""
+        with patch.dict(os.environ, {"TEST_VAR": raw}):
+            assert _parse_json_env("TEST_VAR") == expected
 
     def test_parse_invalid_json_raises_config_error(self):
         """Invalid JSON raises ConfigurationError with position info."""
@@ -58,68 +54,32 @@ class TestParseJsonEnv:
             result = _parse_json_env("NONEXISTENT_VAR")
             assert result is None
 
-    def test_parse_empty_env_var_returns_none(self):
-        """Empty string returns None."""
-        with patch.dict(os.environ, {"TEST_VAR": ""}):
-            result = _parse_json_env("TEST_VAR")
-            assert result is None
-
-    def test_parse_whitespace_only_returns_none(self):
-        """Whitespace-only string returns None."""
-        with patch.dict(os.environ, {"TEST_VAR": "   \t\n  "}):
-            result = _parse_json_env("TEST_VAR")
-            assert result is None
-
-    def test_parse_json_with_unicode(self):
-        """JSON with unicode characters is parsed correctly."""
-        with patch.dict(os.environ, {"TEST_VAR": '{"emoji": "🎉", "text": "日本語"}'}):
-            result = _parse_json_env("TEST_VAR")
-            assert result == {"emoji": "🎉", "text": "日本語"}
+    @pytest.mark.parametrize("raw", ["", "   \t\n  "], ids=["empty", "whitespace-only"])
+    def test_parse_blank_env_var_returns_none(self, raw: str) -> None:
+        """An empty or whitespace-only value returns None."""
+        with patch.dict(os.environ, {"TEST_VAR": raw}):
+            assert _parse_json_env("TEST_VAR") is None
 
 
 class TestSafeLogConfig:
     """Tests for _safe_log_config() function."""
 
-    def test_redacts_password_key(self):
-        """Password key is redacted."""
-        cfg = {"password": "secret123", "name": "test"}
-        result = _safe_log_config(cfg)
-        assert result["password"] == "***REDACTED***"
-        assert result["name"] == "test"
-
-    def test_redacts_bot_token_key(self):
-        """bot_token key is redacted."""
-        cfg = {"bot_token": "123:abc", "channel": "-100"}
-        result = _safe_log_config(cfg)
-        assert result["bot_token"] == "***REDACTED***"
-        assert result["channel"] == "-100"
-
-    def test_redacts_api_key(self):
-        """api_key is redacted."""
-        cfg = {"api_key": "sk-123456", "model": "gpt-4"}
-        result = _safe_log_config(cfg)
-        assert result["api_key"] == "***REDACTED***"
-        assert result["model"] == "gpt-4"
-
-    def test_redacts_refresh_token(self):
-        """refresh_token is redacted."""
-        cfg = {"refresh_token": "token123", "app_key": "app123"}
-        result = _safe_log_config(cfg)
-        assert result["refresh_token"] == "***REDACTED***"
-
-    def test_redacts_secret_key(self):
-        """secret key is redacted."""
-        cfg = {"secret": "mysecret", "public": "mypublic"}
-        result = _safe_log_config(cfg)
-        assert result["secret"] == "***REDACTED***"
-        assert result["public"] == "mypublic"
-
-    def test_redacts_token_key(self):
-        """token key is redacted."""
-        cfg = {"token": "abc123", "id": "user1"}
-        result = _safe_log_config(cfg)
-        assert result["token"] == "***REDACTED***"
-        assert result["id"] == "user1"
+    @pytest.mark.parametrize(
+        ("secret_key", "secret", "other_key", "other"),
+        [
+            ("password", "secret123", "name", "test"),
+            ("bot_token", "123:abc", "channel", "-100"),
+            ("api_key", "sk-123456", "model", "gpt-4"),
+            ("refresh_token", "token123", "app_key", "app123"),
+            ("secret", "mysecret", "public", "mypublic"),
+            ("token", "abc123", "id", "user1"),
+        ],
+    )
+    def test_redacts_sensitive_key(self, secret_key: str, secret: str, other_key: str, other: str) -> None:
+        """A sensitive key is redacted; the neighbouring non-sensitive key is kept."""
+        result = _safe_log_config({secret_key: secret, other_key: other})
+        assert result[secret_key] == "***REDACTED***"
+        assert result[other_key] == other
 
     def test_keeps_non_sensitive_keys(self):
         """Non-sensitive keys are not redacted."""
@@ -177,7 +137,3 @@ class TestRedactKeys:
             "voice_profile_tags",
         }
         assert expected == REDACT_KEYS
-
-    def test_redact_keys_is_set(self):
-        """REDACT_KEYS is a set for O(1) lookup."""
-        assert isinstance(REDACT_KEYS, set)

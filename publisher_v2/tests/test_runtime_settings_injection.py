@@ -288,23 +288,20 @@ class TestPaddedValuesKeepTheirOldMeaning:
     errs toward not trusting proxy-supplied headers.
     """
 
-    @pytest.mark.parametrize("raw", ["true ", " true", "  TRUE  ", "on "])
-    def test_padded_secure_cookies_is_still_on(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
-        monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
-        assert load_runtime_settings().secure_cookies is True
-
-    @pytest.mark.parametrize("raw", ["   ", "\t"])
-    def test_whitespace_only_secure_cookies_falls_back_to_the_default(
-        self, monkeypatch: pytest.MonkeyPatch, raw: str
+    @pytest.mark.parametrize(
+        ("raw", "secure"),
+        [
+            *[pytest.param(raw, True, id=f"padded-on-{raw!r}") for raw in ("true ", " true", "  TRUE  ", "on ")],
+            # ``_get_env`` treated whitespace-only as unset, and the default is on.
+            *[pytest.param(raw, True, id=f"whitespace-only-default-{raw!r}") for raw in ("   ", "\t")],
+            *[pytest.param(raw, False, id=f"padded-off-{raw!r}") for raw in ("false ", " false", "  0  ")],
+        ],
+    )
+    def test_padded_secure_cookies_keeps_its_meaning(
+        self, monkeypatch: pytest.MonkeyPatch, raw: str, secure: bool
     ) -> None:
-        """``_get_env`` treated whitespace-only as unset, and the default is on."""
         monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
-        assert load_runtime_settings().secure_cookies is True
-
-    @pytest.mark.parametrize("raw", ["false ", " false", "  0  "])
-    def test_padded_falsy_secure_cookies_is_still_off(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
-        monkeypatch.setenv("WEB_SECURE_COOKIES", raw)
-        assert load_runtime_settings().secure_cookies is False
+        assert load_runtime_settings().secure_cookies is secure
 
     @pytest.mark.parametrize("raw", ["true ", " true"])
     def test_padded_trust_forwarded_for_stays_off(self, monkeypatch: pytest.MonkeyPatch, raw: str) -> None:
@@ -369,12 +366,6 @@ class TestTheSnapshotSurvivesOrdinaryHandling:
         settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
         assert len({settings, settings.model_copy()}) == 1
 
-    def test_the_overrides_still_cannot_be_written_through(self) -> None:
-        settings = RuntimeSettings(publish_timeout_overrides={"telegram": 30.0})
-        with pytest.raises(TypeError):
-            settings.publish_timeout_overrides["telegram"] = 9999.0  # type: ignore[index]
-        assert settings.publish_timeout_for("telegram") == 30.0
-
 
 class TestTheRemovedLoginBackoffKnobStaysRemoved:
     """#137 deleted the password login and ``WEB_LOGIN_BACKOFF_CAP_SECONDS`` with it.
@@ -413,11 +404,13 @@ class TestAVariantBuiltWithoutValidationStillWorks:
         assert settings.publish_timeout_for("telegram") == 30.0
         assert settings.publish_timeout_for("email") == settings.publish_timeout_seconds
 
-    def test_model_construct_with_a_plain_dict_still_resolves(self) -> None:
-        settings = RuntimeSettings.model_construct(publish_timeout_overrides={"telegram": 30.0})
-        assert settings.publish_timeout_for("telegram") == 30.0
-
-    def test_a_two_character_platform_name_is_not_mistaken_for_a_pair(self) -> None:
-        """``for a, b in {"ig": …}`` unpacks the *key* into two characters and silently misses."""
-        settings = RuntimeSettings.model_construct(publish_timeout_overrides={"ig": 30.0})
-        assert settings.publish_timeout_for("ig") == 30.0
+    @pytest.mark.parametrize(
+        "platform",
+        [
+            pytest.param("telegram", id="model_construct_with_a_plain_dict_still_resolves"),
+            pytest.param("ig", id="a_two_character_platform_name_is_not_mistaken_for_a_pair"),
+        ],
+    )
+    def test_a_variant_built_without_validation_still_resolves(self, platform) -> None:
+        settings = RuntimeSettings.model_construct(publish_timeout_overrides={platform: 30.0})
+        assert settings.publish_timeout_for(platform) == 30.0

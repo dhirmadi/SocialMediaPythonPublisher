@@ -10,6 +10,8 @@ from collections.abc import Callable
 from typing import Any
 from unittest.mock import AsyncMock, patch
 
+import pytest
+
 
 class TestAnalyzeSidecarCache:
     async def test_sd_only_sidecar_runs_ai_and_never_returns_sd_prompt(
@@ -36,13 +38,25 @@ class TestAnalyzeSidecarCache:
         assert result.cached is True
         service.ai_service.analyzer.analyze.assert_not_awaited()  # type: ignore[union-attr]
 
-    async def test_published_caption_metadata_still_served(self, analyze_service: Callable[..., Any]) -> None:
-        sidecar = "sd prompt\n\n# ---\n# caption: The published caption\n"
+    @pytest.mark.parametrize(
+        ("metadata", "caption"),
+        [
+            pytest.param("caption: The published caption", "The published caption", id="published_caption"),
+            # No enabled-platform or email entry — any generated caption beats re-running AI.
+            pytest.param(
+                'caption_generated: {"instagram": "IG cap"}', "IG cap", id="generated_entry_for_non_enabled_platform"
+            ),
+        ],
+    )
+    async def test_cached_caption_still_served(
+        self, analyze_service: Callable[..., Any], metadata: str, caption: str
+    ) -> None:
+        sidecar = f"sd prompt\n\n# ---\n# {metadata}\n"
         service = analyze_service(sidecar=sidecar)
 
         result = await service.analyze_and_caption("img.jpg")
 
-        assert result.caption == "The published caption"
+        assert result.caption == caption
         assert result.cached is True
 
     async def test_force_refresh_bypasses_cache(self, analyze_service: Callable[..., Any]) -> None:
@@ -61,17 +75,3 @@ def test_analysis_response_cached_defaults_false() -> None:
 
     resp = AnalysisResponse(filename="a.jpg", description="", mood="", tags=[], nsfw=False, caption="", sd_caption=None)
     assert resp.cached is False
-
-
-class TestCachedCaptionSelectionFallback:
-    async def test_generated_entry_for_non_enabled_platform_still_served(
-        self, analyze_service: Callable[..., Any]
-    ) -> None:
-        """No enabled-platform or email entry — any generated caption beats re-running AI."""
-        sidecar = 'sd prompt\n\n# ---\n# caption_generated: {"instagram": "IG cap"}\n'
-        service = analyze_service(sidecar=sidecar)
-
-        result = await service.analyze_and_caption("img.jpg")
-
-        assert result.caption == "IG cap"
-        assert result.cached is True

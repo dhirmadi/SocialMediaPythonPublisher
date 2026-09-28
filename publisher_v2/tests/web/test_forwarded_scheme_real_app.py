@@ -77,33 +77,24 @@ async def test_garbage_forwarded_proto_falls_back_to_request_scheme(monkeypatch:
     assert (await _logout(proto="javascript", origin="http://testserver")).status_code == 200
 
 
+@pytest.mark.parametrize(
+    ("status", "proto"),
+    [
+        pytest.param(200, "HTTPS", id="forwarded_proto_is_lowercased"),
+        # A client's forged `https` plus a proxy's appended `http` must not be honoured. The issue
+        # asked for "the first value"; taking it would let a client assert `https` on a plain-http
+        # hop behind any appending proxy. Deviation recorded in the PR body.
+        pytest.param(403, "https, http", id="disagreeing_forwarded_proto_values_are_refused"),
+        # Cloudflare in Full mode in front of Heroku produces `https, https`. Refusing every
+        # multi-valued header would bring the 403 back in exactly the deployment
+        # CONFIGURATION.md §10.2 tells operators to move to.
+        pytest.param(200, "https, https", id="agreeing_forwarded_proto_values_are_honoured"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_forwarded_proto_is_lowercased(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_forwarded_proto_values(monkeypatch: pytest.MonkeyPatch, status, proto) -> None:
     monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    assert (await _logout(proto="HTTPS")).status_code == 200
-
-
-@pytest.mark.asyncio
-async def test_disagreeing_forwarded_proto_values_are_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    """A client's forged `https` plus a proxy's appended `http` must not be honoured.
-
-    The issue asked for "the first value"; taking it would let a client assert
-    `https` on a plain-http hop behind any appending proxy. Deviation recorded
-    in the PR body.
-    """
-    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    assert (await _logout(proto="https, http")).status_code == 403
-
-
-@pytest.mark.asyncio
-async def test_agreeing_forwarded_proto_values_are_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Cloudflare in Full mode in front of Heroku produces `https, https`.
-
-    Refusing every multi-valued header would bring the 403 back in exactly the
-    deployment CONFIGURATION.md §10.2 tells operators to move to.
-    """
-    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    assert (await _logout(proto="https, https")).status_code == 200
+    assert (await _logout(proto=proto)).status_code == status
 
 
 @pytest.fixture
@@ -136,43 +127,54 @@ async def _login_redirect_uri(oauth: AsyncMock, host: str, proto: str) -> str:
     return oauth.auth0.authorize_redirect.call_args.args[1]
 
 
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param(
+            "tenant.example.com",
+            "https://tenant.example.com/auth/callback",
+            id="auth0_callback_public_host_with_trust_flag_is_https",
+        ),
+        pytest.param(
+            "localhost:8089",
+            "https://localhost:8089/auth/callback",
+            id="auth0_callback_localhost_behind_proxy_with_trust_flag_uses_forwarded_scheme",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_auth0_callback_public_host_with_trust_flag_is_https(
-    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock
+async def test_auth0_callback_with_trust_flag_uses_forwarded_https(
+    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock, host, expected
 ) -> None:
-    """Pins the public-host https floor with the flag on; the helper is proven by the localhost tests."""
+    """With the flag on, localhost keeps its port and takes the forwarded scheme; public hosts stay https."""
     monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    uri = await _login_redirect_uri(auth0_service, "tenant.example.com", "https")
-    assert uri == "https://tenant.example.com/auth/callback"
+    uri = await _login_redirect_uri(auth0_service, host, "https")
+    assert uri == expected
 
 
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        pytest.param(
+            "localhost:8089",
+            "http://localhost:8089/auth/callback",
+            id="auth0_callback_localhost_behind_proxy_without_trust_flag_ignores_forwarded_scheme",
+        ),
+        pytest.param(
+            "tenant.example.com",
+            "https://tenant.example.com/auth/callback",
+            id="auth0_callback_public_host_without_trust_flag_stays_https",
+        ),
+    ],
+)
 @pytest.mark.asyncio
-async def test_auth0_callback_localhost_behind_proxy_with_trust_flag_uses_forwarded_scheme(
-    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock
+async def test_auth0_callback_without_trust_flag_ignores_forwarded_scheme(
+    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock, host, expected
 ) -> None:
-    """Localhost keeps its port; the scheme now comes from the trusted forwarded header."""
-    monkeypatch.setenv("WEB_TRUST_FORWARDED_FOR", "true")
-    uri = await _login_redirect_uri(auth0_service, "localhost:8089", "https")
-    assert uri == "https://localhost:8089/auth/callback"
-
-
-@pytest.mark.asyncio
-async def test_auth0_callback_localhost_behind_proxy_without_trust_flag_ignores_forwarded_scheme(
-    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock
-) -> None:
+    """Without the flag the forwarded scheme is ignored; public hosts never get an http callback."""
     monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
-    uri = await _login_redirect_uri(auth0_service, "localhost:8089", "https")
-    assert uri == "http://localhost:8089/auth/callback"
-
-
-@pytest.mark.asyncio
-async def test_auth0_callback_public_host_without_trust_flag_stays_https(
-    monkeypatch: pytest.MonkeyPatch, auth0_service: AsyncMock
-) -> None:
-    """Public hosts never get an http callback, flag or no flag."""
-    monkeypatch.delenv("WEB_TRUST_FORWARDED_FOR", raising=False)
-    uri = await _login_redirect_uri(auth0_service, "tenant.example.com", "https")
-    assert uri == "https://tenant.example.com/auth/callback"
+    uri = await _login_redirect_uri(auth0_service, host, "https")
+    assert uri == expected
 
 
 # --- review follow-up: the flag nobody sets ----------------------------------

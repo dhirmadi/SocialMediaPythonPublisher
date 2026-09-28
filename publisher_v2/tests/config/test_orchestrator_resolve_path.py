@@ -15,30 +15,31 @@ def orch_src(monkeypatch: pytest.MonkeyPatch) -> OrchestratorConfigSource:
     return OrchestratorConfigSource()
 
 
-def test_resolve_path_short_segment_relative_to_root(orch_src: OrchestratorConfigSource) -> None:
-    assert orch_src._resolve_path("cloud-stage/inbox", "archive", "archive") == "cloud-stage/inbox/archive"
-
-
-def test_resolve_path_full_prefix_already_under_root_not_doubled(orch_src: OrchestratorConfigSource) -> None:
-    """Orchestrator often sends full bucket-relative keys for archive/keep/remove."""
-    root = "cloud-stage/cloud-stage"
-    archive = "cloud-stage/cloud-stage/archive"
-    assert orch_src._resolve_path(root, archive, "archive") == archive
-
-
-def test_resolve_path_full_keep_remove(orch_src: OrchestratorConfigSource) -> None:
-    root = "tenant/instance"
-    assert orch_src._resolve_path(root, "tenant/instance/keep", "keep") == "tenant/instance/keep"
-    assert orch_src._resolve_path(root, "tenant/instance/remove", "reject") == "tenant/instance/remove"
-
-
-def test_resolve_path_leading_slash_absolute_unchanged(orch_src: OrchestratorConfigSource) -> None:
-    assert orch_src._resolve_path("/dropbox/root", "/other/archive", "archive") == "/other/archive"
-
-
-def test_resolve_path_default_when_value_empty(orch_src: OrchestratorConfigSource) -> None:
-    assert orch_src._resolve_path("a/b", None, "archive") == "a/b/archive"
-    assert orch_src._resolve_path("a/b", "   ", "archive") == "a/b/archive"
+@pytest.mark.parametrize(
+    ("root", "value", "default", "expected"),
+    [
+        pytest.param(
+            "cloud-stage/inbox", "archive", "archive", "cloud-stage/inbox/archive", id="short-segment-under-root"
+        ),
+        # The orchestrator often sends full bucket-relative keys for archive/keep/remove.
+        pytest.param(
+            "cloud-stage/cloud-stage",
+            "cloud-stage/cloud-stage/archive",
+            "archive",
+            "cloud-stage/cloud-stage/archive",
+            id="full-prefix-not-doubled",
+        ),
+        pytest.param("tenant/instance", "tenant/instance/keep", "keep", "tenant/instance/keep", id="full-keep"),
+        pytest.param("tenant/instance", "tenant/instance/remove", "reject", "tenant/instance/remove", id="full-remove"),
+        pytest.param("/dropbox/root", "/other/archive", "archive", "/other/archive", id="leading-slash-unchanged"),
+        pytest.param("a/b", None, "archive", "a/b/archive", id="default-when-none"),
+        pytest.param("a/b", "   ", "archive", "a/b/archive", id="default-when-blank"),
+    ],
+)
+def test_resolve_path(
+    orch_src: OrchestratorConfigSource, root: str, value: str | None, default: str, expected: str
+) -> None:
+    assert orch_src._resolve_path(root, value, default) == expected
 
 
 def test_resolve_path_rejects_traversal(orch_src: OrchestratorConfigSource) -> None:

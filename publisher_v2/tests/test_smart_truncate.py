@@ -1,5 +1,7 @@
 """Tests for smart_truncate function in AI service."""
 
+import pytest
+
 from publisher_v2.services.ai import smart_truncate
 
 
@@ -35,19 +37,28 @@ class TestSmartTruncate:
         # Should not cut mid-word (ellipsis follows a complete word)
         assert result[-2] != " "  # Character before ellipsis is not a space
 
-    def test_handles_question_mark_sentence_end(self) -> None:
-        """Recognizes ? as sentence boundary."""
-        text = "Is this a question? Here is more text that should be cut off."
-        result = smart_truncate(text, 30)
-        assert result == "Is this a question?"
-
-    def test_handles_exclamation_sentence_end(self) -> None:
-        """Recognizes ! as sentence boundary."""
-        text = "Wow! This is exciting text that continues on and on."
-        result = smart_truncate(text, 20)
-        # With max 20, target is 19, "Wow!" is at index 3, search starts at 5
-        # So "Wow!" should be found as sentence boundary
-        assert result == "Wow!"
+    @pytest.mark.parametrize(
+        ("text", "max_len", "expected"),
+        [
+            pytest.param(
+                "Is this a question? Here is more text that should be cut off.",
+                30,
+                "Is this a question?",
+                id="handles_question_mark_sentence_end",
+            ),
+            pytest.param(
+                "Wow! This is exciting text that continues on and on.",
+                20,
+                "Wow!",
+                id="handles_exclamation_sentence_end",
+            ),
+        ],
+    )
+    def test_handles_sentence_end_punctuation(self, text, max_len, expected) -> None:
+        """Recognizes ? and ! as sentence boundaries."""
+        text = text
+        result = smart_truncate(text, max_len)
+        assert result == expected
 
     def test_respects_max_length(self) -> None:
         """Result never exceeds max_length."""

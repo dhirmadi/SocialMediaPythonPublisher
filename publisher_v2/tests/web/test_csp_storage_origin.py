@@ -93,17 +93,23 @@ def _csp() -> str:
     return response.headers["Content-Security-Policy"]
 
 
-def test_managed_storage_origin_replaces_blanket_https(csp_managed_app: None) -> None:
+@pytest.mark.parametrize(
+    ("app_fixture", "storage_host"),
+    [
+        pytest.param(
+            "csp_managed_app", "accountid.r2.cloudflarestorage.com", id="managed_storage_origin_replaces_blanket_https"
+        ),
+        pytest.param("dropbox_app", "dropboxusercontent.com", id="dropbox_content_host_is_allowed_not_all_of_https"),
+    ],
+)
+def test_storage_host_is_allowed_not_all_of_https(
+    request: pytest.FixtureRequest, app_fixture: str, storage_host: str
+) -> None:
+    """Managed storage and Dropbox each allow their own content host in the CSP, never all of https:."""
+    request.getfixturevalue(app_fixture)
     csp = _csp()
 
-    assert "accountid.r2.cloudflarestorage.com" in csp
-    assert not _has_blanket_https(csp), csp
-
-
-def test_dropbox_content_host_is_allowed_not_all_of_https(dropbox_app: None) -> None:
-    csp = _csp()
-
-    assert "dropboxusercontent.com" in csp
+    assert storage_host in csp
     assert not _has_blanket_https(csp), csp
 
 

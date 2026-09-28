@@ -33,16 +33,17 @@ def _make_app(env: dict[str, str], monkeypatch: pytest.MonkeyPatch) -> TestClien
     return TestClient(app)
 
 
-def test_require_auth_bearer_success(monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize(
+    ("authorization", "status"),
+    [
+        pytest.param("Bearer secret-token", 200, id="require_auth_bearer_success"),
+        pytest.param("Bearer wrong", 401, id="require_auth_bearer_failure"),
+    ],
+)
+def test_require_auth_bearer(monkeypatch: pytest.MonkeyPatch, authorization, status) -> None:
     client = _make_app({"WEB_AUTH_TOKEN": "secret-token"}, monkeypatch)
-    res = client.get("/protected", headers={"Authorization": "Bearer secret-token"})
-    assert res.status_code == 200
-
-
-def test_require_auth_bearer_failure(monkeypatch: pytest.MonkeyPatch) -> None:
-    client = _make_app({"WEB_AUTH_TOKEN": "secret-token"}, monkeypatch)
-    res = client.get("/protected", headers={"Authorization": "Bearer wrong"})
-    assert res.status_code == 401
+    res = client.get("/protected", headers={"Authorization": authorization})
+    assert res.status_code == status
 
 
 def test_require_auth_basic_success(monkeypatch: pytest.MonkeyPatch) -> None:

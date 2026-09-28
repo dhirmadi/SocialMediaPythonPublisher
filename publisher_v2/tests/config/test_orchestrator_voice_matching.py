@@ -67,29 +67,23 @@ async def test_profile_without_voice_key_enables_voice_matching(monkeypatch: pyt
     assert rc.config.features.voice_matching_enabled is True
 
 
-async def test_profile_with_null_voice_flag_enables_voice_matching(monkeypatch: pytest.MonkeyPatch) -> None:
-    """The real orchestrator projection (platform-orchestrator, Publisher #131) sends unset as null."""
-    features = {**_BASE_FEATURES, "voice_matching_enabled": None}
-    rc = await _source(features, _PROFILE, monkeypatch).get_config("xxx.shibari.photo")
-    assert rc.config.features.voice_matching_enabled is True
-
-
-async def test_null_voice_flag_without_profile_stays_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    features = {**_BASE_FEATURES, "voice_matching_enabled": None}
-    rc = await _source(features, {}, monkeypatch).get_config("xxx.shibari.photo")
-    assert rc.config.features.voice_matching_enabled is False
-
-
-async def test_profile_with_explicit_false_keeps_voice_matching_off(monkeypatch: pytest.MonkeyPatch) -> None:
-    features = {**_BASE_FEATURES, "voice_matching_enabled": False}
-    rc = await _source(features, _PROFILE, monkeypatch).get_config("xxx.shibari.photo")
-    assert rc.config.features.voice_matching_enabled is False
-
-
-async def test_explicit_true_without_profile_is_honoured(monkeypatch: pytest.MonkeyPatch) -> None:
-    features = {**_BASE_FEATURES, "voice_matching_enabled": True}
-    rc = await _source(features, {}, monkeypatch).get_config("xxx.shibari.photo")
-    assert rc.config.features.voice_matching_enabled is True
+@pytest.mark.parametrize(
+    ("flag", "profile", "enabled"),
+    [
+        # The real orchestrator projection (platform-orchestrator, Publisher #131) sends unset as null.
+        pytest.param(None, _PROFILE, True, id="null-flag-with-profile-enables"),
+        pytest.param(None, {}, False, id="null-flag-without-profile-stays-off"),
+        pytest.param(False, _PROFILE, False, id="explicit-false-with-profile-stays-off"),
+        pytest.param(True, {}, True, id="explicit-true-without-profile-honoured"),
+    ],
+)
+async def test_voice_matching_flag_and_profile(
+    monkeypatch: pytest.MonkeyPatch, flag: bool | None, profile: dict, enabled: bool
+) -> None:
+    """An explicit flag wins; a null flag follows whether a voice profile is present."""
+    features = {**_BASE_FEATURES, "voice_matching_enabled": flag}
+    rc = await _source(features, profile, monkeypatch).get_config("xxx.shibari.photo")
+    assert rc.config.features.voice_matching_enabled is enabled
 
 
 async def test_other_orchestrator_feature_defaults_unchanged(monkeypatch: pytest.MonkeyPatch) -> None:
