@@ -19,5 +19,5 @@ Facts verified 2026-09-20 on `fix/141-coverage-gate` rebased onto `integration/1
 **How to apply:** when reviewing anything touching coverage config or CI test commands, re-check cwd-relative discovery, grep for remaining `--cov=` usages (QUALITY_METRICS.md, docs_v2/10_Testing/README.md, .cursor/, .claude/), and check the workflow for `--no-cov`/`--cov-fail-under=0`.
 
 Real figure 2026-09-20 on integration/128 + this branch: **88.75%**, 6451 stmts, 726 missing, 1337 passed / 1 skipped.
-Under the 80% per-module bar (6): `web/service.py` 78, `config/web_env.py` 67, `tools/migrate_storage.py` 60, `db/__init__.py` 56, `services/instagram_session.py` 51, `tools/__main__.py` 0. `web/routers/auth.py` is exactly 80. (PR #160's body still lists the pre-rebase set, incl. middleware.py/middleware_csrf.py, now 94%/90%.)
-`scripts/heroku_hetzner_clone.py` (429 stmts, has `publisher_v2/tests/test_scripts_heroku_hetzner_clone.py`) is no longer measured — deliberate, #141 prescribes the source list verbatim.
+Under the 80% per-module bar (6): `web/service.py` 78, `config/web_env.py` 67, `tools/migrate_storage.py` 60, `db/__init__.py` 56, `services/instagram_session.py` 51 (a 0% tools entrypoint was deleted in PUB-084 wave 4). `web/routers/auth.py` is exactly 80. (PR #160's body still lists the pre-rebase set, incl. middleware.py/middleware_csrf.py, now 94%/90%.)
+`scripts/` is not measured — deliberate, #141 prescribes the source list verbatim (the Heroku/Hetzner clone script and its test were deleted in PUB-084 wave 4).

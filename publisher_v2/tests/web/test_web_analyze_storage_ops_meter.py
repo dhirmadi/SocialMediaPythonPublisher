@@ -50,7 +50,7 @@ async def test_analyze_returns_under_one_second_when_orchestrator_never_responds
 
         assert result.caption == "fresh AI caption"
         # The batch was drained but never delivered — the meter must still hold it.
-        assert meter.pending_batch_count() > 0
+        assert len(meter._pending) > 0
     finally:
         # No background drain task may leak into another test (suite runs in random order).
         leaked = asyncio.all_tasks() - tasks_before - {asyncio.current_task()}
