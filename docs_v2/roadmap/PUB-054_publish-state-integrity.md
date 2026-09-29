@@ -76,7 +76,7 @@ No tenant can observe or be blocked by another tenant's file-based state. Select
 - Prior fixes #85 (Postgres publish state), #139 (lease expiry)
 - 2026-09-27 DRY review [#291](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/291): posted-state and `PublishStore` parts of [#284](https://github.com/dhirmadi/SocialMediaPythonPublisher/issues/284) absorbed (Scope, AC8)
 
-- #315 (a cancel between a lease commit and the workflow recording it wedges the lease until its TTL) is handled separately by [PUB-086](PUB-086_release-leases-claimed-before-cancel.md); AC5's lease fencing builds on it.
+- #315 (a cancel between a lease commit and the workflow recording it wedges the lease until its TTL) is handled separately by [PUB-086](archive/PUB-086_release-leases-claimed-before-cancel.md); AC5's lease fencing builds on it.
 
 ## Change Log
 
