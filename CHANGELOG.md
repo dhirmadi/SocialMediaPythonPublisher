@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed - PUB-086: Release Leases Claimed Before a Cancellation
+- **Publish leases:** a run cancelled (shutdown, client disconnect) or timed out after a lease row committed now releases it, fenced by its token, instead of leaving the image blocked on that platform until the 600 s lease TTL expired (#315)
+- **Cancellation:** the claim finishes under a shield (bounded by `publish_claim_timeout_seconds`), then the cancellation is re-raised; repeated cancels and a claim timeout after a cancel are handled
+
+### Fixed - PUB-085: Gitleaks CI Honesty and Admin-UI Behaviour Coverage
+- **CI:** the `pre-commit` job skips `gitleaks` explicitly (it scans only staged changes, so it could never fail in CI); `SECURITY.md` names it a local commit hook and lists the CI secret scanners (#303)
+- **Browser tests:** ten Playwright flows pin the admin-UI behaviours that lost their only test in PUB-084 (back-to-grid page, page-size persistence and lock, 429 retry, Escape/ARIA, leave-page guards, no password prompt) (#305)
+- **Upload queue:** enqueuing clears finished (done and failed) entries and never drops in-flight uploads; fixed a skipped file when entries were removed mid-run, and auto-hide timers that could empty or hide a later batch
+
 ### Fixed - PUB-084: DRY Review Standalone Batch
 - **Test isolation:** autouse `XDG_CACHE_HOME` per test; no test touches the developer's real `~/.cache` posted-state
 - **Instagram:** dropped the unused `tenant` parameter; one module-level session key; documented single-instance-per-database limit

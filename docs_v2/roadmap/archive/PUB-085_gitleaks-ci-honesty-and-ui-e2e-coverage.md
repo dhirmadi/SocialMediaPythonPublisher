@@ -6,8 +6,11 @@
 | **Category** | Foundation |
 | **Priority** | P2 |
 | **Effort** | M |
-| **Status** | In Progress |
+| **Status** | Done |
+| **Shipped date** | 2026-09-28 |
 | **Dependencies** | PUB-084 (done) |
+
+**Verified:** PRs [#313](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/313) (part A, #303), [#314](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/314) (part B, #305), [#316](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/316) (AC6 upload queue); last merge commit `caf8c4c`; #303 and #305 closed; default suite 2089 passed, e2e 27 passed; ruff, mypy clean.
 
 ## User Story
 

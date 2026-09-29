@@ -6,8 +6,11 @@
 | **Category** | Foundation |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | In Progress |
+| **Status** | Done |
+| **Shipped date** | 2026-09-28 |
 | **Dependencies** | — (related to PUB-054) |
+
+**Verified:** PR [#317](https://github.com/dhirmadi/SocialMediaPythonPublisher/pull/317), merge commit `65568d3`; #315 closed; 2095 passed / 2 skipped, coverage 93.59% overall; ruff check + ruff format --check clean; mypy clean.
 
 ## User Story
 
