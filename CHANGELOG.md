@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed - Caption Eval: Widen the Live Baseline From Five Runs to Ten
+- Caption Eval Nightly was failing its own offline scoring step on about 60% of nights (9 of the
+  last 15 as of 2026-10-13), always on a different metric (`tfidf_bigram_cosine`,
+  `tells_lexicon_hit_rate`, `word_count_variance`, `two_sentence_emoji_rhythm_share`), with no
+  change to the caption generator or prompts to explain it — ordinary `gpt-4o-mini` run-to-run
+  variance exceeding the five-run baseline's observed range
+- PUB-080's own "Risks" section named this exact failure mode and its fix: "add runs to
+  `baseline_runs/` and regenerate; do not widen the margin." Added five more live runs
+  (`baseline_runs/run6.json` … `run10.json`) and regenerated `caption_eval_thresholds.json` from
+  the worst score across all ten; `snapshot.json` now mirrors the latest run instead of run5. The
+  metrics, direction and 10% margin are unchanged
+- `test_committed_thresholds_admit_every_recorded_baseline_run` passes against all ten runs; the
+  snapshot that failed [run 38343263968](https://github.com/dhirmadi/SocialMediaPythonPublisher/actions/runs/38343263968)
+  (`tfidf_bigram_cosine` 0.0054 vs the old 0.0051 bar) now scores cleanly against the new 0.0055 bar
+
 ### Fixed - PUB-086: Release Leases Claimed Before a Cancellation
 - **Publish leases:** a run cancelled (shutdown, client disconnect) or timed out after a lease row committed now releases it, fenced by its token, instead of leaving the image blocked on that platform until the 600 s lease TTL expired (#315)
 - **Cancellation:** the claim finishes under a shield (bounded by `publish_claim_timeout_seconds`), then the cancellation is re-raised; repeated cancels and a claim timeout after a cancel are handled
