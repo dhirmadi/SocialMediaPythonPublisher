@@ -85,11 +85,21 @@ This is a spec change, so the corresponding assertion is updated rather than del
 asserting the lower bound and gain an assertion that `aclose()` still surfaces an undrained queue
 when an attempt outlives the close budget.
 
+`test_drain_attempt_timeout_exceeds_client_timeout_and_fits_aclose_budget`'s name and docstring
+("fits inside the drain deadline, which fits aclose()") assert exactly the claim this item removes
+— both must be rewritten, not just the assertion body, so the test's name stops documenting an
+invariant that no longer holds. AC5's new "surfaces an undrained queue" behavior is a distinct
+scenario (an `aclose()`-level cancellation, not a constants-only check) and belongs in its own new
+test function, not appended to the renamed one.
+
 ## Scope
 
 **In scope:**
-- A per-call `timeout` keyword on `post_usage` (new, independent of the existing `retry` override),
-  threaded into `_request_with_retry`, defaulting to `httpx.USE_CLIENT_DEFAULT` when unset
+- A per-call `timeout: float | None = None` keyword on `post_usage` (new, independent of the
+  existing `retry` override), threaded through `_request_with_retry` (also `timeout: float | None
+  = None`) to the `self._client.request(...)` call site, which resolves `None` to
+  `httpx.USE_CLIENT_DEFAULT` there — the kwarg's own default stays `None` end-to-end; only the final
+  call site translates it
 - The named constant `_DRAIN_POST_TIMEOUT_SECONDS = 15.0` in `storage_ops_meter.py`
 - `StorageOpsMeter._post_batch` passing `timeout=_DRAIN_POST_TIMEOUT_SECONDS`;
   `_DRAIN_ATTEMPT_TIMEOUT_SECONDS` 8.0 → 18.0
@@ -99,8 +109,9 @@ when an attempt outlives the close budget.
 - The shared `timeout_seconds=5.0` default and every interactive caller
 - `_ACLOSE_DEADLINE_SECONDS`, the 12-batch `_pending` cap, the idempotency-key scheme
 - The single-attempt retry decision from PUB-061 — drain posts still make exactly one attempt
-- Making the values configurable via `RuntimeSettings`; two module constants and a literal are
-  enough until there is evidence a deployment needs to differ
+- Making the values configurable via `RuntimeSettings`; the two named module constants
+  (`_DRAIN_POST_TIMEOUT_SECONDS`, `_DRAIN_ATTEMPT_TIMEOUT_SECONDS`) are enough until there is
+  evidence a deployment needs to differ
 
 ## Acceptance Criteria
 
@@ -116,7 +127,10 @@ when an attempt outlives the close budget.
   specific regression this AC exists to block)
 - AC3: Given an orchestrator that answers successfully after longer than the old 5.0 s request
   timeout but inside the new 15.0 s one, when the drain task runs, then the batch is delivered and
-  `pending_batch_count()` returns 0
+  `len(meter._pending) == 0` — matching the private-state convention every other test in
+  `test_storage_ops_meter.py` already uses (there is no `pending_batch_count()` method; #286 deleted
+  it as a test-only wrapper and `test_storage_ops_meter_has_no_alias_or_test_only_wrappers` asserts
+  it stays gone)
 - AC4: Given the constants, when they are read, then `_DRAIN_POST_TIMEOUT_SECONDS` (15.0) is
   strictly less than `_DRAIN_ATTEMPT_TIMEOUT_SECONDS` (18.0) — the outer `wait_for` remains a
   backstop for a hung attempt, never the routine limiter for a merely-slow one. (The client's
@@ -134,8 +148,9 @@ when an attempt outlives the close budget.
 
 ## Implementation Notes
 
-- `timeout: float | None = None` is a new keyword on `post_usage`, threaded through
-  `_request_with_retry` as its own parameter (parallel to, not merged into, `retry`), and applied at
+- `timeout: float | None = None` is a new keyword on `post_usage`. `_request_with_retry` gains the
+  identical new parameter — `timeout: float | None = None`, its own argument alongside the existing
+  `retry: RetryConfig | None = None`, not derived from it — and applies it at
   `self._client.request(..., timeout=timeout if timeout is not None else httpx.USE_CLIENT_DEFAULT)`.
   Prefer passing the value through rather than mutating client state.
 - **Do not pass a bare `None` to `httpx.AsyncClient.request(timeout=...)`.** Omitting the kwarg or
@@ -176,7 +191,19 @@ when an attempt outlives the close budget.
 
 ## Change Log
 
-- 2026-10-13 — Hardened after an `architect-reviewer` pass on PR #222. Three gaps closed: (1) the
+- 2026-10-13 (2) — Second `architect-reviewer` pass, run fresh against the already-hardened spec to
+  verify the first round of fixes rather than trust the spec's own claim they worked. Found one new
+  **blocking** defect the first pass missed: AC3 asserted `pending_batch_count()` returns 0, but
+  that method does not exist — #286 deleted it as a test-only wrapper, and
+  `test_storage_ops_meter_has_no_alias_or_test_only_wrappers` asserts it stays deleted. AC3 now
+  reads `len(meter._pending) == 0`, matching every other test in the file. Also fixed three
+  cosmetic residues from the first pass: Scope's out-of-scope bullet still said "a literal" after
+  the literal became a named constant; Scope's "defaulting to `USE_CLIENT_DEFAULT` when unset" could
+  be misread as `post_usage`'s own kwarg default (it is `None`; only the final `_client.request()`
+  call site resolves to `USE_CLIENT_DEFAULT`); and the AC4 test being revised keeps a name/docstring
+  that assert the exact invariant this item removes — now called out explicitly as needing rewrite,
+  with AC5 pinned to its own new test rather than appended to the renamed one.
+- 2026-10-13 (1) — Hardened after an `architect-reviewer` pass on PR #222. Three gaps closed: (1) the
   override is now pinned as a new `timeout` keyword independent of `RetryConfig`, with an explicit
   warning against passing a bare `None` to `httpx`'s `timeout=` (which disables timeouts entirely
   rather than falling back to the client default — this would have silently broken AC2 for every
