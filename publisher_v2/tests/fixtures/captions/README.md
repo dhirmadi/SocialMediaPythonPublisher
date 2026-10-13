@@ -51,19 +51,28 @@ sentences; not production history.
 ## `snapshot.json`, `baseline_runs/` and `caption_eval_thresholds.json`
 
 **Live model output, not hand-written fixtures** (PUB-080). The PUB-049
-bootstrap snapshot was synthetic; it was replaced on 2026-09-27.
+bootstrap snapshot was synthetic; it was replaced on 2026-09-27, then widened
+from five to ten runs on 2026-10-13 (see below).
 
 - `baseline_runs/run1.json` … `run5.json`: five `--nightly` runs of the Caption
   Eval Nightly workflow on `main` at `4e146ad`, caption model `gpt-4o-mini`,
   2026-09-27 (Actions runs 36321465445, 36321644178, 36321719207, 36321802429,
-  36321879634). They are the evidence the bars were derived from.
-- `snapshot.json`: a copy of `run5.json`. The nightly workflow's PRs replace it
-  with later output; the baseline runs stay put.
-- `caption_eval_thresholds.json`: derived from **all** baseline runs. Each bar is
-  the worst score across the runs (highest for a "max" metric, lowest for a
-  "min" metric) with the PUB-049 10% margin, so every baseline run passes.
-  Identical runs vary far more than 10% (opener share 0.07–0.30), which is why
-  the bars do not come from one run or from the mean.
+  36321879634). They are the evidence PUB-080's bars were derived from.
+- `baseline_runs/run6.json` … `run10.json`: five more `scripts/caption_eval.py
+  --nightly` runs, same caption model `gpt-4o-mini`, run locally (not via
+  Actions — equivalent output, same code path) on `main` at `74ac9fe`,
+  2026-10-13. Added because the nightly was failing its own scoring step on
+  about 60% of nights (9 of the last 15 as of 2026-10-13), always on a
+  different metric, consistent with PUB-080's own "Risks" section predicting
+  that five runs might not cover the full range and naming "add runs to
+  `baseline_runs/` and regenerate; do not widen the margin" as the fix.
+- `snapshot.json`: a copy of `run10.json`, the latest baseline run. The nightly
+  workflow's PRs replace it with later output; the baseline runs stay put.
+- `caption_eval_thresholds.json`: derived from **all ten** baseline runs. Each
+  bar is the worst score across the runs (highest for a "max" metric, lowest
+  for a "min" metric) with the PUB-049 10% margin, so every baseline run
+  passes. Identical runs vary far more than 10% (opener share 0.07–0.30; see
+  PUB-080), which is why the bars do not come from one run or from the mean.
 
 To re-baseline (a deliberate, reviewed step; the nightly never does this):
 download new `caption-eval-report` artifacts into `baseline_runs/`, then run
