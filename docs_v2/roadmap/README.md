@@ -81,6 +81,7 @@ Each roadmap item is a self-contained markdown file in this folder. Shipped item
 | PUB-059 | Web UI | [Web App Factory, Routers and Typed Platform Captions](PUB-059_web-factory-and-typed-captions.md) | P2 | M | PUB-057, PUB-058 | Proposal |
 | PUB-060 | Foundation | [Test and Docs Hygiene](PUB-060_test-and-docs-hygiene.md) | P2 | M | PUB-059 | Proposal |
 | PUB-061 | Foundation | [Storage-Ops Drain Deadline — Stop Under-Billing a Slow-but-Alive Orchestrator](archive/PUB-061_storage-ops-drain-deadline.md) | P2 | XS | PUB-047 | Done |
+| PUB-062 | Foundation | [Drain-Only Request Timeout — Deliver Batches a Slow Orchestrator Can Still Answer](PUB-062_drain-request-timeout.md) | P2 | XS | PUB-061 | Not Started |
 | PUB-063 | Foundation | [Distinguish "absent" from "could not tell" in head_object](PUB-063_head-object-fail-open.md) | P1 | S | PUB-048 | Proposal |
 | PUB-064 | AI | [Make the Caption Harness Exercise the Voice Path](PUB-064_harness-voice-path-coverage.md) | P1 | S | PUB-049, PUB-050 | Proposal |
 | PUB-065 | Ops | [Dependency Security Upgrades](archive/PUB-065_dependency-security-upgrades.md) | P1 | S | Blocks PUB-055 | Done |
