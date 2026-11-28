@@ -6,7 +6,7 @@
 | **Category** | Config |
 | **Priority** | P1 |
 | **Effort** | S |
-| **Status** | Proposal |
+| **Status** | Not Started |
 | **Dependencies** | — (paired with orchestrator `SEC_08`; neither blocks the other) |
 
 ## User Story
@@ -57,7 +57,8 @@ release-phase migrations; Heroku config vars apply to both. No Python changes.
 - Commit the Hetzner CA as `certs/hetzner-sqlca.crt` at the repo root.
   - Use the `.crt` extension: `.gitignore` excludes `*.pem`, and CLAUDE.md forbids committing
     `*.pem`, a rule aimed at private keys.
-  - The file is a public certificate with no private key.
+  - The file is a public certificate with no private key. It contains only the PEM block, starting
+    at byte 0, with no `openssl x509 -text` preamble.
 - A test that guards the file.
 - Document `PGSSLMODE` / `PGSSLROOTCERT` in `docs_v2/05_Configuration/CONFIGURATION.md`, including
   that they must be set **at cutover, not before**.
@@ -71,44 +72,68 @@ release-phase migrations; Heroku config vars apply to both. No Python changes.
 
 ## Acceptance Criteria
 
-- AC1: Given the repo, when `certs/hetzner-sqlca.crt` is loaded with
-  `ssl.create_default_context(cafile=...)`, then it loads without error and contains exactly one
-  certificate. Its SHA-256 fingerprint equals
-  `0C:2F:66:73:68:A8:03:14:E2:45:5E:1D:FF:FE:89:64:85:4D:9D:11:2F:C6:F5:A3:68:CF:D2:AE:93:6A:74:27`.
-- AC2: Given the repo, when `certs/hetzner-sqlca.crt` is inspected, then it contains no
-  `PRIVATE KEY` block.
-- AC3: Given this item ships, when `CONFIGURATION.md` is read, then it documents:
-  - `PGSSLMODE=verify-full` and `PGSSLROOTCERT=/app/certs/hetzner-sqlca.crt`, and what they do;
-  - that they must be set in the same release as the Hetzner `DATABASE_URL`, because Heroku
-    Postgres's certificate is not signed by this CA;
-  - that `?sslmode=` in `DATABASE_URL` breaks the connection.
-- AC4: Given this item ships, when its implementing PR merges, then no GitHub issue is closed by
-  it. None is filed yet; `/product-harden` either files one and lists it here with `Closes #N`, or
-  confirms none is needed.
+FP = `0C:2F:66:73:68:A8:03:14:E2:45:5E:1D:FF:FE:89:64:85:4D:9D:11:2F:C6:F5:A3:68:CF:D2:AE:93:6A:74:27`
+
+- AC1: Given the repo root, when `certs/hetzner-sqlca.crt` is read, then it contains exactly one
+  `-----BEGIN CERTIFICATE-----` block, and `ssl.create_default_context(cafile=<that path>)` loads it
+  without raising.
+- AC2: Given the same file, when the SHA-256 digest of its DER encoding is computed and formatted as
+  colon-separated upper-case hex, then it equals FP.
+- AC3: Given the same file, when its text is searched, then it contains no `PRIVATE KEY` substring.
+- AC4: Given `DATABASE_URL` is set and no other DB setting changes, when `publisher_v2.db.init_db`
+  creates the engine, then `connect_args` has no `ssl` key. If code ever passes `ssl`, asyncpg ignores
+  `PGSSLMODE`/`PGSSLROOTCERT` and verification is silently lost; this guards against that.
+  This is a characterization test: it passes on day one, because the existing assertion in
+  `test_db_connect_args.py` already pins `connect_args`. It locks the behaviour in under its own
+  name.
+- AC5: Given this item ships, when `docs_v2/05_Configuration/CONFIGURATION.md` is read, then it
+  contains each of these literal strings: `PGSSLMODE=verify-full`,
+  `PGSSLROOTCERT=/app/certs/hetzner-sqlca.crt`, `sslmode=`, `ssl=` and `fetlife-staging-org`. The
+  test asserts only the literals. The reviewer checks that the surrounding text says:
+  - the variables are per app, and go only on apps whose `DATABASE_URL` points at Hetzner. They go
+    on `fetlife-production-org` after cutover, not on `fetlife-staging-org` while it uses Heroku
+    Postgres. On a Heroku-Postgres app they break the connection;
+  - they are set in the same release as the Hetzner `DATABASE_URL`;
+  - neither `sslmode=` nor `ssl=` may appear in `DATABASE_URL`. `sslmode=` raises a `TypeError`, and
+    `ssl=` becomes an explicit `ssl` argument that overrides `PGSSLMODE`.
+- AC6: Given this item ships, when its implementing PR merges, then no GitHub issue is closed. None
+  exists, and none is needed: the item is tracked here and in the paired orchestrator `SEC_08`.
 
 ## Implementation Notes
 
-- AC1 can compute the fingerprint from the DER bytes: `ssl.PEM_cert_to_DER_cert` plus `hashlib`.
-  It needs no new dependency.
-- Copy the file from the operator's Hetzner download, not from this spec. The fingerprint in AC1
+- AC2 computes the fingerprint with `ssl.PEM_cert_to_DER_cert` plus `hashlib.sha256`; no new
+  dependency.
+- **Preview mode:** not affected. No runtime code changes, and preview never opens the DB pool.
+- **Do not add `os.environ` reads for `PGSSLMODE` or `PGSSLROOTCERT`** in publisher code. asyncpg
+  reads them itself, and `publisher_v2/tests/test_env_centralization.py` pins every variable the code reads.
+- `publisher_v2/alembic/env.py` builds its engine from the ini section with no `connect_args`, so it
+  already leaves `ssl` unset. No test is needed there, but do not add `connect_args` to it.
+- Copy the file from the operator's Hetzner download, not from this spec. The fingerprint in AC2
   is the integrity check.
 - `detect-private-key` and gitleaks do not flag public certificates. If a hook does, stop and
   report it; do not baseline it silently.
+- In the AC3 test, search for the bare substring `"PRIVATE KEY"`. Never write a literal
+  `BEGIN … PRIVATE KEY` header line into the test file: `detect-private-key` would flag the test
+  itself.
 
 ## Risks
 
 - **Setting `PGSSLMODE=verify-full` before cutover breaks the publisher**, because Heroku Postgres
-  presents a different certificate. Mitigation: AC3 says so, and the cutover runbook sets both
+  presents a different certificate. Mitigation: AC5 says so, and the cutover runbook sets both
   variables together with `DATABASE_URL`.
-- **Removing either variable silently drops back to unverified TLS.** Mitigation: the post-cutover
-  check below.
+- **Removing `PGSSLMODE` silently drops back to unverified TLS** (asyncpg's default `prefer`).
+  Removing only `PGSSLROOTCERT`, or pointing it at a missing file, fails hard instead: asyncpg falls
+  back to `~/.postgresql/root.crt`, which does not exist on a dyno, and raises
+  `ClientConfigurationError` or `FileNotFoundError`. Mitigation: the post-cutover check below.
 - **Hetzner rotates the CA** (the current one expires 2032-06-04). Mitigation: replace the file;
-  AC1's fingerprint test fails loudly and forces a deliberate update.
+  AC2's fingerprint test fails loudly and forces a deliberate update.
 
 ## Success Metrics
 
-- After cutover, a one-off dyno run with a deliberately wrong `PGSSLROOTCERT` fails with
-  `CERTIFICATE_VERIFY_FAILED`, and the normal web process connects.
+- After cutover, a one-off dyno run with `PGSSLROOTCERT` pointed at a different valid CA bundle
+  (`/etc/ssl/certs/ca-certificates.crt`) fails with `CERTIFICATE_VERIFY_FAILED`, and the normal web
+  process connects. A nonexistent path is not a valid test, because it fails with
+  `FileNotFoundError` before any handshake.
 
 ## Related
 
@@ -116,3 +141,7 @@ release-phase migrations; Heroku config vars apply to both. No Python changes.
   `dhirmadi/platform-orchestrator`): the same change for `org-prod` on `n0ot.your-database.de`.
 - PUB-047 (#186): asyncpg `timeout` / `command_timeout` connect args. They are unaffected because
   `ssl` stays unset, which is what lets asyncpg read the environment.
+
+## Change Log
+
+- 2026-11-28 — Spec hardened for Claude Code handoff. ACs split so each tests one behaviour, the `ssl`-kwarg regression guard (AC4) was added, the docs AC was made literal, and no GitHub issue is needed. Independent review applied: corrected AC cross-references and the `PGSSLROOTCERT` failure mode, added the staging and `ssl=` URL warnings, marked AC4 as a characterization test, and required a PEM-only file.
